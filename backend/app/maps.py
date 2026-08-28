@@ -100,12 +100,14 @@ def build_static_map_url(
         raise ValueError("no places")
     markers = "|".join(f"{lat:.6f},{lng:.6f}" for _, lat, lng in places)
     if polyline:
-        path = f"color:{path_color}|weight:4|enc:{polyline}"
+        enc = f"enc:{polyline}"
     else:
         pts = [f"{lat:.6f},{lng:.6f}" for _, lat, lng in places]
         if loop:
             pts.append(pts[0])
-        path = f"color:{path_color}|weight:4|" + "|".join(pts)
+        enc = "|".join(pts)
+    # white casing + theme-colored line = readable route on any basemap
+    path = f"color:0xFFFFFF|weight:7|{enc}|color:{path_color}|weight:4|{enc}"
     q = [
         "size=" + size,
         "scale=" + str(scale),

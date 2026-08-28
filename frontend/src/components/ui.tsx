@@ -87,10 +87,14 @@ export const STATUS_LABELS: Record<BlockStatus, string> = {
   done: "Done",
 };
 
-export function StageBadge({ stage }: { stage: Stage }) {
+export function StageBadge({ stage, className = "" }: { stage: Stage; className?: string }) {
   const variant =
     stage === "booked" ? "accent" : stage === "live" ? "default" : ("outline" as const);
-  return <Badge variant={variant}>{STAGE_LABELS[stage]}</Badge>;
+  return (
+    <Badge variant={variant} className={className}>
+      {STAGE_LABELS[stage]}
+    </Badge>
+  );
 }
 
 export function StatusChip({ status }: { status?: BlockStatus }) {

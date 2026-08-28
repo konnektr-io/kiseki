@@ -24,9 +24,9 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
   useEffect(() => {
     let cancelled = false;
     let map: any = null;
-    let renderer: any = null;
     let traffic: any = null;
     const markers: any[] = [];
+    const renderers: any[] = [];
 
     const located = places
       .map((p) => findLocation(trip, p))
@@ -71,37 +71,53 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         traffic = new maps.TrafficLayer();
         traffic.setMap(map);
 
-        // real driving route + live drive time via DirectionsService
+        // real driving route + live drive time via DirectionsService.
+        // NOTE: the JS API rejects origin == destination (ZERO_RESULTS), so a
+        // closed loop is drawn as two requests: 1→last via waypoints, then last→1.
         const dirService = new maps.DirectionsService();
-        const origin = coords[0];
-        const destination = loop ? coords[0] : coords[coords.length - 1];
-        const waypoints = (loop ? coords.slice(1) : coords.slice(1, -1)).map((c) => ({ location: c }));
-        dirService.route(
-          {
+        const renderRoute = (origin: any, destination: any, waypoints: any[], legOnly = false) => {
+          dirService.route(
+            {
+              origin,
+              destination,
+              waypoints,
+              travelMode: "DRIVING",
+              drivingOptions: { departureTime: new Date(), trafficModel: "best_guess" },
+            },
+            (result: any, status: string) => {
+              if (cancelled || status !== "OK" || !result?.routes?.length) return;
+              const renderer = new maps.DirectionsRenderer({
+                map,
+                suppressMarkers: true,
+                polylineOptions: { strokeColor: "#1e3a8a", strokeWeight: 5, strokeOpacity: 0.95 },
+              });
+              renderer.setDirections(result);
+              renderers.push(renderer);
+              if (legOnly && showLiveTime) {
+                const leg = result.routes[0].legs[0];
+                const dur = leg?.duration_in_traffic?.text ?? leg?.duration?.text;
+                if (dur) setLiveTime(dur);
+              }
+            },
+          );
+        };
+        if (loop && coords.length >= 3) {
+          renderRoute(
+            coords[0],
+            coords[coords.length - 1],
+            coords.slice(1, -1).map((c) => ({ location: c })),
+          );
+          renderRoute(coords[coords.length - 1], coords[0], []);
+        } else {
+          const origin = coords[0];
+          const destination = coords[coords.length - 1];
+          renderRoute(
             origin,
             destination,
-            waypoints,
-            travelMode: "DRIVING",
-            drivingOptions: { departureTime: new Date(), trafficModel: "best_guess" },
-          },
-          (result: any, status: string) => {
-            if (cancelled || status !== "OK" || !result?.routes?.length) return;
-            renderer = new maps.DirectionsRenderer({
-              map,
-              suppressMarkers: true,
-              polylineOptions: { strokeColor: "#0f766e", strokeWeight: 5, strokeOpacity: 0.95 },
-            });
-            renderer.setDirections(result);
-            const leg = result.routes[0].legs[0];
-            if (leg && showLiveTime) {
-              const dur = leg.duration_in_traffic?.text ?? leg.duration?.text;
-              if (dur) setLiveTime(dur);
-            }
-            const bounds = new maps.LatLngBounds();
-            coords.forEach((c) => bounds.extend(c));
-            map.fitBounds(bounds);
-          },
-        );
+            coords.slice(1, -1).map((c) => ({ location: c })),
+            true,
+          );
+        }
 
         const bounds = new maps.LatLngBounds();
         coords.forEach((c) => bounds.extend(c));
@@ -114,7 +130,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
     return () => {
       cancelled = true;
       markers.forEach((m) => m.setMap(null));
-      renderer?.setMap(null);
+      renderers.forEach((r) => r.setMap(null));
       traffic?.setMap(null);
       map?.unbindAll();
     };

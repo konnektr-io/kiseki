@@ -1,43 +1,228 @@
 {
   "slug": "japan-campervan-2028",
-  "title": "Japan Campervan Snowboard Trip",
-  "subtitle": "Hokkaido powder belt · Niseko → Yotei → Furano → Asahidake · January 2028",
+  "title": "Japan Campervan — Honshu & Hokkaido",
+  "subtitle": "雪・車・山 — snow, van, mountains · two legs, six resorts, one van",
   "stage": "idea",
   "startDate": "2028-01-15",
-  "endDate": "2028-01-26",
+  "endDate": "2028-01-24",
   "token": "5aa2f9df686d66f1357287f88e5ffb58",
-  "cover": "/media/canada-2027/sun-06.jpg",
-  "coverCredit": "placeholder — swap for Hokkaido powder shot",
-  "summary": "**Concept**: fly to Sapporo, pick up a winter campervan, chase snow. No fixed bookings except the van — the weather decides where we ride. Hokkaido's powder belt stretches from the Niseko volcano cluster in the southwest up the central spine to the Daisetsuzan range in the northeast — one logical road trip.\n\n**Crew**: Niko (board), **Jozz (Pieter Willems)** confirmed, **Steven Willems** hopeful — group up to 3–4 fits the 4-pax campervans. **Target: 2nd half of January 2028** (moved from 2027 — Canada took the 2027 slot).\n\n**The draw**: deepest snow in the world (Kiroro ~21 m/season), onsen culture, camper-as-strategy — free overnight spots at resorts and michi-no-eki, splitboard ascent of **Mount Yotei** (1,898 m, \"Hokkaido Fuji\"), and the **Asahidake** ropeway into Japan's highest snowfields.\n\n**Stage: idea** — route skeleton exists, dates indicative, nothing booked. Hoshino Resorts sells a proven \"Hokkaido Powder Belt Campervan Plan\" (van + 5-day lift pass Tomamu/Furano/Kamui + breakfast/sauna at Tomamu & OMO7 Asahikawa, from ~¥215,300/van for 4n/5d) that validates the whole weather-chasing approach.",
+  "cover": "/media/japan-campervan-2028/yotei-snow.jpg",
+  "coverCredit": "Mt Yotei from the Niseko slopes",
+  "summary": "The deepest, driest powder on Earth, chased in a campervan — no fixed plan, no lift queues, just a van and the snow forecast. Two legs: a **Honshu warm-up** (Hakuba → Nozawa Onsen → Yuzawa) in the van, then a quick flight to **Hokkaido** for the big one (Niseko/Rusutsu/Kiroro → Furano → Asahidake). The spine is fixed; the daily stops are decided by the storm. Two missions make the trip: **climbing Mt Yotei** and the **Asahidake volcanic bowls**.",
   "theme": {
-    "primary": "#4338ca",
-    "accent": "#be123c"
+    "primary": "#334155",
+    "accent": "#b45309"
   },
+  "coverStats": [
+    "10 days · Jan 2028",
+    "NIKO · JOZZ · (STEVEN TBC)",
+    "2 LEGS · HONSHU + HOKKAIDO",
+    "6 RESORTS · 1 VAN"
+  ],
+  "locations": [
+    { "name": "Tokyo", "lat": 35.6762, "lng": 139.6503 },
+    { "name": "Hakuba", "lat": 36.6977, "lng": 137.8608, "alias": ["Happo One", "Hakuba Valley"] },
+    { "name": "Nozawa Onsen", "lat": 36.9233, "lng": 138.4400 },
+    { "name": "Yuzawa", "lat": 36.9343, "lng": 138.8161, "alias": ["Naeba", "Kagura", "GALA"] },
+    { "name": "New Chitose", "lat": 42.7752, "lng": 141.6923, "alias": ["CTS", "Sapporo"] },
+    { "name": "Niseko", "lat": 42.8024, "lng": 140.6882, "alias": ["Grand Hirafu", "Annupuri", "Kutchan"] },
+    { "name": "Rusutsu", "lat": 42.7426, "lng": 140.8901 },
+    { "name": "Kiroro", "lat": 43.0687, "lng": 140.9873 },
+    { "name": "Furano", "lat": 43.3485, "lng": 142.3825, "alias": ["Mt Racey"] },
+    { "name": "Asahidake", "lat": 43.6514, "lng": 142.7867, "alias": ["Daisetsuzan"] }
+  ],
+  "stats": [
+    { "label": "Days", "value": "10" },
+    { "label": "Riders", "value": "2–3" },
+    { "label": "Resorts", "value": "6+" },
+    { "label": "Snow", "value": "~15 m" },
+    { "label": "Mt Yotei", "value": "1,898 m" },
+    { "label": "Driving", "value": "~600 km" }
+  ],
+  "features": [
+    {
+      "kicker": "Why",
+      "title": "The best snow on Earth, minus the crowds",
+      "description": "Hokkaido's annual snowfall is measured in **metres, not centimetres** — Niseko averages 15 m, Kiroro is Japan's snowiest resort at 21 m. And January is the heart of it. The van is the move: you sleep at the resort car park and wake up first in line, chase the storm from one valley to the next, and never pay hotel prices. The honest bit: van nights are cold (we'll have a proper heater), there's no toilet on board (Japan's onsens and service stations are legendary), and we sleep at ski-resort car parks and onsen towns — exactly how the locals do it.",
+      "images": ["/media/japan-campervan-2028/campervan.jpg", "/media/japan-campervan-2028/yotei-annupuri.jpg"],
+      "chips": ["15 m avg snowfall", "21 m at Kiroro", "Powder for days", "Onsen every night"]
+    },
+    {
+      "kicker": "The plan",
+      "title": "One spine, two missions, ten wildcards",
+      "map": true,
+      "description": "Roughly **600 km** over 10–12 days. The spine is fixed; the daily stops are decided by the **snow forecast** — that's the whole point of the van. Honshu first (Hakuba → Nozawa Onsen → Yuzawa: three of the best resorts on the main island), then fly to Hokkaido for the deep stuff. Everything else is a wildcard to decide on the road.",
+      "chips": ["~600 km in 10 days", "2 missions", "10 wildcards", "0 fixed plans"],
+      "cards": [
+        { "title": "Tokyo", "description": "Fly in, first ramen, shinkansen or van pickup" },
+        { "title": "Hakuba", "description": "Honshu leg 1 — Happo One, big alpine terrain" },
+        { "title": "Nozawa Onsen", "description": "Honshu leg 2 — legendary village + public baths" },
+        { "title": "Yuzawa", "description": "Honshu leg 3 — Kagura & Naeba, snowiest side of the island" },
+        { "title": "New Chitose", "description": "Fly to Hokkaido, pick up van #2" },
+        { "title": "Niseko", "description": "Hokkaido base — Grand Hirafu, Rusutsu, Kiroro" },
+        { "title": "Furano", "description": "Inland powder, far fewer people" },
+        { "title": "Asahidake", "description": "Ropeway to 1,600 m — volcanic bowls" }
+      ],
+      "links": [
+        { "label": "Snow forecast", "url": "https://www.snow-forecast.com/resorts/Niseko" },
+        { "label": "Japan Camper rental", "url": "https://www.japan-camper.com/" }
+      ]
+    },
+    {
+      "kicker": "The missions",
+      "title": "Yotei & Asahidake — the reason we go",
+      "description": "Two full alpine days that no lift ticket can buy.\n\n**Mt Yotei** — \"Hokkaido's Fuji\", 1,898 m, a perfect stratovolcano. We climb it on our own skin track from the Annupuri side: a full day, wind-loaded faces, and a summit view over the whole volcano. Check conditions, pick the weather window.\n\n**Asahidake** — ropeway to 1,600 m on Hokkaido's highest peak, in the Daisetsuzan range. Volcanic bowls and steaming vents, terrain you can't get anywhere else. Both need a splitboard/skins and avalanche gear.",
+      "images": ["/media/japan-campervan-2028/asahidake.jpg", "/media/japan-campervan-2028/yotei-snow.jpg"],
+      "chips": ["Mt Yotei 1,898 m", "Skin track climb", "Asahidake bowls", "Avalanche gear needed"],
+      "links": [
+        { "label": "Asahidake ropeway", "url": "https://asahidake.hokkaido.jp/" },
+        { "label": "Yotei conditions", "url": "https://www.snow-forecast.com/resorts/Mount-Yotei" }
+      ]
+    }
+  ],
+  "sections": [
+    { "title": "Days 1–3 — Honshu leg: Hakuba → Nozawa → Yuzawa", "days": [0, 2] },
+    { "title": "Days 4–5 — open days: chase the storm", "days": [3, 4] },
+    { "title": "Days 6–7 — fly to Hokkaido · Niseko base", "days": [5, 6] },
+    { "title": "Days 8–9 — Yotei · Furano · Asahidake", "days": [7, 8] },
+    { "title": "Day 10 — flex & fly home", "days": [9, 9] }
+  ],
   "crew": [
-    { "name": "Niko Raes", "role": "owner", "note": "Snowboard + splitboard. Would buy a Jones Stratos Split + Burton Step On + Spark R&D pucks." },
-    { "name": "Pieter Willems (Jozz)", "role": "viewer", "note": "Confirmed for 2028." },
-    { "name": "Steven Willems", "role": "viewer", "note": "Hopeful — asked." }
+    { "name": "Niko Raes", "role": "owner", "note": "boarder — only rider this time" },
+    { "name": "Pieter Willems", "role": "editor", "note": "Jozz — confirmed, bring the splitboard" },
+    { "name": "Steven Willems", "role": "viewer", "note": "TBC" }
   ],
   "practical": {
     "todos": [
-      { "label": "Route + dates confirmed (Hokkaido only, mid-Jan 2028)", "done": true },
-      { "label": "Confirm group size (3 or 4)", "done": false },
-      { "label": "Splitboard purchase (Stratos Split + Step On + pucks)", "done": false },
-      { "label": "Avalanche safety: transceiver + probe + shovel, one set per person (MUST)", "done": false },
-      { "label": "Book flights BRU → CTS", "done": false },
-      { "label": "Book campervan (Campervan Inc. / Moving Inn, 3–4 months out)", "done": false },
-      { "label": "Belgian licence + official Japanese translation (JAF, ~¥4,000) — no IDP needed for BE", "done": false },
-      { "label": "Studless tyres + 4WD confirmation at booking", "done": false }
+      { "label": "Lock dates mid-Jan 2028 with Jozz (+ Steven?)", "done": false, "when": "soon" },
+      { "label": "Flights BRU → Tokyo (in) / Sapporo (out) — ~€1,000–1,200", "done": false, "when": "~6 months out" },
+      { "label": "Campervan #1: Honshu 4–5 days (Japan Camper / Samurai — 4WD + heater)", "done": false, "when": "Jan 15–19" },
+      { "label": "Campervan #2: Hokkaido 5 days (Powder Belt plan)", "done": false, "when": "Jan 20–24" },
+      { "label": "Hokkaido flight: Tokyo → New Chitose", "done": false, "when": "Jan 19/20" },
+      { "label": "Decide: splitboards or resort boards? (missions need split)", "done": false, "when": "decide" },
+      { "label": "Avalanche gear: transceiver + probe + shovel + training", "done": false, "when": "before" },
+      { "label": "Pass check: Niseko United on Ikon? day tickets vs pass", "done": false, "when": "decide" },
+      { "label": "Travel insurance (normal cover — no Kamchatka-style issues)", "done": false, "when": "before" },
+      { "label": "Onsen etiquette crash course", "done": false, "when": "before" }
     ],
     "links": [
-      { "label": "Campervan Inc. / Japan C.R.C. (Hoshino partner)", "url": "https://japan-crc.com/" },
-      { "label": "Moving Inn (Hiace campers)", "url": "https://moving-inn.com/" },
-      { "label": "Hoshino Powder Belt plan", "url": "https://hoshinoresorts.com/" },
-      { "label": "Segment 2 route map (Sapporo → Asahidake)", "url": "https://www.google.com/maps/dir/?api=1&origin=Sapporo,Japan&destination=Asahidake,Hokkaido&waypoints=Niseko,Japan%7CRusutsu,Japan%7CKiroro,Japan%7CFurano+Hokkaido,Japan&travelmode=driving" },
-      { "label": "Mount Yotei trailhead from Niseko", "url": "https://www.google.com/maps/dir/?api=1&origin=Niseko,Japan&destination=Mount+Yotei,Hokkaido,Japan&travelmode=driving" }
+      { "label": "Niseko United", "url": "https://www.niseko-united.jp/" },
+      { "label": "Rusutsu Resort", "url": "https://www.rusutsu.co.jp/en/" },
+      { "label": "Kiroro Resort", "url": "https://www.kiroro.co.jp/en/" },
+      { "label": "Furano ski area", "url": "https://www.princehotels.com/en/ski/furano/" },
+      { "label": "Asahidake ropeway", "url": "https://asahidake.hokkaido.jp/" },
+      { "label": "Japan Camper rental", "url": "https://www.japan-camper.com/" },
+      { "label": "Hakuba Valley", "url": "https://www.hakubavalley.com/" },
+      { "label": "Nozawa Onsen", "url": "https://www.nozawaholidays.com/" },
+      { "label": "Snow forecast — Niseko", "url": "https://www.snow-forecast.com/resorts/Niseko" }
     ],
-    "notes": "**Route skeleton (Southwest → Northeast, drive-by-weather)**: Niseko region (incl. Rusutsu, Kiroro, Kokusai) → **Mount Yotei splitboard climb** → Furano (far fewer crowds) → Kamui Ski Links (Asahikawa, \"Hokkaido's best-kept secret\", part of the Hoshino Powder Belt pass) → Mount Racey (Yubari, breaks up the drive) → **Asahidake** ropeway + backcountry bowls. Small hills on the way: Teine, Bankei, Sapporo Kokusai (night sessions).\n\n**Camper notes**: winter-ready vans have FF diesel heaters + studless tyres (4WD varies — confirm). Free overnight parking at ski-resort lots / michi-no-eki / onsen towns; paid RV parks (~¥2,000–5,500) for power hookup. Jan is Hokkaido's busiest foreign-visitor month — book 3–4 months out. **Belgian licence + JAF translation suffices** (no international driving permit)."
+    "notes": "**Driving**: left-hand traffic, winter tyres mandatory, 4WD + heater essential in the van. **Onsen etiquette**: wash before you soak, no swimwear, tattoos may need covering (ask for private baths). **Food**: konbini breakfasts, ramen lunches, hotpot dinners — budget ~¥3,000–5,000/day pp. **Weather windows**: January storms come in pulses — some days we ride lifts, some we earn turns, some we eat ramen and wait for the next one. That's the adventure.",
+    "contacts": [
+      { "label": "Japan Camper rental", "value": "japan-camper.com — pickup New Chitose & Tokyo" },
+      { "label": "Niseko United info", "value": "niseko-united.jp — lift + pass info" },
+      { "label": "Asahidake ropeway", "value": "asahidake.hokkaido.jp — ropeway + conditions" }
+    ]
   },
-  "days": [],
-  "updated": "2026-08-28"
+  "days": [
+    {
+      "date": "2028-01-15",
+      "title": "Fly to Tokyo → pick up the van",
+      "notes": "Day 1 of 10. Land NRT/HND, first bowl of ramen, pick up the campervan (4WD, winter tyres, heater). Drive towards the mountains.",
+      "meta": [{ "label": "Stay", "value": "Van — Hakuba car park" }],
+      "blocks": [
+        { "kind": "transport", "title": "BRU → Tokyo", "description": "Direct or one stop — land afternoon. Roughly €1,000–1,200 return via Sapporo.", "status": "planned", "links": [{ "label": "Flight search", "url": "https://www.google.com/travel/flights" }] },
+        { "kind": "booking", "title": "Campervan #1 pickup", "description": "Honshu van, 4–5 days. Japan Camper or Samurai — make sure it has a heater and 4WD.", "status": "planned", "links": [{ "label": "Japan Camper", "url": "https://www.japan-camper.com/" }] },
+        { "kind": "meal", "title": "First ramen", "description": "Tokyo ritual before the mountains. Ippudo or a hole-in-the-wall in Shinjuku." }
+      ]
+    },
+    {
+      "date": "2028-01-16",
+      "title": "Hakuba — Happo One",
+      "notes": "First turns on Honshu. Happo One is the classic — big alpine terrain, and the 1998 Olympic venue. Legs will be fresh.",
+      "meta": [{ "label": "Stay", "value": "Van — Happo car park" }, { "label": "Lift", "value": "Day ticket / decide pass" }],
+      "blocks": [
+        { "kind": "activity", "title": "Happo One full day", "description": "Alpine bowls off the gondola; if the weather window is open, the traverse to Hakuba Goryu or Tsugaike is on.", "links": [{ "label": "Hakuba Valley", "url": "https://www.hakubavalley.com/" }] },
+        { "kind": "note", "title": "Decide", "description": "Hakuba for 2 days or push on? Happo One → Nozawa is ~2h drive." }
+      ]
+    },
+    {
+      "date": "2028-01-17",
+      "title": "Nozawa Onsen",
+      "notes": "One of Japan's last true ski villages: narrow streets, 13 public baths, and a proper mountain above it. Powder stashes under the Yamabiko chair.",
+      "meta": [{ "label": "Stay", "value": "Van — Nozawa onsen town" }, { "label": "Soak", "value": "O-yu public bath" }],
+      "blocks": [
+        { "kind": "activity", "title": "Nozawa Onsen full day", "description": "Yamabiko, Karasawa, and the legendary tree runs. Village onsen after — the whole point of staying here.", "links": [{ "label": "Nozawa Holidays", "url": "https://www.nozawaholidays.com/" }] },
+        { "kind": "activity", "title": "Onsen crawl", "description": "13 public baths, 3 of them free. Wash before you soak — and no swimwear." }
+      ]
+    },
+    {
+      "date": "2028-01-18",
+      "title": "Yuzawa — Kagura & Naeba",
+      "notes": "Yuzawa is the snowiest side of the main island — Kagura and Naeba catch the Japan Sea storms. Open day: if the forecast is pumping, stay another day.",
+      "meta": [{ "label": "Stay", "value": "Van — Yuzawa" }, { "label": "Lift", "value": "Kagura / Naeba tickets" }],
+      "blocks": [
+        { "kind": "activity", "title": "Kagura or Naeba", "description": "Kagura: higher, steeper, less crowded. Naeba: the classic. Both under the same ticket.", "links": [{ "label": "Yuzawa Now", "url": "https://yuzawanow.com/" }] },
+        { "kind": "todo", "title": "Open decision", "items": [{ "label": "Chase Honshu storm vs fly to Hokkaido a day early", "done": false }] }
+      ]
+    },
+    {
+      "date": "2028-01-19",
+      "title": "Open day — storm chase or fly early",
+      "notes": "Wildcard day. Options: (a) one more Honshu powder day if the storm is here, (b) drive back, drop the van, fly Tokyo → New Chitose this evening and gain a full Hokkaido day. Decide by breakfast.",
+      "meta": [{ "label": "Stay", "value": "Van or Sapporo" }],
+      "blocks": [
+        { "kind": "note", "title": "Things to decide", "description": "Hokkaido van pickup at New Chitose, first onsen night, and where the first storm day goes: Niseko or Kiroro." },
+        { "kind": "transport", "title": "Tokyo → New Chitose", "description": "~1h40 flight. Book flexible; the Hokkaido van pickup is at the airport." }
+      ]
+    },
+    {
+      "date": "2028-01-20",
+      "title": "Hokkaido — Niseko base",
+      "notes": "This is why we came. Grand Hirafu first — the classic. If the storm is dumping on Kiroro instead, chase it. The van means we can.",
+      "meta": [{ "label": "Stay", "value": "Van — Hirafu car park" }, { "label": "Lift", "value": "Niseko United ticket" }],
+      "blocks": [
+        { "kind": "activity", "title": "Grand Hirafu", "description": "The most famous powder resort on Earth for a reason. Sidecountry gates off the top, Hanazono trees if it's deep.", "links": [{ "label": "Niseko United", "url": "https://www.niseko-united.jp/" }] },
+        { "kind": "activity", "title": "First Hokkaido onsen + kaisen-don", "description": "Kutchan or Hirafu — seafood bowl and a soak after day one." }
+      ]
+    },
+    {
+      "date": "2028-01-21",
+      "title": "Rusutsu & Kiroro — wherever the storm hits",
+      "notes": "Open day. Rusutsu: empty glades and a resort that feels like a theme park. Kiroro: Japan's snowiest resort, 21 m a year. Both ~1h from Hirafu. Storm map decides.",
+      "meta": [{ "label": "Stay", "value": "Van" }, { "label": "Wildcard", "value": "Rusutsu vs Kiroro" }],
+      "blocks": [
+        { "kind": "activity", "title": "Rusutsu", "description": "Isola and East mountains, glades for days, almost no queues.", "links": [{ "label": "Rusutsu Resort", "url": "https://www.rusutsu.co.jp/en/" }] },
+        { "kind": "activity", "title": "Kiroro", "description": "21 m of annual snowfall — the deepest resort in Japan. Peak-side trees when it's nuking.", "links": [{ "label": "Kiroro Resort", "url": "https://www.kiroro.co.jp/en/" }] }
+      ]
+    },
+    {
+      "date": "2028-01-22",
+      "title": "Mt Yotei mission",
+      "notes": "The reason we came. Skin up Hokkaido's Fuji (1,898 m) from the Annupuri side — full alpine day, our own track, summit view over the whole volcano. Pick the weather window: needs a clear day. Splitboard + avalanche gear.",
+      "meta": [{ "label": "Mission", "value": "Mt Yotei 1,898 m" }, { "label": "Gear", "value": "Splitboard + skins + beacon" }],
+      "blocks": [
+        { "kind": "activity", "title": "Yotei skin track", "description": "Start at Annupuri base early. 6–8h round trip, wind-loaded faces on the way down. Check the forecast — this is a weather-window day.", "links": [{ "label": "Yotei conditions", "url": "https://www.snow-forecast.com/resorts/Mount-Yotei" }] }
+      ]
+    },
+    {
+      "date": "2028-01-23",
+      "title": "Furano → Asahidake",
+      "notes": "Inland to drier, colder powder. Furano: wide-open runs and far fewer people (Mt Racey on the way for extra dumps). Then Asahidake — ropeway to 1,600 m on Hokkaido's highest peak, volcanic bowls and steaming vents.",
+      "meta": [{ "label": "Stay", "value": "Van — Asahikawa area" }],
+      "blocks": [
+        { "kind": "activity", "title": "Furano", "description": "Central belt: drier snow, best when Niseko is tracked out.", "links": [{ "label": "Furano ski area", "url": "https://www.princehotels.com/en/ski/furano/" }] },
+        { "kind": "activity", "title": "Asahidake bowls", "description": "Ropeway to 1,600 m, then it's all you. Volcanic vents steam through the snow. Backcountry — beacon, probe, shovel.", "links": [{ "label": "Asahidake ropeway", "url": "https://asahidake.hokkaido.jp/" }] }
+      ]
+    },
+    {
+      "date": "2028-01-24",
+      "title": "Flex morning → fly home",
+      "notes": "Wildcard morning: one last run at whichever resort has the most snow, return the van at New Chitose, fly home. Ten days, two missions, ten wildcards — see you at the next one.",
+      "meta": [{ "label": "Flight", "value": "CTS → BRU (Jan 24/25)" }, { "label": "Return van", "value": "New Chitose" }],
+      "blocks": [
+        { "kind": "note", "title": "Wrap up", "description": "Return van clean-ish, dump gear, grab last onigiri at the konbini. Debrief on the plane: which storm day wins?" },
+        { "kind": "transport", "title": "New Chitose → Brussels", "description": "Return flight via Tokyo or direct seasonal. ~€1,000–1,200 total." }
+      ]
+    }
+  ]
 }

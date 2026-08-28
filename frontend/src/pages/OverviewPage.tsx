@@ -150,7 +150,7 @@ export function OverviewPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/20" />
         <div className="relative flex min-h-[280px] flex-col justify-end p-5 md:min-h-[360px] md:p-8">
           <div className="flex flex-wrap items-center gap-2">
-            <StageBadge stage={trip.stage} />
+            <StageBadge stage={trip.stage} className="bg-background/85 text-foreground backdrop-blur" />
             <span className="inline-flex items-center gap-1 text-xs font-medium text-white/80">
               <CalendarDays className="h-3.5 w-3.5" />
               {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}

@@ -89,7 +89,9 @@ def maps_static(
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
     polyline = directions_polyline(resolved, MAPS_KEY, loop=bool(loop))
-    url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop))
+    # route color = trip theme (theme.primary is a hex like #1e3a8a → 0x1e3a8a)
+    path_color = "0x" + (trip.theme.primary or "1e3a8a").lstrip("#")
+    url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop), path_color=path_color)
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = resp.read()
