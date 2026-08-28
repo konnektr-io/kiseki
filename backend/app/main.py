@@ -36,11 +36,11 @@ def health() -> dict:
 
 
 @app.get("/api/trips/{token}")
-def get_trip(token: str) -> Trip:
+def get_trip(token: str) -> dict:
     trip = get_trip_by_token(token)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return trip
+    return trip.model_dump(by_alias=True)
 
 
 @app.get("/api/trips/{token}/booklet.pdf")

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 BlockKind = Literal[
     "activity", "transport", "lodging", "meal",
@@ -36,6 +36,8 @@ class MetaItem(BaseModel):
 
 
 class Block(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     kind: BlockKind
     title: Optional[str] = None
     time: Optional[str] = None
@@ -54,8 +56,8 @@ class Block(BaseModel):
     duration: Optional[str] = None     # e.g. "1 h 35"
     route: Optional[str] = None        # e.g. "Hwy 1 West, via Canmore"
     via: Optional[str] = None          # e.g. "Rogers Pass (Glacier NP)"
-    from_: Optional[str] = None        # directions origin, e.g. "YYC"
-    to: Optional[str] = None           # directions destination, e.g. "Banff"
+    from_: Optional[str] = Field(default=None, alias="from")   # directions origin
+    to: Optional[str] = Field(default=None, alias="to")        # directions destination
 
 
 class Day(BaseModel):
