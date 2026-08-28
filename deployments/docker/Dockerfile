@@ -33,7 +33,7 @@ RUN pip install --no-cache-dir . \
 COPY --from=frontend /build/dist /app/app/static
 
 # Non-root user — numeric UID must match the k8s securityContext (runAsUser: 1001)
-RUN adduser --disabled-password --uid 1001 --gecos "" appuser \
+RUN mkdir -p /data && adduser --disabled-password --uid 1001 --gecos "" appuser \
     && chown -R appuser /app /data
 USER appuser
 
