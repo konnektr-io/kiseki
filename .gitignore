@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Build artifacts
+backend/app/static/
+
+# Env / secrets
+.env
+*.env
+!*.example.env
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Playwright
+ms-playwright/
+test-results/
+playwright-report/

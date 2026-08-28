@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+/* Design tokens — per-trip theming injects --trip-* variables at runtime.
+   Colors must always be referenced through these tokens, never hardcoded. */
+@theme inline {
+  --color-background: var(--trip-bg, #fafaf9);
+  --color-foreground: var(--trip-fg, #1c1917);
+  --color-primary: var(--trip-primary, #9f1239);
+  --color-primary-foreground: var(--trip-primary-fg, #fff7ed);
+  --color-accent: var(--trip-accent, #0f766e);
+  --color-accent-foreground: var(--trip-accent-fg, #f0fdfa);
+  --color-muted: var(--trip-muted, #f5f5f4);
+  --color-muted-foreground: var(--trip-muted-fg, #78716c);
+  --color-border: var(--trip-border, #e7e5e4);
+  --color-card: var(--trip-card, #ffffff);
+  --font-sans: var(--trip-font, ui-sans-serif, system-ui, -apple-system, sans-serif);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-background text-foreground font-sans antialiased;
+}
+
+/* Markdown content */
+.md :is(h1, h2, h3, h4) {
+  @apply mt-4 mb-2 font-semibold;
+}
+.md h1 {
+  @apply text-xl;
+}
+.md h2 {
+  @apply text-lg;
+}
+.md h3 {
+  @apply text-base;
+}
+.md p {
+  @apply my-2 leading-relaxed;
+}
+.md ul {
+  @apply my-2 list-disc space-y-1 pl-5;
+}
+.md ol {
+  @apply my-2 list-decimal space-y-1 pl-5;
+}
+.md a {
+  @apply underline decoration-primary/40 underline-offset-2 hover:decoration-primary;
+}
+.md strong {
+  @apply font-semibold;
+}
+.md blockquote {
+  @apply my-2 border-l-2 border-primary/30 pl-3 italic text-muted-foreground;
+}
+.md :first-child {
+  @apply mt-0;
+}
+.md :last-child {
+  @apply mb-0;
+}
+
+/* Booklet print layout */
+.booklet-day {
+  break-before: page;
+}
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+  @page {
+    margin: 14mm;
+  }
+}

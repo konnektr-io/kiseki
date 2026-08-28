@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+**/__pycache__
+**/node_modules
+**/dist
+**/.pytest_cache
+backend/app/static
+*.md
+docs
+k8s
+test-results
+playwright-report

@@ -1,0 +1,311 @@
+{
+  "slug": "chile-peru-2027",
+  "title": "Chile + Peru — Summer 2027",
+  "subtitle": "Santiago · Valle Nevado ski days · Sacred Valley · Machu Picchu · Cusco · Lima",
+  "stage": "planned",
+  "startDate": "2027-07-17",
+  "endDate": "2027-08-02",
+  "token": "a70e86ef1c1ba28cb196421186f2b6ab",
+  "cover": "/media/chile-peru-2027/mp2.jpg",
+  "coverCredit": "Machu Picchu",
+  "summary": "Family trip (Niko + **Henri** 17 + **Renée** 15) combining **3–4 ski days at Valle Nevado** (Chile) with the Peru spine: **Lima → Sacred Valley → Machu Picchu → Cusco**. July is the only month where both countries are simultaneously at their seasonal best — Chilean winter ski peak AND Peruvian dry-season hiking peak.\n\nThe linchpin: **LATAM flies Santiago → Cusco non-stop** (daily, ~2h30–3h30), so the two halves stitch together without backtracking through Lima. Bonus: 3–4 days above 3,000 m at Valle Nevado pre-acclimatises everyone for Cusco (3,400 m).\n\n**Stage: planned** — dates set (Sat Jul 17 → Mon Aug 2), nothing booked yet. Booking windows: international flights by Jan 2027, Valle Nevado by Mar 2027, Machu Picchu permits Jan–Feb 2027.",
+  "theme": {
+    "primary": "#7f1d1d",
+    "accent": "#b45309"
+  },
+  "crew": [
+    { "name": "Niko Raes", "role": "owner", "note": "Snowboarder — rents at Valle Nevado this trip." },
+    { "name": "Henri", "role": "viewer", "note": "17 — good skier, blues→blacks (Head Kore 88Ti)." },
+    { "name": "Renée", "role": "viewer", "note": "15 — intermediate: comfortable blues/reds, not powder. Rents skis." }
+  ],
+  "practical": {
+    "todos": [
+      { "label": "Feasibility + routing confirmed (SCL→CUZ direct)", "done": true },
+      { "label": "Ski profile + rental decision (all three rent at Valle Nevado)", "done": true },
+      { "label": "Confirm dates with the kids (currently Jul 17 – Aug 2)", "done": false },
+      { "label": "Check SCL→CUZ availability for chosen dates (LATAM daily)", "done": false },
+      { "label": "Compare open-jaw (BRU→SCL / LIM→BRU) vs return pricing", "done": false },
+      { "label": "Book international flights (by Jan 2027)", "done": false },
+      { "label": "Book Valle Nevado accommodation (Jan–Mar 2027)", "done": false },
+      { "label": "Book Machu Picchu + Huayna Picchu permits (Jan–Feb 2027)", "done": false },
+      { "label": "Book PeruRail Vistadome + internal flights", "done": false },
+      { "label": "No visa needed (Belgian passports)", "done": true }
+    ],
+    "links": [
+      { "label": "Valle Nevado mountain report", "url": "https://www.vallenevado.com/en/mountain-report/" },
+      { "label": "Google Flights (SCL→CUZ)", "url": "https://www.google.com/travel/flights" },
+      { "label": "PeruRail (Vistadome)", "url": "https://www.perurail.com/" },
+      { "label": "Machu Picchu tickets", "url": "https://www.machupicchu.gob.pe/" },
+      { "label": "Cajón del Maipo winter tours", "url": "https://cajon-del-maipo.com/winter-tours/" }
+    ],
+    "notes": "⚠️ **Fiestas Patrias (Jul 28–29)** falls inside this window — Peruvian Independence Day: festive parades in Cusco/Lima, but trains, flights and hotels around those dates fill up and prices peak. Book PeruRail + internal flights before Jan 2027.\n\n**Gear**: rent everything at Valle Nevado/Farellones (~$30–50/day pp) — no board bags on the Peru internal flights. **Altitude**: VN base 3,000 m / summit 3,670 m pre-acclimatises for Cusco (3,400 m); Sacred Valley (2,800 m) first, Cusco after. Budget delta over the Peru-only trip: ~+€4.5–7k → ~€15–19k family."
+  },
+  "days": [
+    {
+      "date": "2027-07-17",
+      "title": "Fly BRU → Santiago",
+      "notes": "~17h with 1–2 stops (Iberia via Madrid, Air France via Paris, KLM via Amsterdam, Delta, Turkish). July = peak — book by Jan 2027, expect ~$1,400–1,800 pp RT.",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "BRU → SCL",
+          "description": "No direct flight. Overnight/evening arrival."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-18",
+      "title": "Arrive Santiago — recover",
+      "blocks": [
+        {
+          "kind": "lodging",
+          "title": "Stay: Las Condes / Providencia",
+          "description": "Closer to the G-21 mountain road for Day 4. Light stroll, early night — jetlag + start of acclimatisation at ~500 m."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-19",
+      "title": "Santiago city day",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Cerro San Cristóbal",
+          "description": "Funicular + teleférico up the hill (zoo at the base, Andes panorama)."
+        },
+        {
+          "kind": "meal",
+          "title": "Mercado Central",
+          "description": "Fresh seafood lunch."
+        },
+        {
+          "kind": "activity",
+          "title": "Sky Costanera at sunset",
+          "description": "Tallest building in South America — observation deck at golden hour."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-20",
+      "title": "Transfer to Valle Nevado + warm-up",
+      "notes": "**G-21 road: up-window 08:00–13:00.** Shared shuttle SCL→VN (~$35–40 pp, 90 min). Afternoon: rental fitting + one gentle warm-up run — first exposure at 3,000 m, take it easy.",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "Shuttle Santiago → Valle Nevado",
+          "description": "90 min. Leave before 13:00 — the G-21 access road only allows uphill traffic in the morning window."
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: self-catered studio, ski-in/out",
+          "description": "~$330–420/nt (or Farellones for budget). 4-day ski pass: weekday ~$33/day, weekend ~$55."
+        },
+        {
+          "kind": "activity",
+          "title": "Rental fitting + warm-up run",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "date": "2027-07-21",
+      "title": "Ski day 1 — Valle Nevado",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Valle Nevado full day",
+          "status": "planned",
+          "description": "Renée: groomed blues/reds front side (25% intermediate terrain). Henri: advanced bowls. Niko: wide groomers. Hydrate, layers, sunscreen — altitude sun is brutal."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-22",
+      "title": "Ski day 2 — La Parva connection",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Valle Nevado + La Parva",
+          "status": "planned",
+          "description": "One pass covers the interconnected terrain — La Parva adds intermediate cruising + big views. Weather-chase: pick the side with best visibility."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-23",
+      "title": "Ski day 3 (morning) → Santiago",
+      "notes": "**G-21 down-window 15:00–20:00.** Morning ski, lunch at the resort, transfer down ~15:00. Night near SCL airport for the morning flight.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Ski morning",
+          "status": "planned"
+        },
+        {
+          "kind": "transport",
+          "title": "Transfer to Santiago (~15:00)"
+        }
+      ]
+    },
+    {
+      "date": "2027-07-24",
+      "title": "SCL → CUZ → Sacred Valley",
+      "notes": "The linchpin flight: LATAM direct, daily in season, ~2h30–3h30 — book a morning departure. Then the **critical acclimatisation move**: transfer straight to the Sacred Valley (~1.5h, 2,800 m) instead of sleeping in Cusco (3,400 m).",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "LATAM SCL → CUZ (direct)",
+          "time": "morning",
+          "description": "~2h30–3h30. The stitch that makes this trip work."
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Urubamba / Ollantaytambo — 3 nights",
+          "description": "Sacred Valley at 2,800 m — the gentle altitude ramp."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-25",
+      "title": "Pisac + Maras + Moray",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Pisac ruins + artisan market"
+        },
+        {
+          "kind": "activity",
+          "title": "Maras salt mines + Moray terraces",
+          "description": "Optional ATV tour for the teens."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-26",
+      "title": "Ollantaytambo + train to Aguas Calientes",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Ollantaytambo fortress",
+          "time": "morning"
+        },
+        {
+          "kind": "transport",
+          "title": "Vistadome train (PeruRail) — 1h45",
+          "description": "Ollantaytambo → Aguas Calientes."
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Aguas Calientes",
+          "description": "Inkaterra / Casa del Sol / El Mapi."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-27",
+      "title": "Machu Picchu",
+      "notes": "Sunrise bus (first 5:30 am), guided tour, optional Huayna Picchu hike (permit — book Jan–Feb 2027!). Mid-afternoon train back + transfer to Cusco.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Machu Picchu — guided tour",
+          "status": "planned",
+          "links": [
+            { "label": "Machu Picchu tickets", "url": "https://www.machupicchu.gob.pe/" }
+          ]
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Cusco — 4 nights",
+          "description": "3,400 m — the family is pre-acclimatised from Valle Nevado + Sacred Valley."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-28",
+      "title": "Cusco city + 🎉 Fiestas Patrias",
+      "notes": "Jul 28 = Peruvian Independence Day — parades and celebrations on Plaza de Armas (festive bonus!). Expect celebratory crowds.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Cusco walking tour",
+          "description": "Qoricancha, Sacsayhuamán (kids scramble the zigzag walls), San Blas."
+        },
+        {
+          "kind": "activity",
+          "title": "ChocoMuseo chocolate workshop"
+        }
+      ]
+    },
+    {
+      "date": "2027-07-29",
+      "title": "Palcoyo Rainbow Mountain",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Palcoyo full-day trip (5am–4pm)",
+          "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-30",
+      "title": "Flex — Humantay Lake OR cooking class",
+      "blocks": [
+        {
+          "kind": "note",
+          "title": "Decide on the day",
+          "description": "Legs good? **Humantay Lake** (4,200 m, turquoise glacial lake, horse option at trailhead). Need a rest? **Cusco cooking class + San Pedro Market** (ceviche + lucuma juice — teen-approved)."
+        }
+      ]
+    },
+    {
+      "date": "2027-07-31",
+      "title": "CUZ → LIM",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "Fly Cusco → Lima (1h15)",
+          "time": "morning"
+        },
+        {
+          "kind": "activity",
+          "title": "Museo Larco",
+          "description": "Pre-Columbian gold, beautiful gardens."
+        },
+        {
+          "kind": "meal",
+          "title": "La Mar — one last ceviche",
+          "description": "Or Astrid y Gastón."
+        }
+      ]
+    },
+    {
+      "date": "2027-08-01",
+      "title": "Lima finale",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Malecón bike ride Miraflores → Barranco",
+          "description": "Clifftop path, street art in Barranco."
+        },
+        {
+          "kind": "activity",
+          "title": "Magic Water Circuit at night",
+          "description": "Kid-friendly fountain finale."
+        }
+      ]
+    },
+    {
+      "date": "2027-08-02",
+      "title": "Depart LIM → BRU",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "Fly home via Madrid/Paris/Amsterdam"
+        }
+      ]
+    }
+  ],
+  "updated": "2026-08-28"
+}

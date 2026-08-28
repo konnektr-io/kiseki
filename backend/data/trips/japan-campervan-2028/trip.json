@@ -1,0 +1,43 @@
+{
+  "slug": "japan-campervan-2028",
+  "title": "Japan Campervan Snowboard Trip",
+  "subtitle": "Hokkaido powder belt · Niseko → Yotei → Furano → Asahidake · January 2028",
+  "stage": "idea",
+  "startDate": "2028-01-15",
+  "endDate": "2028-01-26",
+  "token": "5aa2f9df686d66f1357287f88e5ffb58",
+  "cover": "/media/canada-2027/sun-06.jpg",
+  "coverCredit": "placeholder — swap for Hokkaido powder shot",
+  "summary": "**Concept**: fly to Sapporo, pick up a winter campervan, chase snow. No fixed bookings except the van — the weather decides where we ride. Hokkaido's powder belt stretches from the Niseko volcano cluster in the southwest up the central spine to the Daisetsuzan range in the northeast — one logical road trip.\n\n**Crew**: Niko (board), **Jozz (Pieter Willems)** confirmed, **Steven Willems** hopeful — group up to 3–4 fits the 4-pax campervans. **Target: 2nd half of January 2028** (moved from 2027 — Canada took the 2027 slot).\n\n**The draw**: deepest snow in the world (Kiroro ~21 m/season), onsen culture, camper-as-strategy — free overnight spots at resorts and michi-no-eki, splitboard ascent of **Mount Yotei** (1,898 m, \"Hokkaido Fuji\"), and the **Asahidake** ropeway into Japan's highest snowfields.\n\n**Stage: idea** — route skeleton exists, dates indicative, nothing booked. Hoshino Resorts sells a proven \"Hokkaido Powder Belt Campervan Plan\" (van + 5-day lift pass Tomamu/Furano/Kamui + breakfast/sauna at Tomamu & OMO7 Asahikawa, from ~¥215,300/van for 4n/5d) that validates the whole weather-chasing approach.",
+  "theme": {
+    "primary": "#4338ca",
+    "accent": "#be123c"
+  },
+  "crew": [
+    { "name": "Niko Raes", "role": "owner", "note": "Snowboard + splitboard. Would buy a Jones Stratos Split + Burton Step On + Spark R&D pucks." },
+    { "name": "Pieter Willems (Jozz)", "role": "viewer", "note": "Confirmed for 2028." },
+    { "name": "Steven Willems", "role": "viewer", "note": "Hopeful — asked." }
+  ],
+  "practical": {
+    "todos": [
+      { "label": "Route + dates confirmed (Hokkaido only, mid-Jan 2028)", "done": true },
+      { "label": "Confirm group size (3 or 4)", "done": false },
+      { "label": "Splitboard purchase (Stratos Split + Step On + pucks)", "done": false },
+      { "label": "Avalanche safety: transceiver + probe + shovel, one set per person (MUST)", "done": false },
+      { "label": "Book flights BRU → CTS", "done": false },
+      { "label": "Book campervan (Campervan Inc. / Moving Inn, 3–4 months out)", "done": false },
+      { "label": "Belgian licence + official Japanese translation (JAF, ~¥4,000) — no IDP needed for BE", "done": false },
+      { "label": "Studless tyres + 4WD confirmation at booking", "done": false }
+    ],
+    "links": [
+      { "label": "Campervan Inc. / Japan C.R.C. (Hoshino partner)", "url": "https://japan-crc.com/" },
+      { "label": "Moving Inn (Hiace campers)", "url": "https://moving-inn.com/" },
+      { "label": "Hoshino Powder Belt plan", "url": "https://hoshinoresorts.com/" },
+      { "label": "Segment 2 route map (Sapporo → Asahidake)", "url": "https://www.google.com/maps/dir/?api=1&origin=Sapporo,Japan&destination=Asahidake,Hokkaido&waypoints=Niseko,Japan%7CRusutsu,Japan%7CKiroro,Japan%7CFurano+Hokkaido,Japan&travelmode=driving" },
+      { "label": "Mount Yotei trailhead from Niseko", "url": "https://www.google.com/maps/dir/?api=1&origin=Niseko,Japan&destination=Mount+Yotei,Hokkaido,Japan&travelmode=driving" }
+    ],
+    "notes": "**Route skeleton (Southwest → Northeast, drive-by-weather)**: Niseko region (incl. Rusutsu, Kiroro, Kokusai) → **Mount Yotei splitboard climb** → Furano (far fewer crowds) → Kamui Ski Links (Asahikawa, \"Hokkaido's best-kept secret\", part of the Hoshino Powder Belt pass) → Mount Racey (Yubari, breaks up the drive) → **Asahidake** ropeway + backcountry bowls. Small hills on the way: Teine, Bankei, Sapporo Kokusai (night sessions).\n\n**Camper notes**: winter-ready vans have FF diesel heaters + studless tyres (4WD varies — confirm). Free overnight parking at ski-resort lots / michi-no-eki / onsen towns; paid RV parks (~¥2,000–5,500) for power hookup. Jan is Hokkaido's busiest foreign-visitor month — book 3–4 months out. **Belgian licence + JAF translation suffices** (no international driving permit)."
+  },
+  "days": [],
+  "updated": "2026-08-28"
+}

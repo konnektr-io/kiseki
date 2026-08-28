@@ -1,0 +1,349 @@
+{
+  "slug": "canada-2027",
+  "title": "Canada Heliski + Resort Trip",
+  "subtitle": "BC Powder Highway · Sunshine → Revelstoke → 3 heli days → Kicking Horse → Lake Louise",
+  "stage": "booked",
+  "startDate": "2027-02-15",
+  "endDate": "2027-03-02",
+  "token": "c059b7f53c5a922be63b5dfd703faba9",
+  "cover": "/media/canada-2027/sths-hero-full.jpg",
+  "coverCredit": "Selkirk Tangiers Heli Skiing",
+  "summary": "16 days, 3 riders (**Niko** — snowboard, **Nick Geelen**, **Stefan De Pauw** — skis), ~10.5–11 ski days across four big resorts **plus 3 heli days with Selkirk Tangiers**. The heli block (Feb 20–24, Coast Hillcrest) is the fixed anchor; everything else is a condition-chasing loop: Sunshine first (arrival-day resort, 2h from Calgary), then Revelstoke (biggest lift-served vertical in North America), the STHS heli, then Kicking Horse and Lake Louise.\n\n**Booked**: flights BRU↔YYC (€1,005.81 pp, booking 9GMOL3) · STHS 3-Day Classic deposit paid ($2,964.15 CAD, 35%) · group locked at 3 · family room confirmed.\n\n**Flex by design**: Day 3 is a *decide-on-the-hill* day, Day 10's KH afternoon is a skippable buffer, and Mar 1 flexes between a Lake Louise morning and a relaxed drive home. Heli down days (STHS averages 2–3/month) fall back to Revelstoke Mountain Resort.",
+  "theme": {
+    "primary": "#1e3a8a",
+    "accent": "#0f766e"
+  },
+  "crew": [
+    { "name": "Niko Raes", "role": "owner", "note": "Snowboarder — brings own board." },
+    { "name": "Nick Geelen", "role": "viewer", "note": "Skiier, co-planner — weather-worried after 25-26, reassured by the numbers." },
+    { "name": "Stefan De Pauw", "role": "viewer", "note": "Skiier, confirmed for Feb 15 departure." }
+  ],
+  "practical": {
+    "todos": [
+      { "label": "STHS deposit paid (35%, $2,964.15 CAD)", "done": true },
+      { "label": "Flights booked — €1,005.81 pp (9GMOL3)", "done": true },
+      { "label": "STHS family room confirmed", "done": true },
+      { "label": "STHS balance due Dec 10, 2026", "done": false },
+      { "label": "Confirm Ikon Base covers RMR + SkiBig3 26/27 (KH not on Ikon)", "done": false },
+      { "label": "Car: 4WD SUV + winter tires + ski rack (YYC Budget/Avis)", "done": false },
+      { "label": "Insurance: travel + heliski rider + trip cancellation (Acera)", "done": false },
+      { "label": "Book Banff lodging (Feb 15–16)", "done": false },
+      { "label": "Book Revelstoke — Northwinds by Basecamp (Feb 17–19)", "done": false },
+      { "label": "Book Golden — Glacier Mountaineer Lodge (Feb 24–26)", "done": false },
+      { "label": "Book Lake Louise Inn (Feb 27–28)", "done": false },
+      { "label": "Buy Ikon Base Pass 26/27 (€850)", "done": false },
+      { "label": "eTA visa (5 min, ~$7 CAD)", "done": false }
+    ],
+    "links": [
+      { "label": "Brussels Airlines cart (booked)", "url": "https://shop.brusselsairlines.com/booking/cart?cartId=1545ALQOS7A9GTON&type=cart&shared=true&origin=BRU&utm_source=sharedcart&utm_medium=referral&consent=true" },
+      { "label": "Selkirk Tangiers Heli Skiing", "url": "https://selkirk-tangiers.com/" },
+      { "label": "Ikon Pass", "url": "https://www.ikonpass.com/" },
+      { "label": "Revelstoke Mountain Resort", "url": "https://www.revelstokemountainresort.com/" },
+      { "label": "Kicking Horse Mountain Resort", "url": "https://kickinghorseresort.com/" },
+      { "label": "Lake Louise Ski Resort", "url": "https://www.skilouise.com/" },
+      { "label": "Banff Sunshine Village", "url": "https://www.sunshinemountain.com/" },
+      { "label": "Avalanche Canada", "url": "https://www.avalanche.ca/" },
+      { "label": "DriveBC road conditions", "url": "https://drivebc.ca/" }
+    ],
+    "notes": "**Logistics**: group of 3, one family room at the Hillcrest, 2 budget rooms shared 3 ways elsewhere. Calgary is UTC−7 (8h behind Brussels). eTA needed for Canada (online, ~$7 CAD). Flights have no direct option; snowboard/ski bag flies **free** as the 1×23kg checked bag. **Balance due Dec 10, 2026** — trip-cancellation insurance strongly recommended (deposit non-refundable, all payments retained <10 weeks out)."
+  },
+  "days": [
+    {
+      "date": "2027-02-15",
+      "title": "Fly BRU → YYC, drive to Banff",
+      "notes": "12h50 total via Frankfurt, 1h50 layover. Early-afternoon arrival → straight to Banff (1h30 drive), full ski day tomorrow.",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "BRU 10:30 → YYC 16:20 via Frankfurt",
+          "time": "10:30",
+          "description": "LH 5571 (op. Brussels Airlines) BRU→FRA + LH 4404 (op. Discover Airlines) FRA→YYC. Economy Comfort, 1×23kg bag incl., snowboard free.",
+          "status": "booked",
+          "cost": 1005.81,
+          "currency": "EUR",
+          "bookingCode": "9GMOL3",
+          "links": [
+            { "label": "Google Flights", "url": "https://www.google.com/travel/flights" },
+            { "label": "Brussels Airlines", "url": "https://www.brusselsairlines.com/" }
+          ]
+        },
+        {
+          "kind": "transport",
+          "title": "Pick up 4WD + winter tires, drive to Banff",
+          "time": "17:00",
+          "description": "Rental at YYC (Budget/Avis/Hertz, winter tires mandatory on BC highways Dec 1–Mar 31). ~1h30 drive to Banff/Canmore."
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Banff / Canmore",
+          "description": "Sleeping in Banff puts Sunshine 15 min away for tomorrow."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-16",
+      "title": "Banff Sunshine — full day",
+      "notes": "Highest base in western Canada, ~925 cm snow/yr. Delirium Dive expert zone opened early Jan last season — no late-season risk front-loading it.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Sunshine full day",
+          "status": "planned",
+          "links": [
+            { "label": "Sunshine Village", "url": "https://www.sunshinemountain.com/" }
+          ]
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Banff (2nd night)"
+        }
+      ]
+    },
+    {
+      "date": "2027-02-17",
+      "title": "Flex — decide on the hill",
+      "notes": "If Sunshine is riding well: extra half-day + afternoon drive to Revelstoke. Otherwise: morning drive + RMR afternoon leg-shakedown.",
+      "blocks": [
+        {
+          "kind": "note",
+          "title": "Flex day",
+          "description": "**Decide on the hill** — the trip is built around a few of these. Both options are good."
+        },
+        {
+          "kind": "activity",
+          "title": "Option A: extra Sunshine half-day",
+          "status": "planned"
+        },
+        {
+          "kind": "activity",
+          "title": "Option B: Revelstoke Mountain Resort afternoon",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "date": "2027-02-18",
+      "title": "Revelstoke Mountain Resort — full day",
+      "notes": "1,713 m vertical — biggest lift-served terrain in North America. ~400\" snow/yr. North Bowl + glades.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "RMR full day",
+          "status": "planned",
+          "links": [
+            { "label": "Revelstoke Mountain Resort", "url": "https://www.revelstokemountainresort.com/" }
+          ]
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Revelstoke (Northwinds by Basecamp, 2 rooms)",
+          "description": "~$90–140/room — cheapest solid option, ski shuttle, gear storage, town-adjacent."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-19",
+      "title": "RMR full day or rest",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Revelstoke full day — or rest day",
+          "status": "planned"
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Revelstoke (2nd night)"
+        }
+      ]
+    },
+    {
+      "date": "2027-02-20",
+      "title": "STHS check-in — Coast Hillcrest",
+      "notes": "Rest day + heli check-in. Orientation + dinner. **4 nights at Coast Hillcrest, all meals included.**",
+      "blocks": [
+        {
+          "kind": "booking",
+          "title": "Selkirk Tangiers — 3-Day Classic, check-in",
+          "time": "afternoon",
+          "description": "Deposit paid ($2,964.15 CAD, 35%). Family room (2 queen + 1 queen pullout). Balance due Dec 10, 2026.",
+          "status": "booked",
+          "bookingCode": "STHS Feb 20–24",
+          "links": [
+            { "label": "Selkirk Tangiers", "url": "https://selkirk-tangiers.com/" }
+          ]
+        },
+        {
+          "kind": "lodging",
+          "title": "Coast Hillcrest Hotel — 4 nights",
+          "description": "Full breakfast, après snack, dinner in the Hillcrest Dining Room. Ski days Sun/Mon/Tue."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-21",
+      "title": "Heli day 1 — Selkirk Tangiers",
+      "notes": "Bell 212, up to 10 guests + guide, unlimited metres included (9,000 m guaranteed). ACMG/IFMGA guides, Barryvox transceiver + training, gourmet mountain lunch. $5/day HeliCat donation.",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Heli day 1",
+          "status": "booked",
+          "cost": 5880,
+          "currency": "EUR",
+          "description": "€5,880 pp incl. tax. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds — fairest refund policy in the industry."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-22",
+      "title": "Heli day 2",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Heli day 2",
+          "status": "booked"
+        }
+      ]
+    },
+    {
+      "date": "2027-02-23",
+      "title": "Heli day 3",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Heli day 3",
+          "status": "booked"
+        }
+      ]
+    },
+    {
+      "date": "2027-02-24",
+      "title": "Check-out → Golden, Kicking Horse afternoon",
+      "notes": "Check-out after breakfast. Drive Revelstoke → Golden (134 km / 1h50) over Rogers Pass — check DriveBC + Avalanche Canada (avalanche-control closures possible). Afternoon at KH is a **buffer — skippable → 2+2**.",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "Drive Revelstoke → Golden (134 km)",
+          "description": "Over Rogers Pass. Highway closures possible for avalanche control — check conditions before leaving.",
+          "links": [
+            { "label": "DriveBC", "url": "https://drivebc.ca/" },
+            { "label": "Avalanche Canada", "url": "https://www.avalanche.ca/" }
+          ]
+        },
+        {
+          "kind": "activity",
+          "title": "Kicking Horse afternoon (buffer)",
+          "status": "planned",
+          "description": "1,315 m vertical (#4 in NA), champagne powder. Not on Ikon — day ticket ~$150–170 CAD."
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Golden — Glacier Mountaineer Lodge (3 nights)",
+          "description": "Ski-in/ski-out at the gondola, full kitchens — best for the KH block; splits well 3–4 ways in a suite."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-25",
+      "title": "Kicking Horse — full day",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Kicking Horse full day",
+          "status": "planned",
+          "cost": 170,
+          "currency": "CAD",
+          "description": "120+ runs, 45% advanced / 15% expert, champagne powder.",
+          "links": [
+            { "label": "Kicking Horse", "url": "https://kickinghorseresort.com/" }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2027-02-26",
+      "title": "Kicking Horse — full day",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Kicking Horse full day",
+          "status": "planned",
+          "cost": 170,
+          "currency": "CAD",
+          "description": "Whitewall, Feuz Bowl, Crystal Bowl."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-27",
+      "title": "Drive to Lake Louise + full day",
+      "notes": "Drive Golden → Lake Louise (93 km / 1h20). 4,200 acres, 4 mountain faces, iconic scenery.",
+      "blocks": [
+        {
+          "kind": "transport",
+          "title": "Drive Golden → Lake Louise (93 km)"
+        },
+        {
+          "kind": "activity",
+          "title": "Lake Louise full day",
+          "status": "planned",
+          "links": [
+            { "label": "Lake Louise Ski Resort", "url": "https://www.skilouise.com/" }
+          ]
+        },
+        {
+          "kind": "lodging",
+          "title": "Stay: Lake Louise Inn (2 nights)",
+          "description": "Closest mid-range to the resort, complimentary shuttle to the ski resort, ski tuning room."
+        }
+      ]
+    },
+    {
+      "date": "2027-02-28",
+      "title": "Lake Louise — full day",
+      "blocks": [
+        {
+          "kind": "activity",
+          "title": "Lake Louise full day",
+          "status": "planned",
+          "description": "Back bowls / Summit Platter hike / World Cup downhill run."
+        }
+      ]
+    },
+    {
+      "date": "2027-03-01",
+      "title": "Flex morning → fly home",
+      "notes": "Either a Lake Louise morning (off the hill by ~11:30) or a relaxed drive with a Banff lunch. Then YYC → BRU.",
+      "blocks": [
+        {
+          "kind": "note",
+          "title": "Flex: LL morning or relaxed drive",
+          "description": "Off the hill by ~11:30 if we ride. Banff lunch is a fine alternative."
+        },
+        {
+          "kind": "transport",
+          "title": "Drive Lake Louise → YYC (199 km / ~2h05)"
+        },
+        {
+          "kind": "transport",
+          "title": "YYC 18:05 → BRU",
+          "description": "LH 4405 (op. Discover Airlines) YYC→FRA + LH 5574 (op. Brussels Airlines) FRA→BRU. 12h30 total, arrives Tue Mar 2 13:35.",
+          "status": "booked",
+          "bookingCode": "9GMOL3"
+        }
+      ]
+    },
+    {
+      "date": "2027-03-02",
+      "title": "Arrive home",
+      "blocks": [
+        {
+          "kind": "note",
+          "title": "Arrive BRU 13:35",
+          "description": "The trail behind us. 🏔️"
+        }
+      ]
+    }
+  ],
+  "updated": "2026-08-28"
+}
