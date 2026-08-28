@@ -39,7 +39,7 @@ cd backend && uv run pytest
 
 # Local prod-like run (single process, like the container)
 pnpm --dir frontend build
-cp -r frontend/dist backend/app/static/
+rm -rf backend/app/static && cp -r frontend/dist backend/app/static   # NOTE: replace, don't nest (cp -r src dst nests when dst exists!)
 cd backend && uv run uvicorn app.main:app --port 8000
 # → http://127.0.0.1:8000/t/<token>/  (token lives inside each backend/data/trips/<slug>/trip.json)
 ```
