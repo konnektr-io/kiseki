@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, ChevronRight, MapPin } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Badge } from "../components/ui";
-import { BlockGlyph } from "../components/blocks";
+import { BlockGlyph, MetaChips } from "../components/blocks";
 import { formatDay } from "../lib/dates";
 import type { Block, Day, TripSection } from "../lib/types";
 
 function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
+  const trip = useTrip();
   const [open, setOpen] = useState(false);
   const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
   const hasPlanned = day.blocks.some((b) => b.status === "planned");
@@ -24,13 +25,8 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
           </span>
         </div>
         <div className="min-w-0 flex-1">
-          <h4 className="truncate font-heading text-base font-semibold">{day.title || formatDay(day.date)}</h4>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <MapPin className="h-3 w-3" />
-              {formatDay(day.date)}
-            </span>
-            <span>·</span>
+          <h4 className="font-heading text-base font-semibold leading-snug">{day.title || formatDay(day.date)}</h4>
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span>{day.blocks.length} items</span>
             <span className="inline-flex items-center gap-0.5">
               {day.blocks.map((b, i) => (
@@ -51,6 +47,9 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
           {day.map && (
             <img src={day.map} alt={`Map — ${day.title}`} className="mb-3 w-full rounded-lg border border-border" />
           )}
+          <div className="mb-3">
+            <MetaChips meta={day.meta} />
+          </div>
           {day.notes && <p className="mb-3 text-sm leading-relaxed text-muted-foreground">{day.notes}</p>}
           <ul className="space-y-1.5">
             {day.blocks.map((b: Block, i) => (
@@ -67,7 +66,7 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
             ))}
           </ul>
           <Link
-            to={`/t/${useTrip().token}/day/${idx}`}
+            to={`/t/${trip.token}/day/${idx}`}
             className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
           >
             Open day <ChevronRight className="h-3.5 w-3.5" />
@@ -102,12 +101,11 @@ export function ItineraryPage() {
       {sections.map(({ section, days }, si) => (
         <section key={si}>
           {section && (
-            <div className="mb-3 flex items-baseline gap-3">
-              <span className="h-px flex-1 bg-border" />
-              <h3 className="font-heading text-xl font-semibold uppercase tracking-wide text-foreground">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" />
+              <h3 className="font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
                 {section.title}
               </h3>
-              <span className="h-px flex-1 bg-border" />
             </div>
           )}
           <div className="space-y-2.5">

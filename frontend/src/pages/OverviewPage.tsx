@@ -4,6 +4,41 @@ import { useTrip } from "../components/theme";
 import { Card, Separator, StageBadge } from "../components/ui";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import type { Feature } from "../lib/types";
+
+function FeatureCard({ feature: f }: { feature: Feature }) {
+  return (
+    <Card className="overflow-hidden p-5">
+      <p className="kicker mb-1">{f.kicker || "Feature"}</p>
+      <h3 className="font-heading text-xl font-semibold uppercase leading-tight tracking-wide text-foreground">
+        {f.title}
+      </h3>
+      {f.image && (
+        <img src={f.image} alt={f.title} className="mt-3 max-h-64 w-full rounded-lg border border-border object-cover" />
+      )}
+      {f.description && (
+        <div className="mt-3 text-sm leading-relaxed md:text-[15px]">
+          <Markdown>{f.description}</Markdown>
+        </div>
+      )}
+      {f.links && f.links.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {f.links.map((l) => (
+            <a
+              key={l.url}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-primary hover:bg-primary/20"
+            >
+              {l.label} <ArrowRight className="h-3 w-3" />
+            </a>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function OverviewPage() {
   const trip = useTrip();
@@ -43,13 +78,25 @@ export function OverviewPage() {
       {trip.stats?.length ? (
         <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-6">
           {trip.stats.map((s) => (
-            <div key={s.label} className="bg-card px-3 py-3 text-center">
-              <p className="font-display text-2xl leading-none text-foreground md:text-3xl">{s.value}</p>
-              <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+            <div key={s.label} className="bg-card px-3 py-4 text-center">
+              <p className="font-display text-3xl leading-none tracking-wide text-foreground md:text-4xl">{s.value}</p>
+              <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {s.label}
+              </p>
+              <span className="mx-auto mt-2 block h-0.5 w-6 rounded-full bg-accent/60" />
             </div>
           ))}
         </div>
       ) : null}
+
+      {/* features — editorial cards (centerpiece / road trip) */}
+      {trip.features && trip.features.length > 0 && (
+        <div className="space-y-5">
+          {trip.features.map((f) => (
+            <FeatureCard key={f.title} feature={f} />
+          ))}
+        </div>
+      )}
 
       {/* overview map */}
       {trip.map && (
@@ -93,7 +140,7 @@ export function OverviewPage() {
           <ul className="space-y-2.5">
             {trip.crew.map((p) => (
               <li key={p.name} className="flex items-center gap-3">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
+                <span className="inline-flex aspect-square h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
                   {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
                 </span>
                 <div className="min-w-0">

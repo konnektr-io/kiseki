@@ -26,6 +26,15 @@ function DayCard({ day, no }: { day: Day; no: number }) {
         </div>
       </div>
       {day.map && <img src={day.map} alt="" className="mb-3 w-full rounded border border-border" />}
+      {day.meta?.length ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {day.meta.map((m, i) => (
+            <span key={i} className="rounded border border-border bg-muted/60 px-2 py-0.5 text-[10px] text-muted-foreground">
+              <span className="font-bold uppercase tracking-wide">{m.label}:</span> {m.value}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {day.notes && (
         <div className="mb-3 text-sm leading-relaxed text-muted-foreground">
           <Markdown>{day.notes}</Markdown>
@@ -59,13 +68,13 @@ export function BookletPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      {/* cover */}
-      <div className="booklet-cover relative overflow-hidden rounded-lg">
+      {/* cover — fills the page in print */}
+      <div className="booklet-cover relative overflow-hidden rounded-lg print:min-h-[269mm] print:rounded-none">
         {trip.cover && <img src={trip.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
-        <div className="relative flex min-h-[420px] flex-col justify-end p-8">
+        <div className="relative flex min-h-[420px] flex-col justify-end p-8 print:min-h-[269mm]">
           <p className="kicker !text-white/70">Kiseki · trip booklet</p>
-          <h1 className="mt-2 font-display text-6xl uppercase leading-[0.9] text-white">{trip.title}</h1>
+          <h1 className="mt-2 font-display text-6xl uppercase leading-[0.9] text-white print:text-7xl">{trip.title}</h1>
           {trip.subtitle && <p className="mt-3 text-sm font-medium uppercase tracking-wide text-white/80">{trip.subtitle}</p>}
           <p className="mt-4 text-sm text-white/80">
             {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}
@@ -99,6 +108,36 @@ export function BookletPage() {
           </div>
         </div>
       )}
+
+      {/* features — centerpiece / road trip */}
+      {trip.features?.length ? (
+        <div className="booklet-section">
+          <SectionHeading title="The plan" />
+          <div className="space-y-5">
+            {trip.features.map((f, i) => (
+              <div key={i} className="break-inside-avoid rounded border border-border p-4">
+                <p className="kicker mb-1">{f.kicker || "Feature"}</p>
+                <h3 className="font-heading text-xl font-semibold uppercase tracking-wide">{f.title}</h3>
+                {f.image && <img src={f.image} alt="" className="my-3 w-full rounded border border-border" />}
+                {f.description && (
+                  <div className="text-sm leading-relaxed text-muted-foreground">
+                    <Markdown>{f.description}</Markdown>
+                  </div>
+                )}
+                {f.links?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {f.links.map((l) => (
+                      <a key={l.url} href={l.url} className="text-xs font-semibold uppercase tracking-wide text-accent underline underline-offset-2">
+                        {l.label} →
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* itinerary by section */}
       {groups.map((g, gi) => (

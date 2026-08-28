@@ -45,6 +45,31 @@ export interface Block {
   order?: number;
   items?: string[] | TodoItem[];
   html?: string;
+  distance?: string;
+  duration?: string;
+  route?: string;
+  via?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface MetaItem {
+  label: string;
+  value: string;
+}
+
+export interface Feature {
+  kicker?: string;
+  title: string;
+  description?: string;
+  image?: string;
+  links?: Link[];
+}
+
+export interface Contact {
+  label: string;
+  value?: string;
+  link?: string;
 }
 
 export interface Day {
@@ -52,6 +77,7 @@ export interface Day {
   title: string;
   notes?: string;
   map?: string;
+  meta?: MetaItem[];
   blocks: Block[];
 }
 
@@ -97,9 +123,10 @@ export interface Trip {
   summary?: string;
   theme?: Theme;
   stats?: Stat[];
+  features?: Feature[];
   sections?: TripSection[];
   crew: Person[];
-  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string };
+  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; contacts?: Contact[] };
   days: Day[];
   updated?: string;
 }

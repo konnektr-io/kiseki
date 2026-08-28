@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useParams } from "react-router-dom";
-import { CalendarDays, FileDown, Home, ListChecks, Map, Users } from "lucide-react";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import { CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
 import { fetchTrip, bookletUrl } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
 import type { Trip } from "../lib/types";
@@ -11,26 +11,26 @@ const NAV = [
   { to: "", label: "Overview", icon: Home, end: true },
   { to: "itinerary", label: "Itinerary", icon: Map },
   { to: "practical", label: "Practical", icon: ListChecks },
-  { to: "crew", label: "Crew", icon: Users },
 ];
 
-function NavLinks() {
+function NavLinks({ token }: { token: string }) {
+  const { pathname } = useLocation();
+  const base = `/t/${token}`;
+  const active = (to: string, end?: boolean) =>
+    end ? pathname === base : pathname === `${base}/${to}` || (to === "itinerary" && pathname.startsWith(`${base}/day`));
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
+        <Link
           key={to}
           to={to}
-          end={end}
-          className={({ isActive }) =>
-            `inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-              isActive ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-            }`
-          }
+          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+            active(to, end) ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+          }`}
         >
           <Icon className="h-4 w-4" />
           {label}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   );
@@ -81,6 +81,8 @@ export function TripLayout() {
   }
 
   const days = dayCount(trip.startDate, trip.endDate);
+  const { pathname } = useLocation();
+  const onDayPage = pathname.includes(`/t/${trip.token}/day/`);
 
   return (
     <TripProvider trip={trip}>
@@ -112,7 +114,7 @@ export function TripLayout() {
           </div>
           {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
-            <NavLinks />
+            <NavLinks token={trip.token} />
           </div>
         </header>
 
@@ -121,26 +123,31 @@ export function TripLayout() {
           <Outlet />
         </main>
 
-        {/* Mobile bottom nav */}
-        <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
-          <div className="grid grid-cols-4">
-            {NAV.map(({ to, label, icon: Icon, end }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={({ isActive }) =>
-                  `flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
-                    isActive ? "text-primary" : "text-muted-foreground"
-                  }`
-                }
-              >
-                <Icon className="h-5 w-5" />
-                {label}
-              </NavLink>
-            ))}
-          </div>
-        </nav>
+        {/* Mobile bottom nav (hidden on day pages — DayPage has its own bar) */}
+        {!onDayPage && (
+          <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
+            <div className="grid grid-cols-3">
+              {NAV.map(({ to, label, icon: Icon, end }) => {
+                const isActive = end
+                  ? pathname === `/t/${trip.token}`
+                  : pathname === `/t/${trip.token}/${to}` ||
+                    (to === "itinerary" && pathname.startsWith(`/t/${trip.token}/day`));
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
+                      isActive ? "text-primary" : "text-muted-foreground"
+                    }`}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+        )}
       </div>
     </TripProvider>
   );

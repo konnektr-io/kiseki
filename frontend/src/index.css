@@ -96,9 +96,14 @@ h4 {
 /* ---------- booklet print (PDF) ---------- */
 .booklet-section {
   break-before: page;
+  orphans: 3;
+  widows: 3;
 }
 .booklet-section:first-of-type {
   break-before: auto;
+}
+.booklet-section h2 {
+  break-after: avoid;
 }
 .booklet-day {
   break-inside: avoid;

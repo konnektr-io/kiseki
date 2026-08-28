@@ -57,9 +57,27 @@ function Cost({ cost, currency }: { cost?: number; currency?: string }) {
 function BookingCode({ code }: { code?: string }) {
   if (!code) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold">
+    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
       <CreditCard className="h-3 w-3" /> {code}
     </span>
+  );
+}
+
+/** Day-level meta chips, e.g. "Stay: Banff · Lift: Ikon" — booklet style. */
+export function MetaChips({ meta }: { meta?: { label: string; value: string }[] }) {
+  if (!meta?.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {meta.map((m, i) => (
+        <span
+          key={i}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground"
+        >
+          <span className="font-semibold uppercase tracking-wide text-foreground">{m.label}</span>
+          <span className="font-medium">{m.value}</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -165,21 +183,67 @@ function TransportBlock({ b }: { b: Block }) {
     );
   }
 
-  // drive card — light, accent rail
+  // drive card — dark, like the booklet's drive treatment (distance / time / route / directions)
   return (
-    <BlockCard className="border-l-4 border-l-accent">
-      <div className="flex items-start gap-3">
-        <IconBadge icon={<Car className="h-4 w-4" />} tone="accent" />
+    <div className="overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+      <div className="flex items-start gap-3 p-4">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
+          <Car className="h-4 w-4" />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <h4 className="font-heading text-base font-semibold">{title}</h4>
+            <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
             <TimeChip time={b.time} />
           </div>
-          {desc && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{desc}</p>}
-          <Links links={b.links} />
+          {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
+          {(b.distance || b.duration || b.route) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {b.distance && (
+                <span className="rounded bg-white/15 px-2 py-0.5 font-heading text-sm font-medium">
+                  {b.distance}
+                </span>
+              )}
+              {b.duration && (
+                <span className="rounded bg-white/15 px-2 py-0.5 font-heading text-sm font-medium">
+                  {b.duration}
+                </span>
+              )}
+              {b.route && (
+                <span className="rounded bg-white/10 px-2 py-0.5 text-xs text-white/80">
+                  {b.route}
+                  {b.via ? ` · ${b.via}` : ""}
+                </span>
+              )}
+            </div>
+          )}
+          {b.from && b.to && (
+            <a
+              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.from)}&destination=${encodeURIComponent(b.to)}&travelmode=driving`}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+            >
+              <ExternalLink className="h-3 w-3" /> ① {b.from} → ② {b.to} — directions
+            </a>
+          )}
+          {b.links?.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {b.links.map((l) => (
+                <a
+                  key={l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                >
+                  <ExternalLink className="h-3 w-3" /> {l.label}
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
-    </BlockCard>
+    </div>
   );
 }
 
