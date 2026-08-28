@@ -5,6 +5,7 @@ import { useTrip } from "../components/theme";
 import { Badge } from "../components/ui";
 import { BlockGlyph, MetaChips } from "../components/blocks";
 import { formatDay } from "../lib/dates";
+import { expandSectionDays } from "../lib/sections";
 import type { Block, Day, TripSection } from "../lib/types";
 
 function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
@@ -79,7 +80,7 @@ export function ItineraryPage() {
   const sections: { section: TripSection | null; days: { day: Day; idx: number }[] }[] = trip.sections?.length
     ? trip.sections.map((s) => ({
         section: s,
-        days: s.days
+        days: expandSectionDays(s.days)
           .map((idx) => ({ day: trip.days[idx], idx }))
           .filter((d): d is { day: Day; idx: number } => Boolean(d.day)),
       }))

@@ -22,7 +22,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 
       {f.map && all.length >= 2 ? (
         <div className="mt-3 print:hidden">
-          <TripMap places={all.map((l) => l.name)} />
+          <TripMap places={all.map((l) => l.name)} loop />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
-from .maps import build_static_map_url, resolve_places
+from .maps import build_static_map_url, directions_polyline, resolve_places
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_token, seed_from_baked_data
@@ -73,9 +73,13 @@ def maps_key() -> dict:
 
 
 @app.get("/api/maps/static/{token}")
-def maps_static(token: str, places: str = Query(..., description="comma-separated place names")) -> Response:
-    """Static map proxy: builds the URL server-side (key never leaves the backend),
-    so the booklet PDF gets a print-safe map for any set of trip locations."""
+def maps_static(
+    token: str,
+    places: str = Query(..., description="comma-separated place names"),
+    loop: int = Query(0, description="1 = close the loop back to the first place"),
+) -> Response:
+    """Static map proxy: real driving route (Directions API, key stays server-side)
+    rendered as an encoded polyline + numbered markers. Used by the booklet PDF."""
     trip = get_trip_by_token(token)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -84,7 +88,8 @@ def maps_static(token: str, places: str = Query(..., description="comma-separate
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    url = build_static_map_url(resolved, MAPS_KEY)
+    polyline = directions_polyline(resolved, MAPS_KEY, loop=bool(loop))
+    url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop))
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = resp.read()

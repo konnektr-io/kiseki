@@ -4,6 +4,7 @@ import { StaticMapImg } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import { expandSectionDays } from "../lib/sections";
 import type { Day, Feature } from "../lib/types";
 
 function SectionHeading({ title, part }: { title: string; part?: string }) {
@@ -26,7 +27,7 @@ function FeatureBlock({ f }: { f: Feature }) {
 
       {f.map && all.length >= 2 ? (
         <div className="mt-3">
-          <StaticMapImg places={all.map((l) => l.name)} />
+          <StaticMapImg places={all.map((l) => l.name)} loop />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
@@ -132,7 +133,9 @@ export function BookletPage() {
     ? trip.sections.map((s, si) => ({
         title: s.title,
         part: String(si + 1).padStart(2, "0"),
-        days: s.days.map((idx) => ({ day: trip.days[idx], no: idx + 1 })).filter((d) => d.day),
+        days: expandSectionDays(s.days)
+          .map((idx) => ({ day: trip.days[idx], no: idx + 1 }))
+          .filter((d) => d.day),
       }))
     : [{ title: "Itinerary", part: undefined, days: trip.days.map((day, i) => ({ day, no: i + 1 })) }];
 
