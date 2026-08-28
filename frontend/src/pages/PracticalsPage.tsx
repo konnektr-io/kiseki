@@ -1,4 +1,4 @@
-import { ExternalLink, ListChecks, Phone } from "lucide-react";
+import { ExternalLink, ListChecks, Phone, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
 import { Markdown } from "../lib/markdown";
@@ -33,7 +33,12 @@ export function PracticalsPage() {
                 >
                   {t.done && <span className="text-[10px]">✓</span>}
                 </span>
-                <span className={t.done ? "text-muted-foreground line-through" : ""}>{t.label}</span>
+                <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground line-through" : ""}`}>{t.label}</span>
+                {t.when && (
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t.when}
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -58,6 +63,33 @@ export function PracticalsPage() {
                     </a>
                   )}
                 </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {trip.crew.length > 0 && (
+        <Card className="p-5">
+          <p className="kicker mb-3">Group</p>
+          <ul className="space-y-3">
+            {trip.crew.map((p) => (
+              <li key={p.name} className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex aspect-square h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-xs font-semibold text-primary">
+                  {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                </span>
+                <div className="min-w-0">
+                  <p className="font-heading text-sm font-semibold">{p.name}</p>
+                  {p.note && <p className="text-xs text-muted-foreground">{p.note}</p>}
+                  {p.contact && (
+                    <a href={`tel:${p.contact.replace(/\s/g, "")}`} className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
+                      <Phone className="h-3 w-3" /> {p.contact}
+                    </a>
+                  )}
+                </div>
+                <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Users className="h-3 w-3" /> {p.role}
+                </span>
               </li>
             ))}
           </ul>

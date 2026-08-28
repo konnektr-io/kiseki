@@ -1,5 +1,7 @@
 import { useTrip } from "../components/theme";
 import { DayBlocks, BlockGlyph, useLocationMarkers } from "../components/blocks";
+import { StaticMapImg } from "../components/MapView";
+import { locatedPlaces } from "../lib/maps";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import type { Day, Feature } from "../lib/types";
@@ -15,18 +17,24 @@ function SectionHeading({ title, part }: { title: string; part?: string }) {
 
 function FeatureBlock({ f }: { f: Feature }) {
   const marker = useLocationMarkers();
+  const trip = useTrip();
+  const all = locatedPlaces(trip);
   return (
     <div className="mb-5 break-inside-avoid">
       <p className="kicker mb-1">{f.kicker || "Feature"}</p>
       <h3 className="font-heading text-xl font-semibold uppercase tracking-wide text-foreground">{f.title}</h3>
 
-      {f.images && f.images.length > 1 ? (
+      {f.map && all.length >= 2 ? (
+        <div className="mt-3">
+          <StaticMapImg places={all.map((l) => l.name)} />
+        </div>
+      ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           {f.images.map((src) => (
             <img key={src} src={src} alt="" className="h-40 w-full rounded object-cover" />
           ))}
         </div>
-      ) : f.image ? (
+      ) : f.image && !f.map ? (
         <img src={f.image} alt="" className="mt-3 max-h-64 w-full rounded object-cover" />
       ) : null}
 
@@ -138,7 +146,7 @@ export function BookletPage() {
   const coverStats = trip.coverStats?.length ? trip.coverStats : [];
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-3xl print:max-w-none">
       {/* cover — full-bleed page in print */}
       <div className="booklet-cover relative overflow-hidden">
         {trip.cover && <img src={trip.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />}
@@ -151,7 +159,7 @@ export function BookletPage() {
           {trip.subtitle && <p className="mt-3 text-sm font-medium uppercase tracking-wide text-white/80">{trip.subtitle}</p>}
           <div className="mt-5 space-y-1.5">
             {coverStats.map((line, i) => (
-              <p key={i} className="font-heading text-xs font-medium uppercase tracking-[0.18em] text-white/85 md:text-sm">
+              <p key={i} className="font-heading text-xs font-medium tracking-[0.16em] text-white/90 md:text-[13px]">
                 {line}
               </p>
             ))}
@@ -159,14 +167,68 @@ export function BookletPage() {
         </div>
       </div>
 
-      {/* features — centerpiece / road trip / route (no heading, borderless) */}
+      {/* features — one per page, borderless */}
       {trip.features?.length ? (
-        <div className="booklet-section pt-6">
-          {trip.features.map((f, i) => (
-            <FeatureBlock key={i} f={f} />
+        trip.features.map((f, i) => (
+          <div key={i} className={i === 0 ? "pt-6" : "booklet-section"}>
+            <FeatureBlock f={f} />
+          </div>
+        ))
+      ) : null}
+
+      {/* itinerary by section */}
+      {groups.map((g, gi) => (
+        <div key={gi} className="booklet-section">
+          <SectionHeading title={g.title} part={g.part} />
+          {g.days.map(({ day, no }) => (
+            <DayCard key={no} day={day} no={no} />
           ))}
         </div>
-      ) : null}
+      ))}
+
+      {/* bookings & status — booked blocks + everything still to book */}
+      {(bookedBlocks.length > 0 || openTodos.length > 0) && (
+        <div className="booklet-section">
+          <SectionHeading title="Bookings & status" />
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-foreground text-left">
+                <th className="kicker pb-1 pr-3">Day / When</th>
+                <th className="kicker pb-1 pr-3">What</th>
+                <th className="kicker pb-1 pr-3">Status</th>
+                <th className="kicker pb-1">Code / cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bookedBlocks.map(({ dayNo, block }, i) => (
+                <tr key={`b${i}`} className="border-b border-border">
+                  <td className="py-1.5 pr-3 font-heading font-semibold">{dayNo}</td>
+                  <td className="py-1.5 pr-3">
+                    <span className="mr-1.5 inline-flex align-middle">
+                      <BlockGlyph kind={block.kind} />
+                    </span>
+                    {block.title ?? "—"}
+                  </td>
+                  <td className="py-1.5 pr-3 text-xs uppercase tracking-wide">
+                    <span className="font-semibold">{block.status ?? "booked"}</span>
+                  </td>
+                  <td className="py-1.5 font-mono text-xs">
+                    {block.bookingCode ?? ""}{block.cost != null ? ` ${block.cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} ${block.currency ?? ""}` : ""}
+                  </td>
+                </tr>
+              ))}
+              {openTodos.map((t, i) => (
+                <tr key={`t${i}`} className="border-b border-border">
+                  <td className="py-1.5 pr-3 font-heading font-semibold">{t.when ?? "—"}</td>
+                  <td className="py-1.5 pr-3">{t.label}</td>
+                  <td className="py-1.5 pr-3 text-xs uppercase tracking-wide text-muted-foreground">to book</td>
+                  <td className="py-1.5 font-mono text-xs text-muted-foreground">—</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* key info — contacts / dates / group / essentials (booklet 'At a glance') */}
       {(trip.practical.contacts?.length || trip.practical.notes || trip.crew.length > 0) && (
@@ -220,60 +282,6 @@ export function BookletPage() {
               </div>
             )}
           </div>
-        </div>
-      )}
-
-      {/* itinerary by section */}
-      {groups.map((g, gi) => (
-        <div key={gi} className="booklet-section">
-          <SectionHeading title={g.title} part={g.part} />
-          {g.days.map(({ day, no }) => (
-            <DayCard key={no} day={day} no={no} />
-          ))}
-        </div>
-      ))}
-
-      {/* bookings & status — booked blocks + everything still to book */}
-      {(bookedBlocks.length > 0 || openTodos.length > 0) && (
-        <div className="booklet-section">
-          <SectionHeading title="Bookings & status" />
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-foreground text-left">
-                <th className="kicker pb-1 pr-3">Day</th>
-                <th className="kicker pb-1 pr-3">What</th>
-                <th className="kicker pb-1 pr-3">Status</th>
-                <th className="kicker pb-1">Code / cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bookedBlocks.map(({ dayNo, block }, i) => (
-                <tr key={`b${i}`} className="border-b border-border">
-                  <td className="py-1.5 pr-3 font-heading font-semibold">{dayNo}</td>
-                  <td className="py-1.5 pr-3">
-                    <span className="mr-1.5 inline-flex align-middle">
-                      <BlockGlyph kind={block.kind} />
-                    </span>
-                    {block.title ?? "—"}
-                  </td>
-                  <td className="py-1.5 pr-3 text-xs uppercase tracking-wide">
-                    <span className="font-semibold">{block.status ?? "booked"}</span>
-                  </td>
-                  <td className="py-1.5 font-mono text-xs">
-                    {block.bookingCode ?? ""}{block.cost != null ? ` ${block.cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} ${block.currency ?? ""}` : ""}
-                  </td>
-                </tr>
-              ))}
-              {openTodos.map((t, i) => (
-                <tr key={`t${i}`} className="border-b border-border">
-                  <td className="py-1.5 pr-3 font-heading font-semibold">—</td>
-                  <td className="py-1.5 pr-3">{t.label}</td>
-                  <td className="py-1.5 pr-3 text-xs uppercase tracking-wide text-muted-foreground">to book</td>
-                  <td className="py-1.5 font-mono text-xs text-muted-foreground">—</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
     </div>

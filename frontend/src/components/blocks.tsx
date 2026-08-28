@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useTrip } from "./theme";
+import { TripMap } from "./MapView";
 import {
   BedDouble,
   Car,
@@ -104,7 +105,7 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
 
 function BlockCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-border bg-card p-4 shadow-sm ${className}`}>{children}</div>
+    <div className={`booklet-keep rounded-xl border border-border bg-card p-4 shadow-sm ${className}`}>{children}</div>
   );
 }
 
@@ -225,6 +226,11 @@ function TransportBlock({ b }: { b: Block }) {
             <TimeChip time={b.time} />
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
+          {b.from && b.to && (
+            <div className="mt-2.5">
+              <TripMap places={[b.from, b.to]} />
+            </div>
+          )}
           {(b.distance || b.duration || b.route) && (
             <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
               {b.distance && (

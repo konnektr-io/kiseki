@@ -96,29 +96,25 @@ h4 {
 /* ---------- day page swipe animation ---------- */
 @keyframes day-prev {
   from {
-    opacity: 0.4;
-    transform: translateX(-28px);
+    transform: translateX(-32px);
   }
   to {
-    opacity: 1;
     transform: translateX(0);
   }
 }
 @keyframes day-next {
   from {
-    opacity: 0.4;
-    transform: translateX(28px);
+    transform: translateX(32px);
   }
   to {
-    opacity: 1;
     transform: translateX(0);
   }
 }
 .animate-day-prev {
-  animation: day-prev 0.22s ease-out;
+  animation: day-prev 0.2s ease-out;
 }
 .animate-day-next {
-  animation: day-next 0.22s ease-out;
+  animation: day-next 0.2s ease-out;
 }
 
 /* ---------- booklet print (PDF) ---------- */
@@ -150,6 +146,11 @@ h4 {
   }
   body {
     background: white;
+  }
+  /* the SPA layout wrapper must not constrain the booklet — cover bleeds to the page edge */
+  main {
+    max-width: none !important;
+    padding: 0 !important;
   }
   @page {
     size: A4;

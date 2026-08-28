@@ -1,27 +1,122 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarDays, MapPin, Users } from "lucide-react";
+import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card, Separator, StageBadge } from "../components/ui";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import { TripMap } from "../components/MapView";
+import { locatedPlaces } from "../lib/maps";
 import type { Feature } from "../lib/types";
 
 function FeatureCard({ feature: f }: { feature: Feature }) {
+  const trip = useTrip();
+  const [open, setOpen] = useState(false);
+  const all = locatedPlaces(trip);
   return (
     <Card className="overflow-hidden p-5">
       <p className="kicker mb-1">{f.kicker || "Feature"}</p>
       <h3 className="font-heading text-xl font-semibold uppercase leading-tight tracking-wide text-foreground">
         {f.title}
       </h3>
-      {f.image && (
+
+      {f.map && all.length >= 2 ? (
+        <div className="mt-3 print:hidden">
+          <TripMap places={all.map((l) => l.name)} />
+        </div>
+      ) : f.images && f.images.length > 1 ? (
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {f.images.map((src) => (
+            <img key={src} src={src} alt={f.title} className="h-40 w-full rounded-lg border border-border object-cover" />
+          ))}
+        </div>
+      ) : f.image && !f.map ? (
         <img src={f.image} alt={f.title} className="mt-3 max-h-64 w-full rounded-lg border border-border object-cover" />
-      )}
+      ) : null}
+
+      {f.chips?.length ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {f.chips.map((c) => (
+            <span
+              key={c}
+              className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+            >
+              {c}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {f.description && (
         <div className="mt-3 text-sm leading-relaxed md:text-[15px]">
           <Markdown>{f.description}</Markdown>
         </div>
       )}
-      {f.links && f.links.length > 0 && (
+
+      {/* cards: grid on desktop; expandable on mobile (images always shown) */}
+      {f.cards && f.cards.length > 0 && (
+        <>
+          <div className="mt-3 hidden grid-cols-2 gap-3 md:grid md:grid-cols-4">
+            {f.cards.map((c) => (
+              <div key={c.title} className="overflow-hidden rounded-lg border border-border">
+                {c.image && <img src={c.image} alt={c.title} className="h-24 w-full object-cover" />}
+                <div className="p-2.5">
+                  <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
+                  {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
+                  {c.description && <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{c.description}</p>}
+                  {c.links?.map((l) => (
+                    <a
+                      key={l.url}
+                      href={l.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-accent underline underline-offset-2"
+                    >
+                      {l.label}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => setOpen(!open)}
+            className="mt-3 flex w-full items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2.5 md:hidden"
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {open ? "Hide details" : `Show details (${f.cards.length})`}
+            </span>
+            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+          {open && (
+            <div className="mt-2 space-y-2.5 md:hidden">
+              {f.cards.map((c) => (
+                <div key={c.title} className="overflow-hidden rounded-lg border border-border">
+                  {c.image && <img src={c.image} alt={c.title} className="h-28 w-full object-cover" />}
+                  <div className="p-2.5">
+                    <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
+                    {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
+                    {c.description && <p className="mt-1 text-xs leading-snug text-muted-foreground">{c.description}</p>}
+                    {c.links?.map((l) => (
+                      <a
+                        key={l.url}
+                        href={l.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-accent underline underline-offset-2"
+                      >
+                        {l.label}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {f.links?.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {f.links.map((l) => (
             <a
@@ -35,7 +130,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
             </a>
           ))}
         </div>
-      )}
+      ) : null}
     </Card>
   );
 }
@@ -96,11 +191,6 @@ export function OverviewPage() {
             <FeatureCard key={f.title} feature={f} />
           ))}
         </div>
-      )}
-
-      {/* overview map */}
-      {trip.map && (
-        <img src={trip.map} alt="Route overview" className="w-full rounded-xl border border-border shadow-sm" />
       )}
 
       {/* summary */}

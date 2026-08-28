@@ -75,6 +75,13 @@ cd backend && uv run uvicorn app.main:app --port 8000
 - **P0**: images live in `backend/data/assets/<trip>/` — next to the trip data, served by the FastAPI app at `/media/<trip>/<file>`. Reference them in `trip.json` with **relative URLs** (`/media/canada-2027/sths-hero-full.jpg`), never base64. The repo is private, so shipping images in git is fine at this stage.
 - **P1 (graph backend)**: when trip content moves into Konnektr Graph, media moves **out of the repo** into object storage (MinIO on the home cluster, S3-compatible) and the graph stores the **URL as a string field**. Keep every image reference a plain URL in the data model — swapping the media backend then only changes the URL prefix, nothing else. (The `/media` mount disappears; the backend serves or redirects from the bucket.)
 
+## Maps (dynamic + print)
+
+- **Data**: `trip.locations` `[{name, marker?, alias[], lat?, lng?}]` is the single source for ALL maps — marker numbers (① ② …) derive from it (`useLocationMarkers`), and every map renders from its coordinates. No per-trip hardcoding.
+- **Web (JS map)**: `MapView` (Google Maps JS API, key via `GET /api/maps/key`, referrer-restricted to the site) renders numbered markers + polyline for a set of places. Used inside drive cards (`from`/`to` → the exact leg) and the route feature (`"map": true`).
+- **PDF/print**: the SAME places render via `StaticMapImg` → `GET /api/maps/static/<token>?places=A,B` — a server-side proxy that builds the Google Static Maps URL with the key in the backend (never leaks). `TripMap` switches automatically: JS on screen, static in print.
+- Key lives in the `kiseki-maps` k8s secret (`GOOGLE_MAPS_API_KEY`). Absent → maps simply don't render (no crash).
+
 ## Conventions / rules
 
 - **Content-first**: prefer editing `trip.json` over touching code. Code changes → image rebuild (tag → release → CI → home-k8s manifest bump). Content changes → PVC copy only.

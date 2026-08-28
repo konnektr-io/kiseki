@@ -44,9 +44,6 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
 
       {open && (
         <div className="border-t border-border bg-muted/30 p-3">
-          {day.map && (
-            <img src={day.map} alt={`Map — ${day.title}`} className="mb-3 w-full rounded-lg border border-border" />
-          )}
           <div className="mb-3">
             <MetaChips meta={day.meta} />
           </div>

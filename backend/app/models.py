@@ -27,6 +27,7 @@ class Link(BaseModel):
 class TodoItem(BaseModel):
     label: str
     done: bool = False
+    when: Optional[str] = None  # e.g. "Feb 15–16" — shown in checklist + bookings table
 
 
 class MetaItem(BaseModel):
@@ -98,6 +99,7 @@ class Feature(BaseModel):
     images: list[str] = Field(default_factory=list)  # 2-col image layout (centerpiece)
     chips: list[str] = Field(default_factory=list)   # highlight chips (centerpiece)
     cards: list[FeatureCard] = Field(default_factory=list)  # resort/route card grids
+    map: Optional[bool] = None         # render the trip's dynamic map here (JS web / static print)
     links: list[Link] = Field(default_factory=list)
 
 
@@ -121,6 +123,7 @@ class Person(BaseModel):
     name: str
     role: Role = "viewer"
     note: Optional[str] = None
+    contact: Optional[str] = None  # phone/email when available
 
 
 class Practical(BaseModel):

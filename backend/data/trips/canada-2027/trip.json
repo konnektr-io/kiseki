@@ -15,10 +15,10 @@
     "accent": "#0f766e"
   },
   "coverStats": [
-    "16 DAYS · FEB 15 – MAR 2",
-    "NIKO · NICK · STEFAN",
-    "3 HELI DAYS · BELL 212",
-    "4 RESORTS ON THE LOOP"
+    "16 days · Feb 15 – Mar 2",
+    "3 heli days · Bell 212",
+    "4 resorts on the loop",
+    "NIKO · NICK · STEFAN"
   ],
   "locations": [
     { "name": "YYC", "alias": ["Calgary", "Calgary International Airport"], "lat": 51.1215, "lng": -114.0079 },
@@ -94,6 +94,7 @@
     {
       "kicker": "The road trip",
       "title": "One loop, ~847 km",
+      "map": true,
       "image": "/media/canada-2027/map-overview.png",
       "chips": [
         "Total driving: ~847 km · ~9 h 15",
@@ -129,20 +130,19 @@
   ],
   "practical": {
     "todos": [
-      { "label": "STHS deposit paid (35%, $2,964.15 CAD)", "done": true },
-      { "label": "Flights booked — €1,005.81 pp (9GMOL3)", "done": true },
-      { "label": "STHS family room confirmed", "done": true },
-      { "label": "STHS balance due Dec 10, 2026", "done": false },
-      { "label": "Car rental — YYC 4WD SUV, winter tires, ski rack (Feb 15 – Mar 1, ~$100–140/day)", "done": false },
-      { "label": "Insurance: travel + heliski rider + trip cancellation (Acera)", "done": false },
-      { "label": "Book Banff lodging — Banff Inn / Elk + Avenue / HI Banff (Feb 15–16, 2n)", "done": false },
-      { "label": "Book Revelstoke — Northwinds by Basecamp (Feb 17–19, 3n)", "done": false },
-      { "label": "Book Golden — Glacier Mountaineer Lodge (Feb 24–26, 3n)", "done": false },
-      { "label": "Book Lake Louise Inn (Feb 27–28, 2n)", "done": false },
-      { "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)", "done": false },
-      { "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)", "done": false },
-      { "label": "Travel insurance — heliski rider + trip cancellation (Acera)", "done": false },
-      { "label": "eTA visa — 5 min online (~$7 CAD)", "done": false }
+      { "label": "STHS deposit paid (35%, $2,964.15 CAD)", "done": true, "when": "done" },
+      { "label": "Flights booked — €1,005.81 pp (9GMOL3)", "done": true, "when": "Feb 15 out · Mar 1 back" },
+      { "label": "STHS family room confirmed", "done": true, "when": "Feb 20–24" },
+      { "label": "STHS balance due Dec 10, 2026", "done": false, "when": "Dec 10, 2026" },
+      { "label": "Car rental — YYC 4WD SUV, winter tires, ski rack (~$100–140/day)", "done": false, "when": "Feb 15 – Mar 1" },
+      { "label": "Book Banff lodging — Banff Inn / Elk + Avenue / HI Banff (2n)", "done": false, "when": "Feb 15–16" },
+      { "label": "Book Revelstoke — Northwinds by Basecamp (3n)", "done": false, "when": "Feb 17–19" },
+      { "label": "Book Golden — Glacier Mountaineer Lodge (3n)", "done": false, "when": "Feb 24–26" },
+      { "label": "Book Lake Louise Inn (2n)", "done": false, "when": "Feb 27–28" },
+      { "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)", "done": false, "when": "before Dec" },
+      { "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)", "done": false, "when": "Feb 24–26" },
+      { "label": "Travel insurance — heliski rider + trip cancellation (Acera)", "done": false, "when": "before Dec" },
+      { "label": "eTA visa — 5 min online (~$7 CAD)", "done": false, "when": "before Feb" }
     ],
     "links": [
       { "label": "Brussels Airlines cart (booked)", "url": "https://shop.brusselsairlines.com/booking/cart?cartId=1545ALQOS7A9GTON&type=cart&shared=true&origin=BRU&utm_source=sharedcart&utm_medium=referral&consent=true" },
@@ -166,7 +166,6 @@
     {
       "date": "2027-02-15",
       "title": "Fly Brussels → Calgary → Banff",
-      "map": "/media/canada-2027/map-day1.png",
       "meta": [{ "label": "Stay", "value": "Banff town — Banff Inn / Elk + Avenue / HI Banff" }],
       "blocks": [
         {
@@ -207,7 +206,6 @@
     {
       "date": "2027-02-16",
       "title": "Sunshine Village — first turns",
-      "map": "/media/canada-2027/map-day2.png",
       "meta": [
         { "label": "Stay", "value": "Banff" },
         { "label": "Lift", "value": "Ikon (SkiBig3)" }
@@ -232,7 +230,6 @@
     {
       "date": "2027-02-17",
       "title": "Flex day — Sunshine encore or RMR afternoon",
-      "map": "/media/canada-2027/map-day3.png",
       "meta": [
         { "label": "Stay", "value": "Northwinds by Basecamp (3n)" },
         { "label": "Lift", "value": "Ikon (either way)" }
@@ -379,7 +376,6 @@
     {
       "date": "2027-02-24",
       "title": "Check out → drive to Golden → KH afternoon",
-      "map": "/media/canada-2027/map-day10.png",
       "meta": [
         { "label": "Stay", "value": "Glacier Mountaineer Lodge (3n, ski-in/out)" },
         { "label": "Lift", "value": "KH day ticket ~$150–170" }
@@ -439,7 +435,6 @@
     {
       "date": "2027-02-26",
       "title": "Kicking Horse full day — day 2",
-      "map": "/media/canada-2027/map-day12.png",
       "meta": [
         { "label": "Stay", "value": "Glacier Mountaineer, Golden (3n)" },
         { "label": "Lift", "value": "KH day ticket" }
@@ -461,7 +456,6 @@
     {
       "date": "2027-02-27",
       "title": "Drive to Lake Louise → full day",
-      "map": "/media/canada-2027/map-day13.png",
       "meta": [
         { "label": "Stay", "value": "Lake Louise Inn (2n, free resort shuttle)" },
         { "label": "Lift", "value": "Ikon" }
@@ -513,7 +507,6 @@
     {
       "date": "2027-03-01",
       "title": "Flex morning → fly home",
-      "map": "/media/canada-2027/map-day15.png",
       "meta": [
         { "label": "Flight", "value": "YYC 18:05 → BRU 13:35 (Tue)" },
         { "label": "Return car", "value": "YYC" },

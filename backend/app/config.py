@@ -19,6 +19,10 @@ ASSETS_DIR = Path(os.environ.get("KISEKI_ASSETS_DIR", BACKEND_DIR / "data" / "as
 # Built SPA (frontend/dist copied here by the Dockerfile or manually).
 STATIC_DIR = Path(os.environ.get("KISEKI_STATIC_DIR", Path(__file__).resolve().parent / "static"))
 
+# Google Maps — dynamic JS map (served to the private SPA) + static map proxy (PDF/print).
+# Set in the container via the kiseki-maps secret; absent → maps simply don't render.
+MAPS_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+
 # Port the app listens on (used to build the base URL for Playwright).
 # NOTE: deliberately NOT named KISEKI_PORT — Kubernetes injects
 # <SERVICE_NAME>_PORT (e.g. KISEKI_PORT=tcp://10.x.x.x:8000) into pods for a

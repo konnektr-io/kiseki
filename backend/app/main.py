@@ -11,14 +11,16 @@ from __future__ import annotations
 
 import os
 import tempfile
+import urllib.request
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from .config import ASSETS_DIR, LISTEN_PORT, STATIC_DIR
+from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
+from .maps import build_static_map_url, resolve_places
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_token, seed_from_baked_data
@@ -61,6 +63,37 @@ async def booklet_pdf(token: str) -> FileResponse:
         media_type="application/pdf",
         filename=f"{trip.slug}-booklet.pdf",
         background=BackgroundTask(lambda: Path(path).unlink(missing_ok=True)),
+    )
+
+
+@app.get("/api/maps/key")
+def maps_key() -> dict:
+    """JS Maps API key for the private SPA (restrict by referrer in Cloud Console)."""
+    return {"key": MAPS_KEY}
+
+
+@app.get("/api/maps/static/{token}")
+def maps_static(token: str, places: str = Query(..., description="comma-separated place names")) -> Response:
+    """Static map proxy: builds the URL server-side (key never leaves the backend),
+    so the booklet PDF gets a print-safe map for any set of trip locations."""
+    trip = get_trip_by_token(token)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if not MAPS_KEY:
+        raise HTTPException(status_code=404, detail="Maps not configured")
+    resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
+    if len(resolved) < 2:
+        raise HTTPException(status_code=404, detail="Need at least two resolvable places")
+    url = build_static_map_url(resolved, MAPS_KEY)
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            body = resp.read()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Static map fetch failed: {exc}") from exc
+    return Response(
+        content=body,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 

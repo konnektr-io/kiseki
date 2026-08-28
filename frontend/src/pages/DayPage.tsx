@@ -6,7 +6,7 @@ import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 
-type Dir = "left" | "right" | null;
+type Dir = "prev" | "next" | null;
 
 export function DayPage() {
   const trip = useTrip();
@@ -22,30 +22,29 @@ export function DayPage() {
   const prev = i > 0 ? i - 1 : null;
   const next = i < trip.days.length - 1 ? i + 1 : null;
 
-  const go = (target: number | null, d: "left" | "right") => {
-    if (target == null) return;
-    if (target !== i) {
-      setDir(d);
-      setAnimKey(target);
-    }
+  const go = (target: number | null, d: Dir) => {
+    if (target == null || target === i) return;
+    setDir(d);
+    setAnimKey(target);
     navigate(`/t/${trip.token}/day/${target}`);
+    window.scrollTo(0, 0);
   };
 
-  const dayNavBtn = (target: number | null, d: "left" | "right", label: string) => {
+  const dayNavBtn = (target: number | null, d: "prev" | "next", label: string) => {
     if (target == null) return <span className="flex-1" />;
     return (
       <button
         onClick={() => go(target, d)}
         className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-left hover:bg-muted md:px-3"
       >
-        {d === "left" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+        {d === "prev" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium leading-tight">{label}</span>
           <span className="block whitespace-nowrap text-[10px] uppercase tracking-wide text-muted-foreground">
             Day {target + 1} · {formatDay(trip.days[target].date).replace(",", "")}
           </span>
         </span>
-        {d === "right" ? <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+        {d === "next" ? <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
       </button>
     );
   };
@@ -57,14 +56,11 @@ export function DayPage() {
       onTouchEnd={(e) => {
         if (touchX.current == null) return;
         const dx = e.changedTouches[0].clientX - touchX.current;
-        if (Math.abs(dx) > 60) go(dx < 0 ? next : prev, dx < 0 ? "left" : "right");
+        if (Math.abs(dx) > 60) go(dx < 0 ? next : prev, dx < 0 ? "next" : "prev");
         touchX.current = null;
       }}
     >
-      <div
-        key={animKey}
-        className={`space-y-5 ${dir === "right" ? "animate-day-prev" : dir === "left" ? "animate-day-next" : ""}`}
-      >
+      <div key={animKey} className={`space-y-5 ${dir === "prev" ? "animate-day-prev" : dir === "next" ? "animate-day-next" : ""}`}>
         <div>
           <p className="kicker">
             Day {i + 1} of {trip.days.length} · {formatDay(day.date)}
@@ -76,10 +72,6 @@ export function DayPage() {
             <MetaChips meta={day.meta} />
           </div>
         </div>
-
-        {day.map && (
-          <img src={day.map} alt={`Route map — ${day.title}`} className="w-full rounded-xl border border-border shadow-sm" />
-        )}
 
         {day.notes && (
           <div className="rounded-xl border border-border bg-muted/40 p-4">
@@ -96,14 +88,14 @@ export function DayPage() {
       {/* sticky day navigation — always visible, same place */}
       <div className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-1.5 px-3 py-2.5 md:gap-2 md:px-4">
-          {dayNavBtn(prev, "right", trip.days[prev ?? i]?.title ?? "")}
+          {dayNavBtn(prev, "prev", trip.days[prev ?? i]?.title ?? "")}
           <Link
             to={`/t/${trip.token}/itinerary`}
             className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
           >
             <Map className="h-4 w-4" /> <span className="hidden sm:inline">Itinerary</span>
           </Link>
-          {dayNavBtn(next, "left", trip.days[next ?? i]?.title ?? "")}
+          {dayNavBtn(next, "next", trip.days[next ?? i]?.title ?? "")}
         </div>
       </div>
     </div>

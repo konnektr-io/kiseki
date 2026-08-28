@@ -30,6 +30,7 @@ export interface Link {
 export interface TodoItem {
   label: string;
   done: boolean;
+  when?: string;
 }
 
 export interface Block {
@@ -51,6 +52,12 @@ export interface Block {
   via?: string;
   from?: string;
   to?: string;
+}
+
+export interface TodoItem {
+  label: string;
+  done: boolean;
+  when?: string;
 }
 
 export interface MetaItem {
@@ -82,6 +89,7 @@ export interface Feature {
   images?: string[];
   chips?: string[];
   cards?: FeatureCard[];
+  map?: boolean;
   links?: Link[];
 }
 
@@ -114,6 +122,7 @@ export interface Person {
   name: string;
   role: Role;
   note?: string;
+  contact?: string;
 }
 
 export interface Theme {
