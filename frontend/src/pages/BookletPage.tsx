@@ -1,5 +1,5 @@
 import { useTrip } from "../components/theme";
-import { DayBlocks, BlockGlyph } from "../components/blocks";
+import { DayBlocks, BlockGlyph, useLocationMarkers } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import type { Day, Feature } from "../lib/types";
@@ -14,6 +14,7 @@ function SectionHeading({ title, part }: { title: string; part?: string }) {
 }
 
 function FeatureBlock({ f }: { f: Feature }) {
+  const marker = useLocationMarkers();
   return (
     <div className="mb-5 break-inside-avoid">
       <p className="kicker mb-1">{f.kicker || "Feature"}</p>
@@ -45,7 +46,10 @@ function FeatureBlock({ f }: { f: Feature }) {
             <div key={c.title} className="overflow-hidden rounded border border-border">
               {c.image && <img src={c.image} alt="" className="h-24 w-full object-cover" />}
               <div className="p-2.5">
-                <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
+                <p className="font-heading text-sm font-semibold uppercase leading-tight">
+                  {marker(c.title) !== "•" ? `${marker(c.title)} ` : ""}
+                  {c.title}
+                </p>
                 {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
                 {c.description && <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{c.description}</p>}
                 {c.links?.map((l) => (

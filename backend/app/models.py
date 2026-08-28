@@ -107,6 +107,16 @@ class Contact(BaseModel):
     link: Optional[str] = None
 
 
+class Location(BaseModel):
+    """A place on the trip — the source for loop markers AND future map generation.
+    Marker number = position in trip.locations (1-based) unless `marker` is set explicitly."""
+    name: str
+    marker: Optional[int] = None
+    alias: list[str] = Field(default_factory=list)  # e.g. "Hillcrest" → Revelstoke entry
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+
 class Person(BaseModel):
     name: str
     role: Role = "viewer"
@@ -140,6 +150,7 @@ class Trip(BaseModel):
     summary: Optional[str] = None        # markdown
     theme: Theme = Field(default_factory=Theme)
     coverStats: list[str] = Field(default_factory=list)   # cover strip lines, e.g. "16 DAYS · FEB 15 – MAR 2"
+    locations: list[Location] = Field(default_factory=list)  # places: markers + future maps
     stats: list[Stat] = Field(default_factory=list)          # "At a glance" row
     features: list[Feature] = Field(default_factory=list)    # editorial overview cards
     sections: list[TripSection] = Field(default_factory=list)  # itinerary grouping

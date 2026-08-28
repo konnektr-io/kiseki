@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
+import { useTrip } from "./theme";
 import {
   BedDouble,
   Car,
@@ -129,20 +130,32 @@ function TimeChip({ time }: { time?: string }) {
 
 const AIRPORT_CODES = /\b(BRU|FRA|YYC|LHR|SCL|CUZ|LIM|CTS|HND|NRT|KIX|AMS|CDG|MAD)\b/;
 
-// loop markers (booklet: ① YYC · ② Banff · ③ Revelstoke · ④ Golden · ⑤ Lake Louise)
-const MARKERS: Record<string, string> = {
-  YYC: "①",
-  Banff: "②",
-  Revelstoke: "③",
-  Golden: "④",
-  "Lake Louise": "⑤",
-  Hillcrest: "③",
-};
-function marker(place: string) {
-  return MARKERS[place] ?? "•";
+const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"];
+
+/**
+ * Location markers derived from trip.locations — marker number = position in the
+ * array (or the explicit `marker` field). The same location data feeds the future
+ * map generation / Google Maps embed, so markers never need hardcoding per trip.
+ */
+export function useLocationMarkers() {
+  const trip = useTrip();
+  const map = useMemo(() => {
+    const m = new Map<string, number>();
+    (trip.locations ?? []).forEach((loc, i) => {
+      const num = loc.marker ?? i + 1;
+      m.set(loc.name.toLowerCase(), num);
+      (loc.alias ?? []).forEach((a) => m.set(a.toLowerCase(), num));
+    });
+    return m;
+  }, [trip.locations]);
+  return (place: string) => {
+    const n = map.get(place.toLowerCase());
+    return n != null ? (CIRCLED[n - 1] ?? `(${n})`) : "•";
+  };
 }
 
 function TransportBlock({ b }: { b: Block }) {
+  const marker = useLocationMarkers();
   // classify: drives carry distance/duration/route fields → never a flight
   const hasDriveInfo = !!(b.distance || b.duration || b.route || b.via);
   const isFlight =

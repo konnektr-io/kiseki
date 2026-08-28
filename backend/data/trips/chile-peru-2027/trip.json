@@ -13,6 +13,14 @@
     "primary": "#7f1d1d",
     "accent": "#b45309"
   },
+  "locations": [
+    { "name": "Santiago", "lat": -33.4489, "lng": -70.6693 },
+    { "name": "Valle Nevado", "lat": -33.3556, "lng": -70.2593 },
+    { "name": "Sacred Valley", "alias": ["Ollantaytambo", "Urubamba"], "lat": -13.2583, "lng": -72.2634 },
+    { "name": "Machu Picchu", "alias": ["Aguas Calientes"], "lat": -13.1631, "lng": -72.5450 },
+    { "name": "Cusco", "lat": -13.5319, "lng": -71.9675 },
+    { "name": "Lima", "lat": -12.0464, "lng": -77.0428 }
+  ],
   "stats": [
     { "label": "Days", "value": "17" },
     { "label": "Travelers", "value": "3" },

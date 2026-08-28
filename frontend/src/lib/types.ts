@@ -58,6 +58,14 @@ export interface MetaItem {
   value: string;
 }
 
+export interface TripLocation {
+  name: string;
+  marker?: number;
+  alias?: string[];
+  lat?: number;
+  lng?: number;
+}
+
 export interface FeatureCard {
   title: string;
   value?: string;
@@ -134,6 +142,7 @@ export interface Trip {
   summary?: string;
   theme?: Theme;
   coverStats?: string[];
+  locations?: TripLocation[];
   stats?: Stat[];
   features?: Feature[];
   sections?: TripSection[];

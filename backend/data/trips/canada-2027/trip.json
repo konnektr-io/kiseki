@@ -20,6 +20,13 @@
     "3 HELI DAYS · BELL 212",
     "4 RESORTS ON THE LOOP"
   ],
+  "locations": [
+    { "name": "YYC", "alias": ["Calgary", "Calgary International Airport"], "lat": 51.1215, "lng": -114.0079 },
+    { "name": "Banff", "lat": 51.1784, "lng": -115.5708 },
+    { "name": "Revelstoke", "alias": ["Hillcrest", "Coast Hillcrest"], "lat": 50.9981, "lng": -118.1957 },
+    { "name": "Golden", "lat": 51.2920, "lng": -116.9656 },
+    { "name": "Lake Louise", "lat": 51.4254, "lng": -116.1773 }
+  ],
   "stats": [
     { "label": "Days", "value": "16" },
     { "label": "Riders", "value": "3" },
@@ -95,11 +102,11 @@
       ],
       "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**",
       "cards": [
-        { "title": "① YYC", "description": "Fly in & out — Calgary" },
-        { "title": "② Banff", "description": "First turns at Sunshine" },
-        { "title": "③ Revelstoke", "description": "The heli block" },
-        { "title": "④ Golden", "description": "Kicking Horse" },
-        { "title": "⑤ Lake Louise", "description": "Back bowls, big views" }
+        { "title": "YYC", "description": "Fly in & out — Calgary" },
+        { "title": "Banff", "description": "First turns at Sunshine" },
+        { "title": "Revelstoke", "description": "The heli block" },
+        { "title": "Golden", "description": "Kicking Horse" },
+        { "title": "Lake Louise", "description": "Back bowls, big views" }
       ],
       "links": [
         { "label": "open in Google Maps", "url": "https://www.google.com/maps/dir/Calgary+International+Airport,+AB/Banff,+AB/Revelstoke,+BC/Golden,+BC/Lake+Louise,+AB/Calgary+International+Airport,+AB" },
