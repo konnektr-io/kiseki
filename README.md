@@ -33,4 +33,18 @@ Production-like: `pnpm build` → copy `frontend/dist` → `backend/app/static/`
 
 ## Status
 
-Phase 0 — proof: three trips live (Canada 2027 · Chile-Peru 2027 · Japan 2028) at three stages. See `docs/spec.md`.
+**Phase 0 is live (2026-08-28, v0.5.2)** at **kiseki.konnektr.io** — three trips at three stages, booklet-faithful design:
+
+| Trip | Stage | Notes |
+|---|---|---|
+| Canada Heliski 2027 | `booked` | The reference trip — every feature validated against the original booklet |
+| Chile-Peru 2027 | `planned` | Content round next (family trip, Jul 2027) |
+| Japan Campervan 2028 | `idea` | Route skeleton + two missions + open days (rebuilt 2026-08-28) |
+
+**Shipped so far**: booklet typography (Bebas Neue/Oswald/Inter), itinerary sections + expandable days, per-kind block styling (flight/drive/stay), full-bleed cover with stats, features as editorial cards (centerpiece/road trip/route), bookings table with Day/When, Key info, dynamic Google Maps (JS in web + static proxy in PDF, real routes via Directions API, traffic + live drive time), locations-as-data markers, secret-link auth, PDF 12–18 pp per trip.
+
+**Content workflow proven**: trip.json edits → `kubectl cp` to the PVC (no rebuild, no redeploy). Images ship in the image.
+
+**Remaining for Phase 0 close**: Chile-Peru content round (next session), then Phase 0 done. Phase 1+ (Konnektr Graph, events, MinIO media) per spec §11.
+
+See [`AGENTS.md`](AGENTS.md) for the full command surface and the `kiseki-trip-content` skill for the trip-content playbook.

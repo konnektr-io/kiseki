@@ -145,7 +145,15 @@ Nothing elaborate.
 
 ## 11. Phases & milestones
 
-### P0 — Proof: three trips live (next)
+### P0 — Proof: three trips live ✅ (v0.5.2, deployed 2026-08-28)
+
+**Done.** Live at kiseki.konnektr.io: Canada 2027 (booked — the reference), Chile-Peru 2027 (planned), Japan Campervan 2028 (idea). What shipped:
+
+- Booklet-faithful design: Bebas Neue/Oswald/Inter typography, sections grouping days (inclusive ranges), expandable day rows, per-kind block styling (dark flight cards, dark drive cards with Distance/Drive time/Route + directions, STAY kickers).
+- PDF booklet (Playwright, in-container): full-bleed cover with stats strip, features one per page, day cards with real-route static maps, Bookings & status (with Day/When) before Key info. No empty pages.
+- **Dynamic maps from `trip.locations`**: Google Maps JS in the web app (numbered markers, DirectionsRenderer routes, live traffic, live drive-time chip), server-side static-map proxy for the PDF (real routes via Directions API encoded polylines, plain pins — see the `kiseki-trip-content` skill for the styled-marker quirk). Loop maps close back to the start.
+- Content-as-data: trip.json → `kubectl cp` to the PVC, no rebuild. Japan 2028 validated this end-to-end.
+- Secret-link auth (128-bit tokens), stage machine (idea → booked), bookings table mirroring the booklet.
 - [ ] React SPA scaffold (Vite + TS + Tailwind + shadcn/ui), block component set (~10), React Router pages + mobile nav
 - [ ] Node backend: SPA serving + `GET /trips/:id` (token) + PDF booklet (print route + Playwright)
 - [ ] Trip JSON model; convert **Canada 2027** (booked) — the existing booklet HTML/CSS becomes the print stylesheet seed
