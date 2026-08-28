@@ -1,3 +1,11 @@
+@import "@fontsource/bebas-neue";
+@import "@fontsource/oswald/400.css";
+@import "@fontsource/oswald/500.css";
+@import "@fontsource/oswald/600.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
 @import "tailwindcss";
 
 /* Design tokens — per-trip theming injects --trip-* variables at runtime.
@@ -13,7 +21,9 @@
   --color-muted-foreground: var(--trip-muted-fg, #78716c);
   --color-border: var(--trip-border, #e7e5e4);
   --color-card: var(--trip-card, #ffffff);
-  --font-sans: var(--trip-font, ui-sans-serif, system-ui, -apple-system, sans-serif);
+  --font-sans: "Inter", var(--trip-font, ui-sans-serif, system-ui, sans-serif);
+  --font-heading: "Oswald", sans-serif;
+  --font-display: "Bebas Neue", sans-serif;
 }
 
 html,
@@ -26,18 +36,37 @@ body {
   @apply bg-background text-foreground font-sans antialiased;
 }
 
-/* Markdown content */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  letter-spacing: 0.01em;
+}
+
+/* Bebas Neue display titles (like the booklet hero) */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+/* Small uppercase kicker label (like the booklet's kicker class) */
+.kicker {
+  @apply text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground;
+}
+
+/* markdown content */
 .md :is(h1, h2, h3, h4) {
-  @apply mt-4 mb-2 font-semibold;
+  @apply mt-5 mb-2 font-semibold;
 }
 .md h1 {
-  @apply text-xl;
+  @apply text-2xl;
 }
 .md h2 {
-  @apply text-lg;
+  @apply text-xl;
 }
 .md h3 {
-  @apply text-base;
+  @apply text-lg;
 }
 .md p {
   @apply my-2 leading-relaxed;
@@ -64,9 +93,18 @@ body {
   @apply mb-0;
 }
 
-/* Booklet print layout */
-.booklet-day {
+/* ---------- booklet print (PDF) ---------- */
+.booklet-section {
   break-before: page;
+}
+.booklet-section:first-of-type {
+  break-before: auto;
+}
+.booklet-day {
+  break-inside: avoid;
+}
+.booklet-cover {
+  break-after: page;
 }
 @media print {
   .no-print {
@@ -76,6 +114,7 @@ body {
     background: white;
   }
   @page {
-    margin: 14mm;
+    size: A4;
+    margin: 14mm 12mm;
   }
 }

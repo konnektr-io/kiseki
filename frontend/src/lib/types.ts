@@ -51,7 +51,18 @@ export interface Day {
   date: string; // ISO YYYY-MM-DD
   title: string;
   notes?: string;
+  map?: string;
   blocks: Block[];
+}
+
+export interface TripSection {
+  title: string;
+  days: number[];
+}
+
+export interface Stat {
+  label: string;
+  value: string;
 }
 
 export interface Person {
@@ -82,10 +93,13 @@ export interface Trip {
   token: string;
   cover?: string;
   coverCredit?: string;
+  map?: string;
   summary?: string;
   theme?: Theme;
+  stats?: Stat[];
+  sections?: TripSection[];
   crew: Person[];
-  practical: Practical;
+  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string };
   days: Day[];
   updated?: string;
 }

@@ -49,7 +49,19 @@ class Day(BaseModel):
     date: str  # ISO YYYY-MM-DD
     title: str = ""
     notes: Optional[str] = None  # markdown
+    map: Optional[str] = None    # optional map image for this day
     blocks: list[Block] = Field(default_factory=list)
+
+
+class TripSection(BaseModel):
+    """Itinerary grouping (e.g. 'Days 6–9 — the heli block'). days = 0-based day indices."""
+    title: str
+    days: list[int] = Field(default_factory=list)
+
+
+class Stat(BaseModel):
+    label: str
+    value: str
 
 
 class Person(BaseModel):
@@ -80,8 +92,11 @@ class Trip(BaseModel):
     token: str  # the secret share key — it appears in share URLs
     cover: Optional[str] = None          # image URL (absolute or /media/...)
     coverCredit: Optional[str] = None
+    map: Optional[str] = None            # overview route map image
     summary: Optional[str] = None        # markdown
     theme: Theme = Field(default_factory=Theme)
+    stats: list[Stat] = Field(default_factory=list)          # "At a glance" row
+    sections: list[TripSection] = Field(default_factory=list)  # itinerary grouping
     crew: list[Person] = Field(default_factory=list)
     practical: Practical = Field(default_factory=Practical)
     days: list[Day] = Field(default_factory=list)

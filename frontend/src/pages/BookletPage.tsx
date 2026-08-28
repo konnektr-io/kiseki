@@ -1,97 +1,149 @@
 import { useTrip } from "../components/theme";
-import { DayBlocks } from "../components/blocks";
+import { DayBlocks, BlockGlyph } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
-import { formatDay, formatDate } from "../lib/dates";
+import { formatDay } from "../lib/dates";
+import type { Day } from "../lib/types";
 
-/**
- * Print-optimised booklet view (A4). This is what the backend's Playwright
- * PDF endpoint renders — keep it clean and page-break friendly.
- */
+function SectionHeading({ title, part }: { title: string; part?: string }) {
+  return (
+    <div className="mb-4 mt-2 border-b-2 border-foreground pb-2">
+      {part && <p className="kicker mb-1">Part {part}</p>}
+      <h2 className="font-heading text-2xl font-semibold uppercase tracking-wide text-foreground">{title}</h2>
+    </div>
+  );
+}
+
+function DayCard({ day, no }: { day: Day; no: number }) {
+  return (
+    <div className="booklet-day mb-4">
+      <div className="mb-2 flex items-baseline gap-3">
+        <span className="font-display text-3xl leading-none text-primary">{no}</span>
+        <div>
+          <p className="kicker">{formatDay(day.date)}</p>
+          <h3 className="font-heading text-lg font-semibold uppercase leading-tight text-foreground">
+            {day.title || formatDay(day.date)}
+          </h3>
+        </div>
+      </div>
+      {day.map && <img src={day.map} alt="" className="mb-3 w-full rounded border border-border" />}
+      {day.notes && (
+        <div className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          <Markdown>{day.notes}</Markdown>
+        </div>
+      )}
+      <div className="space-y-2">
+        <DayBlocks blocks={day.blocks} />
+      </div>
+    </div>
+  );
+}
+
 export function BookletPage() {
   const trip = useTrip();
 
-  return (
-    <div className="booklet text-sm">
-      {/* Cover-ish header */}
-      <section className="text-center">
-        {trip.cover && (
-          <img src={trip.cover} alt="" className="mb-4 max-h-64 w-full object-cover rounded-lg" />
-        )}
-        <h1 className="text-3xl font-bold">{trip.title}</h1>
-        {trip.subtitle && <p className="mt-1 text-muted-foreground">{trip.subtitle}</p>}
-        <p className="mt-2 text-sm text-muted-foreground">
-          {trip.startDate && trip.endDate
-            ? `${formatDate(trip.startDate)} → ${formatDate(trip.endDate)}`
-            : "Dates TBD"}{" "}
-          · {trip.stage}
-        </p>
-        {trip.crew.length > 0 && (
-          <p className="mt-1 text-muted-foreground">
-            {trip.crew.map((c) => c.name).join(" · ")}
-          </p>
-        )}
-      </section>
+  // group days: use sections when present, else all days
+  const groups = trip.sections?.length
+    ? trip.sections.map((s, si) => ({
+        title: s.title,
+        part: String(si + 1).padStart(2, "0"),
+        days: s.days.map((idx) => ({ day: trip.days[idx], no: idx + 1 })).filter((d) => d.day),
+      }))
+    : [{ title: "Itinerary", part: undefined, days: trip.days.map((day, i) => ({ day, no: i + 1 })) }];
 
+  // bookings & status: every block that is booked or has a booking code
+  const bookings = trip.days.flatMap((day, di) =>
+    day.blocks
+      .filter((b) => b.status === "booked" || b.status === "done" || b.bookingCode)
+      .map((b) => ({ dayNo: di + 1, block: b })),
+  );
+
+  return (
+    <div className="mx-auto max-w-3xl">
+      {/* cover */}
+      <div className="booklet-cover relative overflow-hidden rounded-lg">
+        {trip.cover && <img src={trip.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/50 to-black/30" />
+        <div className="relative flex min-h-[420px] flex-col justify-end p-8">
+          <p className="kicker !text-white/70">Kiseki · trip booklet</p>
+          <h1 className="mt-2 font-display text-6xl uppercase leading-[0.9] text-white">{trip.title}</h1>
+          {trip.subtitle && <p className="mt-3 text-sm font-medium uppercase tracking-wide text-white/80">{trip.subtitle}</p>}
+          <p className="mt-4 text-sm text-white/80">
+            {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}
+            {trip.days.length > 0 && ` · ${trip.days.length} days`} · {trip.crew.length} crew
+          </p>
+        </div>
+      </div>
+
+      {/* at a glance */}
+      {trip.stats?.length ? (
+        <div className="booklet-section">
+          <SectionHeading title="At a glance" />
+          <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
+            {trip.stats.map((s) => (
+              <div key={s.label} className="rounded border border-border p-3 text-center">
+                <p className="font-display text-2xl leading-none">{s.value}</p>
+                <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+              </div>
+            ))}
+          </div>
+          {trip.map && <img src={trip.map} alt="Route overview" className="mt-4 w-full rounded border border-border" />}
+        </div>
+      ) : null}
+
+      {/* summary */}
       {trip.summary && (
-        <section className="mt-6">
-          <h2 className="mb-2 text-lg font-bold">Overview</h2>
-          <Markdown>{trip.summary}</Markdown>
-        </section>
+        <div className="booklet-section">
+          <SectionHeading title="The trip" />
+          <div className="text-[15px] leading-relaxed">
+            <Markdown>{trip.summary}</Markdown>
+          </div>
+        </div>
       )}
 
-      {/* Days */}
-      {trip.days.map((day, idx) => (
-        <section key={day.date} className="booklet-day">
-          <h2 className="mb-1 text-lg font-bold">
-            Day {idx + 1} — {formatDay(day.date)}
-          </h2>
-          {day.title && <p className="mb-2 font-medium">{day.title}</p>}
-          {day.notes && (
-            <div className="mb-3 rounded bg-muted p-3">
-              <Markdown>{day.notes}</Markdown>
-            </div>
-          )}
-          <DayBlocks blocks={day.blocks} />
-        </section>
+      {/* itinerary by section */}
+      {groups.map((g, gi) => (
+        <div key={gi} className="booklet-section">
+          <SectionHeading title={g.title} part={g.part} />
+          {g.days.map(({ day, no }) => (
+            <DayCard key={no} day={day} no={no} />
+          ))}
+        </div>
       ))}
 
-      {/* Practical */}
-      {(trip.practical?.todos?.length ||
-        trip.practical?.links?.length ||
-        trip.practical?.notes) && (
-        <section className="booklet-day">
-          <h2 className="mb-2 text-lg font-bold">Practical</h2>
-          {trip.practical.todos && trip.practical.todos.length > 0 && (
-            <ul className="mb-4 space-y-1">
-              {trip.practical.todos.map((t, i) => (
-                <li key={i} className="flex items-start gap-2">
-                  <span
-                    className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                      t.done ? "border-accent bg-accent text-accent-foreground" : "border-border"
-                    }`}
-                  >
-                    {t.done ? "✓" : ""}
-                  </span>
-                  <span className={t.done ? "text-muted-foreground line-through" : undefined}>
-                    {t.label}
-                  </span>
-                </li>
+      {/* bookings & status */}
+      {bookings.length > 0 && (
+        <div className="booklet-section">
+          <SectionHeading title="Bookings & status" />
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-foreground text-left">
+                <th className="kicker pb-1 pr-3">Day</th>
+                <th className="kicker pb-1 pr-3">What</th>
+                <th className="kicker pb-1 pr-3">Status</th>
+                <th className="kicker pb-1">Code / cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bookings.map(({ dayNo, block }, i) => (
+                <tr key={i} className="border-b border-border">
+                  <td className="py-1.5 pr-3 font-heading font-semibold">{dayNo}</td>
+                  <td className="py-1.5 pr-3">
+                    <span className="mr-1.5 inline-flex align-middle">
+                      <BlockGlyph kind={block.kind} />
+                    </span>
+                    {block.title ?? "—"}
+                  </td>
+                  <td className="py-1.5 pr-3 uppercase tracking-wide text-xs">
+                    <span className={block.status === "booked" || block.status === "done" ? "font-semibold" : ""}>
+                      {block.status ?? "—"}
+                    </span>
+                  </td>
+                  <td className="py-1.5 font-mono text-xs">{block.bookingCode ?? ""}{block.cost != null ? ` ${block.cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} ${block.currency ?? ""}` : ""}</td>
+                </tr>
               ))}
-            </ul>
-          )}
-          {trip.practical.links && trip.practical.links.length > 0 && (
-            <ul className="mb-4 list-disc space-y-1 pl-5">
-              {trip.practical.links.map((l) => (
-                <li key={l.url}>
-                  <a href={l.url} className="underline underline-offset-2">
-                    {l.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          )}
-          {trip.practical.notes && <Markdown>{trip.practical.notes}</Markdown>}
-        </section>
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

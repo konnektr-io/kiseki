@@ -1,59 +1,81 @@
+import type { ReactNode } from "react";
 import {
   BedDouble,
   Car,
+  Check,
+  ChevronRight,
+  Clock,
   CreditCard,
+  ExternalLink,
   Images,
   Link2,
   ListChecks,
   MapPin,
   Plane,
   StickyNote,
-  TrainFront,
   UtensilsCrossed,
-  Clock,
 } from "lucide-react";
 import DOMPurify from "dompurify";
-import { Card, StatusChip } from "./ui";
+import type { Block, BlockKind, BlockStatus } from "../lib/types";
 import { Markdown } from "../lib/markdown";
-import { formatMoney } from "../lib/dates";
-import type { Block, BlockKind, Link, TodoItem } from "../lib/types";
 
-const KIND_ICON: Record<BlockKind, typeof MapPin> = {
-  activity: MapPin,
-  transport: Plane,
-  lodging: BedDouble,
-  meal: UtensilsCrossed,
-  todo: ListChecks,
-  note: StickyNote,
-  gallery: Images,
-  link: Link2,
-  booking: CreditCard,
-  custom: StickyNote,
-};
+/* ---------- shared bits ---------- */
 
-function transportIcon(title?: string) {
-  const t = (title ?? "").toLowerCase();
-  if (t.includes("train") || t.includes("shinkansen") || t.includes("vistadome") || t.includes("rail"))
-    return TrainFront;
-  if (t.includes("car") || t.includes("camper") || t.includes("drive") || t.includes("rental"))
-    return Car;
-  if (t.includes("bus") || t.includes("shuttle")) return TrainFront;
-  return Plane;
+function Kicker({ children }: { children: ReactNode }) {
+  return <p className="kicker">{children}</p>;
 }
 
-function Links({ links }: { links?: Link[] }) {
+const STATUS_LABEL: Record<BlockStatus, string> = {
+  planned: "PLANNED",
+  booked: "BOOKED",
+  done: "DONE",
+};
+
+function StatusChip({ status }: { status?: BlockStatus }) {
+  if (!status) return null;
+  const booked = status === "booked" || status === "done";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+        booked ? "bg-accent text-accent-foreground" : "border border-border text-muted-foreground"
+      }`}
+    >
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function Cost({ cost, currency }: { cost?: number; currency?: string }) {
+  if (cost == null) return null;
+  return (
+    <span className="whitespace-nowrap font-heading text-sm font-medium text-muted-foreground">
+      {cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} {currency}
+    </span>
+  );
+}
+
+function BookingCode({ code }: { code?: string }) {
+  if (!code) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold">
+      <CreditCard className="h-3 w-3" /> {code}
+    </span>
+  );
+}
+
+function Links({ links }: { links?: { label: string; url: string }[] }) {
   if (!links?.length) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-2">
+    <div className="mt-2 flex flex-wrap gap-1.5">
       {links.map((l) => (
         <a
           key={l.url}
           href={l.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium hover:bg-primary/10 hover:border-primary/40"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
         >
-          <Link2 className="h-3 w-3" />
+          <ExternalLink className="h-3 w-3 text-muted-foreground" />
           {l.label}
         </a>
       ))}
@@ -61,142 +83,351 @@ function Links({ links }: { links?: Link[] }) {
   );
 }
 
-function BlockHeader({
-  kind,
-  title,
-  time,
-  status,
-  bookingCode,
-}: {
-  kind: BlockKind;
-  title?: string;
-  time?: string;
-  status?: Block["status"];
-  bookingCode?: string;
-}) {
-  const Icon = kind === "transport" ? transportIcon(title) : KIND_ICON[kind];
+function BlockCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className="flex items-start gap-2">
-      <span className="mt-0.5 shrink-0 rounded-md bg-primary/10 p-1.5 text-primary">
-        <Icon className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        {title && <h3 className="font-semibold leading-tight">{title}</h3>}
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {time && (
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3 w-3" />
-              {time}
-            </span>
+    <div className={`rounded-xl border border-border bg-card p-4 shadow-sm ${className}`}>{children}</div>
+  );
+}
+
+function IconBadge({ icon, tone }: { icon: ReactNode; tone: "muted" | "primary" | "accent" }) {
+  const tones = {
+    muted: "bg-muted text-foreground",
+    primary: "bg-primary/10 text-primary",
+    accent: "bg-accent/10 text-accent",
+  };
+  return <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}>{icon}</span>;
+}
+
+function TimeChip({ time }: { time?: string }) {
+  if (!time) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <Clock className="h-3 w-3" /> {time}
+    </span>
+  );
+}
+
+/* ---------- per-kind renderers ---------- */
+
+const AIRPORT_CODES = /\b(BRU|FRA|YYC|LHR|SCL|CUZ|LIM|CTS|HND|NRT|KIX|AMS|CDG|MAD)\b/;
+
+function TransportBlock({ b }: { b: Block }) {
+  const isFlight =
+    !!b.bookingCode ||
+    AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
+    /(flight|depart|arriv|→)/i.test(`${b.title ?? ""}`);
+  const title = b.title ?? "Transfer";
+  const desc = b.description;
+
+  if (isFlight) {
+    // flight card — dark, like the booklet's flight treatment
+    return (
+      <div className="overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+        <div className="flex items-start gap-3 p-4">
+          <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
+            <Plane className="h-4 w-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
+              <TimeChip time={b.time} />
+            </div>
+            {desc && (
+              <p className="mt-1 text-sm leading-relaxed text-white/80">
+                {desc}
+              </p>
+            )}
+            {(b.bookingCode || b.cost != null) && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <BookingCode code={b.bookingCode} />
+                <Cost cost={b.cost} currency={b.currency} />
+                <StatusChip status={b.status} />
+              </div>
+            )}
+            {b.links?.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {b.links.map((l) => (
+                  <a
+                    key={l.url}
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                  >
+                    <ExternalLink className="h-3 w-3" /> {l.label}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // drive card — light, accent rail
+  return (
+    <BlockCard className="border-l-4 border-l-accent">
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<Car className="h-4 w-4" />} tone="accent" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h4 className="font-heading text-base font-semibold">{title}</h4>
+            <TimeChip time={b.time} />
+          </div>
+          {desc && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{desc}</p>}
+          <Links links={b.links} />
+        </div>
+      </div>
+    </BlockCard>
+  );
+}
+
+function ActivityBlock({ b }: { b: Block }) {
+  return (
+    <BlockCard>
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<MapPin className="h-4 w-4" />} tone="primary" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h4 className="font-heading text-base font-semibold">{b.title ?? "Activity"}</h4>
+            <TimeChip time={b.time} />
+            {b.cost != null && <Cost cost={b.cost} currency={b.currency} />}
+            <StatusChip status={b.status} />
+          </div>
+          {b.description && (
+            <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              <Markdown>{b.description}</Markdown>
+            </div>
           )}
-          <StatusChip status={status} />
-          {bookingCode && (
-            <span className="inline-flex items-center gap-1 font-mono">
-              <CreditCard className="h-3 w-3" /> {bookingCode}
-            </span>
+          <Links links={b.links} />
+        </div>
+      </div>
+    </BlockCard>
+  );
+}
+
+function LodgingBlock({ b }: { b: Block }) {
+  return (
+    <BlockCard>
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<BedDouble className="h-4 w-4" />} tone="muted" />
+        <div className="min-w-0 flex-1">
+          <Kicker>Stay</Kicker>
+          <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
+          {b.description && (
+            <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              <Markdown>{b.description}</Markdown>
+            </div>
+          )}
+          {(b.bookingCode || b.cost != null) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <BookingCode code={b.bookingCode} />
+              <Cost cost={b.cost} currency={b.currency} />
+            </div>
+          )}
+          <Links links={b.links} />
+        </div>
+      </div>
+    </BlockCard>
+  );
+}
+
+function MealBlock({ b }: { b: Block }) {
+  return (
+    <BlockCard>
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<UtensilsCrossed className="h-4 w-4" />} tone="muted" />
+        <div className="min-w-0 flex-1">
+          <Kicker>Eat</Kicker>
+          <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
+          {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
+        </div>
+      </div>
+    </BlockCard>
+  );
+}
+
+function TodoBlock({ b }: { b: Block }) {
+  const items = (b.items ?? []) as { label?: string; done?: boolean }[];
+  return (
+    <BlockCard>
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<ListChecks className="h-4 w-4" />} tone="accent" />
+        <div className="min-w-0 flex-1">
+          <Kicker>To-do</Kicker>
+          {b.title && <h4 className="font-heading text-base font-semibold">{b.title}</h4>}
+          {items.length > 0 && (
+            <ul className="mt-2 space-y-1.5">
+              {items.map((it, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm">
+                  <span
+                    className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+                      it.done ? "bg-accent text-accent-foreground" : "border border-border"
+                    }`}
+                  >
+                    {it.done && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className={it.done ? "text-muted-foreground line-through" : ""}>{it.label}</span>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
-    </div>
+    </BlockCard>
   );
 }
 
-function BlockBody({ block }: { block: Block }) {
-  if (block.description) return <Markdown>{block.description}</Markdown>;
-  return null;
+function NoteBlock({ b }: { b: Block }) {
+  return (
+    <BlockCard className="border-l-4 border-l-primary/40 bg-muted/40">
+      <div className="flex items-start gap-3">
+        <StickyNote className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          {b.title && <h4 className="font-heading text-sm font-semibold">{b.title}</h4>}
+          {b.description && (
+            <div className="text-sm leading-relaxed text-muted-foreground italic">
+              <Markdown>{b.description}</Markdown>
+            </div>
+          )}
+        </div>
+      </div>
+    </BlockCard>
+  );
 }
 
-function TodoBlock({ items }: { items?: string[] | TodoItem[] }) {
-  const todos = (items ?? []) as TodoItem[];
-  if (!todos.length) return null;
-  const done = todos.filter((t) => t.done).length;
+function GalleryBlock({ b }: { b: Block }) {
+  const imgs = (b.items ?? []) as string[];
+  if (!imgs.length) return null;
   return (
-    <div className="mt-2">
-      <p className="text-xs text-muted-foreground">
-        {done}/{todos.length} done
-      </p>
-      <ul className="mt-1 space-y-1">
-        {todos.map((t, i) => (
-          <li key={i} className="flex items-start gap-2 text-sm">
-            <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                t.done ? "border-accent bg-accent text-accent-foreground" : "border-border"
-              }`}
-            >
-              {t.done ? "✓" : ""}
-            </span>
-            <span className={t.done ? "text-muted-foreground line-through" : undefined}>{t.label}</span>
-          </li>
+    <BlockCard className="p-3">
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        {imgs.map((src, i) => (
+          <img key={i} src={src} alt="" loading="lazy" className="h-32 w-full rounded-lg object-cover" />
         ))}
-      </ul>
-    </div>
+      </div>
+    </BlockCard>
   );
 }
 
-function GalleryBlock({ items }: { items?: string[] | TodoItem[] }) {
-  const images = (items ?? []).filter((i): i is string => typeof i === "string");
-  if (!images.length) return null;
+function LinkBlock({ b }: { b: Block }) {
+  if (!b.links?.length) return null;
   return (
-    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-      {images.map((src, i) => (
-        <a key={i} href={src} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg">
-          <img src={src} alt="" loading="lazy" className="h-32 w-full object-cover transition-transform hover:scale-105" />
-        </a>
-      ))}
-    </div>
+    <BlockCard>
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<Link2 className="h-4 w-4" />} tone="muted" />
+        <div className="min-w-0 flex-1">
+          <Kicker>Links</Kicker>
+          <ul className="mt-1 space-y-1">
+            {b.links.map((l) => (
+              <li key={l.url}>
+                <a
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" /> {l.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </BlockCard>
   );
 }
 
-function Cost({ block }: { block: Block }) {
-  const money = formatMoney(block.cost, block.currency);
-  if (!money) return null;
+function BookingBlock({ b }: { b: Block }) {
   return (
-    <p className="mt-2 text-sm font-medium text-accent">
-      {money}
-      {block.status === "booked" ? " · booked" : ""}
-    </p>
+    <BlockCard className="border-accent/40 bg-accent/5">
+      <div className="flex items-start gap-3">
+        <IconBadge icon={<CreditCard className="h-4 w-4" />} tone="accent" />
+        <div className="min-w-0 flex-1">
+          <Kicker>Booking</Kicker>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <h4 className="font-heading text-base font-semibold">{b.title ?? "Booking"}</h4>
+            <StatusChip status={b.status} />
+          </div>
+          {b.description && (
+            <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
+              <Markdown>{b.description}</Markdown>
+            </div>
+          )}
+          {(b.bookingCode || b.cost != null) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <BookingCode code={b.bookingCode} />
+              <Cost cost={b.cost} currency={b.currency} />
+            </div>
+          )}
+          <Links links={b.links} />
+        </div>
+      </div>
+    </BlockCard>
   );
 }
+
+function CustomBlock({ b }: { b: Block }) {
+  if (!b.html) return null;
+  return <div className="md" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(b.html) }} />;
+}
+
+/* ---------- dispatcher ---------- */
 
 export function BlockView({ block }: { block: Block }) {
-  if (block.kind === "custom" && block.html) {
-    return (
-      <Card className="p-4">
-        <div
-          className="md"
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(block.html) }}
-        />
-      </Card>
-    );
+  switch (block.kind) {
+    case "transport":
+      return <TransportBlock b={block} />;
+    case "activity":
+      return <ActivityBlock b={block} />;
+    case "lodging":
+      return <LodgingBlock b={block} />;
+    case "meal":
+      return <MealBlock b={block} />;
+    case "todo":
+      return <TodoBlock b={block} />;
+    case "note":
+      return <NoteBlock b={block} />;
+    case "gallery":
+      return <GalleryBlock b={block} />;
+    case "link":
+      return <LinkBlock b={block} />;
+    case "booking":
+      return <BookingBlock b={block} />;
+    case "custom":
+      return <CustomBlock b={block} />;
+    default:
+      return null;
   }
-
-  return (
-    <Card className="p-4">
-      <BlockHeader kind={block.kind} title={block.title} time={block.time} status={block.status} bookingCode={block.bookingCode} />
-      <BlockBody block={block} />
-      {block.kind === "todo" && <TodoBlock items={block.items} />}
-      {block.kind === "gallery" && <GalleryBlock items={block.items} />}
-      {block.kind === "link" && block.links && <Links links={block.links} />}
-      {block.kind !== "link" && <Links links={block.links} />}
-      <Cost block={block} />
-    </Card>
-  );
 }
 
 export function DayBlocks({ blocks }: { blocks: Block[] }) {
-  if (!blocks.length) {
-    return (
-      <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Nothing planned yet for this day.
-      </p>
-    );
-  }
-  const ordered = [...blocks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  if (!blocks.length)
+    return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
   return (
-    <div className="space-y-3">
-      {ordered.map((b, i) => (
-        <BlockView key={i} block={b} />
-      ))}
+    <div className="space-y-2.5">
+      {[...blocks]
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((b, i) => (
+          <BlockView key={i} block={b} />
+        ))}
     </div>
   );
+}
+
+export function BlockGlyph({ kind }: { kind: BlockKind }) {
+  const icons: Record<BlockKind, ReactNode> = {
+    activity: <MapPin className="h-3.5 w-3.5" />,
+    transport: <Car className="h-3.5 w-3.5" />,
+    lodging: <BedDouble className="h-3.5 w-3.5" />,
+    meal: <UtensilsCrossed className="h-3.5 w-3.5" />,
+    todo: <ListChecks className="h-3.5 w-3.5" />,
+    note: <StickyNote className="h-3.5 w-3.5" />,
+    gallery: <Images className="h-3.5 w-3.5" />,
+    link: <Link2 className="h-3.5 w-3.5" />,
+    booking: <CreditCard className="h-3.5 w-3.5" />,
+    custom: <StickyNote className="h-3.5 w-3.5" />,
+  };
+  return <span className="text-muted-foreground">{icons[kind]}</span>;
 }

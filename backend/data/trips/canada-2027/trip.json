@@ -13,6 +13,22 @@
     "primary": "#1e3a8a",
     "accent": "#0f766e"
   },
+  "map": "/media/canada-2027/map-overview.png",
+  "stats": [
+    { "label": "Days", "value": "16" },
+    { "label": "Riders", "value": "3" },
+    { "label": "Road loop", "value": "~847 km" },
+    { "label": "Ski days", "value": "10.5–11" },
+    { "label": "Heli days", "value": "3" },
+    { "label": "Budget pp", "value": "€9.2–9.8k" }
+  ],
+  "sections": [
+    { "title": "Days 1–2 — arrival & first turns", "days": [0, 1] },
+    { "title": "Days 3–5 — Revelstoke", "days": [2, 4] },
+    { "title": "Days 6–9 — the heli block", "days": [5, 8] },
+    { "title": "Days 10–12 — Kicking Horse", "days": [9, 11] },
+    { "title": "Days 13–16 — Lake Louise & home", "days": [12, 15] }
+  ],
   "crew": [
     { "name": "Niko Raes", "role": "owner", "note": "Snowboarder — brings own board." },
     { "name": "Nick Geelen", "role": "viewer", "note": "Skiier, co-planner — weather-worried after 25-26, reassured by the numbers." },
@@ -51,6 +67,7 @@
     {
       "date": "2027-02-15",
       "title": "Fly BRU → YYC, drive to Banff",
+      "map": "/media/canada-2027/map-day1.png",
       "notes": "12h50 total via Frankfurt, 1h50 layover. Early-afternoon arrival → straight to Banff (1h30 drive), full ski day tomorrow.",
       "blocks": [
         {
@@ -83,6 +100,7 @@
     {
       "date": "2027-02-16",
       "title": "Banff Sunshine — full day",
+      "map": "/media/canada-2027/map-day2.png",
       "notes": "Highest base in western Canada, ~925 cm snow/yr. Delirium Dive expert zone opened early Jan last season — no late-season risk front-loading it.",
       "blocks": [
         {
@@ -102,6 +120,7 @@
     {
       "date": "2027-02-17",
       "title": "Flex — decide on the hill",
+      "map": "/media/canada-2027/map-day3.png",
       "notes": "If Sunshine is riding well: extra half-day + afternoon drive to Revelstoke. Otherwise: morning drive + RMR afternoon leg-shakedown.",
       "blocks": [
         {
@@ -219,6 +238,7 @@
     {
       "date": "2027-02-24",
       "title": "Check-out → Golden, Kicking Horse afternoon",
+      "map": "/media/canada-2027/map-day10.png",
       "notes": "Check-out after breakfast. Drive Revelstoke → Golden (134 km / 1h50) over Rogers Pass — check DriveBC + Avalanche Canada (avalanche-control closures possible). Afternoon at KH is a **buffer — skippable → 2+2**.",
       "blocks": [
         {
@@ -263,6 +283,7 @@
     {
       "date": "2027-02-26",
       "title": "Kicking Horse — full day",
+      "map": "/media/canada-2027/map-day12.png",
       "blocks": [
         {
           "kind": "activity",
@@ -277,6 +298,7 @@
     {
       "date": "2027-02-27",
       "title": "Drive to Lake Louise + full day",
+      "map": "/media/canada-2027/map-day13.png",
       "notes": "Drive Golden → Lake Louise (93 km / 1h20). 4,200 acres, 4 mountain faces, iconic scenery.",
       "blocks": [
         {
@@ -313,6 +335,7 @@
     {
       "date": "2027-03-01",
       "title": "Flex morning → fly home",
+      "map": "/media/canada-2027/map-day15.png",
       "notes": "Either a Lake Louise morning (off the hill by ~11:30) or a relaxed drive with a Banff lunch. Then YYC → BRU.",
       "blocks": [
         {

@@ -13,6 +13,19 @@
     "primary": "#7f1d1d",
     "accent": "#b45309"
   },
+  "stats": [
+    { "label": "Days", "value": "17" },
+    { "label": "Travelers", "value": "3" },
+    { "label": "Ski days", "value": "3–4" },
+    { "label": "Highest point", "value": "4,900 m" },
+    { "label": "UNESCO sites", "value": "2" },
+    { "label": "Budget", "value": "€15–19k" }
+  ],
+  "sections": [
+    { "title": "Days 1–7 — Valle Nevado & the Andes", "days": [0, 6] },
+    { "title": "Days 8–11 — Sacred Valley & Machu Picchu", "days": [7, 10] },
+    { "title": "Days 12–17 — Cusco, rainbow mountains & Lima", "days": [11, 16] }
+  ],
   "crew": [
     { "name": "Niko Raes", "role": "owner", "note": "Snowboarder — rents at Valle Nevado this trip." },
     { "name": "Henri", "role": "viewer", "note": "17 — good skier, blues→blacks (Head Kore 88Ti)." },
