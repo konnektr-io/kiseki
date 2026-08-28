@@ -93,6 +93,34 @@ h4 {
   @apply mb-0;
 }
 
+/* ---------- day page swipe animation ---------- */
+@keyframes day-prev {
+  from {
+    opacity: 0.4;
+    transform: translateX(-28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes day-next {
+  from {
+    opacity: 0.4;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.animate-day-prev {
+  animation: day-prev 0.22s ease-out;
+}
+.animate-day-next {
+  animation: day-next 0.22s ease-out;
+}
+
 /* ---------- booklet print (PDF) ---------- */
 .booklet-section {
   break-before: page;
@@ -105,11 +133,16 @@ h4 {
 .booklet-section h2 {
   break-after: avoid;
 }
-.booklet-day {
+.booklet-day-head {
+  break-after: avoid;
+}
+.booklet-keep {
   break-inside: avoid;
 }
 .booklet-cover {
-  break-after: page;
+  /* the next section's break-before handles the page turn — no break-after here
+     (break-after + break-before stack into a blank page in Chromium) */
+  break-after: auto;
 }
 @media print {
   .no-print {
@@ -121,5 +154,21 @@ h4 {
   @page {
     size: A4;
     margin: 14mm 12mm;
+  }
+  /* full-bleed cover: page 1 has zero margins, the cover fills it exactly */
+  @page :first {
+    margin: 0;
+  }
+  .booklet-cover {
+    height: 297mm;
+    width: 210mm;
+    border-radius: 0;
+  }
+  .booklet-cover img {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
   }
 }

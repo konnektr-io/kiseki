@@ -129,18 +129,34 @@ function TimeChip({ time }: { time?: string }) {
 
 const AIRPORT_CODES = /\b(BRU|FRA|YYC|LHR|SCL|CUZ|LIM|CTS|HND|NRT|KIX|AMS|CDG|MAD)\b/;
 
+// loop markers (booklet: ① YYC · ② Banff · ③ Revelstoke · ④ Golden · ⑤ Lake Louise)
+const MARKERS: Record<string, string> = {
+  YYC: "①",
+  Banff: "②",
+  Revelstoke: "③",
+  Golden: "④",
+  "Lake Louise": "⑤",
+  Hillcrest: "③",
+};
+function marker(place: string) {
+  return MARKERS[place] ?? "•";
+}
+
 function TransportBlock({ b }: { b: Block }) {
+  // classify: drives carry distance/duration/route fields → never a flight
+  const hasDriveInfo = !!(b.distance || b.duration || b.route || b.via);
   const isFlight =
-    !!b.bookingCode ||
-    AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
-    /(flight|depart|arriv|→)/i.test(`${b.title ?? ""}`);
+    !hasDriveInfo &&
+    (!!b.bookingCode ||
+      AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
+      /(flight|depart|arriv)/i.test(`${b.title ?? ""}`));
   const title = b.title ?? "Transfer";
   const desc = b.description;
 
   if (isFlight) {
     // flight card — dark, like the booklet's flight treatment
     return (
-      <div className="overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+      <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
         <div className="flex items-start gap-3 p-4">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Plane className="h-4 w-4" />
@@ -185,7 +201,7 @@ function TransportBlock({ b }: { b: Block }) {
 
   // drive card — dark, like the booklet's drive treatment (distance / time / route / directions)
   return (
-    <div className="overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+    <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
       <div className="flex items-start gap-3 p-4">
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
           <Car className="h-4 w-4" />
@@ -197,22 +213,27 @@ function TransportBlock({ b }: { b: Block }) {
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
           {(b.distance || b.duration || b.route) && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
+            <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
               {b.distance && (
-                <span className="rounded bg-white/15 px-2 py-0.5 font-heading text-sm font-medium">
-                  {b.distance}
-                </span>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Distance</p>
+                  <p className="font-heading text-lg font-semibold leading-tight">{b.distance}</p>
+                </div>
               )}
               {b.duration && (
-                <span className="rounded bg-white/15 px-2 py-0.5 font-heading text-sm font-medium">
-                  {b.duration}
-                </span>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Drive time</p>
+                  <p className="font-heading text-lg font-semibold leading-tight">{b.duration}</p>
+                </div>
               )}
               {b.route && (
-                <span className="rounded bg-white/10 px-2 py-0.5 text-xs text-white/80">
-                  {b.route}
-                  {b.via ? ` · ${b.via}` : ""}
-                </span>
+                <div className="col-span-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Route</p>
+                  <p className="text-sm font-medium">
+                    {b.route}
+                    {b.via ? <span className="text-white/70"> — {b.via}</span> : null}
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -221,9 +242,9 @@ function TransportBlock({ b }: { b: Block }) {
               href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.from)}&destination=${encodeURIComponent(b.to)}&travelmode=driving`}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+              className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
             >
-              <ExternalLink className="h-3 w-3" /> ① {b.from} → ② {b.to} — directions
+              <ExternalLink className="h-3 w-3" /> {marker(b.from)} {b.from} → {marker(b.to)} {b.to} — directions
             </a>
           )}
           {b.links?.length ? (

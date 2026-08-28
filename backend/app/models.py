@@ -80,12 +80,24 @@ class Stat(BaseModel):
     value: str
 
 
+class FeatureCard(BaseModel):
+    """A card inside a feature (resort cards, route markers)."""
+    title: str
+    value: Optional[str] = None      # e.g. "1,070 m vertical"
+    description: Optional[str] = None
+    image: Optional[str] = None
+    links: list[Link] = Field(default_factory=list)
+
+
 class Feature(BaseModel):
     """Editorial overview card (booklet 'centerpiece' / 'road trip' sections)."""
     kicker: str = ""
     title: str
     description: Optional[str] = None  # markdown
     image: Optional[str] = None
+    images: list[str] = Field(default_factory=list)  # 2-col image layout (centerpiece)
+    chips: list[str] = Field(default_factory=list)   # highlight chips (centerpiece)
+    cards: list[FeatureCard] = Field(default_factory=list)  # resort/route card grids
     links: list[Link] = Field(default_factory=list)
 
 
@@ -127,6 +139,7 @@ class Trip(BaseModel):
     map: Optional[str] = None            # overview route map image
     summary: Optional[str] = None        # markdown
     theme: Theme = Field(default_factory=Theme)
+    coverStats: list[str] = Field(default_factory=list)   # cover strip lines, e.g. "16 DAYS · FEB 15 – MAR 2"
     stats: list[Stat] = Field(default_factory=list)          # "At a glance" row
     features: list[Feature] = Field(default_factory=list)    # editorial overview cards
     sections: list[TripSection] = Field(default_factory=list)  # itinerary grouping

@@ -39,7 +39,7 @@ async def render_booklet_pdf(base_url: str, token: str, out_path: Path) -> None:
                 try:
                     page = await browser.new_page()
                     await page.goto(url, wait_until="networkidle", timeout=60_000)
-                    await page.pdf(path=str(out_path), format="A4", print_background=True)
+                    await page.pdf(path=str(out_path), prefer_css_page_size=True, print_background=True)
                 finally:
                     await browser.close()
             return

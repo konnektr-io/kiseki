@@ -58,11 +58,22 @@ export interface MetaItem {
   value: string;
 }
 
+export interface FeatureCard {
+  title: string;
+  value?: string;
+  description?: string;
+  image?: string;
+  links?: Link[];
+}
+
 export interface Feature {
   kicker?: string;
   title: string;
   description?: string;
   image?: string;
+  images?: string[];
+  chips?: string[];
+  cards?: FeatureCard[];
   links?: Link[];
 }
 
@@ -122,6 +133,7 @@ export interface Trip {
   map?: string;
   summary?: string;
   theme?: Theme;
+  coverStats?: string[];
   stats?: Stat[];
   features?: Feature[];
   sections?: TripSection[];

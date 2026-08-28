@@ -14,6 +14,12 @@
     "primary": "#1e3a8a",
     "accent": "#0f766e"
   },
+  "coverStats": [
+    "16 DAYS · FEB 15 – MAR 2",
+    "NIKO · NICK · STEFAN",
+    "3 HELI DAYS · BELL 212",
+    "4 RESORTS ON THE LOOP"
+  ],
   "stats": [
     { "label": "Days", "value": "16" },
     { "label": "Riders", "value": "3" },
@@ -26,31 +32,79 @@
     {
       "kicker": "Centerpiece",
       "title": "Selkirk Tangiers — 3-Day Classic · Bell 212",
-      "image": "/media/canada-2027/sths-heli-3.jpg",
+      "images": [
+        "/media/canada-2027/sths-heli-3.jpg",
+        "/media/canada-2027/sths-lodge-1.jpg"
+      ],
+      "chips": [
+        "Unlimited vertical",
+        "10 guests max",
+        "ACMG guides",
+        "Meals included",
+        "Hotel included",
+        "Airbag + gear"
+      ],
       "description": "The package that makes the trip: three days of unlimited vertical in the Selkirk & Monashee mountains, out of town since 1978, with everything handled.\n\n**9,000 m guaranteed**, unlimited metres included — the Bell 212 takes up to 10 guests (2–3 groups per aircraft), so our group of 3 fits easily with room to spread out.\n\nSki days Sun–Tue (Feb 21–23), check-in Saturday Feb 20, **4 nights at the Coast Hillcrest Hotel, all meals included**. ACMG/IFMGA guides, powder ski & snowboard fleet, avalanche airbags + safety gear, Acera emergency medical cover.\n\n**Price: $8,469 CAD + 5% tax ≈ €5,880 pp** in the Feb window (Jan 31 – Mar 6 rate). Availability confirmed for our dates — 35% deposit secures.",
       "links": [
-        { "label": "View the package", "url": "https://selkirk-tangiers.com/" }
+        { "label": "View the package", "url": "https://selkirk-tangiers.com/heli-skiing/bell-412/" }
       ]
     },
     {
       "kicker": "The road trip",
       "title": "Four resorts on the Powder Highway",
-      "description": "Sunshine first, then the heli at Revelstoke, and two big mountains on the way home. **The Ikon pass covers three of the four**; Kicking Horse is a day ticket. Click a resort for its site.\n\n- **Banff Sunshine** — 1,070 m vertical. Highest ski area in western Canada — best early-season snow odds. First turns of the trip. Best runs: Delirium Dive (usually open by early Jan), Wild West bowls, Standish.\n- **Revelstoke** — 1,713 m vertical. Biggest lift-served vertical in North America. In town = instant access around the heli block. Best runs: North Bowl glades, Ripper chair steeps, Killer Bees.\n- **Kicking Horse** — 1,315 m vertical (#4 NA). Champagne powder, 120+ runs, 45% advanced / 15% expert.\n- **Lake Louise** — 4,200 acres across four mountain faces — one of the great views in skiing.",
-      "links": [
-        { "label": "Sunshine", "url": "https://www.sunshinemountain.com/" },
-        { "label": "Revelstoke", "url": "https://www.revelstokemountainresort.com/" },
-        { "label": "Kicking Horse", "url": "https://kickinghorseresort.com/" },
-        { "label": "Lake Louise", "url": "https://www.skilouise.com/" }
+      "description": "Sunshine first, then the heli at Revelstoke, and two big mountains on the way home. **The Ikon pass covers three of the four**; Kicking Horse is a day ticket. Click a resort for its site.",
+      "cards": [
+        {
+          "title": "Banff Sunshine",
+          "value": "1,070 m vertical",
+          "description": "Highest ski area in western Canada — best early-season snow odds. First turns of the trip. Best runs: Delirium Dive (usually open by early Jan), Wild West bowls, Standish.",
+          "image": "/media/canada-2027/sun-06.jpg",
+          "links": [{ "label": "sunshinevillage.com →", "url": "https://www.sunshinevillage.com/" }]
+        },
+        {
+          "title": "Revelstoke",
+          "value": "1,713 m vertical",
+          "description": "Biggest lift-served vertical in North America. In town = instant access around the heli block. Best runs: North Bowl glades, Ripper chair steeps, Killer Bees.",
+          "image": "/media/canada-2027/sths-heli-1.jpg",
+          "links": [{ "label": "revelstokemountainresort.com →", "url": "https://www.revelstokemountainresort.com/" }]
+        },
+        {
+          "title": "Kicking Horse",
+          "value": "1,315 m vertical · #4 NA",
+          "description": "Champagne powder, 120+ runs, 45% advanced / 15% expert.",
+          "image": "/media/canada-2027/kh-itsaten.jpg",
+          "links": [{ "label": "kickinghorseresort.com →", "url": "https://kickinghorseresort.com/" }]
+        },
+        {
+          "title": "Lake Louise",
+          "value": "4,200 acres",
+          "description": "Four mountain faces — one of the great views in skiing.",
+          "image": "/media/canada-2027/ll-trails.jpg",
+          "links": [{ "label": "skilouise.com →", "url": "https://www.skilouise.com/" }]
+        }
       ]
     },
     {
       "kicker": "The road trip",
       "title": "One loop, ~847 km",
       "image": "/media/canada-2027/map-overview.png",
-      "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**\n\n- **The whole loop: 847 km · ~9 h 15 driving** — all on the Trans-Canada Highway (Hwy 1)\n- **Longest leg: Banff → Revelstoke, 280 km · 3 h 05** (Day 3)\n- Passes: Rogers Pass (Glacier NP) · Kicking Horse Pass · Banff NP — **winter tires mandatory**\n- Markers: ① YYC · ② Banff · ③ Revelstoke · ④ Golden · ⑤ Lake Louise\n- Road conditions: DriveBC — closures & avalanche control",
+      "chips": [
+        "Total driving: ~847 km · ~9 h 15",
+        "Longest leg: Banff → Revelstoke, 280 km · 3 h 05 (Day 3)",
+        "Passes: Rogers Pass · Kicking Horse Pass · Banff NP — winter tires mandatory"
+      ],
+      "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**",
+      "cards": [
+        { "title": "① YYC", "description": "Fly in & out — Calgary" },
+        { "title": "② Banff", "description": "First turns at Sunshine" },
+        { "title": "③ Revelstoke", "description": "The heli block" },
+        { "title": "④ Golden", "description": "Kicking Horse" },
+        { "title": "⑤ Lake Louise", "description": "Back bowls, big views" }
+      ],
       "links": [
-        { "label": "Open in Google Maps", "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Lake+Louise+Alberta&waypoints=Banff+Alberta%7CRevelstoke+BC%7CGolden+BC&travelmode=driving" },
-        { "label": "DriveBC", "url": "https://drivebc.ca/" }
+        { "label": "open in Google Maps", "url": "https://www.google.com/maps/dir/Calgary+International+Airport,+AB/Banff,+AB/Revelstoke,+BC/Golden,+BC/Lake+Louise,+AB/Calgary+International+Airport,+AB" },
+        { "label": "DriveBC", "url": "https://drivebc.ca/" },
+        { "label": "Avalanche Canada", "url": "https://www.avalanche.ca/" }
       ]
     }
   ],
@@ -78,7 +132,9 @@
       { "label": "Book Revelstoke — Northwinds by Basecamp (Feb 17–19, 3n)", "done": false },
       { "label": "Book Golden — Glacier Mountaineer Lodge (Feb 24–26, 3n)", "done": false },
       { "label": "Book Lake Louise Inn (Feb 27–28, 2n)", "done": false },
-      { "label": "Confirm Ikon Base covers RMR + SkiBig3 26/27 (KH not on Ikon)", "done": false },
+      { "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)", "done": false },
+      { "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)", "done": false },
+      { "label": "Travel insurance — heliski rider + trip cancellation (Acera)", "done": false },
       { "label": "eTA visa — 5 min online (~$7 CAD)", "done": false }
     ],
     "links": [
