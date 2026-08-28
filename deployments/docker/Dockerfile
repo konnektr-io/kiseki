@@ -4,7 +4,7 @@ WORKDIR /build
 # pnpm-workspace.yaml carries allowBuilds (esbuild postinstall) — pnpm 11
 # ignores build scripts by default and ERR_PNPM_IGNORED_BUILDS otherwise.
 COPY frontend/package.json frontend/pnpm-lock.yaml* frontend/pnpm-workspace.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@11 && pnpm install --frozen-lockfile
 COPY frontend/ ./
 RUN pnpm build
 
