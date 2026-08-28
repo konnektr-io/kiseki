@@ -47,12 +47,13 @@ cd backend && uv run uvicorn app.main:app --port 8000
 ## Content update (deployed — no rebuild, no redeploy)
 
 1. Edit `backend/data/trips/<slug>/trip.json` in this repo, commit + push (the repo is the versioned source of truth).
-2. Copy to the cluster PVC:
+2. Copy to the cluster PVC (per-file — `kubectl cp <dir>` nests like `cp -r`):
 
    ```bash
    export KUBECONFIG=/opt/data/home/home-k8s/kubeconfig
-   for d in backend/data/trips/*/; do
-     kubectl -n kiseki cp "$d" "kiseki/$(basename "$d"):/data/trips/"
+   POD=$(kubectl get pod -n kiseki -l app.kubernetes.io/name=kiseki -o jsonpath='{.items[0].metadata.name}')
+   for slug in canada-2027 chile-peru-2027 japan-campervan-2028; do
+     kubectl -n kiseki cp backend/data/trips/$slug/trip.json $POD:/data/trips/$slug/trip.json
    done
    ```
 
