@@ -20,4 +20,7 @@ ASSETS_DIR = Path(os.environ.get("KISEKI_ASSETS_DIR", BACKEND_DIR / "data" / "as
 STATIC_DIR = Path(os.environ.get("KISEKI_STATIC_DIR", Path(__file__).resolve().parent / "static"))
 
 # Port the app listens on (used to build the base URL for Playwright).
-PORT = int(os.environ.get("KISEKI_PORT", "8000"))
+# NOTE: deliberately NOT named KISEKI_PORT — Kubernetes injects
+# <SERVICE_NAME>_PORT (e.g. KISEKI_PORT=tcp://10.x.x.x:8000) into pods for a
+# Service named "kiseki", which collides with a plain-number env var.
+LISTEN_PORT = int(os.environ.get("KISEKI_LISTEN_PORT", "8000"))

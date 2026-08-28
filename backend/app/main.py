@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from .config import ASSETS_DIR, PORT, STATIC_DIR
+from .config import ASSETS_DIR, LISTEN_PORT, STATIC_DIR
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_token, seed_from_baked_data
@@ -50,7 +50,7 @@ async def booklet_pdf(token: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="Trip not found")
     fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
-    base_url = f"http://127.0.0.1:{PORT}"
+    base_url = f"http://127.0.0.1:{LISTEN_PORT}"
     try:
         await render_booklet_pdf(base_url, token, Path(path))
     except Exception as exc:
