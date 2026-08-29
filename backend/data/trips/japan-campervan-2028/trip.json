@@ -143,7 +143,7 @@
       "notes": "Day 1 of 10. Land CTS (afternoon), shuttle to the campervan office, pick up the van: 4WD, studless tyres, FF heater. First konbini haul, then a quick drive towards Sapporo.",
       "meta": [{ "label": "Stay", "value": "Van — Sapporo area" }],
       "blocks": [
-        { "kind": "transport", "title": "BRU → New Chitose (CTS)", "description": "Return ~€1,000–1,200. Land afternoon.", "status": "planned", "links": [{ "label": "Flight search", "url": "https://www.google.com/travel/flights" }] },
+        { "kind": "transport", "mode": "flight", "title": "BRU → New Chitose (CTS)", "description": "Return ~€1,000–1,200. Land afternoon.", "status": "planned", "links": [{ "label": "Flight search", "url": "https://www.google.com/travel/flights" }] },
         { "kind": "booking", "title": "Campervan pickup", "description": "Hoshino Powder Belt plan or Campervan Inc. — CTS pickup, shuttle timed to arrival. Book 3–4 months out.", "status": "planned", "links": [{ "label": "Japan C.R.C.", "url": "https://www.japan-crc.com/" }] },
         { "kind": "meal", "title": "First Hokkaido ramen", "description": "Sapporo miso ramen — the city invented it." }
       ]
@@ -233,7 +233,7 @@
       "meta": [{ "label": "Flight", "value": "CTS → BRU (Jan 24/25)" }, { "label": "Return van", "value": "New Chitose" }],
       "blocks": [
         { "kind": "note", "title": "Wrap up", "description": "Return the van clean-ish, dump gear, last onigiri at the konbini. Debrief on the plane: which storm day wins?" },
-        { "kind": "transport", "title": "New Chitose → Brussels", "description": "Return flight. ~€1,000–1,200 total." }
+        { "kind": "transport", "mode": "flight", "title": "New Chitose → Brussels", "description": "Return flight. ~€1,000–1,200 total." }
       ]
     }
   ]

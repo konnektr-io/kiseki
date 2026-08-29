@@ -59,6 +59,7 @@ class Block(BaseModel):
     via: Optional[str] = None          # e.g. "Rogers Pass (Glacier NP)"
     from_: Optional[str] = Field(default=None, alias="from")   # directions origin
     to: Optional[str] = Field(default=None, alias="to")        # directions destination
+    mode: Optional[str] = None         # transport: "flight" | "drive" | "train" | "ferry" (explicit — beats the heuristic)
 
 
 class Day(BaseModel):

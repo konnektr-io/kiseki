@@ -157,13 +157,16 @@ export function useLocationMarkers() {
 
 function TransportBlock({ b }: { b: Block }) {
   const marker = useLocationMarkers();
-  // classify: drives carry distance/duration/route fields → never a flight
+  // classify: explicit `mode` beats the heuristic — e.g. a flight like
+  // "New Chitose → Brussels" has no airport code/booking code, so without
+  // mode it would wrongly render as a drive (car icon)
   const hasDriveInfo = !!(b.distance || b.duration || b.route || b.via);
   const isFlight =
-    !hasDriveInfo &&
-    (!!b.bookingCode ||
-      AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
-      /(flight|depart|arriv)/i.test(`${b.title ?? ""}`));
+    b.mode === "flight" ||
+    (!hasDriveInfo &&
+      (!!b.bookingCode ||
+        AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
+        /(flight|depart|arriv)/i.test(`${b.title ?? ""}`)));
   const title = b.title ?? "Transfer";
   const desc = b.description;
 

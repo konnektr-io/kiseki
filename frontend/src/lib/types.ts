@@ -52,6 +52,7 @@ export interface Block {
   via?: string;
   from?: string;
   to?: string;
+  mode?: "flight" | "drive" | "train" | "ferry";
 }
 
 export interface TodoItem {

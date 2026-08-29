@@ -21,19 +21,65 @@
     "NIKO · NICK · STEFAN"
   ],
   "locations": [
-    { "name": "YYC", "alias": ["Calgary", "Calgary International Airport"], "lat": 51.1215, "lng": -114.0079 },
-    { "name": "Banff", "lat": 51.1784, "lng": -115.5708 },
-    { "name": "Revelstoke", "alias": ["Hillcrest", "Coast Hillcrest"], "lat": 50.9981, "lng": -118.1957 },
-    { "name": "Golden", "lat": 51.2920, "lng": -116.9656 },
-    { "name": "Lake Louise", "lat": 51.4254, "lng": -116.1773 }
+    {
+      "name": "YYC",
+      "alias": [
+        "Calgary",
+        "Calgary International Airport"
+      ],
+      "lat": 51.1215,
+      "lng": -114.0079
+    },
+    {
+      "name": "Banff",
+      "lat": 51.1784,
+      "lng": -115.5708
+    },
+    {
+      "name": "Revelstoke",
+      "alias": [
+        "Hillcrest",
+        "Coast Hillcrest"
+      ],
+      "lat": 50.9981,
+      "lng": -118.1957
+    },
+    {
+      "name": "Golden",
+      "lat": 51.292,
+      "lng": -116.9656
+    },
+    {
+      "name": "Lake Louise",
+      "lat": 51.4254,
+      "lng": -116.1773
+    }
   ],
   "stats": [
-    { "label": "Days", "value": "16" },
-    { "label": "Riders", "value": "3" },
-    { "label": "Road loop", "value": "~847 km" },
-    { "label": "Ski days", "value": "10.5–11" },
-    { "label": "Heli days", "value": "3" },
-    { "label": "Budget pp", "value": "€9.2–9.8k" }
+    {
+      "label": "Days",
+      "value": "16"
+    },
+    {
+      "label": "Riders",
+      "value": "3"
+    },
+    {
+      "label": "Road loop",
+      "value": "~847 km"
+    },
+    {
+      "label": "Ski days",
+      "value": "10.5–11"
+    },
+    {
+      "label": "Heli days",
+      "value": "3"
+    },
+    {
+      "label": "Budget pp",
+      "value": "€9.2–9.8k"
+    }
   ],
   "features": [
     {
@@ -53,7 +99,10 @@
       ],
       "description": "The package that makes the trip: three days of unlimited vertical in the Selkirk & Monashee mountains, out of town since 1978, with everything handled.\n\n**9,000 m guaranteed**, unlimited metres included — the Bell 212 takes up to 10 guests (2–3 groups per aircraft), so our group of 3 fits easily with room to spread out.\n\nSki days Sun–Tue (Feb 21–23), check-in Saturday Feb 20, **4 nights at the Coast Hillcrest Hotel, all meals included**. ACMG/IFMGA guides, powder ski & snowboard fleet, avalanche airbags + safety gear, Acera emergency medical cover.\n\n**Price: $8,469 CAD + 5% tax ≈ €5,880 pp** in the Feb window (Jan 31 – Mar 6 rate). Availability confirmed for our dates — 35% deposit secures.",
       "links": [
-        { "label": "View the package", "url": "https://selkirk-tangiers.com/heli-skiing/bell-412/" }
+        {
+          "label": "View the package",
+          "url": "https://selkirk-tangiers.com/heli-skiing/bell-412/"
+        }
       ]
     },
     {
@@ -66,28 +115,48 @@
           "value": "1,070 m vertical",
           "description": "Highest ski area in western Canada — best early-season snow odds. First turns of the trip. Best runs: Delirium Dive (usually open by early Jan), Wild West bowls, Standish.",
           "image": "/media/canada-2027/sun-06.jpg",
-          "links": [{ "label": "sunshinevillage.com →", "url": "https://www.sunshinevillage.com/" }]
+          "links": [
+            {
+              "label": "sunshinevillage.com →",
+              "url": "https://www.sunshinevillage.com/"
+            }
+          ]
         },
         {
           "title": "Revelstoke",
           "value": "1,713 m vertical",
           "description": "Biggest lift-served vertical in North America. In town = instant access around the heli block. Best runs: North Bowl glades, Ripper chair steeps, Killer Bees.",
           "image": "/media/canada-2027/sths-heli-1.jpg",
-          "links": [{ "label": "revelstokemountainresort.com →", "url": "https://www.revelstokemountainresort.com/" }]
+          "links": [
+            {
+              "label": "revelstokemountainresort.com →",
+              "url": "https://www.revelstokemountainresort.com/"
+            }
+          ]
         },
         {
           "title": "Kicking Horse",
           "value": "1,315 m vertical · #4 NA",
           "description": "Champagne powder, 120+ runs, 45% advanced / 15% expert.",
           "image": "/media/canada-2027/kh-itsaten.jpg",
-          "links": [{ "label": "kickinghorseresort.com →", "url": "https://kickinghorseresort.com/" }]
+          "links": [
+            {
+              "label": "kickinghorseresort.com →",
+              "url": "https://kickinghorseresort.com/"
+            }
+          ]
         },
         {
           "title": "Lake Louise",
           "value": "4,200 acres",
           "description": "Four mountain faces — one of the great views in skiing.",
           "image": "/media/canada-2027/ll-trails.jpg",
-          "links": [{ "label": "skilouise.com →", "url": "https://www.skilouise.com/" }]
+          "links": [
+            {
+              "label": "skilouise.com →",
+              "url": "https://www.skilouise.com/"
+            }
+          ]
         }
       ]
     },
@@ -103,62 +172,217 @@
       ],
       "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**",
       "cards": [
-        { "title": "YYC", "description": "Fly in & out — Calgary" },
-        { "title": "Banff", "description": "First turns at Sunshine" },
-        { "title": "Revelstoke", "description": "The heli block" },
-        { "title": "Golden", "description": "Kicking Horse" },
-        { "title": "Lake Louise", "description": "Back bowls, big views" }
+        {
+          "title": "YYC",
+          "description": "Fly in & out — Calgary"
+        },
+        {
+          "title": "Banff",
+          "description": "First turns at Sunshine"
+        },
+        {
+          "title": "Revelstoke",
+          "description": "The heli block"
+        },
+        {
+          "title": "Golden",
+          "description": "Kicking Horse"
+        },
+        {
+          "title": "Lake Louise",
+          "description": "Back bowls, big views"
+        }
       ],
       "links": [
-        { "label": "open in Google Maps", "url": "https://www.google.com/maps/dir/Calgary+International+Airport,+AB/Banff,+AB/Revelstoke,+BC/Golden,+BC/Lake+Louise,+AB/Calgary+International+Airport,+AB" },
-        { "label": "DriveBC", "url": "https://drivebc.ca/" },
-        { "label": "Avalanche Canada", "url": "https://www.avalanche.ca/" }
+        {
+          "label": "open in Google Maps",
+          "url": "https://www.google.com/maps/dir/Calgary+International+Airport,+AB/Banff,+AB/Revelstoke,+BC/Golden,+BC/Lake+Louise,+AB/Calgary+International+Airport,+AB"
+        },
+        {
+          "label": "DriveBC",
+          "url": "https://drivebc.ca/"
+        },
+        {
+          "label": "Avalanche Canada",
+          "url": "https://www.avalanche.ca/"
+        }
       ]
     }
   ],
   "sections": [
-    { "title": "Days 1–2 — arrival & first turns", "days": [0, 1] },
-    { "title": "Days 3–5 — Revelstoke", "days": [2, 4] },
-    { "title": "Days 6–9 — the heli block", "days": [5, 8] },
-    { "title": "Days 10–12 — Kicking Horse", "days": [9, 11] },
-    { "title": "Days 13–16 — Lake Louise & home", "days": [12, 15] }
+    {
+      "title": "Days 1–2 — arrival & first turns",
+      "days": [
+        0,
+        1
+      ]
+    },
+    {
+      "title": "Days 3–5 — Revelstoke",
+      "days": [
+        2,
+        4
+      ]
+    },
+    {
+      "title": "Days 6–9 — the heli block",
+      "days": [
+        5,
+        8
+      ]
+    },
+    {
+      "title": "Days 10–12 — Kicking Horse",
+      "days": [
+        9,
+        11
+      ]
+    },
+    {
+      "title": "Days 13–16 — Lake Louise & home",
+      "days": [
+        12,
+        15
+      ]
+    }
   ],
   "crew": [
-    { "name": "Niko Raes", "role": "owner", "note": "Board — brings own snowboard." },
-    { "name": "Nick Geelen", "role": "viewer", "note": "Skis — co-planner, weather-worried after 25-26, reassured by the numbers." },
-    { "name": "Stefan De Pauw", "role": "viewer", "note": "Skis — confirmed for Feb 15 departure." }
+    {
+      "name": "Niko Raes",
+      "role": "owner",
+      "note": "Board — brings own snowboard."
+    },
+    {
+      "name": "Nick Geelen",
+      "role": "viewer",
+      "note": "Skis — co-planner, weather-worried after 25-26, reassured by the numbers."
+    },
+    {
+      "name": "Stefan De Pauw",
+      "role": "viewer",
+      "note": "Skis — confirmed for Feb 15 departure."
+    }
   ],
   "practical": {
     "todos": [
-      { "label": "STHS deposit paid (35%, $2,964.15 CAD)", "done": true, "when": "done" },
-      { "label": "Flights booked — €1,005.81 pp (9GMOL3)", "done": true, "when": "Feb 15 out · Mar 1 back" },
-      { "label": "STHS family room confirmed", "done": true, "when": "Feb 20–24" },
-      { "label": "STHS balance due Dec 10, 2026", "done": false, "when": "Dec 10, 2026" },
-      { "label": "Car rental — YYC 4WD SUV, winter tires, ski rack (~$100–140/day)", "done": false, "when": "Feb 15 – Mar 1" },
-      { "label": "Book Banff lodging — Banff Inn / Elk + Avenue / HI Banff (2n)", "done": false, "when": "Feb 15–16" },
-      { "label": "Book Revelstoke — Northwinds by Basecamp (3n)", "done": false, "when": "Feb 17–19" },
-      { "label": "Book Golden — Glacier Mountaineer Lodge (3n)", "done": false, "when": "Feb 24–26" },
-      { "label": "Book Lake Louise Inn (2n)", "done": false, "when": "Feb 27–28" },
-      { "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)", "done": false, "when": "before Dec" },
-      { "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)", "done": false, "when": "Feb 24–26" },
-      { "label": "Travel insurance — heliski rider + trip cancellation (Acera)", "done": false, "when": "before Dec" },
-      { "label": "eTA visa — 5 min online (~$7 CAD)", "done": false, "when": "before Feb" }
+      {
+        "label": "STHS deposit paid (35%, $2,964.15 CAD)",
+        "done": true,
+        "when": "done"
+      },
+      {
+        "label": "Flights booked — €1,005.81 pp (9GMOL3)",
+        "done": true,
+        "when": "Feb 15 out · Mar 1 back"
+      },
+      {
+        "label": "STHS family room confirmed",
+        "done": true,
+        "when": "Feb 20–24"
+      },
+      {
+        "label": "STHS balance due Dec 10, 2026",
+        "done": false,
+        "when": "Dec 10, 2026"
+      },
+      {
+        "label": "Car rental — YYC 4WD SUV, winter tires, ski rack (~$100–140/day)",
+        "done": false,
+        "when": "Feb 15 – Mar 1"
+      },
+      {
+        "label": "Book Banff lodging — Banff Inn / Elk + Avenue / HI Banff (2n)",
+        "done": false,
+        "when": "Feb 15–16"
+      },
+      {
+        "label": "Book Revelstoke — Northwinds by Basecamp (3n)",
+        "done": false,
+        "when": "Feb 17–19"
+      },
+      {
+        "label": "Book Golden — Glacier Mountaineer Lodge (3n)",
+        "done": false,
+        "when": "Feb 24–26"
+      },
+      {
+        "label": "Book Lake Louise Inn (2n)",
+        "done": false,
+        "when": "Feb 27–28"
+      },
+      {
+        "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)",
+        "done": false,
+        "when": "before Dec"
+      },
+      {
+        "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)",
+        "done": false,
+        "when": "Feb 24–26"
+      },
+      {
+        "label": "Travel insurance — heliski rider + trip cancellation (Acera)",
+        "done": false,
+        "when": "before Dec"
+      },
+      {
+        "label": "eTA visa — 5 min online (~$7 CAD)",
+        "done": false,
+        "when": "before Feb"
+      }
     ],
     "links": [
-      { "label": "Brussels Airlines cart (booked)", "url": "https://shop.brusselsairlines.com/booking/cart?cartId=1545ALQOS7A9GTON&type=cart&shared=true&origin=BRU&utm_source=sharedcart&utm_medium=referral&consent=true" },
-      { "label": "Selkirk Tangiers Heli Skiing", "url": "https://selkirk-tangiers.com/" },
-      { "label": "Ikon Pass", "url": "https://www.ikonpass.com/" },
-      { "label": "Revelstoke Mountain Resort", "url": "https://www.revelstokemountainresort.com/" },
-      { "label": "Kicking Horse Mountain Resort", "url": "https://kickinghorseresort.com/" },
-      { "label": "Lake Louise Ski Resort", "url": "https://www.skilouise.com/" },
-      { "label": "Banff Sunshine Village", "url": "https://www.sunshinemountain.com/" },
-      { "label": "DriveBC road conditions", "url": "https://drivebc.ca/" },
-      { "label": "Avalanche Canada", "url": "https://www.avalanche.ca/" }
+      {
+        "label": "Brussels Airlines cart (booked)",
+        "url": "https://shop.brusselsairlines.com/booking/cart?cartId=1545ALQOS7A9GTON&type=cart&shared=true&origin=BRU&utm_source=sharedcart&utm_medium=referral&consent=true"
+      },
+      {
+        "label": "Selkirk Tangiers Heli Skiing",
+        "url": "https://selkirk-tangiers.com/"
+      },
+      {
+        "label": "Ikon Pass",
+        "url": "https://www.ikonpass.com/"
+      },
+      {
+        "label": "Revelstoke Mountain Resort",
+        "url": "https://www.revelstokemountainresort.com/"
+      },
+      {
+        "label": "Kicking Horse Mountain Resort",
+        "url": "https://kickinghorseresort.com/"
+      },
+      {
+        "label": "Lake Louise Ski Resort",
+        "url": "https://www.skilouise.com/"
+      },
+      {
+        "label": "Banff Sunshine Village",
+        "url": "https://www.sunshinemountain.com/"
+      },
+      {
+        "label": "DriveBC road conditions",
+        "url": "https://drivebc.ca/"
+      },
+      {
+        "label": "Avalanche Canada",
+        "url": "https://www.avalanche.ca/"
+      }
     ],
     "contacts": [
-      { "label": "Selkirk Tangiers Heli Skiing", "value": "1-800-663-7080 · 2100 Oak Drive, Revelstoke BC", "link": "https://selkirk-tangiers.com/" },
-      { "label": "Coast Hillcrest Hotel", "value": "2100 Oak Drive, Revelstoke BC (STHS base — same building)" },
-      { "label": "Rental car — YYC", "value": "Budget / Avis / Hertz — book winter tires explicitly" }
+      {
+        "label": "Selkirk Tangiers Heli Skiing",
+        "value": "1-800-663-7080 · 2100 Oak Drive, Revelstoke BC",
+        "link": "https://selkirk-tangiers.com/"
+      },
+      {
+        "label": "Coast Hillcrest Hotel",
+        "value": "2100 Oak Drive, Revelstoke BC (STHS base — same building)"
+      },
+      {
+        "label": "Rental car — YYC",
+        "value": "Budget / Avis / Hertz — book winter tires explicitly"
+      }
     ],
     "notes": "**Essentials** · eTA visa — 5 min online · Winter tires mandatory (Rogers Pass) · snowboard/ski bag flies **free** as the 1×23kg checked bag · Calgary is UTC−7 (8h behind Brussels).\n\n**Money**: group of 3, one family room at the Hillcrest, 2 budget rooms shared 3 ways elsewhere. **STHS balance due Dec 10, 2026** — trip-cancellation insurance strongly recommended (deposit non-refundable, all payments retained <10 weeks out)."
   },
@@ -166,7 +390,12 @@
     {
       "date": "2027-02-15",
       "title": "Fly Brussels → Calgary → Banff",
-      "meta": [{ "label": "Stay", "value": "Banff town — Banff Inn / Elk + Avenue / HI Banff" }],
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Banff town — Banff Inn / Elk + Avenue / HI Banff"
+        }
+      ],
       "blocks": [
         {
           "kind": "transport",
@@ -178,9 +407,16 @@
           "currency": "EUR",
           "bookingCode": "9GMOL3",
           "links": [
-            { "label": "Manage booking", "url": "https://www.brusselsairlines.com/" },
-            { "label": "Check-in", "url": "https://www.brusselsairlines.com/" }
-          ]
+            {
+              "label": "Manage booking",
+              "url": "https://www.brusselsairlines.com/"
+            },
+            {
+              "label": "Check-in",
+              "url": "https://www.brusselsairlines.com/"
+            }
+          ],
+          "mode": "flight"
         },
         {
           "kind": "transport",
@@ -193,7 +429,10 @@
           "from": "YYC",
           "to": "Banff",
           "links": [
-            { "label": "Directions", "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving" }
+            {
+              "label": "Directions",
+              "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving"
+            }
           ]
         },
         {
@@ -207,8 +446,14 @@
       "date": "2027-02-16",
       "title": "Sunshine Village — first turns",
       "meta": [
-        { "label": "Stay", "value": "Banff" },
-        { "label": "Lift", "value": "Ikon (SkiBig3)" }
+        {
+          "label": "Stay",
+          "value": "Banff"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon (SkiBig3)"
+        }
       ],
       "blocks": [
         {
@@ -217,8 +462,14 @@
           "status": "planned",
           "description": "Full day at the highest ski area in western Canada (15 min from Banff). Jet-lag friendly: up early, big bowls, done by 16:00. Still riding well on Wed morning? Day 3 has a half-day encore option.",
           "links": [
-            { "label": "Resort site", "url": "https://www.sunshinemountain.com/" },
-            { "label": "Parking / access", "url": "https://www.sunshinemountain.com/plan-your-visit/getting-here" }
+            {
+              "label": "Resort site",
+              "url": "https://www.sunshinemountain.com/"
+            },
+            {
+              "label": "Parking / access",
+              "url": "https://www.sunshinemountain.com/plan-your-visit/getting-here"
+            }
           ]
         },
         {
@@ -231,8 +482,14 @@
       "date": "2027-02-17",
       "title": "Flex day — Sunshine encore or RMR afternoon",
       "meta": [
-        { "label": "Stay", "value": "Northwinds by Basecamp (3n)" },
-        { "label": "Lift", "value": "Ikon (either way)" }
+        {
+          "label": "Stay",
+          "value": "Northwinds by Basecamp (3n)"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon (either way)"
+        }
       ],
       "blocks": [
         {
@@ -250,8 +507,14 @@
           "from": "Banff",
           "to": "Revelstoke",
           "links": [
-            { "label": "Directions", "url": "https://www.google.com/maps/dir/?api=1&origin=Banff+Alberta&destination=Revelstoke+BC&travelmode=driving" },
-            { "label": "DriveBC", "url": "https://drivebc.ca/" }
+            {
+              "label": "Directions",
+              "url": "https://www.google.com/maps/dir/?api=1&origin=Banff+Alberta&destination=Revelstoke+BC&travelmode=driving"
+            },
+            {
+              "label": "DriveBC",
+              "url": "https://drivebc.ca/"
+            }
           ]
         },
         {
@@ -270,8 +533,14 @@
       "date": "2027-02-18",
       "title": "RMR full day",
       "meta": [
-        { "label": "Stay", "value": "Northwinds, Revelstoke" },
-        { "label": "Lift", "value": "Ikon" }
+        {
+          "label": "Stay",
+          "value": "Northwinds, Revelstoke"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
       ],
       "blocks": [
         {
@@ -280,7 +549,10 @@
           "status": "planned",
           "description": "Biggest lift-served vertical in North America (1,713 m). North Bowl glades, Ripper chair steeps — legs fresh before the heli.",
           "links": [
-            { "label": "Resort site", "url": "https://www.revelstokemountainresort.com/" }
+            {
+              "label": "Resort site",
+              "url": "https://www.revelstokemountainresort.com/"
+            }
           ]
         },
         {
@@ -293,8 +565,14 @@
       "date": "2027-02-19",
       "title": "RMR full day (or rest)",
       "meta": [
-        { "label": "Stay", "value": "Northwinds, Revelstoke" },
-        { "label": "Lift", "value": "Ikon" }
+        {
+          "label": "Stay",
+          "value": "Northwinds, Revelstoke"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
       ],
       "blocks": [
         {
@@ -312,7 +590,12 @@
     {
       "date": "2027-02-20",
       "title": "Rest morning → STHS check-in",
-      "meta": [{ "label": "Stay", "value": "Coast Hillcrest — included" }],
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
       "blocks": [
         {
           "kind": "booking",
@@ -322,7 +605,10 @@
           "status": "booked",
           "bookingCode": "STHS Feb 20–24",
           "links": [
-            { "label": "Selkirk Tangiers", "url": "https://selkirk-tangiers.com/" }
+            {
+              "label": "Selkirk Tangiers",
+              "url": "https://selkirk-tangiers.com/"
+            }
           ]
         },
         {
@@ -335,7 +621,12 @@
     {
       "date": "2027-02-21",
       "title": "HELI DAY 1",
-      "meta": [{ "label": "Stay", "value": "Coast Hillcrest — included" }],
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
       "blocks": [
         {
           "kind": "activity",
@@ -350,7 +641,12 @@
     {
       "date": "2027-02-22",
       "title": "HELI DAY 2",
-      "meta": [{ "label": "Stay", "value": "Coast Hillcrest — included" }],
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
       "blocks": [
         {
           "kind": "activity",
@@ -363,7 +659,12 @@
     {
       "date": "2027-02-23",
       "title": "HELI DAY 3",
-      "meta": [{ "label": "Stay", "value": "Coast Hillcrest — included" }],
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
       "blocks": [
         {
           "kind": "activity",
@@ -377,8 +678,14 @@
       "date": "2027-02-24",
       "title": "Check out → drive to Golden → KH afternoon",
       "meta": [
-        { "label": "Stay", "value": "Glacier Mountaineer Lodge (3n, ski-in/out)" },
-        { "label": "Lift", "value": "KH day ticket ~$150–170" }
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer Lodge (3n, ski-in/out)"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket ~$150–170"
+        }
       ],
       "blocks": [
         {
@@ -391,8 +698,14 @@
           "from": "Hillcrest",
           "to": "Golden",
           "links": [
-            { "label": "Directions", "url": "https://www.google.com/maps/dir/?api=1&origin=Revelstoke+BC&destination=Golden+BC&travelmode=driving" },
-            { "label": "DriveBC", "url": "https://drivebc.ca/" }
+            {
+              "label": "Directions",
+              "url": "https://www.google.com/maps/dir/?api=1&origin=Revelstoke+BC&destination=Golden+BC&travelmode=driving"
+            },
+            {
+              "label": "DriveBC",
+              "url": "https://drivebc.ca/"
+            }
           ]
         },
         {
@@ -401,7 +714,10 @@
           "status": "planned",
           "description": "Champagne powder, 1,315 m vertical. Buffer: if legs say no, skip it and rest in Golden (plan works at 2 + 2).",
           "links": [
-            { "label": "Resort site", "url": "https://kickinghorseresort.com/" }
+            {
+              "label": "Resort site",
+              "url": "https://kickinghorseresort.com/"
+            }
           ]
         },
         {
@@ -415,8 +731,14 @@
       "date": "2027-02-25",
       "title": "Kicking Horse full day",
       "meta": [
-        { "label": "Stay", "value": "Glacier Mountaineer, Golden" },
-        { "label": "Lift", "value": "KH day ticket" }
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer, Golden"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket"
+        }
       ],
       "blocks": [
         {
@@ -427,7 +749,10 @@
           "currency": "CAD",
           "description": "Whitewall, Feuz Bowl, Crystal Bowl — 45% advanced / 15% expert. Ski-in/ski-out from the lodge.",
           "links": [
-            { "label": "Resort site", "url": "https://kickinghorseresort.com/" }
+            {
+              "label": "Resort site",
+              "url": "https://kickinghorseresort.com/"
+            }
           ]
         }
       ]
@@ -436,8 +761,14 @@
       "date": "2027-02-26",
       "title": "Kicking Horse full day — day 2",
       "meta": [
-        { "label": "Stay", "value": "Glacier Mountaineer, Golden (3n)" },
-        { "label": "Lift", "value": "KH day ticket" }
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer, Golden (3n)"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket"
+        }
       ],
       "blocks": [
         {
@@ -448,7 +779,10 @@
           "currency": "CAD",
           "description": "Whitewall, Feuz Bowl, Crystal Bowl — 45% advanced / 15% expert. Champagne powder laps from the gondola, ski-in/ski-out at the lodge.",
           "links": [
-            { "label": "Resort site", "url": "https://kickinghorseresort.com/" }
+            {
+              "label": "Resort site",
+              "url": "https://kickinghorseresort.com/"
+            }
           ]
         }
       ]
@@ -457,8 +791,14 @@
       "date": "2027-02-27",
       "title": "Drive to Lake Louise → full day",
       "meta": [
-        { "label": "Stay", "value": "Lake Louise Inn (2n, free resort shuttle)" },
-        { "label": "Lift", "value": "Ikon" }
+        {
+          "label": "Stay",
+          "value": "Lake Louise Inn (2n, free resort shuttle)"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
       ],
       "blocks": [
         {
@@ -471,8 +811,14 @@
           "from": "Golden",
           "to": "Lake Louise",
           "links": [
-            { "label": "Directions", "url": "https://www.google.com/maps/dir/?api=1&origin=Golden+BC&destination=Lake+Louise+Alberta&travelmode=driving" },
-            { "label": "Resort site", "url": "https://www.skilouise.com/" }
+            {
+              "label": "Directions",
+              "url": "https://www.google.com/maps/dir/?api=1&origin=Golden+BC&destination=Lake+Louise+Alberta&travelmode=driving"
+            },
+            {
+              "label": "Resort site",
+              "url": "https://www.skilouise.com/"
+            }
           ]
         },
         {
@@ -492,8 +838,14 @@
       "date": "2027-02-28",
       "title": "Lake Louise full day — back bowls",
       "meta": [
-        { "label": "Stay", "value": "Lake Louise Inn" },
-        { "label": "Lift", "value": "Ikon" }
+        {
+          "label": "Stay",
+          "value": "Lake Louise Inn"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
       ],
       "blocks": [
         {
@@ -508,9 +860,18 @@
       "date": "2027-03-01",
       "title": "Flex morning → fly home",
       "meta": [
-        { "label": "Flight", "value": "YYC 18:05 → BRU 13:35 (Tue)" },
-        { "label": "Return car", "value": "YYC" },
-        { "label": "Day 16", "value": "Tue Mar 2, arrival" }
+        {
+          "label": "Flight",
+          "value": "YYC 18:05 → BRU 13:35 (Tue)"
+        },
+        {
+          "label": "Return car",
+          "value": "YYC"
+        },
+        {
+          "label": "Day 16",
+          "value": "Tue Mar 2, arrival"
+        }
       ],
       "blocks": [
         {
@@ -528,8 +889,14 @@
           "from": "Lake Louise",
           "to": "YYC",
           "links": [
-            { "label": "Directions", "url": "https://www.google.com/maps/dir/?api=1&origin=Lake+Louise+Alberta&destination=Calgary+International+Airport&travelmode=driving" },
-            { "label": "DriveBC", "url": "https://drivebc.ca/" }
+            {
+              "label": "Directions",
+              "url": "https://www.google.com/maps/dir/?api=1&origin=Lake+Louise+Alberta&destination=Calgary+International+Airport&travelmode=driving"
+            },
+            {
+              "label": "DriveBC",
+              "url": "https://drivebc.ca/"
+            }
           ]
         },
         {
@@ -539,9 +906,16 @@
           "status": "booked",
           "bookingCode": "9GMOL3",
           "links": [
-            { "label": "Manage booking", "url": "https://www.brusselsairlines.com/" },
-            { "label": "Check-in", "url": "https://www.brusselsairlines.com/" }
-          ]
+            {
+              "label": "Manage booking",
+              "url": "https://www.brusselsairlines.com/"
+            },
+            {
+              "label": "Check-in",
+              "url": "https://www.brusselsairlines.com/"
+            }
+          ],
+          "mode": "flight"
         }
       ]
     },
