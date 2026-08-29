@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
-import { CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
+import { ArrowLeft, CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
 import { fetchTrip, bookletUrl } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
@@ -90,12 +90,16 @@ export function TripLayout() {
   return (
     <TripProvider trip={trip}>
       <div style={tripStyle(trip)} className="min-h-full">
-        {/* Header */}
+        {/* Header — content focus: just a back button, no brand chrome */}
         <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-            <Link to="/" className="flex shrink-0 items-center gap-2">
-              <img src="/logo-mark.png" alt="" className="h-6 w-6 rounded-md" />
-              <span className="hidden font-heading text-sm font-semibold tracking-wide sm:inline">Kiseki</span>
+            <Link
+              to="/"
+              title="All trips"
+              aria-label="Back to all trips"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
             </Link>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
