@@ -86,7 +86,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
               origin: a,
               destination: b,
               travelMode: "DRIVING",
-              drivingOptions: { departureTime: new Date(), trafficModel: "best_guess" },
+              // NOTE: trafficModel is NOT accepted by DirectionsService in the
+              // current API (throws InvalidValueError → no route ever renders).
+              // departureTime alone still returns duration_in_traffic.
+              drivingOptions: { departureTime: new Date() },
             },
             (result: any, status: string) => {
               if (cancelled) return;
