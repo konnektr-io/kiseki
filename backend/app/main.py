@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
-from .maps import build_static_map_url, directions_polyline, resolve_places
+from .maps import build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_token, seed_from_baked_data
@@ -88,10 +88,17 @@ def maps_static(
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    polyline = directions_polyline(resolved, MAPS_KEY, loop=bool(loop))
     # route color = trip theme (theme.primary is a hex like #1e3a8a → 0x1e3a8a)
     path_color = "0x" + (trip.theme.primary or "1e3a8a").lstrip("#")
-    url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop), path_color=path_color)
+    # Primary: one combined route (origin→waypoints→dest; loop = origin==dest) —
+    # compact URL, renders fully with RAW pipes + enc LAST (verified). Fallback:
+    # per-leg paths (short calls, straight lines for non-drive legs) — also the
+    # future mixed-transport shape.
+    polyline = directions_polyline(resolved, MAPS_KEY, loop=bool(loop))
+    if polyline:
+        url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop), path_color=path_color)
+    else:
+        url = build_static_map_url_legs(resolved, MAPS_KEY, loop=bool(loop), path_color=path_color)
     try:
         with urllib.request.urlopen(url, timeout=10) as resp:
             body = resp.read()

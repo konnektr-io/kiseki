@@ -27,6 +27,15 @@ def _enc(s: str) -> str:
     return urllib.parse.quote(s, safe=_PIPE_SAFE)
 
 
+# NOTE (verified 2026-08-28, the hard way): with Niko's key, Google's static-map
+# path parser renders the route ONLY when the enc polyline is passed RAW (pipes
+# and all). Percent-encoding the pipes (%7C) or double-encoding drops the whole
+# path silently (map renders with pins but no route). Also: enc: must be the LAST
+# element of a path parameter — a second styled segment after it (e.g. a white
+# "casing") breaks the render. And URLs must stay under ~8192 chars (hard 400
+# beyond that) — long multi-leg routes should be split into per-leg path params.
+
+
 def resolve_places(trip, places: list[str]) -> list[tuple[str, float, float]]:
     """Resolve place names/aliases to (name, lat, lng) via trip.locations.
 
@@ -100,14 +109,14 @@ def build_static_map_url(
         raise ValueError("no places")
     markers = "|".join(f"{lat:.6f},{lng:.6f}" for _, lat, lng in places)
     if polyline:
-        enc = f"enc:{polyline}"
+        enc = "enc:" + polyline  # raw — encoding the pipes breaks the render (see note)
     else:
         pts = [f"{lat:.6f},{lng:.6f}" for _, lat, lng in places]
         if loop:
             pts.append(pts[0])
         enc = "|".join(pts)
-    # white casing + theme-colored line = readable route on any basemap
-    path = f"color:0xFFFFFF|weight:7|{enc}|color:{path_color}|weight:4|{enc}"
+    # single styled segment, enc LAST — weight 5 keeps the route readable on terrain
+    path = f"color:{path_color}|weight:5|{enc}"
     q = [
         "size=" + size,
         "scale=" + str(scale),
@@ -117,3 +126,45 @@ def build_static_map_url(
         "key=" + urllib.parse.quote(key, safe=""),
     ]
     return "https://maps.googleapis.com/maps/api/staticmap?" + "&".join(q)
+
+
+def build_static_map_url_legs(
+    places: list[tuple[str, float, float]],
+    key: str,
+    *,
+    size: str = "640x400",
+    scale: int = 2,
+    maptype: str = "terrain",
+    path_color: str = "0x1e3a8a",
+    loop: bool = False,
+) -> str:
+    """Per-leg static map: one path parameter per consecutive pair (loop closes).
+
+    Used as a fallback when the combined route fails, and the shape that supports
+    mixed transport later (each leg its own directions call; non-drive legs are
+    skipped or drawn as straight lines).
+    """
+    pairs = [(places[i], places[i + 1]) for i in range(len(places) - 1)]
+    if loop:
+        pairs.append((places[-1], places[0]))
+    q = ["size=" + size, "scale=" + str(scale), "maptype=" + maptype]
+    for a, b in pairs:
+        poly = directions_polyline([a, b], key)
+        if poly:
+            q.append("path=" + _enc(f"color:{path_color}|weight:5|enc:{poly}"))
+        else:
+            # straight-line fallback for that leg (e.g. a flight)
+            q.append("path=" + _enc(f"color:{path_color}|weight:3|{a[1]:.6f},{a[2]:.6f}|{b[1]:.6f},{b[2]:.6f}"))
+    q.append("markers=" + _enc("|".join(f"{lat:.6f},{lng:.6f}" for _, lat, lng in places)))
+    q.append("key=" + urllib.parse.quote(key, safe=""))
+    return "https://maps.googleapis.com/maps/api/staticmap?" + "&".join(q)
+
+
+if __name__ == "__main__":
+    # smoke test: python app/maps.py <key>
+    import sys
+
+    key = sys.argv[1]
+    places = [("YYC", 51.1215, -114.0079), ("Banff", 51.1784, -115.5708)]
+    print(build_static_map_url(places, key)[:160])
+    print(build_static_map_url_legs(places, key)[:160])

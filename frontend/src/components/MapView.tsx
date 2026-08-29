@@ -71,51 +71,51 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         traffic = new maps.TrafficLayer();
         traffic.setMap(map);
 
-        // real driving route + live drive time via DirectionsService.
-        // NOTE: the JS API rejects origin == destination (ZERO_RESULTS), so a
-        // closed loop is drawn as two requests: 1→last via waypoints, then last→1.
+        // Real driving routes: one Directions request PER LEG (consecutive pairs;
+        // the loop closes back to the start). Per-leg keeps each request simple
+        // (no origin==destination quirk) and lets future mixed transport draw
+        // dashed straight lines for flight/ferry legs that have no road route.
         const dirService = new maps.DirectionsService();
-        const renderRoute = (origin: any, destination: any, waypoints: any[], legOnly = false) => {
+        const pairs: { a: any; b: any }[] = [];
+        for (let i = 0; i < coords.length - 1; i++) pairs.push({ a: coords[i], b: coords[i + 1] });
+        if (loop && coords.length >= 2) pairs.push({ a: coords[coords.length - 1], b: coords[0] });
+
+        for (const { a, b } of pairs) {
           dirService.route(
             {
-              origin,
-              destination,
-              waypoints,
+              origin: a,
+              destination: b,
               travelMode: "DRIVING",
               drivingOptions: { departureTime: new Date(), trafficModel: "best_guess" },
             },
             (result: any, status: string) => {
-              if (cancelled || status !== "OK" || !result?.routes?.length) return;
-              const renderer = new maps.DirectionsRenderer({
-                map,
-                suppressMarkers: true,
-                polylineOptions: { strokeColor: "#1e3a8a", strokeWeight: 5, strokeOpacity: 0.95 },
-              });
-              renderer.setDirections(result);
-              renderers.push(renderer);
-              if (legOnly && showLiveTime) {
-                const leg = result.routes[0].legs[0];
-                const dur = leg?.duration_in_traffic?.text ?? leg?.duration?.text;
-                if (dur) setLiveTime(dur);
+              if (cancelled) return;
+              if (status === "OK" && result?.routes?.length) {
+                const renderer = new maps.DirectionsRenderer({
+                  map,
+                  suppressMarkers: true,
+                  polylineOptions: { strokeColor: "#1e3a8a", strokeWeight: 5, strokeOpacity: 0.95 },
+                });
+                renderer.setDirections(result);
+                renderers.push(renderer);
+                if (pairs.length === 1 && showLiveTime) {
+                  const leg = result.routes[0].legs[0];
+                  const dur = leg?.duration_in_traffic?.text ?? leg?.duration?.text;
+                  if (dur) setLiveTime(dur);
+                }
+              } else {
+                // no road route (future flight/ferry leg) → dashed straight line
+                const line = new maps.Polyline({
+                  map,
+                  path: [a, b],
+                  strokeColor: "#94a3b8",
+                  strokeWeight: 2.5,
+                  strokeOpacity: 0.9,
+                  strokeDasharray: "6 8",
+                });
+                renderers.push(line);
               }
             },
-          );
-        };
-        if (loop && coords.length >= 3) {
-          renderRoute(
-            coords[0],
-            coords[coords.length - 1],
-            coords.slice(1, -1).map((c) => ({ location: c })),
-          );
-          renderRoute(coords[coords.length - 1], coords[0], []);
-        } else {
-          const origin = coords[0];
-          const destination = coords[coords.length - 1];
-          renderRoute(
-            origin,
-            destination,
-            coords.slice(1, -1).map((c) => ({ location: c })),
-            true,
           );
         }
 
