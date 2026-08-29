@@ -28,6 +28,7 @@ class TodoItem(BaseModel):
     label: str
     done: bool = False
     when: Optional[str] = None  # e.g. "Feb 15–16" — shown in checklist + bookings table
+    links: list[Link] = Field(default_factory=list)  # booking links — rendered in the checklist
 
 
 class MetaItem(BaseModel):
@@ -60,6 +61,8 @@ class Block(BaseModel):
     from_: Optional[str] = Field(default=None, alias="from")   # directions origin
     to: Optional[str] = Field(default=None, alias="to")        # directions destination
     mode: Optional[str] = None         # transport: "flight" | "drive" | "train" | "ferry" (explicit — beats the heuristic)
+    location: Optional[str] = None     # place name/alias → auto Google Maps link + map thumbnail
+    images: list[str] = Field(default_factory=list)  # card media strip (asset URLs)
 
 
 class Day(BaseModel):

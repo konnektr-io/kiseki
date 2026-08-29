@@ -33,7 +33,25 @@ export function PracticalsPage() {
                 >
                   {t.done && <span className="text-[10px]">✓</span>}
                 </span>
-                <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground line-through" : ""}`}>{t.label}</span>
+                <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground line-through" : ""}`}>
+                  {t.label}
+                  {t.links?.length ? (
+                    <span className="mt-1 flex flex-wrap gap-1.5">
+                      {t.links.map((l) => (
+                        <a
+                          key={l.url}
+                          href={l.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {l.label}
+                        </a>
+                      ))}
+                    </span>
+                  ) : null}
+                </span>
                 {t.when && (
                   <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     {t.when}

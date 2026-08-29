@@ -8,10 +8,11 @@ export function findLocation(trip: Trip, name: string): TripLocation | undefined
   );
 }
 
-/** Static map proxy URL for a set of places (server adds the key + real route). */
+/** Static map proxy URL for a set of places (server adds the key + real route).
+ *  A single place renders as a centered pin map (hotel/restaurant thumbnails). */
 export function staticMapUrl(trip: Trip, places: string[], loop = false): string | null {
   const resolvable = places.filter((p) => findLocation(trip, p));
-  if (resolvable.length < 2) return null;
+  if (resolvable.length < 1) return null;
   return `/api/maps/static/${trip.token}?places=${encodeURIComponent(resolvable.join(","))}${loop ? "&loop=1" : ""}`;
 }
 

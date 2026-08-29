@@ -223,7 +223,14 @@ export function BookletPage() {
               {openTodos.map((t, i) => (
                 <tr key={`t${i}`} className="border-b border-border">
                   <td className="py-1.5 pr-3 font-heading font-semibold">{t.when ?? "—"}</td>
-                  <td className="py-1.5 pr-3">{t.label}</td>
+                  <td className="py-1.5 pr-3">
+                    {t.label}
+                    {t.links?.length ? (
+                      <span className="block text-[10px] leading-snug text-muted-foreground">
+                        {t.links.map((l) => l.label).join(" · ")}
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="py-1.5 pr-3 text-xs uppercase tracking-wide text-muted-foreground">to book</td>
                   <td className="py-1.5 font-mono text-xs text-muted-foreground">—</td>
                 </tr>

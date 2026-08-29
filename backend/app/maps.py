@@ -128,6 +128,31 @@ def build_static_map_url(
     return "https://maps.googleapis.com/maps/api/staticmap?" + "&".join(q)
 
 
+def build_single_place_url(
+    place: tuple[str, float, float],
+    key: str,
+    *,
+    size: str = "640x300",
+    scale: int = 2,
+    maptype: str = "terrain",
+    zoom: int = 13,
+) -> str:
+    """Centered pin map for a single place (hotel/restaurant card thumbnail)."""
+    _, lat, lng = place
+    return (
+        "https://maps.googleapis.com/maps/api/staticmap?"
+        + "&".join([
+            "size=" + size,
+            "scale=" + str(scale),
+            "maptype=" + maptype,
+            f"center={lat:.6f},{lng:.6f}",
+            f"zoom={zoom}",
+            "markers=" + _enc(f"{lat:.6f},{lng:.6f}"),
+            "key=" + urllib.parse.quote(key, safe=""),
+        ])
+    )
+
+
 def build_static_map_url_legs(
     places: list[tuple[str, float, float]],
     key: str,

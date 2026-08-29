@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { useTrip } from "./theme";
-import { TripMap } from "./MapView";
+import { TripMap, StaticMapImg } from "./MapView";
+import { findLocation } from "../lib/maps";
 import {
   BedDouble,
   Car,
@@ -101,6 +102,35 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
       ))}
     </div>
   );
+}
+
+/** Auto Google Maps link for a place (location name/alias). */
+function mapsLink(location: string) {
+  return {
+    label: "Google Maps",
+    url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+  };
+}
+
+/** Card media strip: an image, or a mini static map centered on `location`. */
+function CardMedia({ b }: { b: Block }) {
+  const trip = useTrip();
+  if (b.images?.length) {
+    return (
+      <img src={b.images[0]} alt={b.title ?? ""} className="mb-3 h-28 w-full rounded-lg object-cover" />
+    );
+  }
+  if (b.location) {
+    const loc = findLocation(trip, b.location);
+    if (loc?.lat != null && loc.lng != null) {
+      return (
+        <div className="mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
+          <StaticMapImg places={[b.location]} className="h-full w-full rounded-none border-0 object-cover" />
+        </div>
+      );
+    }
+  }
+  return null;
 }
 
 function BlockCard({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -291,8 +321,11 @@ function TransportBlock({ b }: { b: Block }) {
 }
 
 function ActivityBlock({ b }: { b: Block }) {
+  const links = b.links ?? [];
+  const shown = b.location ? [mapsLink(b.location), ...links] : links;
   return (
     <BlockCard>
+      <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<MapPin className="h-4 w-4" />} tone="primary" />
         <div className="min-w-0 flex-1">
@@ -307,7 +340,7 @@ function ActivityBlock({ b }: { b: Block }) {
               <Markdown>{b.description}</Markdown>
             </div>
           )}
-          <Links links={b.links} />
+          <Links links={shown} />
         </div>
       </div>
     </BlockCard>
@@ -315,8 +348,11 @@ function ActivityBlock({ b }: { b: Block }) {
 }
 
 function LodgingBlock({ b }: { b: Block }) {
+  const links = b.links ?? [];
+  const shown = b.location ? [...links, mapsLink(b.location)] : links; // booking CTAs first
   return (
     <BlockCard>
+      <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<BedDouble className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
@@ -333,7 +369,7 @@ function LodgingBlock({ b }: { b: Block }) {
               <Cost cost={b.cost} currency={b.currency} />
             </div>
           )}
-          <Links links={b.links} />
+          <Links links={shown} />
         </div>
       </div>
     </BlockCard>
@@ -341,14 +377,18 @@ function LodgingBlock({ b }: { b: Block }) {
 }
 
 function MealBlock({ b }: { b: Block }) {
+  const links = b.links ?? [];
+  const shown = b.location ? [mapsLink(b.location), ...links] : links;
   return (
     <BlockCard>
+      <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<UtensilsCrossed className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
           <Kicker>Eat</Kicker>
           <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
+          <Links links={shown} />
         </div>
       </div>
     </BlockCard>

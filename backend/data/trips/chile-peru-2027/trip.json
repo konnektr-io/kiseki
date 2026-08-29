@@ -14,52 +14,182 @@
     "accent": "#b45309"
   },
   "locations": [
-    { "name": "Santiago", "lat": -33.4489, "lng": -70.6693 },
-    { "name": "Valle Nevado", "lat": -33.3556, "lng": -70.2593 },
-    { "name": "Sacred Valley", "alias": ["Ollantaytambo", "Urubamba"], "lat": -13.2583, "lng": -72.2634 },
-    { "name": "Machu Picchu", "alias": ["Aguas Calientes"], "lat": -13.1631, "lng": -72.5450 },
-    { "name": "Cusco", "lat": -13.5319, "lng": -71.9675 },
-    { "name": "Lima", "lat": -12.0464, "lng": -77.0428 }
+    {
+      "name": "Santiago",
+      "lat": -33.4489,
+      "lng": -70.6693
+    },
+    {
+      "name": "Valle Nevado",
+      "lat": -33.3556,
+      "lng": -70.2593
+    },
+    {
+      "name": "Sacred Valley",
+      "alias": [
+        "Ollantaytambo",
+        "Urubamba"
+      ],
+      "lat": -13.2583,
+      "lng": -72.2634
+    },
+    {
+      "name": "Machu Picchu",
+      "alias": [
+        "Aguas Calientes"
+      ],
+      "lat": -13.1631,
+      "lng": -72.545
+    },
+    {
+      "name": "Cusco",
+      "lat": -13.5319,
+      "lng": -71.9675
+    },
+    {
+      "name": "Lima",
+      "lat": -12.0464,
+      "lng": -77.0428
+    }
   ],
   "stats": [
-    { "label": "Days", "value": "17" },
-    { "label": "Travelers", "value": "3" },
-    { "label": "Ski days", "value": "3–4" },
-    { "label": "Highest point", "value": "4,900 m" },
-    { "label": "UNESCO sites", "value": "2" },
-    { "label": "Budget", "value": "€15–19k" }
+    {
+      "label": "Days",
+      "value": "17"
+    },
+    {
+      "label": "Travelers",
+      "value": "3"
+    },
+    {
+      "label": "Ski days",
+      "value": "3–4"
+    },
+    {
+      "label": "Highest point",
+      "value": "4,900 m"
+    },
+    {
+      "label": "UNESCO sites",
+      "value": "2"
+    },
+    {
+      "label": "Budget",
+      "value": "€15–19k"
+    }
   ],
   "sections": [
-    { "title": "Days 1–7 — Valle Nevado & the Andes", "days": [0, 6] },
-    { "title": "Days 8–11 — Sacred Valley & Machu Picchu", "days": [7, 10] },
-    { "title": "Days 12–17 — Cusco, rainbow mountains & Lima", "days": [11, 16] }
+    {
+      "title": "Days 1–7 — Valle Nevado & the Andes",
+      "days": [
+        0,
+        6
+      ]
+    },
+    {
+      "title": "Days 8–11 — Sacred Valley & Machu Picchu",
+      "days": [
+        7,
+        10
+      ]
+    },
+    {
+      "title": "Days 12–17 — Cusco, rainbow mountains & Lima",
+      "days": [
+        11,
+        16
+      ]
+    }
   ],
   "crew": [
-    { "name": "Niko Raes", "role": "owner", "note": "Snowboarder — rents at Valle Nevado this trip." },
-    { "name": "Henri", "role": "viewer", "note": "17 — good skier, blues→blacks (Head Kore 88Ti)." },
-    { "name": "Renée", "role": "viewer", "note": "15 — intermediate: comfortable blues/reds, not powder. Rents skis." }
+    {
+      "name": "Niko Raes",
+      "role": "owner",
+      "note": "Snowboarder — rents at Valle Nevado this trip."
+    },
+    {
+      "name": "Henri",
+      "role": "viewer",
+      "note": "rents skis at Valle Nevado — no ski bag on the plane"
+    },
+    {
+      "name": "Renée",
+      "role": "viewer",
+      "note": "15 — intermediate: comfortable blues/reds, not powder. Rents skis."
+    }
   ],
   "practical": {
     "todos": [
-      { "label": "Feasibility + routing confirmed (SCL→CUZ direct)", "done": true },
-      { "label": "Ski profile + rental decision (all three rent at Valle Nevado)", "done": true },
-      { "label": "Confirm dates with the kids (currently Jul 17 – Aug 2)", "done": false },
-      { "label": "Check SCL→CUZ availability for chosen dates (LATAM daily)", "done": false },
-      { "label": "Compare open-jaw (BRU→SCL / LIM→BRU) vs return pricing", "done": false },
-      { "label": "Book international flights (by Jan 2027)", "done": false },
-      { "label": "Book Valle Nevado accommodation (Jan–Mar 2027)", "done": false },
-      { "label": "Book Machu Picchu + Huayna Picchu permits (Jan–Feb 2027)", "done": false },
-      { "label": "Book PeruRail Vistadome + internal flights", "done": false },
-      { "label": "No visa needed (Belgian passports)", "done": true }
+      {
+        "label": "Feasibility + routing confirmed (SCL→CUZ direct)",
+        "done": true
+      },
+      {
+        "label": "Ski profile + rental decision (all three rent at Valle Nevado — incl. Henri)",
+        "done": true,
+        "links": [
+          {
+            "label": "Valle Nevado ski rental",
+            "url": "https://www.vallenevado.com/en/"
+          }
+        ]
+      },
+      {
+        "label": "Confirm dates with the kids (currently Jul 17 – Aug 2)",
+        "done": false
+      },
+      {
+        "label": "Check SCL→CUZ availability for chosen dates (LATAM daily)",
+        "done": false
+      },
+      {
+        "label": "Compare open-jaw (BRU→SCL / LIM→BRU) vs return pricing",
+        "done": false
+      },
+      {
+        "label": "Book international flights (by Jan 2027)",
+        "done": false
+      },
+      {
+        "label": "Book Valle Nevado accommodation (Jan–Mar 2027)",
+        "done": false
+      },
+      {
+        "label": "Book Machu Picchu + Huayna Picchu permits (Jan–Feb 2027)",
+        "done": false
+      },
+      {
+        "label": "Book PeruRail Vistadome + internal flights",
+        "done": false
+      },
+      {
+        "label": "No visa needed (Belgian passports)",
+        "done": true
+      }
     ],
     "links": [
-      { "label": "Valle Nevado mountain report", "url": "https://www.vallenevado.com/en/mountain-report/" },
-      { "label": "Google Flights (SCL→CUZ)", "url": "https://www.google.com/travel/flights" },
-      { "label": "PeruRail (Vistadome)", "url": "https://www.perurail.com/" },
-      { "label": "Machu Picchu tickets", "url": "https://www.machupicchu.gob.pe/" },
-      { "label": "Cajón del Maipo winter tours", "url": "https://cajon-del-maipo.com/winter-tours/" }
+      {
+        "label": "Valle Nevado mountain report",
+        "url": "https://www.vallenevado.com/en/mountain-report/"
+      },
+      {
+        "label": "Google Flights (SCL→CUZ)",
+        "url": "https://www.google.com/travel/flights"
+      },
+      {
+        "label": "PeruRail (Vistadome)",
+        "url": "https://www.perurail.com/"
+      },
+      {
+        "label": "Machu Picchu tickets",
+        "url": "https://www.machupicchu.gob.pe/"
+      },
+      {
+        "label": "Cajón del Maipo winter tours",
+        "url": "https://cajon-del-maipo.com/winter-tours/"
+      }
     ],
-    "notes": "⚠️ **Fiestas Patrias (Jul 28–29)** falls inside this window — Peruvian Independence Day: festive parades in Cusco/Lima, but trains, flights and hotels around those dates fill up and prices peak. Book PeruRail + internal flights before Jan 2027.\n\n**Gear**: rent everything at Valle Nevado/Farellones (~$30–50/day pp) — no board bags on the Peru internal flights. **Altitude**: VN base 3,000 m / summit 3,670 m pre-acclimatises for Cusco (3,400 m); Sacred Valley (2,800 m) first, Cusco after. Budget delta over the Peru-only trip: ~+€4.5–7k → ~€15–19k family."
+    "notes": "⚠️ **Fiestas Patrias (Jul 28–29)** falls inside this window — Peruvian Independence Day: festive parades in Cusco/Lima, but trains, flights and hotels around those dates fill up and prices peak. Book PeruRail + internal flights before Jan 2027.\n\n**Gear**: rent everything at Valle Nevado/Farellones (~$30–50/day pp) — Henri rents skis on-site too, so NO ski bags on the plane at all. Niko rents or brings only his board; nothing for Henri goes in the hold. **Altitude**: VN base 3,000 m / summit 3,670 m pre-acclimatises for Cusco (3,400 m); Sacred Valley (2,800 m) first, Cusco after. Budget delta over the Peru-only trip: ~+€4.5–7k → ~€15–19k family."
   },
   "days": [
     {
@@ -92,17 +222,41 @@
         {
           "kind": "activity",
           "title": "Cerro San Cristóbal",
-          "description": "Funicular + teleférico up the hill (zoo at the base, Andes panorama)."
+          "description": "The city from above: teleférico up to the 880 m summit, the Andes on one side and Gran Torre on the other. Morning light is best — the cordillera glows.",
+          "images": [
+            "/media/chile-peru-2027/st1.jpg"
+          ],
+          "location": "Santiago",
+          "links": [
+            {
+              "label": "Teleférico Santiago",
+              "url": "https://www.parquemet.cl/"
+            }
+          ]
         },
         {
           "kind": "meal",
           "title": "Mercado Central",
-          "description": "Fresh seafood lunch."
+          "description": "Lunch at the iron-built 1872 market — congrio frito or a big bowl of chupe de mariscos, standing at the counter like the locals. Fish market chaos, zero tourist markup if you pick the busy stalls.",
+          "location": "Santiago",
+          "links": [
+            {
+              "label": "Mercado Central",
+              "url": "https://www.google.com/maps/search/?api=1&query=Mercado+Central+Santiago"
+            }
+          ]
         },
         {
           "kind": "activity",
           "title": "Sky Costanera at sunset",
-          "description": "Tallest building in South America — observation deck at golden hour."
+          "description": "Top of Latin America's tallest tower at golden hour — the whole 6,000 m Andes wall turns pink behind the city. Go 45 min before sunset, it gets busy.",
+          "location": "Santiago",
+          "links": [
+            {
+              "label": "Costanera Center",
+              "url": "https://www.costaneracenter.cl/"
+            }
+          ]
         }
       ]
     },
@@ -160,7 +314,11 @@
         {
           "kind": "activity",
           "title": "Ski morning",
-          "status": "planned"
+          "status": "planned",
+          "images": [
+            "/media/chile-peru-2027/ec2.jpg"
+          ],
+          "location": "Valle Nevado"
         },
         {
           "kind": "transport",
@@ -192,12 +350,33 @@
       "blocks": [
         {
           "kind": "activity",
-          "title": "Pisac ruins + artisan market"
+          "title": "Pisac ruins + artisan market",
+          "images": [
+            "/media/chile-peru-2027/pi2.jpg"
+          ],
+          "location": "Pisac",
+          "links": [
+            {
+              "label": "Pisac ruins",
+              "url": "https://www.google.com/maps/search/?api=1&query=Pisac+ruins"
+            }
+          ],
+          "description": "The hillside citadel above the town — terraces, temples and the famous Sunday artisan market at the foot. The ruins are the morning's altitude-friendly warm-up (2,900 m)."
         },
         {
           "kind": "activity",
           "title": "Maras salt mines + Moray terraces",
-          "description": "Optional ATV tour for the teens."
+          "description": "Thousands of salt ponds terraced into the canyon, worked by hand since pre-Inca times. One of the most photogenic half-hours in Peru.",
+          "images": [
+            "/media/chile-peru-2027/ma1.jpg"
+          ],
+          "location": "Maras",
+          "links": [
+            {
+              "label": "Salineras de Maras",
+              "url": "https://www.google.com/maps/search/?api=1&query=Salineras+de+Maras"
+            }
+          ]
         }
       ]
     },
@@ -232,7 +411,10 @@
           "title": "Machu Picchu — guided tour",
           "status": "planned",
           "links": [
-            { "label": "Machu Picchu tickets", "url": "https://www.machupicchu.gob.pe/" }
+            {
+              "label": "Machu Picchu tickets",
+              "url": "https://www.machupicchu.gob.pe/"
+            }
           ]
         },
         {
@@ -250,11 +432,26 @@
         {
           "kind": "activity",
           "title": "Cusco walking tour",
-          "description": "Qoricancha, Sacsayhuamán (kids scramble the zigzag walls), San Blas."
+          "description": "Plaza de Armas → the 12-angled stone of Hatun Rumiyoc → San Blas artisan quarter. Fiestas Patrias week means parades and dancing in the plaza — join in.",
+          "location": "Cusco",
+          "links": [
+            {
+              "label": "Cusco old town",
+              "url": "https://www.google.com/maps/search/?api=1&query=Plaza+de+Armas+Cusco"
+            }
+          ]
         },
         {
           "kind": "activity",
-          "title": "ChocoMuseo chocolate workshop"
+          "title": "ChocoMuseo chocolate workshop",
+          "location": "Cusco",
+          "links": [
+            {
+              "label": "ChocoMuseo Cusco",
+              "url": "https://chocomuseo.com/"
+            }
+          ],
+          "description": "Bean-to-bar workshop — the kids make their own chocolate, parents taste the single-origin dark. A low-effort high-fun afternoon at 3,400 m."
         }
       ]
     },
@@ -308,12 +505,26 @@
         {
           "kind": "activity",
           "title": "Malecón bike ride Miraflores → Barranco",
-          "description": "Clifftop path, street art in Barranco."
+          "description": "The clifftop cycle path from Miraflores to Barranco — paragliders overhead, Pacific below, sunset stop at the Bridge of Sighs.",
+          "location": "Miraflores",
+          "links": [
+            {
+              "label": "Ciclovía Miraflores",
+              "url": "https://www.google.com/maps/search/?api=1&query=Malec%C3%B3n+de+Miraflores"
+            }
+          ]
         },
         {
           "kind": "activity",
           "title": "Magic Water Circuit at night",
-          "description": "Kid-friendly fountain finale."
+          "description": "13 illuminated fountains in the Parque de la Reserva, including the world's largest fountain complex. Cheesy, spectacular, and the kids will love it.",
+          "location": "Lima",
+          "links": [
+            {
+              "label": "Circuito Mágico del Agua",
+              "url": "https://www.google.com/maps/search/?api=1&query=Circuito+Magico+del+Agua+Lima"
+            }
+          ]
         }
       ]
     },

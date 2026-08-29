@@ -53,12 +53,15 @@ export interface Block {
   from?: string;
   to?: string;
   mode?: "flight" | "drive" | "train" | "ferry";
+  location?: string;
+  images?: string[];
 }
 
 export interface TodoItem {
   label: string;
   done: boolean;
   when?: string;
+  links?: Link[];
 }
 
 export interface MetaItem {

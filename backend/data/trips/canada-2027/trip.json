@@ -268,17 +268,35 @@
       {
         "label": "STHS deposit paid (35%, $2,964.15 CAD)",
         "done": true,
-        "when": "done"
+        "when": "done",
+        "links": [
+          {
+            "label": "Selkirk Tangiers",
+            "url": "https://selkirktangiers.com/"
+          }
+        ]
       },
       {
         "label": "Flights booked — €1,005.81 pp (9GMOL3)",
         "done": true,
-        "when": "Feb 15 out · Mar 1 back"
+        "when": "Feb 15 out · Mar 1 back",
+        "links": [
+          {
+            "label": "Manage flights",
+            "url": "https://www.google.com/travel/flights"
+          }
+        ]
       },
       {
         "label": "STHS family room confirmed",
         "done": true,
-        "when": "Feb 20–24"
+        "when": "Feb 20–24",
+        "links": [
+          {
+            "label": "STHS lodging",
+            "url": "https://selkirktangiers.com/"
+          }
+        ]
       },
       {
         "label": "STHS balance due Dec 10, 2026",
@@ -313,22 +331,46 @@
       {
         "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)",
         "done": false,
-        "when": "before Dec"
+        "when": "before Dec",
+        "links": [
+          {
+            "label": "Ikon Pass",
+            "url": "https://www.ikonpass.com/"
+          }
+        ]
       },
       {
         "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)",
         "done": false,
-        "when": "Feb 24–26"
+        "when": "Feb 24–26",
+        "links": [
+          {
+            "label": "Kicking Horse tickets",
+            "url": "https://kickinghorseresort.com/"
+          }
+        ]
       },
       {
         "label": "Travel insurance — heliski rider + trip cancellation (Acera)",
         "done": false,
-        "when": "before Dec"
+        "when": "before Dec",
+        "links": [
+          {
+            "label": "Insurance",
+            "url": "https://www.google.com/search?q=travel+insurance+canada+heliski"
+          }
+        ]
       },
       {
         "label": "eTA visa — 5 min online (~$7 CAD)",
         "done": false,
-        "when": "before Feb"
+        "when": "before Feb",
+        "links": [
+          {
+            "label": "eTA Canada",
+            "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta.html"
+          }
+        ]
       }
     ],
     "links": [
@@ -438,7 +480,22 @@
         {
           "kind": "lodging",
           "title": "Stay: Banff town",
-          "description": "Banff Inn / Elk + Avenue / HI Banff (2 rooms). Sleeping in Banff puts Sunshine 15 min away for tomorrow."
+          "description": "Banff Inn / Elk + Avenue / HI Banff (2 rooms). Sleeping in Banff puts Sunshine 15 min away for tomorrow.",
+          "location": "Banff",
+          "links": [
+            {
+              "label": "Banff Inn — book",
+              "url": "https://www.banffinn.com/"
+            },
+            {
+              "label": "Elk + Avenue — book",
+              "url": "https://elkandavenuehotel.com/"
+            },
+            {
+              "label": "HI Banff — book",
+              "url": "https://hihostels.com/hostels/hi-banff/"
+            }
+          ]
         }
       ]
     },
@@ -474,7 +531,18 @@
         },
         {
           "kind": "lodging",
-          "title": "Stay: Banff (2nd night)"
+          "title": "Stay: Banff (2nd night)",
+          "location": "Banff",
+          "links": [
+            {
+              "label": "Banff Inn — book",
+              "url": "https://www.banffinn.com/"
+            },
+            {
+              "label": "Elk + Avenue — book",
+              "url": "https://elkandavenuehotel.com/"
+            }
+          ]
         }
       ]
     },
@@ -525,7 +593,14 @@
         {
           "kind": "lodging",
           "title": "Stay: Revelstoke — Northwinds by Basecamp",
-          "description": "~$90–140/room — cheapest solid option, ski shuttle, gear storage, town-adjacent."
+          "description": "~$90–140/room — cheapest solid option, ski shuttle, gear storage, town-adjacent.",
+          "location": "Revelstoke",
+          "links": [
+            {
+              "label": "Northwinds — book",
+              "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+            }
+          ]
         }
       ]
     },
@@ -557,7 +632,14 @@
         },
         {
           "kind": "lodging",
-          "title": "Stay: Revelstoke (2nd night)"
+          "title": "Stay: Revelstoke (2nd night)",
+          "location": "Revelstoke",
+          "links": [
+            {
+              "label": "Northwinds — book",
+              "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+            }
+          ]
         }
       ]
     },
@@ -583,7 +665,14 @@
         },
         {
           "kind": "lodging",
-          "title": "Stay: Revelstoke (3rd night)"
+          "title": "Stay: Revelstoke (3rd night)",
+          "location": "Revelstoke",
+          "links": [
+            {
+              "label": "Northwinds — book",
+              "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+            }
+          ]
         }
       ]
     },
@@ -614,7 +703,14 @@
         {
           "kind": "lodging",
           "title": "Coast Hillcrest Hotel — 4 nights",
-          "description": "Full breakfast, après snack, dinner in the Hillcrest Dining Room. Ski days Sun/Mon/Tue."
+          "description": "Full breakfast, après snack, dinner in the Hillcrest Dining Room. Ski days Sun/Mon/Tue.",
+          "location": "Hillcrest",
+          "links": [
+            {
+              "label": "Coast Hillcrest — book",
+              "url": "https://www.coasthotels.com/hotels/hillcrest/"
+            }
+          ]
         }
       ]
     },
@@ -723,7 +819,14 @@
         {
           "kind": "lodging",
           "title": "Stay: Golden — Glacier Mountaineer Lodge (3n)",
-          "description": "Ski-in/ski-out at the gondola, full kitchens — best for the KH block; splits well 3–4 ways in a suite."
+          "description": "Ski-in/ski-out at the gondola, full kitchens — best for the KH block; splits well 3–4 ways in a suite.",
+          "location": "Golden",
+          "links": [
+            {
+              "label": "Glacier Mountaineer — book",
+              "url": "https://glaciermountaineerlodge.com/"
+            }
+          ]
         }
       ]
     },
@@ -830,7 +933,14 @@
         {
           "kind": "lodging",
           "title": "Stay: Lake Louise Inn (2n)",
-          "description": "Closest mid-range to the resort, complimentary shuttle to the ski resort, ski tuning room."
+          "description": "Closest mid-range to the resort, complimentary shuttle to the ski resort, ski tuning room.",
+          "location": "Lake Louise",
+          "links": [
+            {
+              "label": "Lake Louise Inn — book",
+              "url": "https://lakelouiseinn.com/"
+            }
+          ]
         }
       ]
     },
