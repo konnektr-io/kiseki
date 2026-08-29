@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
@@ -130,10 +130,58 @@ if ASSETS_DIR.is_dir():
 # Built SPA with history-mode fallback
 if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
     _index = STATIC_DIR / "index.html"
+    _index_html = _index.read_text()
+
+    # Trip pages are private (secret links, no auth) — keep search engines AND
+    # AI crawlers out: robots meta injected into the shell + X-Robots-Tag header.
+    _NOINDEX_META = '<meta name="robots" content="noindex, nofollow, noai, noimageai" />'
+    _TRIP_HTML = _index_html.replace("<title>", f"{_NOINDEX_META}\n    <title>")
+
+    @app.get("/robots.txt", include_in_schema=False)
+    def robots_txt() -> PlainTextResponse:
+        return PlainTextResponse(
+            "User-agent: *\n"
+            "Disallow: /t/\n"
+            "Disallow: /api/\n"
+            "Disallow: /media/\n"
+            "\n"
+            "User-agent: GPTBot\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: CCBot\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: anthropic-ai\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: ClaudeBot\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: Google-Extended\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: PerplexityBot\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: Amazonbot\n"
+            "Disallow: /\n"
+            "\n"
+            "User-agent: Bytespider\n"
+            "Disallow: /\n"
+        )
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    def spa(full_path: str) -> FileResponse:
+    def spa(full_path: str) -> Response:
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(_index)
+        # SPA shell — trip routes get a noindex robots meta + header (private links)
+        is_trip = full_path.startswith("t/") or full_path == "t"
+        headers = {}
+        if is_trip:
+            headers["X-Robots-Tag"] = "noindex, nofollow, noai, noimageai"
+        return Response(
+            content=_TRIP_HTML if is_trip else _index_html,
+            media_type="text/html",
+            headers=headers,
+        )

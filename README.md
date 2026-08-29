@@ -1,15 +1,20 @@
-# Kiseki
+# Kiseki (軌跡)
 
 **The trip as a living, agent-maintained document.**
 
-Kiseki (軌跡 — "the trail you leave behind") turns the travel booklets Niko's agent builds in chat into a responsive, always-up-to-date web experience with PDF booklet export. Friends plan together, family follows along, and content changes never require a rebuild.
+Kiseki turns a trip plan into a responsive web experience with a printable PDF booklet — itinerary, dynamic maps with live traffic, bookings, checklists and contacts, all in one private link. Content is data, not code: updating a trip never requires a rebuild.
+
+- **Living documents** — plans change; the trip updates in place. No more stale PDFs.
+- **Private by design** — every trip lives behind its own secret link (no auth, no index). Search engines and AI crawlers are explicitly blocked.
+- **PDF booklet export** — one click, print-ready, matches the on-screen design.
+- **Maps that mean something** — real driving routes (Directions API), live traffic colors and drive times in the web app, static route maps in the PDF. All generated from trip data — no per-trip hardcoding.
 
 ## Stack
 
-- **Backend**: FastAPI (Python) — serves the SPA, trip JSON, and Playwright-rendered PDF booklets. Single container.
-- **Frontend**: React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components).
-- **Data**: one `trip.json` per trip in `backend/data/trips/` (P0) → Konnektr Graph (P1+).
-- **Deploy**: home Kubernetes, `kiseki.konnektr.io` via Envoy Gateway; images from ghcr.io via GitHub Actions.
+- **Backend** — FastAPI (Python): serves the SPA, trip JSON, and Playwright-rendered PDF booklets. Single container.
+- **Frontend** — React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components).
+- **Data** — one `trip.json` per trip: locations, days, blocks, features, practical info. P0 source of truth; a graph backend is the P1+ direction.
+- **Deploy** — container image via GitHub Actions → any k8s cluster; content updates copy straight to the volume (no rebuild).
 
 ## Layout
 
@@ -17,34 +22,48 @@ Kiseki (軌跡 — "the trail you leave behind") turns the travel booklets Niko'
 backend/    FastAPI app (app/, data/trips/, tests/)
 frontend/   React SPA (src/pages, src/components/blocks, src/lib)
 deployments/docker/Dockerfile
-docs/spec.md   ← product & design spec (v0.2)
+docs/spec.md   ← product & design spec
 ```
 
 ## Quick start
 
-See [`AGENTS.md`](AGENTS.md) for full commands. Short version:
-
 ```bash
-cd backend && uv sync && uv run uvicorn app.main:app --reload --port 8000   # API on :8000
-cd frontend && pnpm install && pnpm dev                                     # SPA on :5173 (proxies /api)
+# Backend (uv)
+cd backend && uv sync
+uv run uvicorn app.main:app --reload --port 8000   # API + SPA on :8000
+
+# Frontend (pnpm)
+cd frontend && pnpm install
+pnpm dev        # Vite dev server on :5173 (proxies /api)
+pnpm build      # tsc + vite build → dist/
 ```
 
-Production-like: `pnpm build` → copy `frontend/dist` → `backend/app/static/` → run uvicorn.
+Production-like single process:
 
-## Status
+```bash
+pnpm --dir frontend build
+rm -rf backend/app/static && cp -r frontend/dist backend/app/static
+cd backend && uv run uvicorn app.main:app --port 8000
+```
 
-**Phase 0 is live (2026-08-28, v0.5.2)** at **kiseki.konnektr.io** — three trips at three stages, booklet-faithful design:
+Open `http://localhost:8000/` — trips are reached at `/t/<token>/` (tokens live inside each `backend/data/trips/<slug>/trip.json`).
 
-| Trip | Stage | Notes |
-|---|---|---|
-| Canada Heliski 2027 | `booked` | The reference trip — every feature validated against the original booklet |
-| Chile-Peru 2027 | `planned` | Content round next (family trip, Jul 2027) |
-| Japan Campervan 2028 | `idea` | Route skeleton + two missions + open days (rebuilt 2026-08-28) |
+## Content model
 
-**Shipped so far**: booklet typography (Bebas Neue/Oswald/Inter), itinerary sections + expandable days, per-kind block styling (flight/drive/stay), full-bleed cover with stats, features as editorial cards (centerpiece/road trip/route), bookings table with Day/When, Key info, dynamic Google Maps (JS in web + static proxy in PDF, real routes via Directions API, traffic + live drive time), locations-as-data markers, secret-link auth, PDF 12–18 pp per trip.
+A trip is one JSON file: `stage` (idea → options → shortlist → planned → booked → live), dates, cover + stats, `locations` (with coordinates — the single source for markers AND maps), an itinerary of days with typed content blocks, editorial "features" for the overview, crew, and a practical page (checklist with booking links, contacts, notes). `backend/app/models.py` is authoritative; the map gotchas (Google Static Maps quirks with encoded polylines) are documented in the skill + AGENTS.md.
 
-**Content workflow proven**: trip.json edits → `kubectl cp` to the PVC (no rebuild, no redeploy). Images ship in the image.
+## Testing
 
-**Remaining for Phase 0 close**: Chile-Peru content round (next session), then Phase 0 done. Phase 1+ (Konnektr Graph, events, MinIO media) per spec §11.
+```bash
+cd backend && uv run pytest
+```
 
-See [`AGENTS.md`](AGENTS.md) for the full command surface and the `kiseki-trip-content` skill for the trip-content playbook.
+## Roadmap
+
+- **P0 (current)** — booklet-faithful web + PDF for any trip; content-as-data pipeline proven end-to-end.
+- **P1** — trips into a graph backend (Konnektr Graph), media to object storage, live capture during travel (photos, activity data).
+- **P2** — accounts and roles, sharing with a real group experience, agent-written trip building from a prompt.
+
+## License
+
+Private until further notice.

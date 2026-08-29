@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
 import { fetchTrip, bookletUrl } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
+import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
 import { StageBadge } from "../components/ui";
@@ -40,6 +41,8 @@ export function TripLayout() {
   const { token = "" } = useParams();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  usePageTitle(trip?.title ?? null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +92,11 @@ export function TripLayout() {
       <div style={tripStyle(trip)} className="min-h-full">
         {/* Header */}
         <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
+            <Link to="/" className="flex shrink-0 items-center gap-2">
+              <img src="/logo-mark.png" alt="" className="h-6 w-6 rounded-md" />
+              <span className="hidden font-heading text-sm font-semibold tracking-wide sm:inline">Kiseki</span>
+            </Link>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <h1 className="truncate text-lg font-bold leading-tight">{trip.title}</h1>
