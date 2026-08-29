@@ -145,46 +145,60 @@ Nothing elaborate.
 
 ## 11. Phases & milestones
 
-### P0 — Proof: three trips live ✅ (v0.5.2, deployed 2026-08-28)
+### P0 — Proof: three trips live ✅ (v0.6.1, deployed 2026-08-29)
 
-**Done.** Live at kiseki.konnektr.io: Canada 2027 (booked — the reference), Chile-Peru 2027 (planned), Japan Campervan 2028 (idea). What shipped:
+**Done.** Live at kiseki.konnektr.io: Canada 2027 (booked — the reference), Chile-Peru 2027 (planned, enriched), Japan Campervan 2028 (idea, Hokkaido-only skeleton). What shipped:
 
-- Booklet-faithful design: Bebas Neue/Oswald/Inter typography, sections grouping days (inclusive ranges), expandable day rows, per-kind block styling (dark flight cards, dark drive cards with Distance/Drive time/Route + directions, STAY kickers).
-- PDF booklet (Playwright, in-container): full-bleed cover with stats strip, features one per page, day cards with real-route static maps, Bookings & status (with Day/When) before Key info. No empty pages.
-- **Dynamic maps from `trip.locations`**: Google Maps JS in the web app (numbered markers, DirectionsRenderer routes, live traffic, live drive-time chip), server-side static-map proxy for the PDF (real routes via Directions API encoded polylines, plain pins — see the `kiseki-trip-content` skill for the styled-marker quirk). Loop maps close back to the start.
-- Content-as-data: trip.json → `kubectl cp` to the PVC, no rebuild. Japan 2028 validated this end-to-end.
-- Secret-link auth (128-bit tokens), stage machine (idea → booked), bookings table mirroring the booklet.
-- [ ] React SPA scaffold (Vite + TS + Tailwind + shadcn/ui), block component set (~10), React Router pages + mobile nav
-- [ ] Node backend: SPA serving + `GET /trips/:id` (token) + PDF booklet (print route + Playwright)
-- [ ] Trip JSON model; convert **Canada 2027** (booked) — the existing booklet HTML/CSS becomes the print stylesheet seed
-- [ ] Convert **Chile-Peru 2027** (planned) and **Japan Campervan 2028** (idea) — verify the stage machine renders sensibly in all three
-- [ ] Deploy on home-k8s (frontend+backend image; trip JSON on a volume — **no image rebuild for content**)
+- Booklet-faithful design: Bebas Neue/Oswald/Inter typography, sections grouping days (inclusive ranges), expandable day rows, per-kind block styling (dark flight cards with plane icon + `mode` field, dark drive cards with Distance/Drive time/Route + directions, STAY kickers, 1–2 image media strips, mini map thumbnails).
+- PDF booklet (Playwright, in-container): full-bleed cover with stats strip, features one per page, day cards with real-route static maps, Bookings & status (with Day/When + booking links) before Key info. No empty pages.
+- **Dynamic maps from `trip.locations`**: Google Maps JS in the web app (markers numbered by the trip's own location order, per-leg DirectionsRenderer routes, live traffic, live drive-time chip), server-side static-map proxy for the PDF (real routes via Directions API encoded polylines, geocoded `mapsQuery` pins for hotels/restaurants — see the `kiseki-trip-content` skill for the styled-marker/raw-polyline quirks). Loop maps close back to the start.
+- Content-as-data: trip.json → `kubectl cp` to the PVC, no rebuild. Japan 2028 validated this end-to-end; card enrichment (images, booking links, precise map pins) proven on Canada + Chile-Peru.
+- Secret-link auth (128-bit tokens, wrong token → 404), stage machine (idea → booked), bookings table mirroring the booklet.
+- **Branding & privacy**: generated logo → favicon set (transparent favicon, full PWA icon sizes 48→512 + maskable + manifest), per-trip page titles, content-first header (back button). Trip pages are crawl-proof (`robots` meta + `X-Robots-Tag: noindex, nofollow, noai, noimageai` + `robots.txt` blocking AI crawlers); README public-ready.
 
-**Exit**: friends open the links on their phones and find today's plan in ≤2 taps; PDF matches current quality; a content change is live in <1 min without a deploy; three trips at three stages all look right.
+**Review gate (2026-08-29)**: Niko confirmed the round; Phase 0 closed. Backlog for P1+ created as GitHub issues (this repo, `backlog` label — first issue flows through the webhook triage).
 
-### P1 — Graph + events
-- [ ] Konnektr Graph deploy + DTDL models (Trip/Day/Block/Person) + JSON→graph migration
-- [ ] Backend reads/writes the graph; agent ↔ graph via MCP
-- [ ] Events service → SSE live updates + notifier (web push + Telegram); per-trip theming
+### P1 — Infrastructure, graph, auth & seed (next)
 
-**Exit**: agent updates flow end-to-end through the graph; followers get notified.
+Order = priority; each independently pick-up-able (issues in this repo's backlog).
 
-### P2 — People + live
-- [ ] Auth0, roles, invites (app-level ACLs)
-- [ ] Integrations: Google Photos, Strava, Maps timeline, steps (OAuth in app layer → FeedEntries)
-- [ ] Feed + visibility levels; manage-UI for editors
+- [ ] **CNPG on home-k8s** — CloudNativePG operator + a proper PostgreSQL cluster (the AGE database home).
+- [ ] **Garage object storage** on home-k8s (MinIO is no longer supported) — media storage for P1+.
+- [ ] **Konnektr Graph helm chart** (konnektr-io/charts) on home-k8s — **API only, not Events (yet)**; image with **pgvector + postgis** (konnektr-io/cnpg-age-containers — may need to build images for **AGE v1.8.0** there first); enable **x-user-id** so `updatedBy` is tracked.
+- [ ] **Backend connects via `konnektr-io/graph-client-sdk-python`** (replaces direct trip.json reads as source of truth moves to the graph).
+- [ ] **Auth: invites + app-level ACLs** — implemented with the DB integration, **not deferred to P2**. Secret links stay for share; logged-in users get identity + permissions.
+- [ ] **Placeholder users → real users**: crew from trips (e.g. "Nick Geelen", "Henri") exist as placeholder nodes; on login, match/replace placeholders with the actual user ids.
+- [ ] **Landing page + trip overview when logged in** — "/" becomes the user's trip list (the back button's destination).
+- [ ] **Seed the DB from the existing trip.json files** — keep them, but **anonymize a copy as mocks** for testing. Create **DTDL models** (Trip/Day/Block/Person…), ideally **auto-generated from the existing Python models** (or the reverse); keep dev simple — regenerate + replace in the DB.
 
-**Exit**: a real group trip runs on it with remote family following. **Stop.**
+**Exit**: a logged-in user sees their trips from the graph; a trip edit round-trips through the API + graph + SDK; seeds + anonymized mocks in place; `updatedBy` recorded.
+
+### P2–3 — Agent, memory, PWA, permissions
+
+- [ ] **Agent backend + chat UI** — Hermes as a library (`run_agent.AIAgent`, see hermes docs python-library guide) in the Kiseki backend; frontend chat via **Vercel ai-elements** (backend may need a protocol adapter — pydantic-ai ships one as reference).
+- [ ] **Agent memory per user / per trip** — can we store it in the graph with pgvector embeddings?
+- [ ] **Installable PWA** (service worker; icon set + manifest already in place).
+- [ ] **Events & notifications** (deferred from P1): SSE live updates, web push + Telegram.
+- [ ] **Granular per-trip permissions**: public trip → magic link keeps working; private trip → login + explicit permissions.
+
+**Exit**: an agent can answer "what are we doing on day 4?" from per-trip memory; trips are installable; permission model matches public/private semantics.
+
+### P4 — Social
+
+- [ ] Social integrations, feed, followers/following.
+
+**Exit**: remote family follows a live trip. **Stop.**
 
 ## 12. Risks & open questions
 
-- ✅ **#85** now concrete: granular twin permissions (security tags + custom permission strings), backlog enhancement — deferral confirmed for P0–P2; revisit only if public.
-- **DTDL model evolution**: new block kinds = new models; the kind-discriminated base minimizes churn. Keep the model coarse.
-- **HTML sanitization** for `custom` blocks (XSS) — acceptable under link-trust in P0–P1; must be solved before any public sharing. Sanitize on render (DOMPurify client-side + server-side).
+- **#85** (granular twin permissions) — still backlogged; revisit only if public. P2–3 per-trip permissions are app-level ACLs, not twin-level.
+- **DTDL model evolution**: new block kinds = new models; keep the model coarse. Auto-generation from Python models must stay bidirectional-safe (Python stays the source until proven otherwise).
+- **HTML sanitization** for `custom` blocks (XSS) — acceptable under link-trust in P0; solve before any public sharing (DOMPurify client-side + server-side).
 - **LLM provider / GDPR**: parked until public (trusted group now; models swappable).
-- **"Kiseki" availability** (domain, app stores, collisions): check early.
-- **Offline (PWA)**: Phase 3+ (after navigation is solid).
-- **P1 backend**: Node → graph via REST vs C# SDK — decide at P1; keep the P0 API contract stable so the swap is invisible.
+- **"Kiseki" availability** (domain, app stores, collisions): still open.
+- **P1 backend swap**: trip.json → graph via SDK must keep the P0 API contract stable (the swap is invisible to the frontend).
+- **Age v1.8.0 images**: cnpg-age-containers may lag; building images there is a prerequisite for the Graph chart.
+- **Anonymized seeds**: real trip.json files stay private (tokens!); only anonymized mocks may ever reach a public repo.
 
 ## 13. Success criteria ("done enough" when)
 
@@ -194,7 +208,9 @@ Nothing elaborate.
 4. Niko's mom can follow a trip without an account (P0) / with a one-tap account (P2).
 5. No component rabbit hole: **~10 block kinds total**, hardcoded components, zero per-component config sprawl.
 
-## 14. Decisions log (review round 1, 2026-08-28)
+## 14. Decisions log
+
+### Round 1 (2026-08-28)
 
 | # | Decision | Outcome |
 |---|---|---|
@@ -204,5 +220,14 @@ Nothing elaborate.
 | 4 | #85 permissions | ✅ Fetched (granular twin permissions, backlog) — **defer** for P0–P2 |
 | 5 | Proof trips | ✅ **Three**: Canada 2027 (booked) · Chile-Peru 2027 (planned) · Japan Campervan 2028 (idea) |
 | 6 | Name | ⚠️ **Kiseki** used as working name; domain/store check still open |
+| 7 | Storage (P1) | ✅ **Garage** over MinIO (no longer supported) |
+| 8 | Backend ↔ graph (P1) | ✅ **`graph-client-sdk-python`** (Python backend stays Python) |
+| 9 | Auth (P1) | ✅ **Invites + app-level ACLs**, implemented with the DB integration (not P2) |
+| 10 | Graph deploy (P1) | ✅ **API only, Events deferred**; pgvector + postgis image; x-user-id for `updatedBy` |
+| 11 | Agent (P2–3) | ✅ **Hermes as a library** (`AIAgent`) in the backend; chat UI via **Vercel ai-elements** (protocol adapter if needed) |
+| 12 | Agent memory (P2–3) | ✅ Target: **graph + pgvector** (per user, per trip) |
+| 13 | Seeds | ✅ Keep real trip.json (private); **anonymized mocks** for testing; **DTDL auto-generated** from Python models |
+| 14 | Phase split | ✅ P0 done → **P1 infra/graph/auth/seed** → **P2–3 agent/PWA/permissions** → **P4 social**; review gates between phases |
 
-**Remaining before P0 build**: domain check; nothing else blocking.
+**Review gate for P1**: after CNPG + Garage + Graph chart are live (before SDK/seed work), Niko reviews.
+
