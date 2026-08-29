@@ -495,7 +495,8 @@
               "label": "HI Banff — book",
               "url": "https://hihostels.com/hostels/hi-banff/"
             }
-          ]
+          ],
+          "mapsQuery": "Banff Inn Banff Alberta"
         }
       ]
     },
@@ -542,7 +543,8 @@
               "label": "Elk + Avenue — book",
               "url": "https://elkandavenuehotel.com/"
             }
-          ]
+          ],
+          "mapsQuery": "Banff Inn Banff Alberta"
         }
       ]
     },
@@ -600,7 +602,8 @@
               "label": "Northwinds — book",
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
-          ]
+          ],
+          "mapsQuery": "Northwinds Revelstoke BC"
         }
       ]
     },
@@ -639,7 +642,8 @@
               "label": "Northwinds — book",
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
-          ]
+          ],
+          "mapsQuery": "Northwinds Revelstoke BC"
         }
       ]
     },
@@ -672,7 +676,8 @@
               "label": "Northwinds — book",
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
-          ]
+          ],
+          "mapsQuery": "Northwinds Revelstoke BC"
         }
       ]
     },
@@ -710,7 +715,8 @@
               "label": "Coast Hillcrest — book",
               "url": "https://www.coasthotels.com/hotels/hillcrest/"
             }
-          ]
+          ],
+          "mapsQuery": "Coast Hillcrest Hotel Revelstoke"
         }
       ]
     },
@@ -826,7 +832,8 @@
               "label": "Glacier Mountaineer — book",
               "url": "https://glaciermountaineerlodge.com/"
             }
-          ]
+          ],
+          "mapsQuery": "Glacier Mountaineer Lodge Golden BC"
         }
       ]
     },
@@ -940,7 +947,8 @@
               "label": "Lake Louise Inn — book",
               "url": "https://lakelouiseinn.com/"
             }
-          ]
+          ],
+          "mapsQuery": "Lake Louise Inn Alberta"
         }
       ]
     },

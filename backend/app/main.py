@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
-from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places
+from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_token, seed_from_baked_data
@@ -76,7 +76,8 @@ def maps_key() -> dict:
 def maps_static(
     token: str,
     places: str = Query(..., description="comma-separated place names"),
-    loop: int = Query(0, description="1 = close the loop back to the first place"),
+    loop: int = Query(0, description="1 = close the loop back to the start"),
+    q: str | None = Query(None, description="geocode query — pins the map at the EXACT spot (hotel, not town)"),
 ) -> Response:
     """Static map proxy: real driving route (Directions API, key stays server-side)
     rendered as an encoded polyline + numbered markers. Used by the booklet PDF."""
@@ -91,8 +92,15 @@ def maps_static(
     # route color = trip theme (theme.primary is a hex like #1e3a8a → 0x1e3a8a)
     path_color = "0x" + (trip.theme.primary or "1e3a8a").lstrip("#")
     if len(resolved) == 1:
-        # single place (hotel / restaurant card thumbnail): centered pin map
-        url = build_single_place_url(resolved[0], MAPS_KEY)
+        # single place (hotel / restaurant card thumbnail): centered pin map —
+        # geocoded to the EXACT spot when `q` is given, else the town centre
+        place = resolved[0]
+        if q:
+            hit = resolve_query(q, MAPS_KEY)
+            if hit:
+                name, _, _ = place
+                place = (name, hit[0], hit[1])
+        url = build_single_place_url(place, MAPS_KEY)
     else:
         # Primary: one combined route (origin→waypoints→dest; loop = origin==dest) —
         # compact URL, renders fully with RAW pipes + enc LAST (verified). Fallback:

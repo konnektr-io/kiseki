@@ -128,6 +128,22 @@ def build_static_map_url(
     return "https://maps.googleapis.com/maps/api/staticmap?" + "&".join(q)
 
 
+def resolve_query(query: str, key: str) -> tuple[float, float] | None:
+    """Geocode a free-text query (e.g. "Banff Inn Banff") → (lat, lng)."""
+    try:
+        url = "https://maps.googleapis.com/maps/api/geocode/json?" + urllib.parse.urlencode(
+            {"address": query, "key": key}
+        )
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = json.load(r)
+        if data.get("status") == "OK" and data.get("results"):
+            loc = data["results"][0]["geometry"]["location"]
+            return float(loc["lat"]), float(loc["lng"])
+    except Exception:
+        pass
+    return None
+
+
 def build_single_place_url(
     place: tuple[str, float, float],
     key: str,

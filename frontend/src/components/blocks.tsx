@@ -104,20 +104,29 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
   );
 }
 
-/** Auto Google Maps link for a place (location name/alias). */
-function mapsLink(location: string) {
+/** Auto Google Maps link for a place — precise query when given (mapsQuery),
+ *  else the location name/alias. */
+function mapsLink(b: Block) {
+  const q = b.mapsQuery || b.location;
+  if (!q) return null;
   return {
     label: "Google Maps",
-    url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+    url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`,
   };
 }
 
-/** Card media strip: an image, or a mini static map centered on `location`. */
+/** Card media strip: an image, or a mini static map centered on `location`
+ *  (pinned at the exact spot when `mapsQuery` is set). */
 function CardMedia({ b }: { b: Block }) {
   const trip = useTrip();
   if (b.images?.length) {
+    const imgs = b.images.slice(0, 2);
     return (
-      <img src={b.images[0]} alt={b.title ?? ""} className="mb-3 h-28 w-full rounded-lg object-cover" />
+      <div className={`mb-3 grid gap-2 ${imgs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+        {imgs.map((src) => (
+          <img key={src} src={src} alt={b.title ?? ""} className="h-28 w-full rounded-lg object-cover" />
+        ))}
+      </div>
     );
   }
   if (b.location) {
@@ -125,7 +134,7 @@ function CardMedia({ b }: { b: Block }) {
     if (loc?.lat != null && loc.lng != null) {
       return (
         <div className="mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
-          <StaticMapImg places={[b.location]} className="h-full w-full rounded-none border-0 object-cover" />
+          <StaticMapImg places={[b.location]} query={b.mapsQuery} className="h-full w-full rounded-none border-0 object-cover" />
         </div>
       );
     }
@@ -321,8 +330,8 @@ function TransportBlock({ b }: { b: Block }) {
 }
 
 function ActivityBlock({ b }: { b: Block }) {
-  const links = b.links ?? [];
-  const shown = b.location ? [mapsLink(b.location), ...links] : links;
+  const gm = mapsLink(b);
+  const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard>
       <CardMedia b={b} />
@@ -348,8 +357,8 @@ function ActivityBlock({ b }: { b: Block }) {
 }
 
 function LodgingBlock({ b }: { b: Block }) {
-  const links = b.links ?? [];
-  const shown = b.location ? [...links, mapsLink(b.location)] : links; // booking CTAs first
+  const gm = mapsLink(b);
+  const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
     <BlockCard>
       <CardMedia b={b} />
@@ -377,8 +386,8 @@ function LodgingBlock({ b }: { b: Block }) {
 }
 
 function MealBlock({ b }: { b: Block }) {
-  const links = b.links ?? [];
-  const shown = b.location ? [mapsLink(b.location), ...links] : links;
+  const gm = mapsLink(b);
+  const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard>
       <CardMedia b={b} />

@@ -54,14 +54,17 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           fullscreenControl: false,
         });
 
-        // numbered markers — MUST be attached with `map` in the constructor
-        located.forEach((l, i) => {
+        // numbered markers — numbers = the trip's OWN location markers
+        // (position in trip.locations or explicit `marker`), so a leg like
+        // Revelstoke→Golden shows ③→④, matching the loop map + directions pill
+        located.forEach((l) => {
           const pos = { lat: l.lat!, lng: l.lng! };
+          const n = l.marker ?? (trip.locations ?? []).indexOf(l) + 1;
           markers.push(
             new maps.Marker({
               map,
               position: pos,
-              label: { text: String(i + 1), color: "#ffffff", fontWeight: "700", fontSize: "12px" },
+              label: { text: String(n), color: "#ffffff", fontWeight: "700", fontSize: "12px" },
               title: l.name,
             }),
           );
@@ -154,9 +157,9 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 }
 
 /** Static map image (server-proxied: real route + key-safe) — used in the booklet/print. */
-export function StaticMapImg({ places, loop = false, className = "" }: { places: string[]; loop?: boolean; className?: string }) {
+export function StaticMapImg({ places, loop = false, query, className = "" }: { places: string[]; loop?: boolean; query?: string; className?: string }) {
   const trip = useTrip();
-  const url = staticMapUrl(trip, places, loop);
+  const url = staticMapUrl(trip, places, loop, query);
   if (!url) return null;
   return <img src={url} alt="Route map" className={`w-full rounded-lg border border-border ${className}`} />;
 }

@@ -9,11 +9,14 @@ export function findLocation(trip: Trip, name: string): TripLocation | undefined
 }
 
 /** Static map proxy URL for a set of places (server adds the key + real route).
- *  A single place renders as a centered pin map (hotel/restaurant thumbnails). */
-export function staticMapUrl(trip: Trip, places: string[], loop = false): string | null {
+ *  A single place renders as a centered pin map (hotel/restaurant thumbnails);
+ *  `query` geocodes the EXACT spot (hotel, not town) for the pin. */
+export function staticMapUrl(trip: Trip, places: string[], loop = false, query?: string): string | null {
   const resolvable = places.filter((p) => findLocation(trip, p));
   if (resolvable.length < 1) return null;
-  return `/api/maps/static/${trip.token}?places=${encodeURIComponent(resolvable.join(","))}${loop ? "&loop=1" : ""}`;
+  let url = `/api/maps/static/${trip.token}?places=${encodeURIComponent(resolvable.join(","))}${loop ? "&loop=1" : ""}`;
+  if (query) url += `&q=${encodeURIComponent(query)}`;
+  return url;
 }
 
 /** All trip locations with coords, in marker order. */

@@ -62,6 +62,7 @@ class Block(BaseModel):
     to: Optional[str] = Field(default=None, alias="to")        # directions destination
     mode: Optional[str] = None         # transport: "flight" | "drive" | "train" | "ferry" (explicit — beats the heuristic)
     location: Optional[str] = None     # place name/alias → auto Google Maps link + map thumbnail
+    mapsQuery: Optional[str] = None    # precise search query for the ACTUAL place (hotel/restaurant), e.g. "Banff Inn Banff" — overrides `location` for the link + thumbnail pin
     images: list[str] = Field(default_factory=list)  # card media strip (asset URLs)
 
 

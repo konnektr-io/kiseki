@@ -54,6 +54,7 @@ export interface Block {
   to?: string;
   mode?: "flight" | "drive" | "train" | "ferry";
   location?: string;
+  mapsQuery?: string;
   images?: string[];
 }
 

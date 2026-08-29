@@ -232,7 +232,8 @@
               "label": "Teleférico Santiago",
               "url": "https://www.parquemet.cl/"
             }
-          ]
+          ],
+          "mapsQuery": "Cerro San Cristóbal Santiago teleférico"
         },
         {
           "kind": "meal",
@@ -244,7 +245,8 @@
               "label": "Mercado Central",
               "url": "https://www.google.com/maps/search/?api=1&query=Mercado+Central+Santiago"
             }
-          ]
+          ],
+          "mapsQuery": "Mercado Central de Santiago Chile"
         },
         {
           "kind": "activity",
@@ -256,7 +258,8 @@
               "label": "Costanera Center",
               "url": "https://www.costaneracenter.cl/"
             }
-          ]
+          ],
+          "mapsQuery": "Sky Costanera Santiago"
         }
       ]
     },
@@ -318,7 +321,8 @@
           "images": [
             "/media/chile-peru-2027/ec2.jpg"
           ],
-          "location": "Valle Nevado"
+          "location": "Valle Nevado",
+          "mapsQuery": "Valle Nevado Chile"
         },
         {
           "kind": "transport",
@@ -439,7 +443,8 @@
               "label": "Cusco old town",
               "url": "https://www.google.com/maps/search/?api=1&query=Plaza+de+Armas+Cusco"
             }
-          ]
+          ],
+          "mapsQuery": "Plaza de Armas Cusco"
         },
         {
           "kind": "activity",
@@ -451,7 +456,8 @@
               "url": "https://chocomuseo.com/"
             }
           ],
-          "description": "Bean-to-bar workshop — the kids make their own chocolate, parents taste the single-origin dark. A low-effort high-fun afternoon at 3,400 m."
+          "description": "Bean-to-bar workshop — the kids make their own chocolate, parents taste the single-origin dark. A low-effort high-fun afternoon at 3,400 m.",
+          "mapsQuery": "ChocoMuseo Cusco"
         }
       ]
     },
@@ -462,7 +468,12 @@
         {
           "kind": "activity",
           "title": "Palcoyo full-day trip (5am–4pm)",
-          "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery."
+          "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery.\n\nThe quieter rainbow mountain: a rolling **1.5–2 h loop** across three striped ridges — red, ochre, turquoise and violet strata — with the glacier-capped peak of Ausangate (6,384 m) as the backdrop. Palcoyo sits **~3 h from Cusco** (better road than Vinicunca), so it's a full-day outing: 5am pick-up, lunch back in the valley, early evening in Cusco. 4,800 m means slow steps, coca tea, and no rush — the kids manage it fine, and the llama herd that patrols the ridge is the family photo of the trip.",
+          "images": [
+            "/media/chile-peru-2027/rb1.jpg",
+            "/media/chile-peru-2027/rb1-close.jpg"
+          ],
+          "mapsQuery": "Palcoyo Rainbow Mountain Peru"
         }
       ]
     },
@@ -524,7 +535,8 @@
               "label": "Circuito Mágico del Agua",
               "url": "https://www.google.com/maps/search/?api=1&query=Circuito+Magico+del+Agua+Lima"
             }
-          ]
+          ],
+          "mapsQuery": "Circuito Mágico del Agua Lima"
         }
       ]
     },
