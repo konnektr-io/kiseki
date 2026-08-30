@@ -1,0 +1,2475 @@
+{
+  "$dtId": "trip:canada-2027",
+  "twins": [
+    {
+      "$dtId": "trip:canada-2027:loc:yyc",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Location;1"
+      },
+      "name": "YYC",
+      "marker": null,
+      "alias": [
+        "Calgary",
+        "Calgary International Airport"
+      ],
+      "lat": 51.1215,
+      "lng": -114.0079
+    },
+    {
+      "$dtId": "trip:canada-2027:loc:banff",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Location;1"
+      },
+      "name": "Banff",
+      "marker": null,
+      "alias": [],
+      "lat": 51.1784,
+      "lng": -115.5708
+    },
+    {
+      "$dtId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Location;1"
+      },
+      "name": "Revelstoke",
+      "marker": null,
+      "alias": [
+        "Hillcrest",
+        "Coast Hillcrest"
+      ],
+      "lat": 50.9981,
+      "lng": -118.1957
+    },
+    {
+      "$dtId": "trip:canada-2027:loc:golden",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Location;1"
+      },
+      "name": "Golden",
+      "marker": null,
+      "alias": [],
+      "lat": 51.292,
+      "lng": -116.9656
+    },
+    {
+      "$dtId": "trip:canada-2027:loc:lake-louise",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Location;1"
+      },
+      "name": "Lake Louise",
+      "marker": null,
+      "alias": [],
+      "lat": 51.4254,
+      "lng": -116.1773
+    },
+    {
+      "$dtId": "trip:canada-2027:person:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Person;1"
+      },
+      "name": "Person 1",
+      "role": "owner",
+      "note": null,
+      "contact": null
+    },
+    {
+      "$dtId": "trip:canada-2027:person:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Person;1"
+      },
+      "name": "Person 2",
+      "role": "viewer",
+      "note": null,
+      "contact": null
+    },
+    {
+      "$dtId": "trip:canada-2027:person:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Person;1"
+      },
+      "name": "Person 3",
+      "role": "viewer",
+      "note": null,
+      "contact": null
+    },
+    {
+      "$dtId": "trip:canada-2027:feature:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Feature;1"
+      },
+      "kicker": "Centerpiece",
+      "title": "Selkirk Tangiers — 3-Day Classic · Bell 212",
+      "description": "The package that makes the trip: three days of unlimited vertical in the Selkirk & Monashee mountains, out of town since 1978, with everything handled.\n\n**9,000 m guaranteed**, unlimited metres included — the Bell 212 takes up to 10 guests (2–3 groups per aircraft), so our group of 3 fits easily with room to spread out.\n\nSki days Sun–Tue (Feb 21–23), check-in Saturday Feb 20, **4 nights at the Coast Hillcrest Hotel, all meals included**. ACMG/IFMGA guides, powder ski & snowboard fleet, avalanche airbags + safety gear, Acera emergency medical cover.\n\n**Price: $8,469 CAD + 5% tax ≈ €5,880 pp** in the Feb window (Jan 31 – Mar 6 rate). Availability confirmed for our dates — 35% deposit secures.",
+      "image": null,
+      "images": [
+        "/media/REDACTED",
+        "/media/REDACTED"
+      ],
+      "chips": [
+        "Unlimited vertical",
+        "10 guests max",
+        "ACMG guides",
+        "Meals included",
+        "Hotel included",
+        "Airbag + gear"
+      ],
+      "cards": [],
+      "map": null,
+      "links": [
+        {
+          "label": "View the package",
+          "url": "https://selkirk-tangiers.com/heli-skiing/bell-412/"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:feature:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Feature;1"
+      },
+      "kicker": "The road trip",
+      "title": "Four resorts on the Powder Highway",
+      "description": "Sunshine first, then the heli at Revelstoke, and two big mountains on the way home. **The Ikon pass covers three of the four**; Kicking Horse is a day ticket. Click a resort for its site.",
+      "image": null,
+      "images": [],
+      "chips": [],
+      "cards": [
+        {
+          "title": "Banff Sunshine",
+          "value": "1,070 m vertical",
+          "description": "Highest ski area in western Canada — best early-season snow odds. First turns of the trip. Best runs: Delirium Dive (usually open by early Jan), Wild West bowls, Standish.",
+          "image": "/media/REDACTED",
+          "links": [
+            {
+              "label": "sunshinevillage.com →",
+              "url": "https://www.sunshinevillage.com/"
+            }
+          ]
+        },
+        {
+          "title": "Revelstoke",
+          "value": "1,713 m vertical",
+          "description": "Biggest lift-served vertical in North America. In town = instant access around the heli block. Best runs: North Bowl glades, Ripper chair steeps, Killer Bees.",
+          "image": "/media/REDACTED",
+          "links": [
+            {
+              "label": "revelstokemountainresort.com →",
+              "url": "https://www.revelstokemountainresort.com/"
+            }
+          ]
+        },
+        {
+          "title": "Kicking Horse",
+          "value": "1,315 m vertical · #4 NA",
+          "description": "Champagne powder, 120+ runs, 45% advanced / 15% expert.",
+          "image": "/media/REDACTED",
+          "links": [
+            {
+              "label": "kickinghorseresort.com →",
+              "url": "https://kickinghorseresort.com/"
+            }
+          ]
+        },
+        {
+          "title": "Lake Louise",
+          "value": "4,200 acres",
+          "description": "Four mountain faces — one of the great views in skiing.",
+          "image": "/media/REDACTED",
+          "links": [
+            {
+              "label": "skilouise.com →",
+              "url": "https://www.skilouise.com/"
+            }
+          ]
+        }
+      ],
+      "map": null,
+      "links": []
+    },
+    {
+      "$dtId": "trip:canada-2027:feature:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Feature;1"
+      },
+      "kicker": "The road trip",
+      "title": "One loop, ~847 km",
+      "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**",
+      "image": "/media/REDACTED",
+      "images": [],
+      "chips": [
+        "Total driving: ~847 km · ~9 h 15",
+        "Longest leg: Banff → Revelstoke, 280 km · 3 h 05 (Day 3)",
+        "Passes: Rogers Pass · Kicking Horse Pass · Banff NP — winter tires mandatory"
+      ],
+      "cards": [
+        {
+          "title": "YYC",
+          "value": null,
+          "description": "Fly in & out — Calgary",
+          "image": null,
+          "links": []
+        },
+        {
+          "title": "Banff",
+          "value": null,
+          "description": "First turns at Sunshine",
+          "image": null,
+          "links": []
+        },
+        {
+          "title": "Revelstoke",
+          "value": null,
+          "description": "The heli block",
+          "image": null,
+          "links": []
+        },
+        {
+          "title": "Golden",
+          "value": null,
+          "description": "Kicking Horse",
+          "image": null,
+          "links": []
+        },
+        {
+          "title": "Lake Louise",
+          "value": null,
+          "description": "Back bowls, big views",
+          "image": null,
+          "links": []
+        }
+      ],
+      "map": true,
+      "links": [
+        {
+          "label": "open in Google Maps",
+          "url": "https://www.google.com/maps/dir/Calgary+International+Airport,+AB/Banff,+AB/Revelstoke,+BC/Golden,+BC/Lake+Louise,+AB/Calgary+International+Airport,+AB"
+        },
+        {
+          "label": "DriveBC",
+          "url": "https://drivebc.ca/"
+        },
+        {
+          "label": "Avalanche Canada",
+          "url": "https://www.avalanche.ca/"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:section:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:TripSection;1"
+      },
+      "title": "Days 1–2 — arrival & first turns",
+      "days": [
+        0,
+        1
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:section:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:TripSection;1"
+      },
+      "title": "Days 3–5 — Revelstoke",
+      "days": [
+        2,
+        4
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:section:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:TripSection;1"
+      },
+      "title": "Days 6–9 — the heli block",
+      "days": [
+        5,
+        8
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:section:3",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:TripSection;1"
+      },
+      "title": "Days 10–12 — Kicking Horse",
+      "days": [
+        9,
+        11
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:section:4",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:TripSection;1"
+      },
+      "title": "Days 13–16 — Lake Louise & home",
+      "days": [
+        12,
+        15
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:0:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "BRU 10:30 → YYC 16:20 via Frankfurt",
+      "time": "10:30",
+      "description": "LH 5571 (Brussels Airlines) + LH 4404 (Discover Airlines) via Frankfurt — 12 h 50 total · 1 stop (1 h 50 at FRA). Economy Comfort (1×23kg bag incl., snowboard free).",
+      "links": [
+        {
+          "label": "Manage booking",
+          "url": "https://www.brusselsairlines.com/"
+        },
+        {
+          "label": "Check-in",
+          "url": "https://www.brusselsairlines.com/"
+        }
+      ],
+      "cost": 1005.81,
+      "currency": "EUR",
+      "status": "booked",
+      "bookingCode": "9GMOL3",
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": "flight",
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:0:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "Drive YYC → Banff — the easy leg",
+      "time": "16:45",
+      "description": "Land YYC 16:20, pick up the 4WD (winter tires, ski rack), 1 h 35 drive to Banff through the foothills. Check in, town dinner.",
+      "links": [
+        {
+          "label": "Directions",
+          "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": "143 km",
+      "duration": "1 h 35",
+      "route": "Hwy 1 West, via Canmore into Banff NP",
+      "via": null,
+      "from_": "YYC",
+      "to": "Banff",
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:0:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Banff town",
+      "time": null,
+      "description": "Banff Inn / Elk + Avenue / HI Banff (2 rooms). Sleeping in Banff puts Sunshine 15 min away for tomorrow.",
+      "links": [
+        {
+          "label": "Banff Inn — book",
+          "url": "https://www.banffinn.com/"
+        },
+        {
+          "label": "Elk + Avenue — book",
+          "url": "https://elkandavenuehotel.com/"
+        },
+        {
+          "label": "HI Banff — book",
+          "url": "https://hihostels.com/hostels/hi-banff/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Banff",
+      "mapsQuery": "Banff Inn Banff Alberta",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-15",
+      "title": "Fly Brussels → Calgary → Banff",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Banff town — Banff Inn / Elk + Avenue / HI Banff"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:1:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Sunshine full day",
+      "time": null,
+      "description": "Full day at the highest ski area in western Canada (15 min from Banff). Jet-lag friendly: up early, big bowls, done by 16:00. Still riding well on Wed morning? Day 3 has a half-day encore option.",
+      "links": [
+        {
+          "label": "Resort site",
+          "url": "https://www.sunshinemountain.com/"
+        },
+        {
+          "label": "Parking / access",
+          "url": "https://www.sunshinemountain.com/plan-your-visit/getting-here"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:1:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Banff (2nd night)",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Banff Inn — book",
+          "url": "https://www.banffinn.com/"
+        },
+        {
+          "label": "Elk + Avenue — book",
+          "url": "https://elkandavenuehotel.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Banff",
+      "mapsQuery": "Banff Inn Banff Alberta",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-16",
+      "title": "Sunshine Village — first turns",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Banff"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon (SkiBig3)"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:2:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "note",
+      "title": "Decide on the hill",
+      "time": null,
+      "description": "If Sunshine is riding well: another half-day there, then the ~3 h 05 drive to Revelstoke after lunch (over Kicking Horse & Rogers Pass). Otherwise: morning drive + afternoon leg-shakedown at RMR.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:2:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "Drive Banff → Revelstoke — over the pass",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Directions",
+          "url": "https://www.google.com/maps/dir/?api=1&origin=Banff+Alberta&destination=Revelstoke+BC&travelmode=driving"
+        },
+        {
+          "label": "DriveBC",
+          "url": "https://drivebc.ca/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": "280 km",
+      "duration": "3 h 05",
+      "route": "Hwy 1 West",
+      "via": "Rogers Pass (Glacier NP) — can close for avalanche control; check DriveBC before leaving",
+      "from_": "Banff",
+      "to": "Revelstoke",
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:2:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "RMR afternoon leg-shakedown",
+      "time": null,
+      "description": null,
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:2:block:3",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Revelstoke — Northwinds by Basecamp",
+      "time": null,
+      "description": "~$90–140/room — cheapest solid option, ski shuttle, gear storage, town-adjacent.",
+      "links": [
+        {
+          "label": "Northwinds — book",
+          "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Revelstoke",
+      "mapsQuery": "Northwinds Revelstoke BC",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-17",
+      "title": "Flex day — Sunshine encore or RMR afternoon",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Northwinds by Basecamp (3n)"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon (either way)"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:3:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "RMR full day",
+      "time": null,
+      "description": "Biggest lift-served vertical in North America (1,713 m). North Bowl glades, Ripper chair steeps — legs fresh before the heli.",
+      "links": [
+        {
+          "label": "Resort site",
+          "url": "https://www.revelstokemountainresort.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:3:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Revelstoke (2nd night)",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Northwinds — book",
+          "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Revelstoke",
+      "mapsQuery": "Northwinds Revelstoke BC",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:3",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-18",
+      "title": "RMR full day",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Northwinds, Revelstoke"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:4:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "RMR full day — or rest",
+      "time": null,
+      "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:4:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Revelstoke (3rd night)",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Northwinds — book",
+          "url": "https://www.basecampresorts.com/northwinds-revelstoke"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Revelstoke",
+      "mapsQuery": "Northwinds Revelstoke BC",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:4",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-19",
+      "title": "RMR full day (or rest)",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Northwinds, Revelstoke"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:5:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "booking",
+      "title": "Selkirk Tangiers — 3-Day Classic, check-in",
+      "time": "afternoon",
+      "description": "Selkirk Tangiers at the Coast Hillcrest Hotel (4 nights). Safety briefing, kit fitting, welcome dinner. Legs fresh for three big days. Deposit paid ($2,964.15 CAD, 35%). Balance due Dec 10, 2026.",
+      "links": [
+        {
+          "label": "Selkirk Tangiers",
+          "url": "https://selkirk-tangiers.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": "booked",
+      "bookingCode": "STHS Feb 20–24",
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:5:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Coast Hillcrest Hotel — 4 nights",
+      "time": null,
+      "description": "Full breakfast, après snack, dinner in the Hillcrest Dining Room. Ski days Sun/Mon/Tue.",
+      "links": [
+        {
+          "label": "Coast Hillcrest — book",
+          "url": "https://www.coasthotels.com/hotels/hillcrest/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Hillcrest",
+      "mapsQuery": "Coast Hillcrest Hotel Revelstoke",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:5",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-20",
+      "title": "Rest morning → STHS check-in",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:6:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Heli day 1",
+      "time": null,
+      "description": "Bell 212, unlimited vertical in the Selkirk & Monashees. Lunch in the alpine. €5,880 pp incl. tax; 9,000 m guaranteed. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds.",
+      "links": [],
+      "cost": 5880.0,
+      "currency": "EUR",
+      "status": "booked",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:6",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-21",
+      "title": "HELI DAY 1",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:7:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Heli day 2",
+      "time": null,
+      "description": "Weather window, terrain picked by the guides for the group.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "booked",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:7",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-22",
+      "title": "HELI DAY 2",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:8:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Heli day 3",
+      "time": null,
+      "description": "Final day — chase the best snow of the week.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "booked",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:8",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-23",
+      "title": "HELI DAY 3",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:9:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "Drive Revelstoke → Golden — to Kicking Horse",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Directions",
+          "url": "https://www.google.com/maps/dir/?api=1&origin=Revelstoke+BC&destination=Golden+BC&travelmode=driving"
+        },
+        {
+          "label": "DriveBC",
+          "url": "https://drivebc.ca/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": "133 km",
+      "duration": "1 h 30",
+      "route": "Hwy 1 East",
+      "via": "Over Rogers Pass, back into Glacier NP",
+      "from_": "Hillcrest",
+      "to": "Golden",
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:9:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Kicking Horse afternoon (buffer)",
+      "time": null,
+      "description": "Champagne powder, 1,315 m vertical. Buffer: if legs say no, skip it and rest in Golden (plan works at 2 + 2).",
+      "links": [
+        {
+          "label": "Resort site",
+          "url": "https://kickinghorseresort.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:9:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Golden — Glacier Mountaineer Lodge (3n)",
+      "time": null,
+      "description": "Ski-in/ski-out at the gondola, full kitchens — best for the KH block; splits well 3–4 ways in a suite.",
+      "links": [
+        {
+          "label": "Glacier Mountaineer — book",
+          "url": "https://glaciermountaineerlodge.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Golden",
+      "mapsQuery": "Glacier Mountaineer Lodge Golden BC",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:9",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-24",
+      "title": "Check out → drive to Golden → KH afternoon",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer Lodge (3n, ski-in/out)"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket ~$150–170"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:10:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Kicking Horse full day",
+      "time": null,
+      "description": "Whitewall, Feuz Bowl, Crystal Bowl — 45% advanced / 15% expert. Ski-in/ski-out from the lodge.",
+      "links": [
+        {
+          "label": "Resort site",
+          "url": "https://kickinghorseresort.com/"
+        }
+      ],
+      "cost": 170.0,
+      "currency": "CAD",
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:10",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-25",
+      "title": "Kicking Horse full day",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer, Golden"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:11:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Kicking Horse full day",
+      "time": null,
+      "description": "Whitewall, Feuz Bowl, Crystal Bowl — 45% advanced / 15% expert. Champagne powder laps from the gondola, ski-in/ski-out at the lodge.",
+      "links": [
+        {
+          "label": "Resort site",
+          "url": "https://kickinghorseresort.com/"
+        }
+      ],
+      "cost": 170.0,
+      "currency": "CAD",
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:11",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-26",
+      "title": "Kicking Horse full day — day 2",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Glacier Mountaineer, Golden (3n)"
+        },
+        {
+          "label": "Lift",
+          "value": "KH day ticket"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:12:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "Drive Golden → Lake Louise — into the Rockies",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Directions",
+          "url": "https://www.google.com/maps/dir/?api=1&origin=Golden+BC&destination=Lake+Louise+Alberta&travelmode=driving"
+        },
+        {
+          "label": "Resort site",
+          "url": "https://www.skilouise.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": "93 km",
+      "duration": "1 h 00",
+      "route": "Hwy 1 East",
+      "via": "Over Kicking Horse Pass into Banff NP, AB border",
+      "from_": "Golden",
+      "to": "Lake Louise",
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:12:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Lake Louise full day",
+      "time": null,
+      "description": "4,200 acres across four mountain faces — one of the great views in skiing.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:12:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "lodging",
+      "title": "Stay: Lake Louise Inn (2n)",
+      "time": null,
+      "description": "Closest mid-range to the resort, complimentary shuttle to the ski resort, ski tuning room.",
+      "links": [
+        {
+          "label": "Lake Louise Inn — book",
+          "url": "https://lakelouiseinn.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": "Lake Louise",
+      "mapsQuery": "Lake Louise Inn Alberta",
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:12",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-27",
+      "title": "Drive to Lake Louise → full day",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Lake Louise Inn (2n, free resort shuttle)"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:13:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "activity",
+      "title": "Lake Louise full day",
+      "time": null,
+      "description": "Final mountain day: back bowls via the Summit Platter hike, World Cup DH run, West Bowl trees. Soak in the view of Victoria Glacier.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": "planned",
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:13",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-02-28",
+      "title": "Lake Louise full day — back bowls",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Lake Louise Inn"
+        },
+        {
+          "label": "Lift",
+          "value": "Ikon"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:14:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "note",
+      "title": "Flex: LL morning or relaxed drive",
+      "time": null,
+      "description": "Optional LL morning (off the hill by ~11:30), or a relaxed drive with a Banff lunch stop. Aim to arrive YYC by 15:30 for the 18:05 flight.",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:14:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "Drive Lake Louise → YYC — the road home",
+      "time": null,
+      "description": null,
+      "links": [
+        {
+          "label": "Directions",
+          "url": "https://www.google.com/maps/dir/?api=1&origin=Lake+Louise+Alberta&destination=Calgary+International+Airport&travelmode=driving"
+        },
+        {
+          "label": "DriveBC",
+          "url": "https://drivebc.ca/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": "199 km",
+      "duration": "2 h 05",
+      "route": "Hwy 1 East",
+      "via": "Via Banff, Canmore, into Calgary",
+      "from_": "Lake Louise",
+      "to": "YYC",
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:14:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "transport",
+      "title": "YYC 18:05 → BRU 13:35",
+      "time": null,
+      "description": "LH 4405 (Discover Airlines) + LH 5574 (Brussels Airlines) via Frankfurt — 12 h 30 total · 1 stop (1 h 45 at FRA). Arrive Brussels Tue Mar 2, 13:35.",
+      "links": [
+        {
+          "label": "Manage booking",
+          "url": "https://www.brusselsairlines.com/"
+        },
+        {
+          "label": "Check-in",
+          "url": "https://www.brusselsairlines.com/"
+        }
+      ],
+      "cost": null,
+      "currency": null,
+      "status": "booked",
+      "bookingCode": "9GMOL3",
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": "flight",
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:14",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-03-01",
+      "title": "Flex morning → fly home",
+      "notes": null,
+      "map": null,
+      "meta": [
+        {
+          "label": "Flight",
+          "value": "YYC 18:05 → BRU 13:35 (Tue)"
+        },
+        {
+          "label": "Return car",
+          "value": "YYC"
+        },
+        {
+          "label": "Day 16",
+          "value": "Tue Mar 2, arrival"
+        }
+      ]
+    },
+    {
+      "$dtId": "trip:canada-2027:day:15:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Block;1"
+      },
+      "kind": "note",
+      "title": "Arrive BRU 13:35",
+      "time": null,
+      "description": "The trail behind us. 🏔️",
+      "links": [],
+      "cost": null,
+      "currency": null,
+      "status": null,
+      "bookingCode": null,
+      "order": null,
+      "items": [],
+      "html": null,
+      "distance": null,
+      "duration": null,
+      "route": null,
+      "via": null,
+      "from_": null,
+      "to": null,
+      "mode": null,
+      "location": null,
+      "mapsQuery": null,
+      "images": []
+    },
+    {
+      "$dtId": "trip:canada-2027:day:15",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Day;1"
+      },
+      "date": "2027-03-02",
+      "title": "Arrive home",
+      "notes": null,
+      "map": null,
+      "meta": []
+    },
+    {
+      "$dtId": "trip:canada-2027",
+      "$etag": "W/\"mock-etag\"",
+      "$metadata": {
+        "$model": "dtmi:kiseki:travel:Trip;1"
+      },
+      "slug": "canada-2027",
+      "title": "Canada Heliski + Resort Trip",
+      "subtitle": "BC Powder Highway · Sunshine → Revelstoke → 3 heli days → Kicking Horse → Lake Louise",
+      "stage": "booked",
+      "startDate": "2027-02-15",
+      "endDate": "2027-03-02",
+      "token": "SECRET_TOKEN",
+      "cover": "/media/REDACTED",
+      "coverCredit": "REDACTED",
+      "map": "/media/REDACTED",
+      "summary": "16 days, 3 riders (**Niko** — snowboard, **Person 2**, **Person 3** — skis), ~10.5–11 ski days across four big resorts **plus 3 heli days with Selkirk Tangiers**. The heli block (Feb 20–24, Coast Hillcrest) is the fixed anchor; everything else is a condition-chasing loop: Sunshine first (arrival-day resort, 2h from Calgary), then Revelstoke (biggest lift-served vertical in North America), the STHS heli, then Kicking Horse and Lake Louise.\n\n**Booked**: flights BRU↔YYC (€1,005.81 pp, booking 9GMOL3) · STHS 3-Day Classic deposit paid ($2,964.15 CAD, 35%) · group locked at 3 · family room confirmed.\n\n**Flex by design**: Day 3 is a *decide-on-the-hill* day, Day 10's KH afternoon is a skippable buffer, and Mar 1 flexes between a Lake Louise morning and a relaxed drive home. Heli down days (STHS averages 2–3/month) fall back to Revelstoke Mountain Resort.",
+      "theme": {
+        "primary": "#1e3a8a",
+        "accent": "#0f766e",
+        "font": null
+      },
+      "coverStats": [
+        "16 days · Feb 15 – Mar 2",
+        "3 heli days · Bell 212",
+        "4 resorts on the loop",
+        "NIKO · NICK · STEFAN"
+      ],
+      "stats": [
+        {
+          "label": "Days",
+          "value": "16"
+        },
+        {
+          "label": "Riders",
+          "value": "3"
+        },
+        {
+          "label": "Road loop",
+          "value": "~847 km"
+        },
+        {
+          "label": "Ski days",
+          "value": "10.5–11"
+        },
+        {
+          "label": "Heli days",
+          "value": "3"
+        },
+        {
+          "label": "Budget pp",
+          "value": "€9.2–9.8k"
+        }
+      ],
+      "practical": {
+        "todos": [
+          {
+            "label": "STHS deposit paid (35%, $2,964.15 CAD)",
+            "done": true,
+            "when": "done",
+            "links": [
+              {
+                "label": "Selkirk Tangiers",
+                "url": "https://selkirktangiers.com/"
+              }
+            ]
+          },
+          {
+            "label": "Flights booked — €1,005.81 pp (9GMOL3)",
+            "done": true,
+            "when": "Feb 15 out · Mar 1 back",
+            "links": [
+              {
+                "label": "Manage flights",
+                "url": "https://www.google.com/travel/flights"
+              }
+            ]
+          },
+          {
+            "label": "STHS family room confirmed",
+            "done": true,
+            "when": "Feb 20–24",
+            "links": [
+              {
+                "label": "STHS lodging",
+                "url": "https://selkirktangiers.com/"
+              }
+            ]
+          },
+          {
+            "label": "STHS balance due Dec 10, 2026",
+            "done": false,
+            "when": "Dec 10, 2026",
+            "links": []
+          },
+          {
+            "label": "Car rental — YYC 4WD SUV, winter tires, ski rack (~$100–140/day)",
+            "done": false,
+            "when": "Feb 15 – Mar 1",
+            "links": []
+          },
+          {
+            "label": "Book Banff lodging — Banff Inn / Elk + Avenue / HI Banff (2n)",
+            "done": false,
+            "when": "Feb 15–16",
+            "links": []
+          },
+          {
+            "label": "Book Revelstoke — Northwinds by Basecamp (3n)",
+            "done": false,
+            "when": "Feb 17–19",
+            "links": []
+          },
+          {
+            "label": "Book Golden — Glacier Mountaineer Lodge (3n)",
+            "done": false,
+            "when": "Feb 24–26",
+            "links": []
+          },
+          {
+            "label": "Book Lake Louise Inn (2n)",
+            "done": false,
+            "when": "Feb 27–28",
+            "links": []
+          },
+          {
+            "label": "Buy Ikon Base (3× — RMR + SkiBig3 + LL)",
+            "done": false,
+            "when": "before Dec",
+            "links": [
+              {
+                "label": "Ikon Pass",
+                "url": "https://www.ikonpass.com/"
+              }
+            ]
+          },
+          {
+            "label": "Buy Kicking Horse day tickets (~$150–170 × 2–3)",
+            "done": false,
+            "when": "Feb 24–26",
+            "links": [
+              {
+                "label": "Kicking Horse tickets",
+                "url": "https://kickinghorseresort.com/"
+              }
+            ]
+          },
+          {
+            "label": "Travel insurance — heliski rider + trip cancellation (Acera)",
+            "done": false,
+            "when": "before Dec",
+            "links": [
+              {
+                "label": "Insurance",
+                "url": "https://www.google.com/search?q=travel+insurance+canada+heliski"
+              }
+            ]
+          },
+          {
+            "label": "eTA visa — 5 min online (~$7 CAD)",
+            "done": false,
+            "when": "before Feb",
+            "links": [
+              {
+                "label": "eTA Canada",
+                "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta.html"
+              }
+            ]
+          }
+        ],
+        "links": [
+          {
+            "label": "Brussels Airlines cart (booked)",
+            "url": "https://shop.brusselsairlines.com/booking/cart?cartId=1545ALQOS7A9GTON&type=cart&shared=true&origin=BRU&utm_source=sharedcart&utm_medium=referral&consent=true"
+          },
+          {
+            "label": "Selkirk Tangiers Heli Skiing",
+            "url": "https://selkirk-tangiers.com/"
+          },
+          {
+            "label": "Ikon Pass",
+            "url": "https://www.ikonpass.com/"
+          },
+          {
+            "label": "Revelstoke Mountain Resort",
+            "url": "https://www.revelstokemountainresort.com/"
+          },
+          {
+            "label": "Kicking Horse Mountain Resort",
+            "url": "https://kickinghorseresort.com/"
+          },
+          {
+            "label": "Lake Louise Ski Resort",
+            "url": "https://www.skilouise.com/"
+          },
+          {
+            "label": "Banff Sunshine Village",
+            "url": "https://www.sunshinemountain.com/"
+          },
+          {
+            "label": "DriveBC road conditions",
+            "url": "https://drivebc.ca/"
+          },
+          {
+            "label": "Avalanche Canada",
+            "url": "https://www.avalanche.ca/"
+          }
+        ],
+        "notes": "**Essentials** · eTA visa — 5 min online · Winter tires mandatory (Rogers Pass) · snowboard/ski bag flies **free** as the 1×23kg checked bag · Calgary is UTC−7 (8h behind Brussels).\n\n**Money**: group of 3, one family room at the Hillcrest, 2 budget rooms shared 3 ways elsewhere. **STHS balance due Dec 10, 2026** — trip-cancellation insurance strongly recommended (deposit non-refundable, all payments retained <10 weeks out).",
+        "contacts": [
+          {
+            "label": "Selkirk Tangiers Heli Skiing",
+            "value": "1-800-663-7080 · 2100 Oak Drive, Revelstoke BC",
+            "link": "https://selkirk-tangiers.com/"
+          },
+          {
+            "label": "Coast Hillcrest Hotel",
+            "value": "2100 Oak Drive, Revelstoke BC (STHS base — same building)",
+            "link": null
+          },
+          {
+            "label": "Rental car — YYC",
+            "value": "Budget / Avis / Hertz — book winter tires explicitly",
+            "link": null
+          }
+        ]
+      },
+      "updated": "2026-08-28"
+    }
+  ],
+  "relationships": [
+    {
+      "$relationshipId": "trip:canada-2027-crew-0",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasCrew",
+      "$targetId": "trip:canada-2027:person:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-crew-1",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasCrew",
+      "$targetId": "trip:canada-2027:person:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027-crew-2",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasCrew",
+      "$targetId": "trip:canada-2027:person:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027-feature-0",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasFeature",
+      "$targetId": "trip:canada-2027:feature:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-feature-1",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasFeature",
+      "$targetId": "trip:canada-2027:feature:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027-feature-2",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasFeature",
+      "$targetId": "trip:canada-2027:feature:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027-section-0",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasSection",
+      "$targetId": "trip:canada-2027:section:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-section-1",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasSection",
+      "$targetId": "trip:canada-2027:section:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027-section-2",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasSection",
+      "$targetId": "trip:canada-2027:section:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027-section-3",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasSection",
+      "$targetId": "trip:canada-2027:section:3",
+      "$etag": "W/\"mock-etag\"",
+      "index": 3
+    },
+    {
+      "$relationshipId": "trip:canada-2027-section-4",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasSection",
+      "$targetId": "trip:canada-2027:section:4",
+      "$etag": "W/\"mock-etag\"",
+      "index": 4
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:0-block-0",
+      "$sourceId": "trip:canada-2027:day:0",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:0:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:0-block-1",
+      "$sourceId": "trip:canada-2027:day:0",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:0:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:0-block-2",
+      "$sourceId": "trip:canada-2027:day:0",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:0:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:0:block:2-loc",
+      "$sourceId": "trip:canada-2027:day:0:block:2",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:banff",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-0",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:1-block-0",
+      "$sourceId": "trip:canada-2027:day:1",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:1:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:1-block-1",
+      "$sourceId": "trip:canada-2027:day:1",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:1:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:1:block:1-loc",
+      "$sourceId": "trip:canada-2027:day:1:block:1",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:banff",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-1",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:2-block-0",
+      "$sourceId": "trip:canada-2027:day:2",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:2:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:2-block-1",
+      "$sourceId": "trip:canada-2027:day:2",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:2:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:2-block-2",
+      "$sourceId": "trip:canada-2027:day:2",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:2:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:2-block-3",
+      "$sourceId": "trip:canada-2027:day:2",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:2:block:3",
+      "$etag": "W/\"mock-etag\"",
+      "index": 3
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:2:block:3-loc",
+      "$sourceId": "trip:canada-2027:day:2:block:3",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-2",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:3-block-0",
+      "$sourceId": "trip:canada-2027:day:3",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:3:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:3-block-1",
+      "$sourceId": "trip:canada-2027:day:3",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:3:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:3:block:1-loc",
+      "$sourceId": "trip:canada-2027:day:3:block:1",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-3",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:3",
+      "$etag": "W/\"mock-etag\"",
+      "index": 3
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:4-block-0",
+      "$sourceId": "trip:canada-2027:day:4",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:4:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:4-block-1",
+      "$sourceId": "trip:canada-2027:day:4",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:4:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:4:block:1-loc",
+      "$sourceId": "trip:canada-2027:day:4:block:1",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-4",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:4",
+      "$etag": "W/\"mock-etag\"",
+      "index": 4
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:5-block-0",
+      "$sourceId": "trip:canada-2027:day:5",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:5:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:5-block-1",
+      "$sourceId": "trip:canada-2027:day:5",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:5:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:5:block:1-loc",
+      "$sourceId": "trip:canada-2027:day:5:block:1",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-5",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:5",
+      "$etag": "W/\"mock-etag\"",
+      "index": 5
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:6-block-0",
+      "$sourceId": "trip:canada-2027:day:6",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:6:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-6",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:6",
+      "$etag": "W/\"mock-etag\"",
+      "index": 6
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:7-block-0",
+      "$sourceId": "trip:canada-2027:day:7",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:7:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-7",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:7",
+      "$etag": "W/\"mock-etag\"",
+      "index": 7
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:8-block-0",
+      "$sourceId": "trip:canada-2027:day:8",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:8:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-8",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:8",
+      "$etag": "W/\"mock-etag\"",
+      "index": 8
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:9-block-0",
+      "$sourceId": "trip:canada-2027:day:9",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:9:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:9-block-1",
+      "$sourceId": "trip:canada-2027:day:9",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:9:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:9-block-2",
+      "$sourceId": "trip:canada-2027:day:9",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:9:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:9:block:2-loc",
+      "$sourceId": "trip:canada-2027:day:9:block:2",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:golden",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-9",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:9",
+      "$etag": "W/\"mock-etag\"",
+      "index": 9
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:10-block-0",
+      "$sourceId": "trip:canada-2027:day:10",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:10:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-10",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:10",
+      "$etag": "W/\"mock-etag\"",
+      "index": 10
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:11-block-0",
+      "$sourceId": "trip:canada-2027:day:11",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:11:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-11",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:11",
+      "$etag": "W/\"mock-etag\"",
+      "index": 11
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:12-block-0",
+      "$sourceId": "trip:canada-2027:day:12",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:12:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:12-block-1",
+      "$sourceId": "trip:canada-2027:day:12",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:12:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:12-block-2",
+      "$sourceId": "trip:canada-2027:day:12",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:12:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:12:block:2-loc",
+      "$sourceId": "trip:canada-2027:day:12:block:2",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:lake-louise",
+      "$etag": "W/\"mock-etag\""
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-12",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:12",
+      "$etag": "W/\"mock-etag\"",
+      "index": 12
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:13-block-0",
+      "$sourceId": "trip:canada-2027:day:13",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:13:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-13",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:13",
+      "$etag": "W/\"mock-etag\"",
+      "index": 13
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:14-block-0",
+      "$sourceId": "trip:canada-2027:day:14",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:14:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:14-block-1",
+      "$sourceId": "trip:canada-2027:day:14",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:14:block:1",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:14-block-2",
+      "$sourceId": "trip:canada-2027:day:14",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:14:block:2",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-14",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:14",
+      "$etag": "W/\"mock-etag\"",
+      "index": 14
+    },
+    {
+      "$relationshipId": "trip:canada-2027:day:15-block-0",
+      "$sourceId": "trip:canada-2027:day:15",
+      "$relationshipName": "hasBlock",
+      "$targetId": "trip:canada-2027:day:15:block:0",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-day-15",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "hasDay",
+      "$targetId": "trip:canada-2027:day:15",
+      "$etag": "W/\"mock-etag\"",
+      "index": 15
+    },
+    {
+      "$relationshipId": "trip:canada-2027-loc-0",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:yyc",
+      "$etag": "W/\"mock-etag\"",
+      "index": 0
+    },
+    {
+      "$relationshipId": "trip:canada-2027-loc-1",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:banff",
+      "$etag": "W/\"mock-etag\"",
+      "index": 1
+    },
+    {
+      "$relationshipId": "trip:canada-2027-loc-2",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:revelstoke",
+      "$etag": "W/\"mock-etag\"",
+      "index": 2
+    },
+    {
+      "$relationshipId": "trip:canada-2027-loc-3",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:golden",
+      "$etag": "W/\"mock-etag\"",
+      "index": 3
+    },
+    {
+      "$relationshipId": "trip:canada-2027-loc-4",
+      "$sourceId": "trip:canada-2027",
+      "$relationshipName": "atLocation",
+      "$targetId": "trip:canada-2027:loc:lake-louise",
+      "$etag": "W/\"mock-etag\"",
+      "index": 4
+    }
+  ]
+}

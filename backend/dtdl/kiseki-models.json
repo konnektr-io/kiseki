@@ -1,0 +1,891 @@
+[
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Block;1",
+    "@type": "Interface",
+    "displayName": "Block",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "kind",
+        "schema": "dtmi:kiseki:travel:BlockKind;1",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "title",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "time",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "description",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "links",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:Link;1"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "cost",
+        "schema": "double",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "currency",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "status",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "bookingCode",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "order",
+        "schema": "integer",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "items",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:BlockItem;1"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "html",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "distance",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "duration",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "route",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "via",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "from",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "to",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "mode",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "location",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "mapsQuery",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "images",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Relationship",
+        "name": "atLocation",
+        "target": "dtmi:kiseki:travel:Location;1"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:BlockItem;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "done",
+        "schema": "boolean"
+      },
+      {
+        "name": "url",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:BlockKind;1",
+    "@type": "Enum",
+    "valueSchema": "string",
+    "enumValues": [
+      {
+        "name": "Activity",
+        "enumValue": "activity"
+      },
+      {
+        "name": "Transport",
+        "enumValue": "transport"
+      },
+      {
+        "name": "Lodging",
+        "enumValue": "lodging"
+      },
+      {
+        "name": "Meal",
+        "enumValue": "meal"
+      },
+      {
+        "name": "Todo",
+        "enumValue": "todo"
+      },
+      {
+        "name": "Note",
+        "enumValue": "note"
+      },
+      {
+        "name": "Gallery",
+        "enumValue": "gallery"
+      },
+      {
+        "name": "Link",
+        "enumValue": "link"
+      },
+      {
+        "name": "Booking",
+        "enumValue": "booking"
+      },
+      {
+        "name": "Custom",
+        "enumValue": "custom"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:BlockStatus;1",
+    "@type": "Enum",
+    "valueSchema": "string",
+    "enumValues": [
+      {
+        "name": "Planned",
+        "enumValue": "planned"
+      },
+      {
+        "name": "Booked",
+        "enumValue": "booked"
+      },
+      {
+        "name": "Done",
+        "enumValue": "done"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Contact;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "value",
+        "schema": "string"
+      },
+      {
+        "name": "link",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Day;1",
+    "@type": "Interface",
+    "displayName": "Day",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "date",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "title",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "notes",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "map",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "meta",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:MetaItem;1"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasBlock",
+        "target": "dtmi:kiseki:travel:Block;1"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Feature;1",
+    "@type": "Interface",
+    "displayName": "Feature",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "kicker",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "title",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "description",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "image",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "images",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "chips",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "cards",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:FeatureCard;1"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "map",
+        "schema": "boolean",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "links",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:Link;1"
+        },
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:FeatureCard;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "title",
+        "schema": "string"
+      },
+      {
+        "name": "value",
+        "schema": "string"
+      },
+      {
+        "name": "description",
+        "schema": "string"
+      },
+      {
+        "name": "image",
+        "schema": "string"
+      },
+      {
+        "name": "links",
+        "schema": "dtmi:kiseki:travel:Link;1"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:FeedEntry;1",
+    "@type": "Interface",
+    "displayName": "FeedEntry",
+    "description": "P2 per-trip live feed entry (type, payload, visibility).",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "type",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "payload",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "visibility",
+        "schema": "string",
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Integration;1",
+    "@type": "Interface",
+    "displayName": "Integration",
+    "description": "P2 external integration (photos|strava|timeline|steps). Token lives in app secrets, never in the graph (spec §5).",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "kind",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "status",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "tokenRef",
+        "schema": "string",
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Link;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "url",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Location;1",
+    "@type": "Interface",
+    "displayName": "Location",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "name",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "marker",
+        "schema": "integer",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "alias",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "lat",
+        "schema": "double",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "lng",
+        "schema": "double",
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:MetaItem;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "value",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Person;1",
+    "@type": "Interface",
+    "displayName": "Person",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "name",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "role",
+        "schema": "dtmi:kiseki:travel:Role;1",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "note",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "contact",
+        "schema": "string",
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Practical;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "todos",
+        "schema": "dtmi:kiseki:travel:TodoItem;1"
+      },
+      {
+        "name": "links",
+        "schema": "dtmi:kiseki:travel:Link;1"
+      },
+      {
+        "name": "notes",
+        "schema": "string"
+      },
+      {
+        "name": "contacts",
+        "schema": "dtmi:kiseki:travel:Contact;1"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Role;1",
+    "@type": "Enum",
+    "valueSchema": "string",
+    "enumValues": [
+      {
+        "name": "Owner",
+        "enumValue": "owner"
+      },
+      {
+        "name": "Editor",
+        "enumValue": "editor"
+      },
+      {
+        "name": "Viewer",
+        "enumValue": "viewer"
+      },
+      {
+        "name": "Follower",
+        "enumValue": "follower"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Stage;1",
+    "@type": "Enum",
+    "valueSchema": "string",
+    "enumValues": [
+      {
+        "name": "Idea",
+        "enumValue": "idea"
+      },
+      {
+        "name": "Options",
+        "enumValue": "options"
+      },
+      {
+        "name": "Shortlist",
+        "enumValue": "shortlist"
+      },
+      {
+        "name": "Planned",
+        "enumValue": "planned"
+      },
+      {
+        "name": "Booked",
+        "enumValue": "booked"
+      },
+      {
+        "name": "Live",
+        "enumValue": "live"
+      },
+      {
+        "name": "Archive",
+        "enumValue": "archive"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Stat;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "value",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Theme;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "primary",
+        "schema": "string"
+      },
+      {
+        "name": "accent",
+        "schema": "string"
+      },
+      {
+        "name": "font",
+        "schema": "string"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:TodoItem;1",
+    "@type": "Object",
+    "fields": [
+      {
+        "name": "label",
+        "schema": "string"
+      },
+      {
+        "name": "done",
+        "schema": "boolean"
+      },
+      {
+        "name": "when",
+        "schema": "string"
+      },
+      {
+        "name": "links",
+        "schema": "dtmi:kiseki:travel:Link;1"
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:Trip;1",
+    "@type": "Interface",
+    "displayName": "Trip",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "slug",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "title",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "subtitle",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "stage",
+        "schema": "dtmi:kiseki:travel:Stage;1",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "startDate",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "endDate",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "token",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "cover",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "coverCredit",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "map",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "summary",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "theme",
+        "schema": "dtmi:kiseki:travel:Theme;1",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "coverStats",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Relationship",
+        "name": "atLocation",
+        "target": "dtmi:kiseki:travel:Location;1"
+      },
+      {
+        "@type": "Property",
+        "name": "stats",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "dtmi:kiseki:travel:Stat;1"
+        },
+        "writable": true
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasFeature",
+        "target": "dtmi:kiseki:travel:Feature;1"
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasSection",
+        "target": "dtmi:kiseki:travel:TripSection;1"
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasCrew",
+        "target": "dtmi:kiseki:travel:Person;1"
+      },
+      {
+        "@type": "Property",
+        "name": "practical",
+        "schema": "dtmi:kiseki:travel:Practical;1",
+        "writable": true
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasDay",
+        "target": "dtmi:kiseki:travel:Day;1"
+      },
+      {
+        "@type": "Property",
+        "name": "updated",
+        "schema": "string",
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:TripSection;1",
+    "@type": "Interface",
+    "displayName": "TripSection",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "title",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "days",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "integer"
+        },
+        "writable": true
+      }
+    ]
+  },
+  {
+    "@context": "dtmi:dtdl:context;4",
+    "@id": "dtmi:kiseki:travel:User;1",
+    "@type": "Interface",
+    "displayName": "User",
+    "description": "A real (logged-in) user. Crew Person nodes are matched/replaced by these on login (P2).",
+    "contents": [
+      {
+        "@type": "Property",
+        "name": "email",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "displayName",
+        "schema": "string",
+        "writable": true
+      },
+      {
+        "@type": "Property",
+        "name": "authProvider",
+        "schema": "string",
+        "writable": true
+      }
+    ]
+  }
+]

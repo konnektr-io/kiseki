@@ -27,3 +27,7 @@ backend/app/static/
 ms-playwright/
 test-results/
 playwright-report/
+
+# Graph mocks — keep anonymized fixtures, never commit real (token-bearing) ones
+backend/data/mocks/*.graph.json
+!backend/data/mocks/*.graph.anon.json

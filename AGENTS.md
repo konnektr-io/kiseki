@@ -70,7 +70,25 @@ cd backend && uv run uvicorn app.main:app --port 8000
   - **Transport** (drive cards, booklet style): `distance` ("143 km"), `duration` ("1 h 35"), `route` ("Hwy 1 West"), `via` ("Rogers Pass (Glacier NP)"), `from`/`to` (place names → auto Google Maps directions link).
 - **Keep the model coarse.** Never invent a block kind without updating `models.py` + `frontend/src/components/blocks.tsx` + the spec. Stage drives the UI (badge, day highlights) — set it honestly per trip.
 
-## Media / image storage (P0 → P1)
+## Graph data model (P1 — Konnektr Graph / DTDL v4)
+
+The same `models.py` drives the graph. `backend/dtdl/README.md` is the authoritative
+writeup; in short:
+
+- **DTDL v4 models auto-generated** from `models.py` → `backend/dtdl/kiseki-models.json`
+  (`uv run python scripts/gen_dtdl.py`; structural check via `scripts/validate_dtdl.py`).
+  Twins: `Trip` `Day` `Block` `Location` `Person` `Feature` `TripSection`; inline value
+  objects (`Link`, `Stat`, `Theme`, `TodoItem`, `BlockItem` …); enums `BlockKind`/`Stage`/
+  `BlockStatus`/`Role`. Entities are linked by **relationship edges** (`hasDay`, `hasBlock`,
+  `atLocation`, `hasCrew`, `hasFeature`, `hasSection`), not nested documents.
+- **`$dtId` is immutable**, derived from `slug` (`trip:<slug>`, `trip:<slug>:day:<i>`,
+  `trip:<slug>:day:<i>:block:<j>` …). `token` and `slug` are editable Properties — rotate
+  the share token without re-wiring the graph.
+- **ADT-compat**: twins keep `$metadata.$model`, strip `$lastUpdatedBy`; relationships strip
+  the entire `$metadata`; media is a plain URL field.
+- **Mock the read-path before the SDK lands** (`uv run python scripts/trip_to_graph.py
+  data/trips/<slug>/trip.json [--anonymize]`) → `backend/data/mocks/<slug>.graph{,.anon}.json`
+  (the latter is the P1 seed/anonymized fixture). See issue #4 + #8.
 
 - **P0**: images live in `backend/data/assets/<trip>/` — next to the trip data, served by the FastAPI app at `/media/<trip>/<file>`. Reference them in `trip.json` with **relative URLs** (`/media/canada-2027/sths-hero-full.jpg`), never base64. The repo is private, so shipping images in git is fine at this stage.
 - **P1 (graph backend)**: when trip content moves into Konnektr Graph, media moves **out of the repo** into object storage (MinIO on the home cluster, S3-compatible) and the graph stores the **URL as a string field**. Keep every image reference a plain URL in the data model — swapping the media backend then only changes the URL prefix, nothing else. (The `/media` mount disappears; the backend serves or redirects from the bucket.)
