@@ -24,7 +24,6 @@ from scripts.trip_to_graph import trip_to_graph, MODEL  # noqa: E402
 
 DTDL = ROOT / "dtdl" / "kiseki-models.json"
 TRIP = ROOT / "data" / "trips" / "canada-2027" / "trip.json"
-MOCK = ROOT / "data" / "mocks" / "canada-2027.graph.json"
 MOCK_ANON = ROOT / "data" / "mocks" / "canada-2027.graph.anon.json"
 
 EXPECTED_RELS = {"hasDay", "atLocation", "hasCrew", "hasFeature", "hasSection", "hasBlock"}
@@ -141,9 +140,15 @@ def test_anonymize_removes_pii(trip):
     assert "Person 1" in blob
 
 
-def test_mock_files_exist_and_roundtrip(trip):
-    real = json.loads(MOCK.read_text())
+def test_anon_mock_fixture_matches_converter(trip):
+    """The committed anonymized mock must stay in sync with the converter.
+
+    Depends only on tracked files (``trip.json`` + the committed ``*.anon.json``
+    mock) — never on the gitignored real mock, which carries the secret token.
+    """
     anon = json.loads(MOCK_ANON.read_text())
-    assert real["$dtId"] == f"trip:{trip.slug}"
     assert anon["$dtId"] == f"trip:{trip.slug}"
-    assert len(real["twins"]) == len(anon["twins"])
+    # Regenerate in-memory and compare as dicts (formatting-independent) so the
+    # committed fixture can never silently drift from the converter.
+    expected = trip_to_graph(trip, anonymize=True)
+    assert anon == expected
