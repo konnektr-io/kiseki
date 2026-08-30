@@ -168,17 +168,37 @@ def _enum_for_literal(ann):
     return None
 
 
-def _schema_for_scalar(inner, ann):
-    # enum Literal
+# Registry of schemas to inline into the *host* Interface's `schemas` block.
+# DTDL: a schema is only referenceable from the same Interface that defines it, so
+# every enum referenced by an entity Interface must be co-located in that Interface's
+# `schemas`. Shared value-objects are instead inlined directly into the property
+# schema (no @id) so they never need cross-interface resolution.
+class _SchemaRegistry:
+    def __init__(self):
+        self._by_name: dict[str, dict] = {}
+
+    def need_enum(self, name: str):
+        if name not in self._by_name:
+            self._by_name[name] = build_enum(name)
+
+    def as_list(self) -> list[dict]:
+        return [self._by_name[k] for k in sorted(self._by_name)]
+
+
+def _schema_for_scalar(inner, ann, reg: _SchemaRegistry | None = None):
+    # enum Literal -> named schema in the host interface's `schemas`
     enum_name = _enum_for_literal(ann)
     if enum_name:
+        if reg is not None:
+            reg.need_enum(enum_name)
         return mid(enum_name)
     # primitive
     if inner in _PRIMITIVES:
         return _PRIMITIVES[inner]
-    # pydantic value-object -> inline Object ref
+    # pydantic value-object -> INLINE Object schema (no @id; a value object may be
+    # reused by several interfaces, and DTDL forbids cross-interface references)
     if isinstance(inner, type) and issubclass(inner, M.BaseModel) and inner.__name__ in OBJECT_MODELS:
-        return mid(inner.__name__)
+        return build_inline_object(inner)
     # entity (shouldn't happen on a scalar path, but be safe)
     if isinstance(inner, type) and issubclass(inner, M.BaseModel) and inner.__name__ in ENTITY_MODELS:
         return mid(inner.__name__)
@@ -186,14 +206,14 @@ def _schema_for_scalar(inner, ann):
     return "string"
 
 
-# ---- builders ----------------------------------------------------------------
+# ---- builders ----------------------------------------------------------------\
 
 def build_enum(name: str) -> dict:
+    """A reusable enum schema, inlined into the host Interface's `schemas`."""
     lit = getattr(M, name)
     values = typing.get_args(lit)
     enum_values = [{"name": str(v).capitalize(), "enumValue": v} for v in values]
     return {
-        "@context": "dtmi:dtdl:context;4",
         "@id": mid(name),
         "@type": "Enum",
         "valueSchema": ENUMS[name],
@@ -201,22 +221,36 @@ def build_enum(name: str) -> dict:
     }
 
 
-def build_value_object(model_cls) -> dict:
-    """A value object -> DTDL Object schema (inline, no twin)."""
+def build_inline_object(model_cls) -> dict:
+    """A value object as an inline DTDL Object schema (no @id).
+
+    Value objects are inlined into the property schema that uses them, so they
+    never require a cross-interface reference. Nested value objects are inlined
+    recursively; enums referenced from inside are resolved to the host interface.
+    """
     fields = []
     for fname, fld in model_cls.model_fields.items():
-        inner, _, _ = _unwrap(fld.annotation)
+        inner, _, is_list = _unwrap(fld.annotation)
         schema = _schema_for_scalar(inner, fld.annotation)
+        if is_list:
+            schema = {"@type": "Array", "elementSchema": schema}
         fields.append({"name": fld.alias or fname, "schema": schema})
+    return {"@type": "Object", "fields": fields}
+
+
+def _block_item_schema() -> dict:
     return {
-        "@context": "dtmi:dtdl:context;4",
-        "@id": mid(model_cls.__name__),
         "@type": "Object",
-        "fields": fields,
+        "fields": [
+            {"name": "label", "schema": "string"},
+            {"name": "done", "schema": "boolean"},
+            {"name": "url", "schema": "string"},
+        ],
     }
 
 
 def build_interface(model_cls) -> dict:
+    reg = _SchemaRegistry()
     contents = []
     for fname, fld in model_cls.model_fields.items():
         inner, required, is_list = _unwrap(fld.annotation)
@@ -230,10 +264,10 @@ def build_interface(model_cls) -> dict:
             })
             continue
         # plain property (primitive / enum / inline value object)
-        schema = _schema_for_scalar(inner, fld.annotation)
-        # Block.items is list[Any] -> normalize to Array<BlockItem>
+        schema = _schema_for_scalar(inner, fld.annotation, reg)
+        # Block.items is list[Any] -> normalize to Array of inline BlockItem
         if model_cls is M.Block and fname == "items":
-            schema = {"@type": "Array", "elementSchema": mid("BlockItem")}
+            schema = {"@type": "Array", "elementSchema": _block_item_schema()}
         elif is_list:
             schema = {"@type": "Array", "elementSchema": schema}
         prop = {"@type": "Property", "name": name, "schema": schema, "writable": True}
@@ -245,13 +279,16 @@ def build_interface(model_cls) -> dict:
             "name": rel_name,
             "target": mid(target),
         })
-    return {
+    iface: dict = {
         "@context": "dtmi:dtdl:context;4",
         "@id": mid(model_cls.__name__),
         "@type": "Interface",
         "displayName": model_cls.__name__,
         "contents": contents,
     }
+    if reg._by_name:
+        iface["schemas"] = reg.as_list()
+    return iface
 
 
 def main() -> int:
@@ -261,32 +298,13 @@ def main() -> int:
 
     out: list[dict] = []
 
-    # 1) enums
-    for name in ENUMS:
-        out.append(build_enum(name))
-
-    # 2) value objects (inline)
-    for cls in (M.Link, M.TodoItem, M.MetaItem, M.Stat, M.FeatureCard,
-                M.Contact, M.Theme, M.Practical):
-        out.append(build_value_object(cls))
-
-    # 3) BlockItem: unifies todo {label,done} + gallery {url} items on a Block
-    out.append({
-        "@context": "dtmi:dtdl:context;4",
-        "@id": mid("BlockItem"),
-        "@type": "Object",
-        "fields": [
-            {"name": "label", "schema": "string"},
-            {"name": "done", "schema": "boolean"},
-            {"name": "url", "schema": "string"},
-        ],
-    })
-
-    # 4) entities (twins) — Interfaces
+    # 1) entities (twins) — Interfaces. Each inlines the Enum/Object schemas it
+    #    references in its own `schemas` block (DTDL: a schema is only referenceable
+    #    from the same Interface that defines it).
     for cls in (M.Trip, M.Day, M.Block, M.Location, M.Person, M.Feature, M.TripSection):
         out.append(build_interface(cls))
 
-    # 5) P2 stubs
+    # 3) P2 stubs
     for name, spec in P2_INTERFACES.items():
         out.append({
             "@context": "dtmi:dtdl:context;4",

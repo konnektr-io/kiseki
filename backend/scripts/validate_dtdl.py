@@ -71,15 +71,26 @@ def _resolve_ref(ref, ids):
 
 def validate(doc: list[dict]) -> None:
     ids = set()
+    # All valid @ids (top-level Interfaces + scoped schemas nested in `schemas`).
+    # A schema nested in an Interface's `schemas` is referenceable only from that
+    # same Interface, but the @id is still a valid target for `schema`/`target`
+    # references elsewhere in the doc — so collect them all for resolution.
+    # Only TOP-LEVEL @ids must be unique; the same schema @id may legally repeat
+    # across Interfaces (each defines its own local copy).
+    top_level_ids = set()
     for d in doc:
         _check(d.get("@context") == "dtmi:dtdl:context;4",
                f"{d.get('@id')}: @context must be 'dtmi:dtdl:context;4'")
         _id = d.get("@id")
         _check(_id and DTMI_RE.match(_id), f"invalid @id: {_id!r}")
-        _check(_id not in ids, f"duplicate @id: {_id}")
+        _check(_id not in top_level_ids, f"duplicate @id: {_id}")
+        top_level_ids.add(_id)
         ids.add(_id)
-        _type = d.get("@type")
-        _check(_type in METAMODEL, f"{_id}: invalid @type {_type!r}")
+        if d.get("@type") == "Interface" and "schemas" in d:
+            for s in d["schemas"]:
+                sid = s.get("@id")
+                _check(sid and DTMI_RE.match(sid), f"invalid nested @id: {sid!r}")
+                ids.add(sid)  # legal to repeat across interfaces — no uniqueness check
 
     for d in doc:
         _id = d["@id"]
@@ -98,6 +109,18 @@ def validate(doc: list[dict]) -> None:
                 _check(NAME_RE.match(f["name"]), f"{_id}: bad field name {f['name']!r}")
                 _resolve_ref(f["schema"], ids)
         elif d["@type"] == "Interface":
+            # validate nested schemas (they are real DTDL entities)
+            for s in d.get("schemas", []):
+                st = s.get("@type")
+                if st == "Enum":
+                    _check("valueSchema" in s, f"{s.get('@id')}: Enum needs valueSchema")
+                    _check("enumValues" in s and s["enumValues"], f"{s.get('@id')}: Enum needs enumValues")
+                    _resolve_ref(s["valueSchema"], ids)
+                elif st == "Object":
+                    _check("fields" in s and s["fields"], f"{s.get('@id')}: Object needs fields")
+                    for f in s["fields"]:
+                        _check(NAME_RE.match(f["name"]), f"{s.get('@id')}: bad field name {f['name']!r}")
+                        _resolve_ref(f["schema"], ids)
             names = set()
             for c in d.get("contents", []):
                 ct = c.get("@type")

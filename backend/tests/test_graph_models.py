@@ -47,8 +47,17 @@ def test_models_cover_expected_entities_and_enums():
     for name in ("Trip", "Day", "Block", "Location", "Person", "Feature", "TripSection"):
         assert mid(name) in by_id, f"missing interface {name}"
         assert by_id[mid(name)]["@type"] == "Interface"
-    for name in ("BlockKind", "Stage", "BlockStatus", "Role"):
-        assert mid(name) in by_id and by_id[mid(name)]["@type"] == "Enum"
+    # DTDL forbids top-level non-interface elements: each enum must be nested in the
+    # `schemas` of the Interface that uses it (a schema is not referenceable across
+    # interfaces). Verify BlockKind is inlined in Block's schemas and referenced by
+    # Block.kind; and that no top-level Enum/Object definitions exist.
+    for d in doc:
+        assert d["@type"] == "Interface", f"{d['@id']}: top-level must be Interface"
+    blk = by_id[mid("Block")]
+    schema_ids = {s["@id"] for s in blk.get("schemas", [])}
+    assert mid("BlockKind") in schema_ids, "BlockKind enum must be inlined in Block.schemas"
+    kind = next(c for c in blk["contents"] if c["name"] == "kind")
+    assert kind["schema"] == mid("BlockKind")
 
 
 def test_trip_has_relationship_edges():
@@ -61,14 +70,19 @@ def test_trip_has_relationship_edges():
     }
 
 
-def test_block_kind_is_enum_and_items_is_blockitem():
+def test_block_kind_is_enum_and_items_is_inline_object():
     doc = json.loads(DTDL.read_text())
     by_id = {d["@id"]: d for d in doc}
     blk = by_id[mid("Block")]
     kind = next(c for c in blk["contents"] if c["name"] == "kind")
     assert kind["schema"] == mid("BlockKind")
+    # Block.items is list[Any] -> Array of an inline Object schema (no @id, no
+    # cross-interface reference — shared value-objects are inlined per interface).
     items = next(c for c in blk["contents"] if c["name"] == "items")
-    assert items["schema"] == {"@type": "Array", "elementSchema": mid("BlockItem")}
+    assert items["schema"]["@type"] == "Array"
+    element = items["schema"]["elementSchema"]
+    assert element["@type"] == "Object" and "@id" not in element
+    assert {f["name"] for f in element["fields"]} == {"label", "done", "url"}
 
 
 def test_gen_dtdl_is_idempotent():

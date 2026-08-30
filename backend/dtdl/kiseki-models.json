@@ -34,7 +34,19 @@
         "name": "links",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:Link;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "label",
+                "schema": "string"
+              },
+              {
+                "name": "url",
+                "schema": "string"
+              }
+            ]
+          }
         },
         "writable": true
       },
@@ -73,7 +85,23 @@
         "name": "items",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:BlockItem;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "label",
+                "schema": "string"
+              },
+              {
+                "name": "done",
+                "schema": "boolean"
+              },
+              {
+                "name": "url",
+                "schema": "string"
+              }
+            ]
+          }
         },
         "writable": true
       },
@@ -151,111 +179,54 @@
         "name": "atLocation",
         "target": "dtmi:kiseki:travel:Location;1"
       }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:BlockItem;1",
-    "@type": "Object",
-    "fields": [
+    ],
+    "schemas": [
       {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "done",
-        "schema": "boolean"
-      },
-      {
-        "name": "url",
-        "schema": "string"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:BlockKind;1",
-    "@type": "Enum",
-    "valueSchema": "string",
-    "enumValues": [
-      {
-        "name": "Activity",
-        "enumValue": "activity"
-      },
-      {
-        "name": "Transport",
-        "enumValue": "transport"
-      },
-      {
-        "name": "Lodging",
-        "enumValue": "lodging"
-      },
-      {
-        "name": "Meal",
-        "enumValue": "meal"
-      },
-      {
-        "name": "Todo",
-        "enumValue": "todo"
-      },
-      {
-        "name": "Note",
-        "enumValue": "note"
-      },
-      {
-        "name": "Gallery",
-        "enumValue": "gallery"
-      },
-      {
-        "name": "Link",
-        "enumValue": "link"
-      },
-      {
-        "name": "Booking",
-        "enumValue": "booking"
-      },
-      {
-        "name": "Custom",
-        "enumValue": "custom"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:BlockStatus;1",
-    "@type": "Enum",
-    "valueSchema": "string",
-    "enumValues": [
-      {
-        "name": "Planned",
-        "enumValue": "planned"
-      },
-      {
-        "name": "Booked",
-        "enumValue": "booked"
-      },
-      {
-        "name": "Done",
-        "enumValue": "done"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Contact;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "value",
-        "schema": "string"
-      },
-      {
-        "name": "link",
-        "schema": "string"
+        "@id": "dtmi:kiseki:travel:BlockKind;1",
+        "@type": "Enum",
+        "valueSchema": "string",
+        "enumValues": [
+          {
+            "name": "Activity",
+            "enumValue": "activity"
+          },
+          {
+            "name": "Transport",
+            "enumValue": "transport"
+          },
+          {
+            "name": "Lodging",
+            "enumValue": "lodging"
+          },
+          {
+            "name": "Meal",
+            "enumValue": "meal"
+          },
+          {
+            "name": "Todo",
+            "enumValue": "todo"
+          },
+          {
+            "name": "Note",
+            "enumValue": "note"
+          },
+          {
+            "name": "Gallery",
+            "enumValue": "gallery"
+          },
+          {
+            "name": "Link",
+            "enumValue": "link"
+          },
+          {
+            "name": "Booking",
+            "enumValue": "booking"
+          },
+          {
+            "name": "Custom",
+            "enumValue": "custom"
+          }
+        ]
       }
     ]
   },
@@ -294,7 +265,19 @@
         "name": "meta",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:MetaItem;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "label",
+                "schema": "string"
+              },
+              {
+                "name": "value",
+                "schema": "string"
+              }
+            ]
+          }
         },
         "writable": true
       },
@@ -358,7 +341,46 @@
         "name": "cards",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:FeatureCard;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "title",
+                "schema": "string"
+              },
+              {
+                "name": "value",
+                "schema": "string"
+              },
+              {
+                "name": "description",
+                "schema": "string"
+              },
+              {
+                "name": "image",
+                "schema": "string"
+              },
+              {
+                "name": "links",
+                "schema": {
+                  "@type": "Array",
+                  "elementSchema": {
+                    "@type": "Object",
+                    "fields": [
+                      {
+                        "name": "label",
+                        "schema": "string"
+                      },
+                      {
+                        "name": "url",
+                        "schema": "string"
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
         },
         "writable": true
       },
@@ -373,36 +395,21 @@
         "name": "links",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:Link;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "label",
+                "schema": "string"
+              },
+              {
+                "name": "url",
+                "schema": "string"
+              }
+            ]
+          }
         },
         "writable": true
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:FeatureCard;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "title",
-        "schema": "string"
-      },
-      {
-        "name": "value",
-        "schema": "string"
-      },
-      {
-        "name": "description",
-        "schema": "string"
-      },
-      {
-        "name": "image",
-        "schema": "string"
-      },
-      {
-        "name": "links",
-        "schema": "dtmi:kiseki:travel:Link;1"
       }
     ]
   },
@@ -462,21 +469,6 @@
   },
   {
     "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Link;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "url",
-        "schema": "string"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
     "@id": "dtmi:kiseki:travel:Location;1",
     "@type": "Interface",
     "displayName": "Location",
@@ -518,21 +510,6 @@
   },
   {
     "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:MetaItem;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "value",
-        "schema": "string"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
     "@id": "dtmi:kiseki:travel:Person;1",
     "@type": "Interface",
     "displayName": "Person",
@@ -561,145 +538,30 @@
         "schema": "string",
         "writable": true
       }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Practical;1",
-    "@type": "Object",
-    "fields": [
+    ],
+    "schemas": [
       {
-        "name": "todos",
-        "schema": "dtmi:kiseki:travel:TodoItem;1"
-      },
-      {
-        "name": "links",
-        "schema": "dtmi:kiseki:travel:Link;1"
-      },
-      {
-        "name": "notes",
-        "schema": "string"
-      },
-      {
-        "name": "contacts",
-        "schema": "dtmi:kiseki:travel:Contact;1"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Role;1",
-    "@type": "Enum",
-    "valueSchema": "string",
-    "enumValues": [
-      {
-        "name": "Owner",
-        "enumValue": "owner"
-      },
-      {
-        "name": "Editor",
-        "enumValue": "editor"
-      },
-      {
-        "name": "Viewer",
-        "enumValue": "viewer"
-      },
-      {
-        "name": "Follower",
-        "enumValue": "follower"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Stage;1",
-    "@type": "Enum",
-    "valueSchema": "string",
-    "enumValues": [
-      {
-        "name": "Idea",
-        "enumValue": "idea"
-      },
-      {
-        "name": "Options",
-        "enumValue": "options"
-      },
-      {
-        "name": "Shortlist",
-        "enumValue": "shortlist"
-      },
-      {
-        "name": "Planned",
-        "enumValue": "planned"
-      },
-      {
-        "name": "Booked",
-        "enumValue": "booked"
-      },
-      {
-        "name": "Live",
-        "enumValue": "live"
-      },
-      {
-        "name": "Archive",
-        "enumValue": "archive"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Stat;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "value",
-        "schema": "string"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:Theme;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "primary",
-        "schema": "string"
-      },
-      {
-        "name": "accent",
-        "schema": "string"
-      },
-      {
-        "name": "font",
-        "schema": "string"
-      }
-    ]
-  },
-  {
-    "@context": "dtmi:dtdl:context;4",
-    "@id": "dtmi:kiseki:travel:TodoItem;1",
-    "@type": "Object",
-    "fields": [
-      {
-        "name": "label",
-        "schema": "string"
-      },
-      {
-        "name": "done",
-        "schema": "boolean"
-      },
-      {
-        "name": "when",
-        "schema": "string"
-      },
-      {
-        "name": "links",
-        "schema": "dtmi:kiseki:travel:Link;1"
+        "@id": "dtmi:kiseki:travel:Role;1",
+        "@type": "Enum",
+        "valueSchema": "string",
+        "enumValues": [
+          {
+            "name": "Owner",
+            "enumValue": "owner"
+          },
+          {
+            "name": "Editor",
+            "enumValue": "editor"
+          },
+          {
+            "name": "Viewer",
+            "enumValue": "viewer"
+          },
+          {
+            "name": "Follower",
+            "enumValue": "follower"
+          }
+        ]
       }
     ]
   },
@@ -778,7 +640,23 @@
       {
         "@type": "Property",
         "name": "theme",
-        "schema": "dtmi:kiseki:travel:Theme;1",
+        "schema": {
+          "@type": "Object",
+          "fields": [
+            {
+              "name": "primary",
+              "schema": "string"
+            },
+            {
+              "name": "accent",
+              "schema": "string"
+            },
+            {
+              "name": "font",
+              "schema": "string"
+            }
+          ]
+        },
         "writable": true
       },
       {
@@ -800,7 +678,19 @@
         "name": "stats",
         "schema": {
           "@type": "Array",
-          "elementSchema": "dtmi:kiseki:travel:Stat;1"
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "label",
+                "schema": "string"
+              },
+              {
+                "name": "value",
+                "schema": "string"
+              }
+            ]
+          }
         },
         "writable": true
       },
@@ -822,7 +712,99 @@
       {
         "@type": "Property",
         "name": "practical",
-        "schema": "dtmi:kiseki:travel:Practical;1",
+        "schema": {
+          "@type": "Object",
+          "fields": [
+            {
+              "name": "todos",
+              "schema": {
+                "@type": "Array",
+                "elementSchema": {
+                  "@type": "Object",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "done",
+                      "schema": "boolean"
+                    },
+                    {
+                      "name": "when",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "links",
+                      "schema": {
+                        "@type": "Array",
+                        "elementSchema": {
+                          "@type": "Object",
+                          "fields": [
+                            {
+                              "name": "label",
+                              "schema": "string"
+                            },
+                            {
+                              "name": "url",
+                              "schema": "string"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "links",
+              "schema": {
+                "@type": "Array",
+                "elementSchema": {
+                  "@type": "Object",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "url",
+                      "schema": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "notes",
+              "schema": "string"
+            },
+            {
+              "name": "contacts",
+              "schema": {
+                "@type": "Array",
+                "elementSchema": {
+                  "@type": "Object",
+                  "fields": [
+                    {
+                      "name": "label",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "value",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "link",
+                      "schema": "string"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
         "writable": true
       },
       {
@@ -835,6 +817,43 @@
         "name": "updated",
         "schema": "string",
         "writable": true
+      }
+    ],
+    "schemas": [
+      {
+        "@id": "dtmi:kiseki:travel:Stage;1",
+        "@type": "Enum",
+        "valueSchema": "string",
+        "enumValues": [
+          {
+            "name": "Idea",
+            "enumValue": "idea"
+          },
+          {
+            "name": "Options",
+            "enumValue": "options"
+          },
+          {
+            "name": "Shortlist",
+            "enumValue": "shortlist"
+          },
+          {
+            "name": "Planned",
+            "enumValue": "planned"
+          },
+          {
+            "name": "Booked",
+            "enumValue": "booked"
+          },
+          {
+            "name": "Live",
+            "enumValue": "live"
+          },
+          {
+            "name": "Archive",
+            "enumValue": "archive"
+          }
+        ]
       }
     ]
   },
