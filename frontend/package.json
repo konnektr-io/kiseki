@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.24.1",
     "@fontsource/bebas-neue": "^5.2.5",
     "@fontsource/inter": "^5.2.5",
     "@fontsource/oswald": "^5.2.5",
