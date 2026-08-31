@@ -36,6 +36,20 @@ def test_valid_token_returns_payload(rsa_keypair, validator: Auth0JWTValidator) 
     assert payload["aud"] == CLIENT_ID
 
 
+def test_jwe_token_rejected_with_clear_message(rsa_keypair, validator: Auth0JWTValidator) -> None:
+    """Auth0 SPA tokens WITHOUT an audience come back as JWE (alg: dir)."""
+    import base64
+
+    header = base64.urlsafe_b64encode(b'{"alg":"dir","enc":"A256GCM"}').rstrip(b"=").decode()
+    # JWE compact shape with realistic segment sizes (12-byte IV, 16-byte ct/tag)
+    iv = base64.urlsafe_b64encode(b"\x00" * 12).rstrip(b"=").decode()
+    ct = base64.urlsafe_b64encode(b"\x00" * 16).rstrip(b"=").decode()
+    tag = base64.urlsafe_b64encode(b"\x00" * 16).rstrip(b"=").decode()
+    jwe = f"{header}.{iv}.{ct}.{tag}"
+    with pytest.raises(auth_module.AuthError, match="encrypted"):
+        validator.validate(jwe)
+
+
 def test_expired_token_rejected(rsa_keypair, validator: Auth0JWTValidator) -> None:
     token = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
     with pytest.raises(auth_module.AuthError, match="expired"):

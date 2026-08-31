@@ -58,7 +58,19 @@ class Auth0JWTValidator:
         return self.audience or self.client_id
 
     def validate(self, token: str) -> dict[str, Any]:
-        """Verify signature/issuer/audience/expiry; return the token payload."""
+        """Verify signature/issuer/audience/expiry; return the payload."""
+        if self._is_jwe(token):
+            # JWE (encrypted) token — Auth0 issues these to SPA clients when NO
+            # audience is requested. We cannot verify them (and this PyJWT
+            # version has no JWE support — it would misread the ciphertext as a
+            # payload and fail cryptically); the fix is an audience, not
+            # decryption.
+            raise AuthError(
+                "Access token is encrypted (JWE) — Auth0 issues JWE tokens "
+                "to SPA clients without an audience. Create an API in the "
+                "Auth0 dashboard and set its identifier as the audience "
+                "(AUTH0_AUDIENCE / VITE_AUTH0_AUDIENCE)."
+            )
         try:
             key = self._jwks.get_signing_key_from_jwt(token).key
             return jwt.decode(
@@ -74,6 +86,26 @@ class Auth0JWTValidator:
             # (signature/issuer/audience/expiry) and PyJWKClientError (unknown
             # signing key) alike.
             raise AuthError(str(exc)) from exc
+
+    @staticmethod
+    def _is_jwe(token: str) -> bool:
+        """Detect a JWE-encrypted token from its (unprotected) header segment.
+
+        Parsed manually (plain base64) because this PyJWT version treats a
+        5-segment JWE as a JWS and fails with a cryptic padding/payload error
+        before any header inspection can happen.
+        """
+        try:
+            import base64
+            import json
+
+            raw = token.split(".")[0]
+            header = json.loads(
+                base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+            )
+        except Exception:
+            return False
+        return header.get("alg") == "dir" or bool(header.get("enc"))
 
 
 def _extract_bearer(authorization: str | None) -> str | None:
