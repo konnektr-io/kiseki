@@ -1,20 +1,25 @@
-"""Trip store — reads trips from the graph (P1) with trip.json fallback (P0).
+"""Trip store — Konnektr Graph is the single source of truth (P1, issue #4).
 
-Source of truth is now Konnektr Graph when configured (``KISEKI_GRAPH_URL`` +
-``KISEKI_GRAPH_TOKEN``). The baked ``trip.json`` files remain the fallback for
-first boot and graceful degradation, so the swap is invisible to the frontend
-(``GET /api/trips/{token}`` keeps its P0 contract).
+When ``KISEKI_GRAPH_URL`` + ``KISEKI_GRAPH_TOKEN`` are set, the graph is the
+ONLY source trips are served from. There is deliberately NO file fallback: if
+the graph read fails (token unknown, twin missing, API error) the request
+returns 404/500 as it should, rather than silently serving a stale
+``trip.json``. That silent fallback previously masked a production outage, so
+it is gone by design.
 
-Read flow for a token:
-  1. graph enabled? query Trip twins for ``token`` → get the Trip ``$dtId``
-  2. walk the subgraph → ADT twin/relationship bundle (source-agnostic shape)
+When the graph is NOT configured (local dev / CI, no env vars), the store
+reads ``trip.json`` files directly as the local source of truth. This is the
+configured primary path in that mode — not a fallback — so it stays useful for
+development and tests.
+
+Read flow for a token (graph enabled):
+  1. ``find_trip_dtid_by_token`` → Trip ``$dtId`` (None if unknown)
+  2. ``fetch_graph`` → ADT twin/relationship bundle (source-agnostic shape)
   3. ``graph_to_trip`` rebuilds the ``Trip`` model
-  4. on any failure, fall back to the trip.json file
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from .config import TRIPS_DIR
@@ -41,11 +46,10 @@ def _graph_client():
 
 
 def load_trips() -> list[Trip]:
-    """Read every trip.json file from the trips directory (P0 source / fallback).
+    """Read every trip.json file from the trips directory (local dev source).
 
-    Simple and intentionally dumb: one file per trip, re-read on every call so
-    content updates are immediate. Trip files are tiny; this keeps content
-    updates immediate (no cache invalidation).
+    Used when the graph is not configured. One file per trip, re-read on every
+    call so content updates are immediate. Trip files are tiny.
     """
     trips: list[Trip] = []
     if not TRIPS_DIR.is_dir():
@@ -61,20 +65,24 @@ def load_trips() -> list[Trip]:
 
 
 def get_trip_by_token(token: str) -> Trip | None:
-    # P1: read from the graph when configured, falling back to trip.json.
+    """Resolve a share token to a Trip.
+
+    Graph is the source of truth when configured; on any graph failure the
+    token simply isn't served (no file fallback). When the graph is not
+    configured, the local ``trip.json`` files are the source.
+    """
     client = _graph_client()
     if client is not None:
-        try:
-            dtid = client.find_trip_dtid_by_token(token)
-            if dtid:
-                graph = client.fetch_graph(dtid)
-                if graph:
-                    from .graph.convert import graph_to_trip
+        dtid = client.find_trip_dtid_by_token(token)
+        if not dtid:
+            return None
+        graph = client.fetch_graph(dtid)
+        if not graph:
+            return None
+        from .graph.convert import graph_to_trip
 
-                    return graph_to_trip(graph)
-        except Exception as exc:
-            print(f"[kiseki] graph read for token {token!r} failed, falling back: {exc}")
-    # Fallback: baked trip.json files.
+        return graph_to_trip(graph)
+    # Graph not configured → local trip.json is the source of truth.
     for t in load_trips():
         if t.token == token:
             return t
@@ -86,21 +94,3 @@ def get_trip_by_slug(slug: str) -> Trip | None:
         if t.slug == slug:
             return t
     return None
-
-
-def seed_from_baked_data(baked_dir: Path) -> None:
-    """Copy the baked-in seed trips into the live trips dir on first boot.
-
-    The container image ships a seed copy (backend/data/trips) so a fresh PVC
-    starts with content; afterwards the PVC wins so content updates never
-    require an image rebuild.
-    """
-    if not baked_dir.is_dir() or baked_dir.resolve() == TRIPS_DIR.resolve():
-        return
-    if TRIPS_DIR.is_dir() and any(TRIPS_DIR.iterdir()):
-        return
-    TRIPS_DIR.mkdir(parents=True, exist_ok=True)
-    for d in baked_dir.iterdir():
-        if d.is_dir():
-            shutil.copytree(d, TRIPS_DIR / d.name, dirs_exist_ok=True)
-            print(f"[kiseki] seeded trip {d.name} into {TRIPS_DIR}")
