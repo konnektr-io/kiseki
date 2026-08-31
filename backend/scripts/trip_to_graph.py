@@ -54,24 +54,37 @@ def slugify(s: str) -> str:
 
 
 def twin(dt_id: str, model_name: str, props: dict) -> dict:
-    """Build an ADT-shaped twin with $metadata.$model (no $lastUpdatedBy)."""
+    """Build an ADT-shaped twin with $metadata.$model (no $lastUpdatedBy).
+
+    Explicit ``null`` values are dropped recursively: ADT validates ``null`` against
+    the property's schema (e.g. a numeric `marker` or a string `value`/`image`
+    inside a nested card rejects ``null``), whereas an *absent* property is fine.
+    The mock ``$etag`` is also dropped so the live upsert doesn't carry a stale
+    concurrency token.
+    """
+
+    def _clean(v):
+        if isinstance(v, dict):
+            return {k: _clean(x) for k, x in v.items() if x is not None}
+        if isinstance(v, list):
+            return [_clean(x) for x in v if x is not None]
+        return v
+
     t = {
         "$dtId": dt_id,
-        "$etag": 'W/"mock-etag"',
         "$metadata": {"$model": MODEL(model_name)},
     }
-    t.update(props)
+    t.update(_clean(props))
     return t
 
 
 def relationship(rel_id: str, src: str, name: str, tgt: str, index: int | None = None) -> dict:
-    """Build an ADT-shaped relationship — ENTIRE $metadata stripped."""
+    """Build an ADT-shaped relationship — ENTIRE $metadata stripped, no mock $etag."""
     r = {
         "$relationshipId": rel_id,
         "$sourceId": src,
         "$relationshipName": name,
         "$targetId": tgt,
-        "$etag": 'W/"mock-etag"',
     }
     if index is not None:
         r["index"] = index
@@ -87,12 +100,17 @@ def _strip_rel_fields(model_name: str, data: dict) -> dict:
     for f in REL_FIELDS.get(model_name, set()):
         data.pop(f, None)
     data.pop("id", None)  # `id` maps to $dtId, not a graph property
+    # `role` is trip-relative and rides the `hasCrew` *edge* (declared there in
+    # DTDL), not the Person/User node — strip it from node props to avoid a
+    # "Property 'role' is not defined in the model" validation error.
+    if model_name in ("Person", "User"):
+        data.pop("role", None)
     return data
 
 
 def _anonymize(trip: M.Trip) -> M.Trip:
     """Return a copy with PII redacted but structure/dates/locations intact."""
-    data = trip.model_dump()
+    data = trip.model_dump(by_alias=True)
     # 1) crew names -> Person N, drop contact
     names = [p["name"] for p in data.get("crew", []) if p.get("name")]
     for i, p in enumerate(data.get("crew", [])):
@@ -124,7 +142,7 @@ def _anonymize(trip: M.Trip) -> M.Trip:
 
 def _emit_block(bid, parent_did, blk, twins, rels, loc_ids):
     """Create a Block twin + its hasBlock edge and any atLocation edge."""
-    bprops = _strip_rel_fields("Block", blk.model_dump())
+    bprops = _strip_rel_fields("Block", blk.model_dump(by_alias=True))
     twins.append(twin(bid, "Block", bprops))
     rels.append(relationship(_rel_id(parent_did, "hasBlock", bid), parent_did, "hasBlock", bid))
     if blk.location and blk.location in loc_ids:
@@ -153,14 +171,14 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
         loc_ids[loc.name] = lid
         for a in loc.alias:
             loc_ids[a] = lid
-        twins.append(twin(lid, "Location", _strip_rel_fields("Location", loc.model_dump())))
+        twins.append(twin(lid, "Location", _strip_rel_fields("Location", loc.model_dump(by_alias=True))))
 
     # --- crew (role is moved onto the hasCrew edge, not the Person twin) ------
     person_ids: list[str] = []
     for i, p in enumerate(trip.crew):
         pid = p.id
         person_ids.append(pid)
-        twins.append(twin(pid, "Person", _strip_rel_fields("Person", p.model_dump())))
+        twins.append(twin(pid, "Person", _strip_rel_fields("Person", p.model_dump(by_alias=True))))
         rel = relationship(_rel_id(tid, "hasCrew", pid), tid, "hasCrew", pid, index=i)
         rel["role"] = p.role  # trip-relative role rides on the edge
         rels.append(rel)
@@ -168,11 +186,11 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
     # --- features / sections -------------------------------------------------
     for i, f in enumerate(trip.features):
         fid = f.id
-        twins.append(twin(fid, "Feature", _strip_rel_fields("Feature", f.model_dump())))
+        twins.append(twin(fid, "Feature", _strip_rel_fields("Feature", f.model_dump(by_alias=True))))
         rels.append(relationship(_rel_id(tid, "hasFeature", fid), tid, "hasFeature", fid, index=i))
     for i, s in enumerate(trip.sections):
         sid = s.id
-        twins.append(twin(sid, "TripSection", _strip_rel_fields("TripSection", s.model_dump())))
+        twins.append(twin(sid, "TripSection", _strip_rel_fields("TripSection", s.model_dump(by_alias=True))))
         rels.append(relationship(_rel_id(tid, "hasSection", sid), tid, "hasSection", sid, index=i))
         # section -> Location edges (the region/stay it covers)
         for ref in s.locationRefs:
@@ -192,13 +210,13 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
         for blk in day.blocks:
             bid = blk.id
             _emit_block(bid, did, blk, twins, rels, loc_ids)
-        dprops = _strip_rel_fields("Day", day.model_dump())
+        dprops = _strip_rel_fields("Day", day.model_dump(by_alias=True))
         # remove blocks list already stripped; keep day scalar fields
         twins.append(twin(did, "Day", dprops))
         rels.append(relationship(_rel_id(tid, "hasDay", did), tid, "hasDay", did, index=di))
 
     # --- root trip twin ------------------------------------------------------
-    tprops = _strip_rel_fields("Trip", trip.model_dump())
+    tprops = _strip_rel_fields("Trip", trip.model_dump(by_alias=True))
     twins.append(twin(tid, "Trip", tprops))
     for i, loc in enumerate(trip.locations):
         rels.append(relationship(_rel_id(tid, "atLocation", loc_ids[loc.name]), tid, "atLocation", loc_ids[loc.name], index=i))

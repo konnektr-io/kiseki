@@ -47,17 +47,17 @@ def test_models_cover_expected_entities_and_enums():
     for name in ("Trip", "Day", "Block", "Location", "Person", "Feature", "TripSection"):
         assert mid(name) in by_id, f"missing interface {name}"
         assert by_id[mid(name)]["@type"] == "Interface"
-    # DTDL forbids top-level non-interface elements: each enum must be nested in the
-    # `schemas` of the Interface that uses it (a schema is not referenceable across
-    # interfaces). Verify BlockKind is inlined in Block's schemas and referenced by
-    # Block.kind; and that no top-level Enum/Object definitions exist.
+    # DTDL v4: every model element must be @type Interface. Complex schemas
+    # (Enum/Object) are embedded inline in the property `schema` (Tutorial06) —
+    # NOT top-level elements and NOT nested `schemas` blocks (the live pg-age
+    # resolver does not resolve nested-schema *references* at upload time).
+    # Verify Block.kind is an inline Enum and that no top-level non-Interface
+    # elements exist.
     for d in doc:
         assert d["@type"] == "Interface", f"{d['@id']}: top-level must be Interface"
     blk = by_id[mid("Block")]
-    schema_ids = {s["@id"] for s in blk.get("schemas", [])}
-    assert mid("BlockKind") in schema_ids, "BlockKind enum must be inlined in Block.schemas"
     kind = next(c for c in blk["contents"] if c["name"] == "kind")
-    assert kind["schema"] == mid("BlockKind")
+    assert kind["schema"]["@type"] == "Enum", "Block.kind must be an inline Enum"
 
 
 def test_trip_has_relationship_edges():
@@ -75,7 +75,9 @@ def test_block_kind_is_enum_and_items_is_inline_object():
     by_id = {d["@id"]: d for d in doc}
     blk = by_id[mid("Block")]
     kind = next(c for c in blk["contents"] if c["name"] == "kind")
-    assert kind["schema"] == mid("BlockKind")
+    # Embedded inline Enum (Tutorial06), not a referenced schema.
+    assert kind["schema"]["@type"] == "Enum"
+    assert kind["schema"]["valueSchema"] == "string"
     # Block.items is list[Any] -> Array of an inline Object schema (no @id, no
     # cross-interface reference — shared value-objects are inlined per interface).
     items = next(c for c in blk["contents"] if c["name"] == "items")
@@ -93,8 +95,8 @@ def test_user_extends_person_and_has_no_role():
     user = by_id[mid("User")]
     assert user.get("extends") == mid("Person"), "User must extend Person"
     user_props = {c["name"] for c in user["contents"] if c["@type"] == "Property"}
-    # inherits name/note/contact, adds email/displayName/authProvider, NEVER role
-    assert {"name", "note", "contact", "email", "displayName", "authProvider"} <= user_props
+    # own fields only — name/note/contact come from Person via `extends`
+    assert user_props == {"email", "displayName", "authProvider"}
     assert "role" not in user_props
     person_props = {c["name"] for c in by_id[mid("Person")]["contents"] if c["@type"] == "Property"}
     assert "role" not in person_props, "role must not be a Person property (carried on hasCrew edge)"

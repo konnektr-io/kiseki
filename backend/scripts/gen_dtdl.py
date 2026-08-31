@@ -95,6 +95,16 @@ REL_NAME = {
     "blocks": "hasBlock",
 }
 
+# Properties carried ON a relationship edge (trip-relative metadata that does not
+# belong on the target node). ADT validates edge properties against the
+# Relationship definition, so they must be declared here. e.g. `role` rides the
+# `hasCrew` edge (the crew member's trip-relative role), not on Person/User.
+REL_PROPERTIES = {
+    "hasCrew": [
+        {"@type": "Property", "name": "role", "schema": "string", "writable": True, "description": "Trip-relative role of the crew member (e.g. owner | planner | guest). Carried on the edge, not on the person."},
+    ],
+}
+
 # Extra relationships that the converter synthesizes but which aren't a
 # collection field in the model (e.g. a Block references a Location by name).
 # TripSection also gets hasDay (from its inclusive [first,last] range) and
@@ -165,30 +175,18 @@ def _enum_for_literal(ann):
     return None
 
 
-# Registry of schemas to inline into the *host* Interface's `schemas` block.
-# DTDL: a schema is only referenceable from the same Interface that defines it, so
-# every enum referenced by an entity Interface must be co-located in that Interface's
-# `schemas`. Shared value-objects are instead inlined directly into the property
-# schema (no @id) so they never need cross-interface resolution.
-class _SchemaRegistry:
-    def __init__(self):
-        self._by_name: dict[str, dict] = {}
-
-    def need_enum(self, name: str):
-        if name not in self._by_name:
-            self._by_name[name] = build_enum(name)
-
-    def as_list(self) -> list[dict]:
-        return [self._by_name[k] for k in sorted(self._by_name)]
-
-
-def _schema_for_scalar(inner, ann, reg: _SchemaRegistry | None = None):
-    # enum Literal -> named schema in the host interface's `schemas`
+def _schema_for_scalar(inner, ann):
+    # enum Literal -> INLINE Enum schema on the property (DTDL v4 embedded form,
+    # Tutorial06). The live pg-age create_models resolver handles embedded schemas
+    # but NOT nested-schema *references* (resolution gap at model-upload time), so
+    # we inline. Each enum is still defined only within its host interface — not a
+    # separate top-level model.
     enum_name = _enum_for_literal(ann)
     if enum_name:
-        if reg is not None:
-            reg.need_enum(enum_name)
-        return mid(enum_name)
+        lit = getattr(M, enum_name)
+        values = typing.get_args(lit)
+        enum_values = [{"name": str(v).capitalize(), "enumValue": v} for v in values]
+        return {"@type": "Enum", "valueSchema": ENUMS[enum_name], "enumValues": enum_values}
     # primitive
     if inner in _PRIMITIVES:
         return _PRIMITIVES[inner]
@@ -204,19 +202,6 @@ def _schema_for_scalar(inner, ann, reg: _SchemaRegistry | None = None):
 
 
 # ---- builders ----------------------------------------------------------------\
-
-def build_enum(name: str) -> dict:
-    """A reusable enum schema, inlined into the host Interface's `schemas`."""
-    lit = getattr(M, name)
-    values = typing.get_args(lit)
-    enum_values = [{"name": str(v).capitalize(), "enumValue": v} for v in values]
-    return {
-        "@id": mid(name),
-        "@type": "Enum",
-        "valueSchema": ENUMS[name],
-        "enumValues": enum_values,
-    }
-
 
 def build_inline_object(model_cls) -> dict:
     """A value object as an inline DTDL Object schema (no @id).
@@ -247,10 +232,18 @@ def _block_item_schema() -> dict:
 
 
 def build_interface(model_cls) -> dict:
-    reg = _SchemaRegistry()
     contents = []
     cls_doc = (model_cls.__doc__ or "").strip().split("\n")[0]
+    # For a derived model (User extends Person), only emit the fields declared
+    # on THIS class — inherited fields come from `extends`. ADT rejects a field
+    # name that appears both on the base and the derived interface.
+    if issubclass(model_cls, M.Person) and model_cls is not M.Person:
+        own_field_names = set(model_cls.model_fields) - set(M.Person.model_fields)
+    else:
+        own_field_names = set(model_cls.model_fields.keys())
     for fname, fld in model_cls.model_fields.items():
+        if fname not in own_field_names:
+            continue  # inherited from a base interface -> skip (provided by `extends`)
         desc = fld.description
         inner, required, is_list = _unwrap(fld.annotation)
         name = fld.alias or fname
@@ -266,6 +259,8 @@ def build_interface(model_cls) -> dict:
                 "target": mid(inner.__name__),
                 "description": f"Links this {model_cls.__name__} to its {inner.__name__} twin(s) (from `{fname}`).",
             }
+            if rel_name in REL_PROPERTIES:
+                edge["properties"] = REL_PROPERTIES[rel_name]
             contents.append(edge)
             continue
         # Person.role is trip-relative -> carried on the hasCrew edge, not on the node.
@@ -273,7 +268,7 @@ def build_interface(model_cls) -> dict:
         if issubclass(model_cls, M.Person) and name == "role":
             continue
         # plain property (primitive / enum / inline value object)
-        schema = _schema_for_scalar(inner, fld.annotation, reg)
+        schema = _schema_for_scalar(inner, fld.annotation)
         # Block.items is list[Any] -> normalize to Array of inline BlockItem
         if model_cls is M.Block and fname == "items":
             schema = {"@type": "Array", "elementSchema": _block_item_schema()}
@@ -303,8 +298,9 @@ def build_interface(model_cls) -> dict:
     # User EXTENDS Person (DTDL `extends`) — a real user IS a person.
     if issubclass(model_cls, M.Person) and model_cls is not M.Person:
         iface["extends"] = mid("Person")
-    if reg._by_name:
-        iface["schemas"] = reg.as_list()
+    # Enums are now embedded inline in each property (DTDL v4 embedded form) — no
+    # `schemas` block needed, since pg-age's create_models resolver doesn't
+    # resolve nested-schema *references* at model-upload time.
     return iface
 
 

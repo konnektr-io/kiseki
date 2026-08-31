@@ -1,24 +1,32 @@
 #!/usr/bin/env python3
 """Seed the Konnektr Graph from the baked trip.json files (P1).
 
-Today this writes the ADT-shaped graph payloads (twins + relationships) to
-``backend/data/seed/<slug>.graph.json`` — the files the future live sink will
-ingest. The converter (``trip_to_graph.py``) maps each node's opaque ``id``
-(verbatim $dtId) so re-running replaces twins by id (no drift).
+Uses the real ``konnektr-graph`` SDK (the same client the backend will use).
+Flow:
+  1. ``create_models`` — upload the auto-generated DTDL v4 models.
+  2. ``upsert_digital_twin`` (PUT) — one per node. Idempotent: re-running
+     replaces a twin by its opaque $dtId (no drift).
+  3. ``upsert_relationship`` (PUT) — one per edge, keyed by its stable
+     ``<src>__<name>__<tgt>`` id.
 
-When a live Graph endpoint is configured (KONNEKTR_GRAPH_URL + token), pass
-``--sink`` to upsert twins/relationships via the REST API instead of writing
-JSON. The sink is intentionally a thin adapter — the graph shape is identical.
+The graph payload is produced by ``trip_to_graph.py`` (ADT-shaped JSON), which
+already uses the $dtId / $metadata / $relationshipId keys the SDK consumes via
+``BasicDigitalTwin.from_dict`` / ``BasicRelationship.from_dict``.
+
+Endpoint + auth come from env:
+  KONNEKTR_GRAPH_URL      e.g. http://localhost:8080  (or the in-cluster svc)
+  KONNEKTR_GRAPH_TOKEN    the bearer/basic password for the graph-cluster-app
 
 Usage:
-    uv run python scripts/seed_graph.py                 # write JSON seed files
-    uv run python scripts/seed_graph.py --sink           # upsert to live Graph
-    uv run python scripts/seed_graph.py --sink --dry-run # print what would upsert
+  uv run python scripts/seed_graph.py                 # seed models + twins + rels
+  uv run python scripts/seed_graph.py --dry-run        # count what would be written
+  uv run python scripts/seed_graph.py --anonymize      # strip tokens/personal data first
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,90 +34,94 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app import models as M  # noqa: E402
+from konnektr_graph import (  # noqa: E402
+    BasicDigitalTwin,
+    BasicRelationship,
+    KonnektrGraphClient,
+)
+from konnektr_graph.auth.static_token_credential import (  # noqa: E402
+    StaticTokenCredential,
+)
 from scripts.trip_to_graph import trip_to_graph  # noqa: E402
 
 TRIPS_DIR = ROOT / "data" / "trips"
-SEED_DIR = ROOT / "data" / "seed"
+DTDL_FILE = ROOT / "dtdl" / "kiseki-models.json"
+
+
+def _client() -> KonnektrGraphClient:
+    url = os.environ.get("KONNEKTR_GRAPH_URL")
+    token = os.environ.get("KONNEKTR_GRAPH_TOKEN")
+    if not url or not token:
+        raise SystemExit(
+            "Set KONNEKTR_GRAPH_URL and KONNEKTR_GRAPH_TOKEN "
+            "(graph-cluster-app basic-auth password) before seeding."
+        )
+    return KonnektrGraphClient(url, StaticTokenCredential(token))
 
 
 def _discover_slugs() -> list[str]:
     return sorted(p.name for p in TRIPS_DIR.iterdir() if (p / "trip.json").exists())
 
 
-def build_payloads(anonymize: bool = False) -> dict[str, dict]:
-    payloads: dict[str, dict] = {}
-    for slug in _discover_slugs():
-        raw = (TRIPS_DIR / slug / "trip.json").read_text(encoding="utf-8")
-        trip = M.Trip.model_validate_json(raw)
-        payloads[slug] = trip_to_graph(trip, anonymize=anonymize)
-    return payloads
-
-
-def write_json(payloads: dict[str, dict]) -> None:
-    SEED_DIR.mkdir(parents=True, exist_ok=True)
-    for slug, g in payloads.items():
-        out = SEED_DIR / f"{slug}.graph.json"
-        out.write_text(json.dumps(g, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        print(f"[seed] wrote {out.name}: {len(g['twins'])} twins, {len(g['relationships'])} rels")
-
-
-def upsert_sink(payloads: dict[str, dict], dry_run: bool) -> None:
-    """Upsert every twin + relationship into a live Konnektr Graph.
-
-    Requires KONNEKTR_GRAPH_URL (and auth via env). Thin adapter: the payload is
-    already ADT-shaped, so this is just PUT/POST per twin/relationship.
-    """
-    import os
-
-    base = os.environ.get("KONNEKTR_GRAPH_URL")
-    if not base:
-        raise SystemExit(
-            "KONNEKTR_GRAPH_URL is not set — cannot upsert to a live Graph. "
-            "Set it (and any auth env) or run without --sink to write JSON seeds."
+def build_payloads(anonymize: bool) -> dict[str, dict]:
+    return {
+        slug: trip_to_graph(
+            M.Trip.model_validate_json((TRIPS_DIR / slug / "trip.json").read_text(encoding="utf-8")),
+            anonymize=anonymize,
         )
-    # Lazily import so the JSON path needs no HTTP deps.
-    import urllib.request
+        for slug in _discover_slugs()
+    }
 
-    token = os.environ.get("KONNEKTR_GRAPH_TOKEN", "")
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
 
-    def _put(url: str, body: dict) -> None:
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="PUT")
-        if dry_run:
-            print(f"[dry-run] PUT {url}")
-            return
-        try:
-            urllib.request.urlopen(req, timeout=30)  # noqa: S310 (internal/trusted)
-        except urllib.error.HTTPError as e:
-            # 409 = already exists → PATCH update by id (idempotent re-seed)
-            if e.code == 409:
-                patch = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method="PATCH")
-                urllib.request.urlopen(patch, timeout=30)  # noqa: S310
-            else:
-                raise
+def seed_models(client: KonnektrGraphClient, dry_run: bool) -> int:
+    raw = json.loads(DTDL_FILE.read_text(encoding="utf-8"))
+    from konnektr_graph.types import DtdlInterface
 
+    models = [DtdlInterface.from_dict(m) for m in raw]
+    if dry_run:
+        print(f"[dry-run] would ensure {len(models)} models")
+        return len(models)
+    # Idempotent re-seed: the backend exposes DELETE /models (DETAUCH DELETE, ordered
+    # by `extends`) which wipes all models; we then re-upload the full set in one batch.
+    # This avoids partial-update conflicts and stale model versions.
+    client.delete_all_models()
+    client.create_models(models)
+    print(f"[seed] reset + registered {len(models)} models")
+    return len(models)
+
+
+def seed_graph(client: KonnektrGraphClient, payloads: dict[str, dict], dry_run: bool) -> tuple[int, int]:
+    twins = rels = 0
     for slug, g in payloads.items():
         for t in g["twins"]:
-            _put(f"{base.rstrip('/')}/digitaltwins/{t['$dtId']}", t)
+            dt = BasicDigitalTwin.from_dict(t)
+            if dry_run:
+                twins += 1
+                continue
+            client.upsert_digital_twin(dt.dtId, dt)
+            twins += 1
         for r in g["relationships"]:
-            _put(f"{base.rstrip('/')}/digitaltwins/{r['$sourceId']}/relationships/{r['$relationshipName']}/{r['$relationshipId']}", r)
+            rel = BasicRelationship.from_dict(r)
+            if dry_run:
+                rels += 1
+                continue
+            client.upsert_relationship(rel.sourceId, rel.relationshipId, rel)
+            rels += 1
         print(f"[seed] {'would upsert' if dry_run else 'upserted'} {slug}: {len(g['twins'])} twins, {len(g['relationships'])} rels")
+    return twins, rels
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--sink", action="store_true", help="upsert to a live Graph (needs KONNEKTR_GRAPH_URL)")
-    ap.add_argument("--dry-run", action="store_true", help="with --sink, print instead of writing")
+    ap.add_argument("--dry-run", action="store_true", help="count instead of writing")
     ap.add_argument("--anonymize", action="store_true", help="strip tokens/personal data before seeding")
     args = ap.parse_args()
 
-    payloads = build_payloads(anonymize=args.anonymize)
-    if args.sink:
-        upsert_sink(payloads, dry_run=args.dry_run)
-    else:
-        write_json(payloads)
+    payloads = build_payloads(args.anonymize)
+    client = _client()
+    seed_models(client, args.dry_run)
+    twins, rels = seed_graph(client, payloads, args.dry_run)
+    print(f"[seed] done: {twins} twins, {rels} relationships across {len(payloads)} trips")
 
 
 if __name__ == "__main__":

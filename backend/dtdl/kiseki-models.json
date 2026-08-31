@@ -8,7 +8,52 @@
       {
         "@type": "Property",
         "name": "kind",
-        "schema": "dtmi:kiseki:travel:BlockKind;1",
+        "schema": {
+          "@type": "Enum",
+          "valueSchema": "string",
+          "enumValues": [
+            {
+              "name": "Activity",
+              "enumValue": "activity"
+            },
+            {
+              "name": "Transport",
+              "enumValue": "transport"
+            },
+            {
+              "name": "Lodging",
+              "enumValue": "lodging"
+            },
+            {
+              "name": "Meal",
+              "enumValue": "meal"
+            },
+            {
+              "name": "Todo",
+              "enumValue": "todo"
+            },
+            {
+              "name": "Note",
+              "enumValue": "note"
+            },
+            {
+              "name": "Gallery",
+              "enumValue": "gallery"
+            },
+            {
+              "name": "Link",
+              "enumValue": "link"
+            },
+            {
+              "name": "Booking",
+              "enumValue": "booking"
+            },
+            {
+              "name": "Custom",
+              "enumValue": "custom"
+            }
+          ]
+        },
         "writable": true,
         "description": "Which block kind — drives the renderer (one of the ten kinds)."
       },
@@ -203,56 +248,7 @@
         "description": "Synthesized by the converter (not a model field) — links this Block to its Location twin(s)."
       }
     ],
-    "description": "One coarse content block. `kind` selects the renderer; shared fields cover",
-    "schemas": [
-      {
-        "@id": "dtmi:kiseki:travel:BlockKind;1",
-        "@type": "Enum",
-        "valueSchema": "string",
-        "enumValues": [
-          {
-            "name": "Activity",
-            "enumValue": "activity"
-          },
-          {
-            "name": "Transport",
-            "enumValue": "transport"
-          },
-          {
-            "name": "Lodging",
-            "enumValue": "lodging"
-          },
-          {
-            "name": "Meal",
-            "enumValue": "meal"
-          },
-          {
-            "name": "Todo",
-            "enumValue": "todo"
-          },
-          {
-            "name": "Note",
-            "enumValue": "note"
-          },
-          {
-            "name": "Gallery",
-            "enumValue": "gallery"
-          },
-          {
-            "name": "Link",
-            "enumValue": "link"
-          },
-          {
-            "name": "Booking",
-            "enumValue": "booking"
-          },
-          {
-            "name": "Custom",
-            "enumValue": "custom"
-          }
-        ]
-      }
-    ]
+    "description": "One coarse content block. `kind` selects the renderer; shared fields cover"
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -621,7 +617,40 @@
       {
         "@type": "Property",
         "name": "stage",
-        "schema": "dtmi:kiseki:travel:Stage;1",
+        "schema": {
+          "@type": "Enum",
+          "valueSchema": "string",
+          "enumValues": [
+            {
+              "name": "Idea",
+              "enumValue": "idea"
+            },
+            {
+              "name": "Options",
+              "enumValue": "options"
+            },
+            {
+              "name": "Shortlist",
+              "enumValue": "shortlist"
+            },
+            {
+              "name": "Planned",
+              "enumValue": "planned"
+            },
+            {
+              "name": "Booked",
+              "enumValue": "booked"
+            },
+            {
+              "name": "Live",
+              "enumValue": "live"
+            },
+            {
+              "name": "Archive",
+              "enumValue": "archive"
+            }
+          ]
+        },
         "writable": true,
         "description": "Maturity: idea → options → shortlist → planned → booked → live → archive."
       },
@@ -751,7 +780,16 @@
         "@type": "Relationship",
         "name": "hasCrew",
         "target": "dtmi:kiseki:travel:Person;1",
-        "description": "Links this Trip to its Person twin(s) (from `crew`)."
+        "description": "Links this Trip to its Person twin(s) (from `crew`).",
+        "properties": [
+          {
+            "@type": "Property",
+            "name": "role",
+            "schema": "string",
+            "writable": true,
+            "description": "Trip-relative role of the crew member (e.g. owner | planner | guest). Carried on the edge, not on the person."
+          }
+        ]
       },
       {
         "@type": "Property",
@@ -866,44 +904,7 @@
         "description": "ISO date of last content update."
       }
     ],
-    "description": "The trip document — the P0 source of truth, and (in P1) the Konnektr Graph",
-    "schemas": [
-      {
-        "@id": "dtmi:kiseki:travel:Stage;1",
-        "@type": "Enum",
-        "valueSchema": "string",
-        "enumValues": [
-          {
-            "name": "Idea",
-            "enumValue": "idea"
-          },
-          {
-            "name": "Options",
-            "enumValue": "options"
-          },
-          {
-            "name": "Shortlist",
-            "enumValue": "shortlist"
-          },
-          {
-            "name": "Planned",
-            "enumValue": "planned"
-          },
-          {
-            "name": "Booked",
-            "enumValue": "booked"
-          },
-          {
-            "name": "Live",
-            "enumValue": "live"
-          },
-          {
-            "name": "Archive",
-            "enumValue": "archive"
-          }
-        ]
-      }
-    ]
+    "description": "The trip document — the P0 source of truth, and (in P1) the Konnektr Graph"
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -965,27 +966,6 @@
     "@type": "Interface",
     "displayName": "User",
     "contents": [
-      {
-        "@type": "Property",
-        "name": "name",
-        "schema": "string",
-        "writable": true,
-        "description": "Person's name (placeholder crew or real)."
-      },
-      {
-        "@type": "Property",
-        "name": "note",
-        "schema": "string",
-        "writable": true,
-        "description": "Free-text note about this person on this trip."
-      },
-      {
-        "@type": "Property",
-        "name": "contact",
-        "schema": "string",
-        "writable": true,
-        "description": "Phone/email when available."
-      },
       {
         "@type": "Property",
         "name": "email",
