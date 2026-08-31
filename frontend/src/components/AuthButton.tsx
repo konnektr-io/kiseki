@@ -12,6 +12,22 @@ export function AuthButton() {
   return <AuthButtonInner />;
 }
 
+/** "Niko Raes" → "NR"; falls back to the first two characters of the name. */
+function initialsFor(user: {
+  given_name?: string;
+  family_name?: string;
+  name?: string;
+}): string {
+  const given = user.given_name || user.name?.split(/\s+/)[0] || "";
+  const family =
+    user.family_name || user.name?.split(/\s+/).slice(1).join(" ") || "";
+  if (given && family) {
+    return (given[0] + family[0]).toUpperCase();
+  }
+  const name = user.name || given || "";
+  return name.slice(0, 2).toUpperCase();
+}
+
 function AuthButtonInner() {
   const { isLoading, isAuthenticated, user, loginWithRedirect, logout } =
     useAuth0();
@@ -31,16 +47,24 @@ function AuthButtonInner() {
   }
 
   const name = user?.name || user?.email || "Account";
-  const initials = name.slice(0, 2).toUpperCase();
 
   return (
     <div className="flex items-center gap-2">
-      <span
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
-        title={name}
-      >
-        {initials}
-      </span>
+      {user?.picture ? (
+        <img
+          src={user.picture}
+          alt={name}
+          referrerPolicy="no-referrer"
+          className="h-8 w-8 rounded-full object-cover"
+        />
+      ) : (
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+          title={name}
+        >
+          {initialsFor(user ?? {})}
+        </span>
+      )}
       <button
         onClick={() =>
           logout({ logoutParams: { returnTo: window.location.origin } })
