@@ -63,7 +63,7 @@ cd backend && uv run uvicorn app.main:app --port 8000
 
 `backend/app/models.py` is authoritative. Summary:
 
-- **Top level**: `slug`, `title`, `subtitle`, `stage` (`idea|options|shortlist|planned|booked|live|archive`), `startDate`, `endDate`, `token` (the secret share key — appears in URLs; rotate by editing the field), `cover` (image URL), `coverCredit`, `map` (overview route map), `summary` (markdown), `theme` `{primary, accent, font}` (hex colors — UI uses CSS variables, never hardcoded hex), `coverStats` (string[] — cover strip lines), `locations` `[{name, marker?, alias[], lat?, lng?}]` (places; marker number = position in the array unless `marker` set — drives the ① ②… loop markers AND map generation), `stats` `[{label, value}]` (at-a-glance row), `features` `[{kicker, title, description (md), image, images[], chips[], cards: [{title, value, description, image, links}], map?, links}]` (editorial overview cards: centerpiece / road trip), `sections` `[{title, days: [first, last]}]` — **days is an INCLUSIVE RANGE**, expanded via `expandSectionDays()` (itinerary + booklet) — `crew` `[{name, role: owner|editor|viewer|follower, note, contact?}]`, `practical` `{todos: [{label, done, when?}], links: [{label, url}], notes (markdown), contacts: [{label, value, link}]}`, `days` `[{date (ISO), title, notes (markdown), map (image), meta: [{label, value}], blocks [...]}]`.
+- **Top level**: `slug`, `title`, `subtitle`, `stage` (`idea|options|shortlist|planned|booked|live|archive`), `startDate`, `endDate`, `token` (the secret share key — appears in URLs; rotate by editing the field), `cover` (image URL), `coverCredit`, `map` (overview route map), `summary` (markdown), `theme` `{primary, accent, font}` (hex colors — UI uses CSS variables, never hardcoded hex), `coverStats` (string[] — cover strip lines), `locations` `[{name, marker?, alias[], lat?, lng?}]` (places; marker number = position in the array unless `marker` set — drives the ① ②… loop markers AND map generation), `stats` `[{label, value}]` (at-a-glance row), `features` `[{kicker, title, description (md), image, images[], chips[], cards: [{title, value, description, image, links}], map?, links}]` (editorial overview cards: centerpiece / road trip), `sections` `[{title, days: [first, last], locationRefs?: string[], blocks?: Block[]}]` — `days` is an **INCLUSIVE RANGE**, expanded via `expandSectionDays()` (itinerary + booklet). A section also groups by place (`locationRefs`) and can hold unscheduled ideation `blocks` (before any day exists). In the graph, `TripSection` is a twin with `hasDay`/`atLocation`/`hasBlock` edges. `crew` `[{name, role: owner|editor|viewer|follower, note, contact?}]` — `role` is a `hasCrew` edge property in the graph (trip-relative), kept here only as the data carrier. `practical` `{todos: [{label, done, when?}], links: [{label, url}], notes (markdown), contacts: [{label, value, link}]}`, `days` `[{date (ISO), title, notes (markdown), map (image), meta: [{label, value}], blocks [...]}]`.
 - **Block kinds — exactly these ten**: `activity`, `transport`, `lodging`, `meal`, `todo`, `note`, `gallery`, `link`, `booking`, `custom`.
   - Shared fields: `title`, `time`, `description` (markdown), `links` `[{label, url}]`, `cost` (number), `currency` (code), `status` (`planned|booked|done`), `bookingCode`, `order`, `location` (place name/alias → auto Google Maps pill + mini static-map thumbnail), `mapsQuery` (precise query for the ACTUAL place — geocodes the thumbnail pin to the hotel/restaurant, not the town), `images` (asset URLs → 1–2 image media strip).
   - `todo`: `items` `[{label, done}]` · `gallery`: `items` (image URLs) · `custom`: `html` (sanitized client-side).
@@ -77,13 +77,14 @@ writeup; in short:
 
 - **DTDL v4 models auto-generated** from `models.py` → `backend/dtdl/kiseki-models.json`
   (`uv run python scripts/gen_dtdl.py`; structural check via `scripts/validate_dtdl.py`).
-  Twins: `Trip` `Day` `Block` `Location` `Person` `Feature` `TripSection`; inline value
+  Twins: `Trip` `Day` `Block` `Location` `Person` `User` (extends Person) `Feature` `TripSection`; inline value
   objects (`Link`, `Stat`, `Theme`, `TodoItem`, `BlockItem` …); enums `BlockKind`/`Stage`/
   `BlockStatus`/`Role`. Entities are linked by **relationship edges** (`hasDay`, `hasBlock`,
   `atLocation`, `hasCrew`, `hasFeature`, `hasSection`), not nested documents.
-- **`$dtId` is immutable**, derived from `slug` (`trip:<slug>`, `trip:<slug>:day:<i>`,
-  `trip:<slug>:day:<i>:block:<j>` …). `token` and `slug` are editable Properties — rotate
-  the share token without re-wiring the graph.
+- **`$dtId` is an opaque GUID**, stored verbatim from each node's `id` field in
+  `trip.json` (e.g. `bf29a027-…`). No type/slug/date prefix — all meaning lives
+  in `$metadata.$model` + content. `token` and `slug` are editable Properties
+  (slug is just the repo folder name). Re-seed **replaces** by id (no drift).
 - **ADT-compat**: twins keep `$metadata.$model`, strip `$lastUpdatedBy`; relationships strip
   the entire `$metadata`; media is a plain URL field.
 - **Mock the read-path before the SDK lands** (`uv run python scripts/trip_to_graph.py

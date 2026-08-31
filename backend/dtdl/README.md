@@ -28,37 +28,61 @@ decision lives in the declarative config blocks at the top of `gen_dtdl.py`.
 Trip ─hasDay→ Day ─hasBlock→ Block
  │ ─atLocation→ Location*   (shared place registry; Block also ─atLocation→)
  │ ─hasCrew→ Person         ─hasFeature→ Feature   ─hasSection→ TripSection
+ │                                          TripSection ─hasDay→ Day  ─atLocation→ Location  ─hasBlock→ Block
 ```
 
 `*` `Location` is a shared registry: `Trip.atLocation` and `Block.atLocation`
 both point at the same place node (by `name`/`alias`).
 
 - **Twins (entities)** — `Trip`, `Day`, `Block`, `Location`, `Person`,
-  `Feature`, `TripSection`. Each is a digital twin with its own `$dtId`.
+  `Feature`, `TripSection`, `User`. Each is a digital twin with its own `$dtId`.
+- **`TripSection`** is a real graph node with three edges: `hasDay` (from its
+  inclusive `[first,last]` day-range), `atLocation` (from `locationRefs`), and
+  `hasBlock` (unscheduled ideation content). This makes the section grouping —
+  and ideation content — survive in the graph, not just in `trip.json`.
+- **`User` EXTENDS `Person`** (DTDL `extends`): a logged-in user *is* a person,
+  plus `email`/`displayName`/`authProvider`. Because a real user's `$dtId` is
+  their global auth id (**an opaque GUID, no prefix** — not the trip-scoped
+  person id), login does NOT mutate the placeholder twin — it creates the `User`
+  twin and **transfers the `hasCrew` edges** (carrying `role`) onto it, then
+  drops the placeholder. No field copy; `role` survives.
+- **`role` is a `hasCrew` edge property** (trip-relative), NOT a `Person`
+  field — it is kept in `models.py` only as the trip.json data carrier; the
+  generator strips it from the `Person`/`User` DTDL and the converter moves it
+  to the edge.
 - **Inline value objects (no twin)** — `Link`, `Stat`, `Theme`, `MetaItem`,
   `TodoItem`, `FeatureCard`, `Contact`, `Practical`, `BlockItem`. They serialize
   as DTDL `Object`/inline `Array` schemas on the owning twin.
 - **Enums** — `BlockKind` (the 10 block kinds), `Stage`, `BlockStatus`, `Role`.
-- **P2 stubs** (declared now, code later) — `User`, `Integration`, `FeedEntry`.
+- **P2 stubs** (declared now, code later) — `Integration`, `FeedEntry`.
 
-## `$dtId` scheme (immutable)
+## `$dtId` scheme (opaque GUID, content-stored)
 
-The twin id is **structural and immutable**, derived from the `slug`:
+The twin id is **immutable** and carries **no semantic meaning**. Each node
+stores an opaque `id` (a GUID) in `trip.json`; the converter uses that value
+**verbatim** as the twin `$dtId`. There is **no type/slug/date prefix** — all
+meaning lives in `$metadata.$model` + the content. Because the id is persisted
+in `trip.json`, a re-seed **replaces** the existing twin rather than
+duplicating it (no drift).
 
-| Twin | `$dtId` |
-|---|---|
-| Trip | `trip:<slug>` |
-| Day | `trip:<slug>:day:<i>` |
-| Block | `trip:<slug>:day:<i>:block:<j>` |
-| Location | `trip:<slug>:loc:<slugified-name>` |
-| Person | `trip:<slug>:person:<i>` |
-| Feature | `trip:<slug>:feature:<i>` |
-| TripSection | `trip:<slug>:section:<i>` |
+| Twin | `$dtId` | source |
+|---|---|---|
+| Trip | `<trip.id>` | the trip's `id` field (GUID) |
+| Day | `<day.id>` | the day's `id` field (GUID) |
+| Block | `<block.id>` | the block's `id` field (GUID) |
+| Location | `<loc.id>` | the location's `id` field (GUID) |
+| Person | `<person.id>` | the person's `id` field (GUID) |
+| Feature | `<feature.id>` | the feature's `id` field (GUID) |
+| TripSection | `<section.id>` | the section's `id` field (GUID) |
+| User (P2) | `<authId>` | global auth id (own opaque GUID) |
 
-`slug` **and** the secret `token` are ordinary editable Properties. You can
-rotate the share token without re-wiring the graph — the `$dtId` never changes.
-(This matches your call in the issue: keep an immutable id so lookups don't
-require resolving the token each time.)
+The repo folder/file name (`slug`) is **unrelated** to `$dtId` — it is only for
+finding the trip in the repo. The secret `token` is an ordinary editable
+Property; rotate it without re-wiring the graph.
+
+This matches your call in the issue: keep an **immutable, meaningless id** so
+lookups don't depend on content (date/location/slug can all change), and store
+it in `trip.json` so re-seeds replace, not duplicate.
 
 ## ADT-compat rules (see spec §6 + agent memory)
 

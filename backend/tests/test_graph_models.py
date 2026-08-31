@@ -85,6 +85,49 @@ def test_block_kind_is_enum_and_items_is_inline_object():
     assert {f["name"] for f in element["fields"]} == {"label", "done", "url"}
 
 
+def test_user_extends_person_and_has_no_role():
+    """User IS a Person (DTDL `extends`); role is never a User/Person property
+    — it lives on the hasCrew edge instead."""
+    doc = json.loads(DTDL.read_text())
+    by_id = {d["@id"]: d for d in doc}
+    user = by_id[mid("User")]
+    assert user.get("extends") == mid("Person"), "User must extend Person"
+    user_props = {c["name"] for c in user["contents"] if c["@type"] == "Property"}
+    # inherits name/note/contact, adds email/displayName/authProvider, NEVER role
+    assert {"name", "note", "contact", "email", "displayName", "authProvider"} <= user_props
+    assert "role" not in user_props
+    person_props = {c["name"] for c in by_id[mid("Person")]["contents"] if c["@type"] == "Property"}
+    assert "role" not in person_props, "role must not be a Person property (carried on hasCrew edge)"
+
+
+def test_tripsection_has_section_relationship_edges():
+    """A TripSection is a real graph node with hasDay (from its [first,last]
+    range), atLocation (from locationRefs), and hasBlock (ideation content)."""
+    doc = json.loads(DTDL.read_text())
+    sec = {d["@id"]: d for d in doc}[mid("TripSection")]
+    rels = {c["name"]: c["target"] for c in sec["contents"] if c["@type"] == "Relationship"}
+    assert rels == {
+        "hasBlock": mid("Block"),
+        "hasDay": mid("Day"),
+        "atLocation": mid("Location"),
+    }, "TripSection must expose hasBlock + hasDay + atLocation edges"
+
+
+def test_field_descriptions_present_in_dtdl():
+    """#8: every model field carries a `description` annotation so the graph
+    stays self-documenting (Niko's request)."""
+    doc = json.loads(DTDL.read_text())
+    for d in doc:
+        if d["@type"] != "Interface":
+            continue
+        # each Property/Relationship content should have a description
+        for c in d["contents"]:
+            if c["@type"] in ("Property", "Relationship"):
+                assert c.get("description"), f"{d['@id']}.{c.get('name')} missing description"
+        # interface itself should have a description
+        assert d.get("description"), f"{d['@id']} missing interface description"
+
+
 def test_gen_dtdl_is_idempotent():
     before = DTDL.read_bytes()
     argv = sys.argv
@@ -111,9 +154,11 @@ def test_graph_has_expected_counts(trip):
     assert mid("Location") in models and mid("Person") in models
     n_days = len(trip.days)
     n_blocks = sum(len(d.blocks) for d in trip.days)
+    # sections may also own unscheduled blocks (ideation) — count those too
+    n_section_blocks = sum(len(s.blocks) for s in trip.sections)
     n_expected = (
         1 + len(trip.locations) + len(trip.crew) + len(trip.features)
-        + len(trip.sections) + n_days + n_blocks
+        + len(trip.sections) + n_days + n_blocks + n_section_blocks
     )
     assert len(g["twins"]) == n_expected
     assert {r["$relationshipName"] for r in g["relationships"]} == EXPECTED_RELS
@@ -136,11 +181,23 @@ def test_relationships_strip_entire_metadata(trip):
             assert key in r
 
 
-def test_dtids_are_immutable_structural(trip):
+def test_dtids_are_opaque_guid_and_unique(trip):
+    """#8 id scheme: $dtId is the node's opaque content `id` (a GUID), used
+    verbatim — no type/slug/date prefix. All meaning lives in $metadata.$model +
+    content. Ids are unique and stable across re-seed (so re-seed replaces, not
+    duplicates). No token leaks into any id."""
+    import uuid as _uuid
     g = trip_to_graph(trip)
-    assert g["$dtId"] == f"trip:{trip.slug}"
-    block_ids = [t["$dtId"] for t in g["twins"] if t["$metadata"]["$model"] == mid("Block")]
-    assert block_ids[0].startswith(f"trip:{trip.slug}:day:0:block:")
+    assert g["$dtId"] == trip.id  # trip.id is the verbatim $dtId
+    assert _uuid.UUID(g["$dtId"]), "root $dtId must be a valid GUID"
+    dtids = [t["$dtId"] for t in g["twins"]]
+    assert len(dtids) == len(set(dtids)), "dtIds must be globally unique"
+    # every twin id is a valid opaque GUID (no semantic prefix)
+    for did in dtids:
+        _uuid.UUID(did)
+    # the day's $dtId is its own opaque id, decoupled from date/position
+    day_ids = [t["$dtId"] for t in g["twins"] if t["$metadata"]["$model"] == mid("Day")]
+    assert day_ids[0] == trip.days[0].id
     assert not any(trip.token in t["$dtId"] for t in g["twins"])
 
 
@@ -161,7 +218,7 @@ def test_anon_mock_fixture_matches_converter(trip):
     mock) — never on the gitignored real mock, which carries the secret token.
     """
     anon = json.loads(MOCK_ANON.read_text())
-    assert anon["$dtId"] == f"trip:{trip.slug}"
+    assert anon["$dtId"] == trip.id  # verbatim GUID, no prefix
     # Regenerate in-memory and compare as dicts (formatting-independent) so the
     # committed fixture can never silently drift from the converter.
     expected = trip_to_graph(trip, anonymize=True)

@@ -9,25 +9,29 @@
         "@type": "Property",
         "name": "kind",
         "schema": "dtmi:kiseki:travel:BlockKind;1",
-        "writable": true
+        "writable": true,
+        "description": "Which block kind — drives the renderer (one of the ten kinds)."
       },
       {
         "@type": "Property",
         "name": "title",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Block heading."
       },
       {
         "@type": "Property",
         "name": "time",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Optional time-of-day label, e.g. '08:30'."
       },
       {
         "@type": "Property",
         "name": "description",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Markdown body of the block."
       },
       {
         "@type": "Property",
@@ -48,37 +52,43 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "External links attached to the block."
       },
       {
         "@type": "Property",
         "name": "cost",
         "schema": "double",
-        "writable": true
+        "writable": true,
+        "description": "Monetary cost (number; pair with `currency`)."
       },
       {
         "@type": "Property",
         "name": "currency",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "ISO currency code for `cost`, e.g. 'CAD'."
       },
       {
         "@type": "Property",
         "name": "status",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Lifecycle: planned | booked | done."
       },
       {
         "@type": "Property",
         "name": "bookingCode",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Confirmation / booking reference."
       },
       {
         "@type": "Property",
         "name": "order",
         "schema": "integer",
-        "writable": true
+        "writable": true,
+        "description": "Sort order within the day (0-based)."
       },
       {
         "@type": "Property",
@@ -103,67 +113,78 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "todo → [{label,done}] · gallery → [image URLs] · custom → raw (sanitized) html."
       },
       {
         "@type": "Property",
         "name": "html",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Raw HTML for `custom` blocks (client-sanitized)."
       },
       {
         "@type": "Property",
         "name": "distance",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Drive distance, e.g. '143 km' (transport blocks)."
       },
       {
         "@type": "Property",
         "name": "duration",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Drive duration, e.g. '1 h 35' (transport blocks)."
       },
       {
         "@type": "Property",
         "name": "route",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Route name, e.g. 'Hwy 1 West, via Canmore'."
       },
       {
         "@type": "Property",
         "name": "via",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Notable waypoints, e.g. 'Rogers Pass (Glacier NP)'."
       },
       {
         "@type": "Property",
         "name": "from",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Directions origin place name/alias."
       },
       {
         "@type": "Property",
         "name": "to",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Directions destination place name/alias."
       },
       {
         "@type": "Property",
         "name": "mode",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Explicit transport mode: flight | drive | train | ferry (beats the heuristic)."
       },
       {
         "@type": "Property",
         "name": "location",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Place name/alias → auto Google Maps link + map thumbnail."
       },
       {
         "@type": "Property",
         "name": "mapsQuery",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Precise query for the ACTUAL place (hotel/restaurant) — overrides `location` for the link + thumbnail pin."
       },
       {
         "@type": "Property",
@@ -172,14 +193,17 @@
           "@type": "Array",
           "elementSchema": "string"
         },
-        "writable": true
+        "writable": true,
+        "description": "Card media strip (asset URLs)."
       },
       {
         "@type": "Relationship",
         "name": "atLocation",
-        "target": "dtmi:kiseki:travel:Location;1"
+        "target": "dtmi:kiseki:travel:Location;1",
+        "description": "Synthesized by the converter (not a model field) — links this Block to its Location twin(s)."
       }
     ],
+    "description": "One coarse content block. `kind` selects the renderer; shared fields cover",
     "schemas": [
       {
         "@id": "dtmi:kiseki:travel:BlockKind;1",
@@ -240,25 +264,29 @@
         "@type": "Property",
         "name": "date",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "ISO YYYY-MM-DD."
       },
       {
         "@type": "Property",
         "name": "title",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Day heading."
       },
       {
         "@type": "Property",
         "name": "notes",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Markdown day-level notes."
       },
       {
         "@type": "Property",
         "name": "map",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Optional map image for this day."
       },
       {
         "@type": "Property",
@@ -279,14 +307,17 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "Stay/Lift/Flight chips (label/value)."
       },
       {
         "@type": "Relationship",
         "name": "hasBlock",
-        "target": "dtmi:kiseki:travel:Block;1"
+        "target": "dtmi:kiseki:travel:Block;1",
+        "description": "Links this Day to its Block twin(s) (from `blocks`)."
       }
-    ]
+    ],
+    "description": "A single dated day in the itinerary; owns its ordered blocks."
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -298,25 +329,29 @@
         "@type": "Property",
         "name": "kicker",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Small overline above the title."
       },
       {
         "@type": "Property",
         "name": "title",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Feature title."
       },
       {
         "@type": "Property",
         "name": "description",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Feature body (markdown)."
       },
       {
         "@type": "Property",
         "name": "image",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Hero image URL."
       },
       {
         "@type": "Property",
@@ -325,7 +360,8 @@
           "@type": "Array",
           "elementSchema": "string"
         },
-        "writable": true
+        "writable": true,
+        "description": "2-column image layout (centerpiece)."
       },
       {
         "@type": "Property",
@@ -334,7 +370,8 @@
           "@type": "Array",
           "elementSchema": "string"
         },
-        "writable": true
+        "writable": true,
+        "description": "Highlight chips (centerpiece)."
       },
       {
         "@type": "Property",
@@ -382,13 +419,15 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "Resort/route card grid."
       },
       {
         "@type": "Property",
         "name": "map",
         "schema": "boolean",
-        "writable": true
+        "writable": true,
+        "description": "Render the trip's dynamic map here (JS web / static print)."
       },
       {
         "@type": "Property",
@@ -409,9 +448,11 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "Feature-level links."
       }
-    ]
+    ],
+    "description": "An editorial overview card (booklet 'centerpiece' / 'road trip' sections)."
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -424,19 +465,22 @@
         "@type": "Property",
         "name": "type",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Entry type, e.g. 'photo' | 'note' | 'activity'."
       },
       {
         "@type": "Property",
         "name": "payload",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Entry payload (serialized JSON or markdown)."
       },
       {
         "@type": "Property",
         "name": "visibility",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Who can see it: public | crew | followers | private."
       }
     ]
   },
@@ -451,19 +495,22 @@
         "@type": "Property",
         "name": "kind",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Integration kind: photos | strava | timeline | steps."
       },
       {
         "@type": "Property",
         "name": "status",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Connection status (e.g. active | paused | error)."
       },
       {
         "@type": "Property",
         "name": "tokenRef",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Reference to the OAuth token in the app secret store (never stored in the graph)."
       }
     ]
   },
@@ -477,13 +524,15 @@
         "@type": "Property",
         "name": "name",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Place name (the canonical key)."
       },
       {
         "@type": "Property",
         "name": "marker",
         "schema": "integer",
-        "writable": true
+        "writable": true,
+        "description": "Explicit ① ② … loop-marker number; defaults to 1-based position in trip.locations."
       },
       {
         "@type": "Property",
@@ -492,21 +541,25 @@
           "@type": "Array",
           "elementSchema": "string"
         },
-        "writable": true
+        "writable": true,
+        "description": "Alternate names that resolve to this location, e.g. 'Hillcrest' → Revelstoke."
       },
       {
         "@type": "Property",
         "name": "lat",
         "schema": "double",
-        "writable": true
+        "writable": true,
+        "description": "Latitude (enables map generation)."
       },
       {
         "@type": "Property",
         "name": "lng",
         "schema": "double",
-        "writable": true
+        "writable": true,
+        "description": "Longitude (enables map generation)."
       }
-    ]
+    ],
+    "description": "A place on the trip — the source for loop markers AND future map"
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -518,52 +571,25 @@
         "@type": "Property",
         "name": "name",
         "schema": "string",
-        "writable": true
-      },
-      {
-        "@type": "Property",
-        "name": "role",
-        "schema": "dtmi:kiseki:travel:Role;1",
-        "writable": true
+        "writable": true,
+        "description": "Person's name (placeholder crew or real)."
       },
       {
         "@type": "Property",
         "name": "note",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Free-text note about this person on this trip."
       },
       {
         "@type": "Property",
         "name": "contact",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Phone/email when available."
       }
     ],
-    "schemas": [
-      {
-        "@id": "dtmi:kiseki:travel:Role;1",
-        "@type": "Enum",
-        "valueSchema": "string",
-        "enumValues": [
-          {
-            "name": "Owner",
-            "enumValue": "owner"
-          },
-          {
-            "name": "Editor",
-            "enumValue": "editor"
-          },
-          {
-            "name": "Viewer",
-            "enumValue": "viewer"
-          },
-          {
-            "name": "Follower",
-            "enumValue": "follower"
-          }
-        ]
-      }
-    ]
+    "description": "Base identity (placeholder crew OR real person). `User` EXTENDS this."
   },
   {
     "@context": "dtmi:dtdl:context;4",
@@ -575,67 +601,78 @@
         "@type": "Property",
         "name": "slug",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "URL/identity slug, e.g. 'canada-2027'. Repo folder/file name; editable, NOT part of $dtId."
       },
       {
         "@type": "Property",
         "name": "title",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Trip title."
       },
       {
         "@type": "Property",
         "name": "subtitle",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Trip subtitle / tagline."
       },
       {
         "@type": "Property",
         "name": "stage",
         "schema": "dtmi:kiseki:travel:Stage;1",
-        "writable": true
+        "writable": true,
+        "description": "Maturity: idea → options → shortlist → planned → booked → live → archive."
       },
       {
         "@type": "Property",
         "name": "startDate",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "ISO start date."
       },
       {
         "@type": "Property",
         "name": "endDate",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "ISO end date."
       },
       {
         "@type": "Property",
         "name": "token",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Secret share key — appears in share URLs; editable (rotate without re-wiring the graph)."
       },
       {
         "@type": "Property",
         "name": "cover",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Cover image URL (absolute or /media/...)."
       },
       {
         "@type": "Property",
         "name": "coverCredit",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Cover image credit line."
       },
       {
         "@type": "Property",
         "name": "map",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Overview route-map image."
       },
       {
         "@type": "Property",
         "name": "summary",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Trip summary (markdown)."
       },
       {
         "@type": "Property",
@@ -657,7 +694,8 @@
             }
           ]
         },
-        "writable": true
+        "writable": true,
+        "description": "UI theme (colors + font)."
       },
       {
         "@type": "Property",
@@ -666,12 +704,14 @@
           "@type": "Array",
           "elementSchema": "string"
         },
-        "writable": true
+        "writable": true,
+        "description": "Cover strip lines, e.g. '16 DAYS · FEB 15 – MAR 2'."
       },
       {
         "@type": "Relationship",
         "name": "atLocation",
-        "target": "dtmi:kiseki:travel:Location;1"
+        "target": "dtmi:kiseki:travel:Location;1",
+        "description": "Links this Trip to its Location twin(s) (from `locations`)."
       },
       {
         "@type": "Property",
@@ -692,22 +732,26 @@
             ]
           }
         },
-        "writable": true
+        "writable": true,
+        "description": "'At a glance' stat rows."
       },
       {
         "@type": "Relationship",
         "name": "hasFeature",
-        "target": "dtmi:kiseki:travel:Feature;1"
+        "target": "dtmi:kiseki:travel:Feature;1",
+        "description": "Links this Trip to its Feature twin(s) (from `features`)."
       },
       {
         "@type": "Relationship",
         "name": "hasSection",
-        "target": "dtmi:kiseki:travel:TripSection;1"
+        "target": "dtmi:kiseki:travel:TripSection;1",
+        "description": "Links this Trip to its TripSection twin(s) (from `sections`)."
       },
       {
         "@type": "Relationship",
         "name": "hasCrew",
-        "target": "dtmi:kiseki:travel:Person;1"
+        "target": "dtmi:kiseki:travel:Person;1",
+        "description": "Links this Trip to its Person twin(s) (from `crew`)."
       },
       {
         "@type": "Property",
@@ -805,20 +849,24 @@
             }
           ]
         },
-        "writable": true
+        "writable": true,
+        "description": "Trip-wide practical info."
       },
       {
         "@type": "Relationship",
         "name": "hasDay",
-        "target": "dtmi:kiseki:travel:Day;1"
+        "target": "dtmi:kiseki:travel:Day;1",
+        "description": "Links this Trip to its Day twin(s) (from `days`)."
       },
       {
         "@type": "Property",
         "name": "updated",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "ISO date of last content update."
       }
     ],
+    "description": "The trip document — the P0 source of truth, and (in P1) the Konnektr Graph",
     "schemas": [
       {
         "@id": "dtmi:kiseki:travel:Stage;1",
@@ -867,7 +915,8 @@
         "@type": "Property",
         "name": "title",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Heading, e.g. 'Days 6–9 — the heli block'."
       },
       {
         "@type": "Property",
@@ -876,35 +925,90 @@
           "@type": "Array",
           "elementSchema": "integer"
         },
-        "writable": true
+        "writable": true,
+        "description": "Inclusive [first,last] 0-based day indices this section groups. Empty during pure ideation. Becomes hasDay edges in the graph."
+      },
+      {
+        "@type": "Property",
+        "name": "locationRefs",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true,
+        "description": "Location name/alias(es) this section covers (resolves to Location twins). Multi-place sections allowed."
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasBlock",
+        "target": "dtmi:kiseki:travel:Block;1",
+        "description": "Links this TripSection to its Block twin(s) (from `blocks`)."
+      },
+      {
+        "@type": "Relationship",
+        "name": "hasDay",
+        "target": "dtmi:kiseki:travel:Day;1",
+        "description": "Synthesized by the converter (not a model field) — links this TripSection to its Day twin(s)."
+      },
+      {
+        "@type": "Relationship",
+        "name": "atLocation",
+        "target": "dtmi:kiseki:travel:Location;1",
+        "description": "Synthesized by the converter (not a model field) — links this TripSection to its Location twin(s)."
       }
-    ]
+    ],
+    "description": "Itinerary grouping with two jobs:"
   },
   {
     "@context": "dtmi:dtdl:context;4",
     "@id": "dtmi:kiseki:travel:User;1",
     "@type": "Interface",
     "displayName": "User",
-    "description": "A real (logged-in) user. Crew Person nodes are matched/replaced by these on login (P2).",
     "contents": [
+      {
+        "@type": "Property",
+        "name": "name",
+        "schema": "string",
+        "writable": true,
+        "description": "Person's name (placeholder crew or real)."
+      },
+      {
+        "@type": "Property",
+        "name": "note",
+        "schema": "string",
+        "writable": true,
+        "description": "Free-text note about this person on this trip."
+      },
+      {
+        "@type": "Property",
+        "name": "contact",
+        "schema": "string",
+        "writable": true,
+        "description": "Phone/email when available."
+      },
       {
         "@type": "Property",
         "name": "email",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Primary login email (unique)."
       },
       {
         "@type": "Property",
         "name": "displayName",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Name shown in the UI."
       },
       {
         "@type": "Property",
         "name": "authProvider",
         "schema": "string",
-        "writable": true
+        "writable": true,
+        "description": "Auth origin: password | auth0 | google (P2)."
       }
-    ]
+    ],
+    "description": "Authenticated user (P2). A User EXTENDS Person — same identity, plus auth.",
+    "extends": "dtmi:kiseki:travel:Person;1"
   }
 ]

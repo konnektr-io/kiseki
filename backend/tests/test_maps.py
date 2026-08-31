@@ -4,12 +4,13 @@ from app.models import Location, Trip
 
 def _trip_with_locations():
     t = Trip(
+        id="t",
         slug="t",
         title="T",
         token="tok",
         locations=[
-            Location(name="YYC", alias=["Calgary"], lat=51.1215, lng=-114.0079),
-            Location(name="Banff", lat=51.1784, lng=-115.5708),
+            Location(id="t-yyc", name="YYC", alias=["Calgary"], lat=51.1215, lng=-114.0079),
+            Location(id="t-banff", name="Banff", lat=51.1784, lng=-115.5708),
         ],
     )
     return t
@@ -27,7 +28,7 @@ def test_resolve_places_names_and_aliases():
 
 def test_resolve_places_skips_missing_coords():
     t = _trip_with_locations()
-    t.locations.append(Location(name="NoCoords"))
+    t.locations.append(Location(id="t-nocoords", name="NoCoords"))
     assert resolve_places(t, ["YYC", "NoCoords"]) == [("YYC", 51.1215, -114.0079)]
 
 
