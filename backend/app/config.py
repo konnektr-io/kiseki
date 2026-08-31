@@ -28,3 +28,10 @@ MAPS_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 # <SERVICE_NAME>_PORT (e.g. KISEKI_PORT=tcp://10.x.x.x:8000) into pods for a
 # Service named "kiseki", which collides with a plain-number env var.
 LISTEN_PORT = int(os.environ.get("KISEKI_LISTEN_PORT", "8000"))
+
+# Konnektr Graph (P1 source of truth, issue #4). When BOTH are set the backend
+# serves trips from the graph; otherwise it falls back to baked trip.json files
+# (graceful first boot / zero-downtime rollout). Point these at the in-cluster
+# `graph-cluster-app` service (e.g. http://graph-cluster-app.kiseki.svc.cluster.local:8080).
+KISEKI_GRAPH_URL = os.environ.get("KISEKI_GRAPH_URL", "")
+KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
