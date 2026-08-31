@@ -29,6 +29,15 @@ MAPS_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 # Service named "kiseki", which collides with a plain-number env var.
 LISTEN_PORT = int(os.environ.get("KISEKI_LISTEN_PORT", "8000"))
 
+# Auth0 — SPA access-token validation for /api/auth/me (and future ACL checks).
+# Domain + client id are public (the SPA ships them), so defaults are baked in
+# like the frontend; override via env. AUTH0_AUDIENCE is optional: when the
+# tenant exposes a custom API, set it to that audience; otherwise tokens are
+# issued for the client itself (aud = client id).
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "dev-zv5urb33g0msy7bc.eu.auth0.com")
+AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "jbMyX3scNHkECOF1lNJTOovXe8fOBmiq")
+AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
+
 # Konnektr Graph (P1 source of truth, issue #4). When BOTH are set the backend
 # serves trips from the graph; otherwise it falls back to baked trip.json files
 # (graceful first boot / zero-downtime rollout). Point these at the in-cluster

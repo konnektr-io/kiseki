@@ -14,11 +14,12 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
+from .auth import get_current_user
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
 from .models import Trip
@@ -31,6 +32,23 @@ app = FastAPI(title="Kiseki", version="0.1.0")
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def auth_me(user: dict = Depends(get_current_user)) -> dict:
+    """Who am I — identity from a validated Auth0 access token.
+
+    `sub` is the stable user identity (future ACLs, #5/#6). Profile claims
+    (email/name/picture) are only included when the token carries them — by
+    default they live in the ID token; the access token always has `sub`."""
+    return {
+        "sub": user["sub"],
+        **{
+            k: user[k]
+            for k in ("email", "name", "picture", "email_verified")
+            if k in user
+        },
+    }
 
 
 @app.get("/api/trips/{token}")
