@@ -122,3 +122,13 @@ When `graph-client-sdk-python` is integrated, the backend's `store.py` swaps
 `load_trips()` from file reads to `client.get_twin(trip_dtid)` + relationship
 walks, keeping the P0 `GET /api/trips/{token}` contract intact. The mock above
 is the contract it must satisfy.
+
+**Status (issue #4):** DONE. `app/graph/client.py` (live `konnektr-graph` SDK
+adapter) + `app/graph/convert.py` (`graph_to_trip`, the inverse of
+`trip_to_graph.py`) implement the read-path. `store.get_trip_by_token` serves
+from the graph when `KISEKI_GRAPH_URL` + `KISEKI_GRAPH_TOKEN` are set, and
+**falls back to baked `trip.json`** on any failure or when unconfigured
+(graceful first boot / zero-downtime rollout). The committed
+`data/seed/*.graph.json` fixtures (the already-seeded graph) are consumed by the
+same `graph_to_trip` — proven byte-faithful against `trip.json` in
+`tests/test_graph_read_path.py`. Write-path (agent/UI edits) is the next step.
