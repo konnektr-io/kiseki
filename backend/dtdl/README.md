@@ -126,9 +126,9 @@ is the contract it must satisfy.
 **Status (issue #4):** DONE. `app/graph/client.py` (live `konnektr-graph` SDK
 adapter) + `app/graph/convert.py` (`graph_to_trip`, the inverse of
 `trip_to_graph.py`) implement the read-path. `store.get_trip_by_token` serves
-from the graph when `KISEKI_GRAPH_URL` + `KISEKI_GRAPH_TOKEN` are set, and
-**falls back to baked `trip.json`** on any failure or when unconfigured
-(graceful first boot / zero-downtime rollout). The committed
+from the graph as the SOLE source of truth when `KISEKI_GRAPH_URL` +
+`KISEKI_GRAPH_TOKEN` are set — a graph read failure surfaces as a 404, never a
+stale `trip.json`. The committed
 `data/seed/*.graph.json` fixtures (the already-seeded graph) are consumed by the
 same `graph_to_trip` — proven byte-faithful against `trip.json` in
 `tests/test_graph_read_path.py`. Write-path (agent/UI edits) is the next step.

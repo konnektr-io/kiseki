@@ -23,13 +23,9 @@ from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
 from .models import Trip
 from .pdf import render_booklet_pdf
-from .store import get_trip_by_token, seed_from_baked_data
+from .store import get_trip_by_token
 
 app = FastAPI(title="Kiseki", version="0.1.0")
-
-# Seed live trips from the baked-in copy on first boot (PVC may be empty).
-_baked_seed = Path(__file__).resolve().parent.parent / "data" / "trips"
-seed_from_baked_data(_baked_seed)
 
 
 @app.get("/api/health")

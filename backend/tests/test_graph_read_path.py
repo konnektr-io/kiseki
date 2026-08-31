@@ -3,9 +3,10 @@
 These prove the acceptance criteria without needing a live Konnektr Graph:
   * ``graph_to_trip`` faithfully inverts the seeded graph fixtures
     (source-agnostic — identical shape whether from the live SDK or a seed file).
-  * ``store.get_trip_by_token`` serves the graph when enabled, and falls back
-    to baked trip.json on any graph failure / when unconfigured — the P0 API
-    contract stays byte-stable either way.
+  * ``store.get_trip_by_token`` serves the graph as the sole source of truth
+    when ``KISEKI_GRAPH_URL`` is configured; a graph read failure surfaces as a
+    missing trip (404) rather than a stale file. When the graph is NOT
+    configured (local dev / CI) the local ``trip.json`` files are the source.
 """
 
 import json
@@ -104,23 +105,29 @@ def test_store_serves_from_graph_when_enabled(monkeypatch) -> None:
     assert got.model_dump(by_alias=True) == trip.model_dump(by_alias=True)
 
 
-def test_store_falls_back_on_graph_failure(monkeypatch) -> None:
-    """If the graph read raises, the store still serves the baked trip.json."""
+def test_store_returns_none_when_graph_read_fails(monkeypatch) -> None:
+    """With the graph enabled, an unknown token (or read miss) surfaces as a
+    missing trip — the store never consults trip.json when the graph is set."""
     import app.store as store_mod
 
-    slug = "japan-campervan-2028"
-    trip = _load_trip(slug)
-
-    class _Boom:
+    # A fake client that is "enabled" but can't resolve the token. In graph
+    # mode the store must return None here; it must NOT fall back to files.
+    class _EnabledButMiss:
         def find_trip_dtid_by_token(self, token):
-            raise RuntimeError("graph down")
+            return None  # known to the graph as "no such trip"
 
-    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT", _Boom())
+        def fetch_graph(self, trip_dtid):
+            return None
+
+    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT", _EnabledButMiss())
     monkeypatch.setattr(store_mod, "_GRAPH_CLIENT_READY", True)
 
+    # Use a real token that WOULD resolve from trip.json in local mode — proving
+    # the graph path does not silently serve it when the graph is the source.
+    slug = "japan-campervan-2028"
+    trip = _load_trip(slug)
     got = store_mod.get_trip_by_token(trip.token)
-    assert got is not None
-    assert got.slug == slug  # came from the file fallback, not the graph
+    assert got is None
 
 
 def test_client_uses_parameterized_queries(monkeypatch) -> None:
