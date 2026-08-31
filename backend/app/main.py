@@ -19,11 +19,13 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
+from .acl import authorize_trip_path, is_trip_id
 from .auth import get_current_user
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
 from .models import Trip
 from .pdf import render_booklet_pdf
+from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_trip_by_token
 
 app = FastAPI(title="Kiseki", version="0.1.0")
@@ -51,9 +53,24 @@ def auth_me(user: dict = Depends(get_current_user)) -> dict:
     }
 
 
-@app.get("/api/trips/{token}")
-def get_trip(token: str) -> dict:
-    trip = get_trip_by_token(token)
+@app.get("/api/trips/{trip_param}")
+def get_trip(
+    trip_param: str,
+    _: None = Depends(authorize_trip_path),
+) -> dict:
+    """Read a trip — two paths in one route, distinguished by param SHAPE:
+
+    - ``/api/trips/<dashed-uuid>`` → the trip ``$dtId``: PROTECTED (Auth0
+      token + crew role, see ``app/acl.py``) — issue #5.
+    - ``/api/trips/<token>``       → the secret share link: public-by-link,
+      no auth (stays the anonymous share flow).
+
+    Both return the same trip document shape.
+    """
+    if is_trip_id(trip_param):
+        trip = get_trip_by_id_store(trip_param.lower())
+    else:
+        trip = get_trip_by_token(trip_param)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip.model_dump(by_alias=True)

@@ -94,3 +94,41 @@ def get_trip_by_slug(slug: str) -> Trip | None:
         if t.slug == slug:
             return t
     return None
+
+
+def get_trip_by_id(trip_dtid: str) -> Trip | None:
+    """Resolve a trip by its twin ``$dtId`` (the protected, ACL'd read path).
+
+    Mirrors ``get_trip_by_token`` but keyed on the opaque GUID — used by
+    ``GET /api/trips/{trip_id}`` after the ACL dependency has authorized the
+    caller. In local-dev mode (graph not configured) trips are matched by the
+    ``id`` field of the trip.json files.
+    """
+    client = _graph_client()
+    if client is not None:
+        graph = client.fetch_graph(trip_dtid)
+        if not graph:
+            return None
+        from .graph.convert import graph_to_trip
+
+        return graph_to_trip(graph)
+    for t in load_trips():
+        if t.id == trip_dtid:
+            return t
+    return None
+
+
+def get_trip_role_for_user(
+    trip_dtid: str,
+    user_dtid: str,
+) -> str | None:
+    """ACL: the role a user holds on a trip (None = no access).
+
+    Graph-backed (``hasCrew`` edge to the User twin identified by the auth
+    ``sub``). Returns None when the graph is not configured — callers must
+    treat that as 'no role' (fail closed).
+    """
+    client = _graph_client()
+    if client is None:
+        return None
+    return client.role_for_user_on_trip(trip_dtid, user_dtid)

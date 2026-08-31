@@ -111,6 +111,18 @@ RETURN collect(DISTINCT [t.`$dtId`, t.token, t.title, t.subtitle, t.stage,
                          t.startDate, t.endDate, t.slug, t.cover, crew.role]) AS trips
 """
 
+# ACL: the role a user has on ONE trip (issue #5). Trip-scoped via `$dtid`;
+# the person is the User twin whose `$dtId` IS the global auth id (created on
+# claim — issue #6). Deliberately NOT matched by name/email: those are
+# self-asserted claims, not credentials — a spoofed display name must never
+# grant a role. Until a user claims their identity, the protected path is 403.
+_Q_ROLE_FOR_USER = """
+MATCH (trip:Twin)-[crew:hasCrew]->(u:Twin)
+WHERE trip.`$dtId` = $dtid AND u.`$dtId` = $uid
+RETURN crew.role AS role
+LIMIT 1
+"""
+
 
 class GraphReadClient:
     """Read trips from a live Konnektr Graph (konnektr-graph SDK)."""
@@ -228,6 +240,38 @@ class GraphReadClient:
             if summary.get("$model") == TRIP_MODEL or summary.get("dtId"):
                 out.append(summary)
         return out
+
+    def role_for_user_on_trip(
+        self,
+        trip_dtid: str,
+        user_dtid: str,
+    ) -> Optional[str]:
+        """ACL role (owner|editor|viewer|follower) of a user on one trip.
+
+        The person is the User twin whose ``$dtId`` IS the global auth id
+        (created when the user claims their crew identity — issue #6). No
+        name/email matching: self-asserted profile values are not credentials.
+        Returns None when there is no role (no access). Values are bound
+        Cypher parameters, validated defensively first.
+        """
+        if not self.is_enabled() or not _DTID_RE.match(trip_dtid or ""):
+            return None
+        if not _USER_RE.match(user_dtid or ""):
+            return None
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_ROLE_FOR_USER,
+                    query_parameters={"dtid": trip_dtid, "uid": user_dtid},
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph role lookup({trip_dtid}) failed: {exc}")
+            return None
+        if not rows:
+            return None
+        role = (rows[0] or {}).get("role")
+        return role if isinstance(role, str) else None
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
