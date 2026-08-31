@@ -52,12 +52,14 @@ def mid(name: str) -> str:
 # ---------------------------------------------------------------------------
 # Models that become *twins* (separate digital twins, referenced via a
 # Relationship edge). Everything else is an inline value object.
+# `User` extends `Person` (DTDL `extends`) — a real user IS a person.
 ENTITY_MODELS = {
     "Trip",
     "Day",
     "Block",
     "Location",
     "Person",
+    "User",
     "Feature",
     "TripSection",
 }
@@ -95,39 +97,34 @@ REL_NAME = {
 
 # Extra relationships that the converter synthesizes but which aren't a
 # collection field in the model (e.g. a Block references a Location by name).
+# TripSection also gets hasDay (from its inclusive [first,last] range) and
+# atLocation (from locationRefs) — resolved by the converter, not a field.
 EXTRA_RELATIONSHIPS = {
     "Block": [("atLocation", "Location")],
+    "TripSection": [("hasDay", "Day"), ("atLocation", "Location")],
 }
 
 # P2+ models that are not yet in app/models.py but belong in the graph design
 # (see docs/spec.md §5 / §6). Declared literally here so the model set is
 # complete for the foundation; backend code lands when P2 starts.
+# (User is now a real model in app/models.py — it EXTENDS Person.)
 P2_INTERFACES = {
-    "User": {
-        "displayName": "User",
-        "description": "A real (logged-in) user. Crew Person nodes are matched/replaced by these on login (P2).",
-        "contents": [
-            {"@type": "Property", "name": "email", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "displayName", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "authProvider", "schema": "string", "writable": True},
-        ],
-    },
     "Integration": {
         "displayName": "Integration",
         "description": "P2 external integration (photos|strava|timeline|steps). Token lives in app secrets, never in the graph (spec §5).",
         "contents": [
-            {"@type": "Property", "name": "kind", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "status", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "tokenRef", "schema": "string", "writable": True},
+            {"@type": "Property", "name": "kind", "schema": "string", "writable": True, "description": "Integration kind: photos | strava | timeline | steps."},
+            {"@type": "Property", "name": "status", "schema": "string", "writable": True, "description": "Connection status (e.g. active | paused | error)."},
+            {"@type": "Property", "name": "tokenRef", "schema": "string", "writable": True, "description": "Reference to the OAuth token in the app secret store (never stored in the graph)."},
         ],
     },
     "FeedEntry": {
         "displayName": "FeedEntry",
         "description": "P2 per-trip live feed entry (type, payload, visibility).",
         "contents": [
-            {"@type": "Property", "name": "type", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "payload", "schema": "string", "writable": True},
-            {"@type": "Property", "name": "visibility", "schema": "string", "writable": True},
+            {"@type": "Property", "name": "type", "schema": "string", "writable": True, "description": "Entry type, e.g. 'photo' | 'note' | 'activity'."},
+            {"@type": "Property", "name": "payload", "schema": "string", "writable": True, "description": "Entry payload (serialized JSON or markdown)."},
+            {"@type": "Property", "name": "visibility", "schema": "string", "writable": True, "description": "Who can see it: public | crew | followers | private."},
         ],
     },
 }
@@ -252,16 +249,28 @@ def _block_item_schema() -> dict:
 def build_interface(model_cls) -> dict:
     reg = _SchemaRegistry()
     contents = []
+    cls_doc = (model_cls.__doc__ or "").strip().split("\n")[0]
     for fname, fld in model_cls.model_fields.items():
+        desc = fld.description
         inner, required, is_list = _unwrap(fld.annotation)
         name = fld.alias or fname
+        # `id` is the content key that maps to $dtId — not a graph property.
+        if name == "id":
+            continue
         # entity collection -> Relationship edge
         if isinstance(inner, type) and issubclass(inner, M.BaseModel) and inner.__name__ in ENTITY_MODELS:
-            contents.append({
+            rel_name = REL_NAME.get(fname, fname)
+            edge = {
                 "@type": "Relationship",
-                "name": REL_NAME.get(fname, fname),
+                "name": rel_name,
                 "target": mid(inner.__name__),
-            })
+                "description": f"Links this {model_cls.__name__} to its {inner.__name__} twin(s) (from `{fname}`).",
+            }
+            contents.append(edge)
+            continue
+        # Person.role is trip-relative -> carried on the hasCrew edge, not on the node.
+        # Strip from Person AND any derived model (User extends Person).
+        if issubclass(model_cls, M.Person) and name == "role":
             continue
         # plain property (primitive / enum / inline value object)
         schema = _schema_for_scalar(inner, fld.annotation, reg)
@@ -271,13 +280,16 @@ def build_interface(model_cls) -> dict:
         elif is_list:
             schema = {"@type": "Array", "elementSchema": schema}
         prop = {"@type": "Property", "name": name, "schema": schema, "writable": True}
+        if desc:
+            prop["description"] = desc
         contents.append(prop)
-    # extra synthesized relationships (e.g. Block -> Location)
+    # extra synthesized relationships (e.g. Block -> Location, TripSection -> Day/Location)
     for rel_name, target in EXTRA_RELATIONSHIPS.get(model_cls.__name__, []):
         contents.append({
             "@type": "Relationship",
             "name": rel_name,
             "target": mid(target),
+            "description": f"Synthesized by the converter (not a model field) — links this {model_cls.__name__} to its {target} twin(s).",
         })
     iface: dict = {
         "@context": "dtmi:dtdl:context;4",
@@ -286,6 +298,11 @@ def build_interface(model_cls) -> dict:
         "displayName": model_cls.__name__,
         "contents": contents,
     }
+    if cls_doc:
+        iface["description"] = cls_doc
+    # User EXTENDS Person (DTDL `extends`) — a real user IS a person.
+    if issubclass(model_cls, M.Person) and model_cls is not M.Person:
+        iface["extends"] = mid("Person")
     if reg._by_name:
         iface["schemas"] = reg.as_list()
     return iface
@@ -301,7 +318,7 @@ def main() -> int:
     # 1) entities (twins) — Interfaces. Each inlines the Enum/Object schemas it
     #    references in its own `schemas` block (DTDL: a schema is only referenceable
     #    from the same Interface that defines it).
-    for cls in (M.Trip, M.Day, M.Block, M.Location, M.Person, M.Feature, M.TripSection):
+    for cls in (M.Trip, M.Day, M.Block, M.Location, M.Person, M.User, M.Feature, M.TripSection):
         out.append(build_interface(cls))
 
     # 3) P2 stubs

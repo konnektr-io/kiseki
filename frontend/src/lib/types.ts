@@ -115,7 +115,9 @@ export interface Day {
 
 export interface TripSection {
   title: string;
-  days: number[];
+  days: number[]; // inclusive [first,last] 0-based day indices this section groups
+  locationRefs?: string[]; // location name/alias(es) this section covers
+  blocks?: Block[]; // unscheduled ideas owned by this section (ideation content)
 }
 
 export interface Stat {

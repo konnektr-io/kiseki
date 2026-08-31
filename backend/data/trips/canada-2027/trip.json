@@ -28,12 +28,14 @@
         "Calgary International Airport"
       ],
       "lat": 51.1215,
-      "lng": -114.0079
+      "lng": -114.0079,
+      "id": "201c2911-5e8b-40a3-9086-e2d668be3e2f"
     },
     {
       "name": "Banff",
       "lat": 51.1784,
-      "lng": -115.5708
+      "lng": -115.5708,
+      "id": "45ccc6c4-41f9-410e-bba3-dfc520215faf"
     },
     {
       "name": "Revelstoke",
@@ -42,17 +44,20 @@
         "Coast Hillcrest"
       ],
       "lat": 50.9981,
-      "lng": -118.1957
+      "lng": -118.1957,
+      "id": "383840f9-a938-48a6-baf0-de3d214ea973"
     },
     {
       "name": "Golden",
       "lat": 51.292,
-      "lng": -116.9656
+      "lng": -116.9656,
+      "id": "5be02ae6-1fec-41d0-ac43-b97d33e4d189"
     },
     {
       "name": "Lake Louise",
       "lat": 51.4254,
-      "lng": -116.1773
+      "lng": -116.1773,
+      "id": "3aee76f5-1adf-47c4-a3dd-dcd74838676a"
     }
   ],
   "stats": [
@@ -103,7 +108,8 @@
           "label": "View the package",
           "url": "https://selkirk-tangiers.com/heli-skiing/bell-412/"
         }
-      ]
+      ],
+      "id": "b2d6731f-e965-4899-a58f-8766f2fbaf28"
     },
     {
       "kicker": "The road trip",
@@ -158,7 +164,8 @@
             }
           ]
         }
-      ]
+      ],
+      "id": "01591da5-b15b-41b0-be1d-077b9890c6e0"
     },
     {
       "kicker": "The road trip",
@@ -206,7 +213,8 @@
           "label": "Avalanche Canada",
           "url": "https://www.avalanche.ca/"
         }
-      ]
+      ],
+      "id": "117bca4e-39c5-4cb1-a414-30d77d8f68ac"
     }
   ],
   "sections": [
@@ -215,52 +223,60 @@
       "days": [
         0,
         1
-      ]
+      ],
+      "id": "b819a028-93cd-4e25-b5e1-b59ffa034d0a"
     },
     {
       "title": "Days 3–5 — Revelstoke",
       "days": [
         2,
         4
-      ]
+      ],
+      "id": "233d6374-2b35-4fe2-bac8-dc6485c3de85"
     },
     {
       "title": "Days 6–9 — the heli block",
       "days": [
         5,
         8
-      ]
+      ],
+      "id": "1c518c96-4458-4345-8ce1-6d4537c9aa4a"
     },
     {
       "title": "Days 10–12 — Kicking Horse",
       "days": [
         9,
         11
-      ]
+      ],
+      "id": "9eac17c4-691c-4950-9a2d-b721907fe3d9"
     },
     {
       "title": "Days 13–16 — Lake Louise & home",
       "days": [
         12,
         15
-      ]
+      ],
+      "id": "d603234b-3182-4b65-9571-a9c97331234d"
     }
   ],
   "crew": [
     {
       "name": "Niko Raes",
       "role": "owner",
-      "note": "Board — brings own snowboard."
+      "note": "Board — brings own snowboard.",
+      "id": "37326de0-b517-43f3-af9c-78963241cb69"
     },
     {
       "name": "Nick Geelen",
       "role": "viewer",
-      "note": "Skis — co-planner, weather-worried after 25-26, reassured by the numbers."
+      "note": "Skis — co-planner, weather-worried after 25-26, reassured by the numbers.",
+      "id": "a2d6b785-12f3-4c12-8891-1e887b84d925"
     },
     {
       "name": "Stefan De Pauw",
       "role": "viewer",
-      "note": "Skis — confirmed for Feb 15 departure."
+      "note": "Skis — confirmed for Feb 15 departure.",
+      "id": "9c8c8097-b4cd-49d5-8502-0f4662ae8412"
     }
   ],
   "practical": {
@@ -458,7 +474,8 @@
               "url": "https://www.brusselsairlines.com/"
             }
           ],
-          "mode": "flight"
+          "mode": "flight",
+          "id": "08c73e6e-586d-434f-8f6f-15210d509ec1"
         },
         {
           "kind": "transport",
@@ -475,7 +492,8 @@
               "label": "Directions",
               "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving"
             }
-          ]
+          ],
+          "id": "331895ae-7ddb-4cbb-bc33-0777ab91a6f5"
         },
         {
           "kind": "lodging",
@@ -496,9 +514,11 @@
               "url": "https://hihostels.com/hostels/hi-banff/"
             }
           ],
-          "mapsQuery": "Banff Inn Banff Alberta"
+          "mapsQuery": "Banff Inn Banff Alberta",
+          "id": "60fae28f-0d87-4b25-b2df-65af23e6fa68"
         }
-      ]
+      ],
+      "id": "0aa43fea-ac38-46c6-a44a-4947b9ef0da9"
     },
     {
       "date": "2027-02-16",
@@ -528,7 +548,8 @@
               "label": "Parking / access",
               "url": "https://www.sunshinemountain.com/plan-your-visit/getting-here"
             }
-          ]
+          ],
+          "id": "90598e14-79fa-4cb8-a1ca-779e0702d20f"
         },
         {
           "kind": "lodging",
@@ -544,9 +565,11 @@
               "url": "https://elkandavenuehotel.com/"
             }
           ],
-          "mapsQuery": "Banff Inn Banff Alberta"
+          "mapsQuery": "Banff Inn Banff Alberta",
+          "id": "63f3f174-1e7a-4f55-b892-c70841cd36a3"
         }
-      ]
+      ],
+      "id": "f3f4a9a5-7b9e-4e43-abd0-71a40de1fb58"
     },
     {
       "date": "2027-02-17",
@@ -565,7 +588,8 @@
         {
           "kind": "note",
           "title": "Decide on the hill",
-          "description": "If Sunshine is riding well: another half-day there, then the ~3 h 05 drive to Revelstoke after lunch (over Kicking Horse & Rogers Pass). Otherwise: morning drive + afternoon leg-shakedown at RMR."
+          "description": "If Sunshine is riding well: another half-day there, then the ~3 h 05 drive to Revelstoke after lunch (over Kicking Horse & Rogers Pass). Otherwise: morning drive + afternoon leg-shakedown at RMR.",
+          "id": "d40c2589-a6f0-4d02-9668-c9dce0da5467"
         },
         {
           "kind": "transport",
@@ -585,12 +609,14 @@
               "label": "DriveBC",
               "url": "https://drivebc.ca/"
             }
-          ]
+          ],
+          "id": "91ccfcab-aff6-49d2-a24e-8560acf307e0"
         },
         {
           "kind": "activity",
           "title": "RMR afternoon leg-shakedown",
-          "status": "planned"
+          "status": "planned",
+          "id": "a4884891-19e7-4958-87ee-a2353f9e8d2b"
         },
         {
           "kind": "lodging",
@@ -603,9 +629,11 @@
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
           ],
-          "mapsQuery": "Northwinds Revelstoke BC"
+          "mapsQuery": "Northwinds Revelstoke BC",
+          "id": "9b53579f-7439-49a3-bebb-e2c7ddcd9cb1"
         }
-      ]
+      ],
+      "id": "0979c7f0-dc5a-4232-ac9a-b6422ac49d3a"
     },
     {
       "date": "2027-02-18",
@@ -631,7 +659,8 @@
               "label": "Resort site",
               "url": "https://www.revelstokemountainresort.com/"
             }
-          ]
+          ],
+          "id": "4d505c2c-2fbb-4376-a6e5-2a97934193d4"
         },
         {
           "kind": "lodging",
@@ -643,9 +672,11 @@
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
           ],
-          "mapsQuery": "Northwinds Revelstoke BC"
+          "mapsQuery": "Northwinds Revelstoke BC",
+          "id": "52662c28-79c2-46fe-8cc6-c1b8ed649f78"
         }
-      ]
+      ],
+      "id": "2ac1cfed-f723-40eb-b2e2-7f98dcc9edd9"
     },
     {
       "date": "2027-02-19",
@@ -665,7 +696,8 @@
           "kind": "activity",
           "title": "RMR full day — or rest",
           "status": "planned",
-          "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander."
+          "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander.",
+          "id": "ef17307b-55f5-4c1b-81e9-53bb3e35b688"
         },
         {
           "kind": "lodging",
@@ -677,9 +709,11 @@
               "url": "https://www.basecampresorts.com/northwinds-revelstoke"
             }
           ],
-          "mapsQuery": "Northwinds Revelstoke BC"
+          "mapsQuery": "Northwinds Revelstoke BC",
+          "id": "dc67a3c8-486f-4933-970b-bcdfb6353258"
         }
-      ]
+      ],
+      "id": "4c726d26-6581-46c5-b668-9c783556aa7a"
     },
     {
       "date": "2027-02-20",
@@ -703,7 +737,8 @@
               "label": "Selkirk Tangiers",
               "url": "https://selkirk-tangiers.com/"
             }
-          ]
+          ],
+          "id": "26049217-848b-43c0-a94b-bcfc699c2a82"
         },
         {
           "kind": "lodging",
@@ -716,9 +751,11 @@
               "url": "https://www.coasthotels.com/hotels/hillcrest/"
             }
           ],
-          "mapsQuery": "Coast Hillcrest Hotel Revelstoke"
+          "mapsQuery": "Coast Hillcrest Hotel Revelstoke",
+          "id": "8f5c3150-932c-4087-a774-7700532f750b"
         }
-      ]
+      ],
+      "id": "21bfb481-3863-4baf-9c7d-dabe3bc8bfb5"
     },
     {
       "date": "2027-02-21",
@@ -736,9 +773,11 @@
           "status": "booked",
           "cost": 5880,
           "currency": "EUR",
-          "description": "Bell 212, unlimited vertical in the Selkirk & Monashees. Lunch in the alpine. €5,880 pp incl. tax; 9,000 m guaranteed. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds."
+          "description": "Bell 212, unlimited vertical in the Selkirk & Monashees. Lunch in the alpine. €5,880 pp incl. tax; 9,000 m guaranteed. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds.",
+          "id": "86f1ac97-0476-4036-9c0f-c1329efd7757"
         }
-      ]
+      ],
+      "id": "3a12a896-1457-40ee-bed8-ada7806f6ee0"
     },
     {
       "date": "2027-02-22",
@@ -754,9 +793,11 @@
           "kind": "activity",
           "title": "Heli day 2",
           "status": "booked",
-          "description": "Weather window, terrain picked by the guides for the group."
+          "description": "Weather window, terrain picked by the guides for the group.",
+          "id": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4"
         }
-      ]
+      ],
+      "id": "7d50f61e-609a-4a93-8829-43c33c9f8adf"
     },
     {
       "date": "2027-02-23",
@@ -772,9 +813,11 @@
           "kind": "activity",
           "title": "Heli day 3",
           "status": "booked",
-          "description": "Final day — chase the best snow of the week."
+          "description": "Final day — chase the best snow of the week.",
+          "id": "e23ad3bb-4671-456b-a67c-015a82e6d744"
         }
-      ]
+      ],
+      "id": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548"
     },
     {
       "date": "2027-02-24",
@@ -808,7 +851,8 @@
               "label": "DriveBC",
               "url": "https://drivebc.ca/"
             }
-          ]
+          ],
+          "id": "fae90536-ed20-41d5-8287-3102787e42c6"
         },
         {
           "kind": "activity",
@@ -820,7 +864,8 @@
               "label": "Resort site",
               "url": "https://kickinghorseresort.com/"
             }
-          ]
+          ],
+          "id": "1bc42c27-2035-4c14-b2d9-59e469a563d6"
         },
         {
           "kind": "lodging",
@@ -833,9 +878,11 @@
               "url": "https://glaciermountaineerlodge.com/"
             }
           ],
-          "mapsQuery": "Glacier Mountaineer Lodge Golden BC"
+          "mapsQuery": "Glacier Mountaineer Lodge Golden BC",
+          "id": "2e36d874-6533-45b6-aa03-781cb0b6efc2"
         }
-      ]
+      ],
+      "id": "44c3520b-aaf4-4b62-b50f-4c19aa1e49ac"
     },
     {
       "date": "2027-02-25",
@@ -863,9 +910,11 @@
               "label": "Resort site",
               "url": "https://kickinghorseresort.com/"
             }
-          ]
+          ],
+          "id": "f8f53aae-170f-4337-94b1-fc562747fe18"
         }
-      ]
+      ],
+      "id": "e6a6e23b-dede-4731-99f7-c703cae8f06f"
     },
     {
       "date": "2027-02-26",
@@ -893,9 +942,11 @@
               "label": "Resort site",
               "url": "https://kickinghorseresort.com/"
             }
-          ]
+          ],
+          "id": "854f259f-b868-4ba3-b126-6f1201f0f817"
         }
-      ]
+      ],
+      "id": "0609d569-689f-4378-88b2-817e89983f8a"
     },
     {
       "date": "2027-02-27",
@@ -929,13 +980,15 @@
               "label": "Resort site",
               "url": "https://www.skilouise.com/"
             }
-          ]
+          ],
+          "id": "4f6675c5-a947-4a2b-bcf4-fea0d4b7cdf7"
         },
         {
           "kind": "activity",
           "title": "Lake Louise full day",
           "status": "planned",
-          "description": "4,200 acres across four mountain faces — one of the great views in skiing."
+          "description": "4,200 acres across four mountain faces — one of the great views in skiing.",
+          "id": "747e20f3-8045-4aa3-b5cd-8961ed61039a"
         },
         {
           "kind": "lodging",
@@ -948,9 +1001,11 @@
               "url": "https://lakelouiseinn.com/"
             }
           ],
-          "mapsQuery": "Lake Louise Inn Alberta"
+          "mapsQuery": "Lake Louise Inn Alberta",
+          "id": "5ec29723-ee04-4683-a1c2-b5c1abd6e854"
         }
-      ]
+      ],
+      "id": "300958bf-f4b5-40b1-b82c-eb5b433d1c13"
     },
     {
       "date": "2027-02-28",
@@ -970,9 +1025,11 @@
           "kind": "activity",
           "title": "Lake Louise full day",
           "status": "planned",
-          "description": "Final mountain day: back bowls via the Summit Platter hike, World Cup DH run, West Bowl trees. Soak in the view of Victoria Glacier."
+          "description": "Final mountain day: back bowls via the Summit Platter hike, World Cup DH run, West Bowl trees. Soak in the view of Victoria Glacier.",
+          "id": "573a3685-a929-4bf6-943b-9f2be1246ace"
         }
-      ]
+      ],
+      "id": "d790fff8-ac4e-4199-bff0-fc0deec1ffbb"
     },
     {
       "date": "2027-03-01",
@@ -995,7 +1052,8 @@
         {
           "kind": "note",
           "title": "Flex: LL morning or relaxed drive",
-          "description": "Optional LL morning (off the hill by ~11:30), or a relaxed drive with a Banff lunch stop. Aim to arrive YYC by 15:30 for the 18:05 flight."
+          "description": "Optional LL morning (off the hill by ~11:30), or a relaxed drive with a Banff lunch stop. Aim to arrive YYC by 15:30 for the 18:05 flight.",
+          "id": "16be2ebe-5d15-4a02-a26c-5122131bd0f1"
         },
         {
           "kind": "transport",
@@ -1015,7 +1073,8 @@
               "label": "DriveBC",
               "url": "https://drivebc.ca/"
             }
-          ]
+          ],
+          "id": "4868ac21-3e37-4d30-84be-3e79311e6c5d"
         },
         {
           "kind": "transport",
@@ -1033,9 +1092,11 @@
               "url": "https://www.brusselsairlines.com/"
             }
           ],
-          "mode": "flight"
+          "mode": "flight",
+          "id": "92576f8b-d9f2-49e9-913e-f22aa19efd4f"
         }
-      ]
+      ],
+      "id": "e4f3e09a-f96e-4195-82ad-dbb0facea814"
     },
     {
       "date": "2027-03-02",
@@ -1044,10 +1105,13 @@
         {
           "kind": "note",
           "title": "Arrive BRU 13:35",
-          "description": "The trail behind us. 🏔️"
+          "description": "The trail behind us. 🏔️",
+          "id": "6845b1a4-d447-4333-ae1e-8cab832e5dcf"
         }
-      ]
+      ],
+      "id": "db8e3acf-f13a-4889-b8c2-c12bd311936d"
     }
   ],
-  "updated": "2026-08-28"
+  "updated": "2026-08-28",
+  "id": "bf29a027-2ed2-46b3-b869-d9d81bbcf237"
 }

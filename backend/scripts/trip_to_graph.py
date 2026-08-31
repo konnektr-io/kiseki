@@ -6,14 +6,18 @@ Konnektr-Graph REST API (``GET /digitaltwins/{id}`` + ``.../relationships``),
 so the graph read-path can be mocked before the SDK is wired (issue #4).
 
 ADT-compat rules baked in (see docs/spec.md §6 + agent memory):
-  * Every twin carries ``$dtId`` (immutable, structural) + ``$metadata.$model``.
+  * Every twin carries ``$dtId`` (immutable, opaque) + ``$metadata.$model``.
     ``$lastUpdatedBy`` is intentionally STRIPPED from twin $metadata (the
     ADT-compat default for Kiseki — track it via x-user-id at the API layer).
   * Relationships carry ``$relationshipId/$sourceId/$relationshipName/$targetId``
     and STRIP THE ENTIRE ``$metadata`` block (per ADT-compat config).
-  * ``$dtId`` is the immutable id (``trip:<id>``, ``trip:<id>:day:0`` …). The
-    secret ``token`` and human ``slug`` are ordinary editable Properties — you
-    can rotate the token without re-wiring the graph.
+  * ``$dtId`` is a plain opaque GUID stored on each node's ``id`` field in
+    trip.json — used VERBATIM as the twin id. It carries NO semantic meaning
+    (no type/slug/date prefix); all meaning lives in ``$metadata.$model`` and
+    the content. Re-seed replaces the twin by id, so no drift. The repo folder
+    name (``slug``) is unrelated to ``$dtId``. A logged-in ``User`` twin uses
+    its own opaque global auth id. The secret ``token`` is an ordinary editable
+    Property — rotate it without re-wiring the graph.
 
 Usage:
     uv run python scripts/trip_to_graph.py data/trips/canada-2027/trip.json
@@ -27,6 +31,7 @@ import argparse
 import json
 import re
 import sys
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +45,7 @@ MODEL = lambda name: f"dtmi:kiseki:travel:{name};1"
 REL_FIELDS = {
     "Trip": {"days", "locations", "crew", "features", "sections"},
     "Day": {"blocks"},
+    "TripSection": {"blocks", "locationRefs"},
 }
 
 
@@ -72,9 +78,15 @@ def relationship(rel_id: str, src: str, name: str, tgt: str, index: int | None =
     return r
 
 
+def _rel_id(src: str, name: str, tgt: str) -> str:
+    """Deterministic, re-seed-stable relationship id (unique per src+name+tgt)."""
+    return f"{src}__{name}__{tgt}"
+
+
 def _strip_rel_fields(model_name: str, data: dict) -> dict:
     for f in REL_FIELDS.get(model_name, set()):
         data.pop(f, None)
+    data.pop("id", None)  # `id` maps to $dtId, not a graph property
     return data
 
 
@@ -110,64 +122,86 @@ def _anonymize(trip: M.Trip) -> M.Trip:
     return M.Trip.model_validate(scrub(data))
 
 
+def _emit_block(bid, parent_did, blk, twins, rels, loc_ids):
+    """Create a Block twin + its hasBlock edge and any atLocation edge."""
+    bprops = _strip_rel_fields("Block", blk.model_dump())
+    twins.append(twin(bid, "Block", bprops))
+    rels.append(relationship(_rel_id(parent_did, "hasBlock", bid), parent_did, "hasBlock", bid))
+    if blk.location and blk.location in loc_ids:
+        rels.append(relationship(_rel_id(bid, "atLocation", loc_ids[blk.location]), bid, "atLocation", loc_ids[blk.location]))
+
+
+def _emit_section_blocks(tid, sid, section, twins, rels, loc_ids):
+    """Section-owned unscheduled blocks -> hasBlock edges (ideation content)."""
+    for blk in section.blocks:
+        bid = blk.id
+        _emit_block(bid, sid, blk, twins, rels, loc_ids)
+
+
 def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
     if anonymize:
         trip = _anonymize(trip)
 
-    tid = f"trip:{trip.slug}"
+    tid = trip.id
     twins: list[dict] = []
     rels: list[dict] = []
 
     # --- location registry (name/alias -> $dtId) ------------------------------
     loc_ids: dict[str, str] = {}
     for loc in trip.locations:
-        lid = f"{tid}:loc:{slugify(loc.name)}"
+        lid = loc.id
         loc_ids[loc.name] = lid
         for a in loc.alias:
             loc_ids[a] = lid
         twins.append(twin(lid, "Location", _strip_rel_fields("Location", loc.model_dump())))
 
-    # --- crew ----------------------------------------------------------------
+    # --- crew (role is moved onto the hasCrew edge, not the Person twin) ------
     person_ids: list[str] = []
     for i, p in enumerate(trip.crew):
-        pid = f"{tid}:person:{i}"
+        pid = p.id
         person_ids.append(pid)
         twins.append(twin(pid, "Person", _strip_rel_fields("Person", p.model_dump())))
-        rels.append(relationship(f"{tid}-crew-{i}", tid, "hasCrew", pid, index=i))
+        rel = relationship(_rel_id(tid, "hasCrew", pid), tid, "hasCrew", pid, index=i)
+        rel["role"] = p.role  # trip-relative role rides on the edge
+        rels.append(rel)
 
     # --- features / sections -------------------------------------------------
     for i, f in enumerate(trip.features):
-        fid = f"{tid}:feature:{i}"
+        fid = f.id
         twins.append(twin(fid, "Feature", _strip_rel_fields("Feature", f.model_dump())))
-        rels.append(relationship(f"{tid}-feature-{i}", tid, "hasFeature", fid, index=i))
+        rels.append(relationship(_rel_id(tid, "hasFeature", fid), tid, "hasFeature", fid, index=i))
     for i, s in enumerate(trip.sections):
-        sid = f"{tid}:section:{i}"
+        sid = s.id
         twins.append(twin(sid, "TripSection", _strip_rel_fields("TripSection", s.model_dump())))
-        rels.append(relationship(f"{tid}-section-{i}", tid, "hasSection", sid, index=i))
+        rels.append(relationship(_rel_id(tid, "hasSection", sid), tid, "hasSection", sid, index=i))
+        # section -> Location edges (the region/stay it covers)
+        for ref in s.locationRefs:
+            if ref in loc_ids:
+                rels.append(relationship(_rel_id(sid, "atLocation", loc_ids[ref]), sid, "atLocation", loc_ids[ref]))
+        # section -> Day edges from the inclusive [first,last] index range (day identity is its opaque id)
+        if len(s.days) == 2 and s.days[1] >= s.days[0]:
+            for di in range(s.days[0], s.days[1] + 1):
+                did = trip.days[di].id
+                rels.append(relationship(_rel_id(sid, "hasDay", did), sid, "hasDay", did, index=di))
+        # section-owned unscheduled blocks (ideation)
+        _emit_section_blocks(tid, sid, s, twins, rels, loc_ids)
 
     # --- days + blocks -------------------------------------------------------
     for di, day in enumerate(trip.days):
-        did = f"{tid}:day:{di}"
-        block_ids: list[str] = []
-        for bi, blk in enumerate(day.blocks):
-            bid = f"{did}:block:{bi}"
-            block_ids.append(bid)
-            bprops = _strip_rel_fields("Block", blk.model_dump())
-            twins.append(twin(bid, "Block", bprops))
-            rels.append(relationship(f"{did}-block-{bi}", did, "hasBlock", bid, index=bi))
-            # Block.atLocation -> Location (by name/alias)
-            if blk.location and blk.location in loc_ids:
-                rels.append(relationship(f"{bid}-loc", bid, "atLocation", loc_ids[blk.location]))
+        did = day.id
+        for blk in day.blocks:
+            bid = blk.id
+            _emit_block(bid, did, blk, twins, rels, loc_ids)
         dprops = _strip_rel_fields("Day", day.model_dump())
         # remove blocks list already stripped; keep day scalar fields
         twins.append(twin(did, "Day", dprops))
-        rels.append(relationship(f"{tid}-day-{di}", tid, "hasDay", did, index=di))
+        rels.append(relationship(_rel_id(tid, "hasDay", did), tid, "hasDay", did, index=di))
 
     # --- root trip twin ------------------------------------------------------
     tprops = _strip_rel_fields("Trip", trip.model_dump())
     twins.append(twin(tid, "Trip", tprops))
     for i, loc in enumerate(trip.locations):
-        rels.append(relationship(f"{tid}-loc-{i}", tid, "atLocation", loc_ids[loc.name], index=i))
+        rels.append(relationship(_rel_id(tid, "atLocation", loc_ids[loc.name]), tid, "atLocation", loc_ids[loc.name], index=i))
 
     return {"$dtId": tid, "twins": twins, "relationships": rels}
 
