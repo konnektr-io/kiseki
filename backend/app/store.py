@@ -30,7 +30,7 @@ _GRAPH_CLIENT_READY = False
 
 
 def _graph_client():
-    """Lazily build (and cache) the graph read client; None if not configured."""
+    """Lazily build (and cache) the graph client; None if not configured."""
     global _GRAPH_CLIENT, _GRAPH_CLIENT_READY
     if _GRAPH_CLIENT_READY:
         return _GRAPH_CLIENT
@@ -43,6 +43,11 @@ def _graph_client():
     except Exception:  # pragma: no cover - defensive
         _GRAPH_CLIENT = None
     return _GRAPH_CLIENT
+
+
+def get_graph_client():
+    """Public access to the shared graph client (read + claim write ops)."""
+    return _graph_client()
 
 
 def load_trips() -> list[Trip]:

@@ -28,4 +28,45 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
   return (await res.json()) as Trip;
 }
 
+/** Resolve the trip behind a claim token (join link) — the 'invite' view. */
+export async function fetchTripByClaim(claimToken: string): Promise<Trip> {
+  const res = await fetch(`/api/trips/by-claim/${encodeURIComponent(claimToken)}`);
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await res.text());
+  }
+  return (await res.json()) as Trip;
+}
+
+/** Claim a crew identity on the trip behind a claim token (issue #6). */
+export async function claimIdentity(
+  claimToken: string,
+  personId: string,
+  accessToken: string,
+): Promise<Trip> {
+  const res = await fetch("/api/claims", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ claimToken, personId }),
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await res.text());
+  }
+  return (await res.json()) as Trip;
+}
+
+/** Owner-only: the trip's join link (claimToken is never in trip documents). */
+export async function fetchJoinLink(tripId: string, accessToken: string): Promise<string> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/join-link`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await res.text());
+  }
+  const body = (await res.json()) as { joinUrl: string };
+  return body.joinUrl;
+}
+
 export const bookletUrl = (token: string) => `/api/trips/${encodeURIComponent(token)}/booklet.pdf`;

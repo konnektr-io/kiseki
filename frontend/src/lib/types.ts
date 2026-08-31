@@ -126,6 +126,7 @@ export interface Stat {
 }
 
 export interface Person {
+  id: string;
   name: string;
   role: Role;
   note?: string;
@@ -153,6 +154,7 @@ export interface Trip {
   startDate?: string;
   endDate?: string;
   token: string;
+  myRole?: string;
   cover?: string;
   coverCredit?: string;
   map?: string;

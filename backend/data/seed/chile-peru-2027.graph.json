@@ -3,36 +3,30 @@
   "twins": [
     {
       "$dtId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Santiago",
-      "marker": null,
       "alias": [],
       "lat": -33.4489,
       "lng": -70.6693
     },
     {
       "$dtId": "0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Valle Nevado",
-      "marker": null,
       "alias": [],
       "lat": -33.3556,
       "lng": -70.2593
     },
     {
       "$dtId": "db0de9d3-1c26-44aa-a35e-20dc9880eec3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Sacred Valley",
-      "marker": null,
       "alias": [
         "Ollantaytambo",
         "Urubamba"
@@ -42,12 +36,10 @@
     },
     {
       "$dtId": "1ce04a29-316a-43d0-bf35-4df602853819",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Machu Picchu",
-      "marker": null,
       "alias": [
         "Aguas Calientes"
       ],
@@ -56,64 +48,50 @@
     },
     {
       "$dtId": "42513f72-99a3-4f23-b51f-7596e6c994a2",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Cusco",
-      "marker": null,
       "alias": [],
       "lat": -13.5319,
       "lng": -71.9675
     },
     {
       "$dtId": "754876d0-22ab-4641-b93c-013e5f41ad61",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Lima",
-      "marker": null,
       "alias": [],
       "lat": -12.0464,
       "lng": -77.0428
     },
     {
       "$dtId": "96e51afa-45ba-4e60-9ee8-ed656bd55491",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Niko Raes",
-      "role": "owner",
-      "note": "Snowboarder — rents at Valle Nevado this trip.",
-      "contact": null
+      "note": "Snowboarder — rents at Valle Nevado this trip."
     },
     {
       "$dtId": "ff3cd380-40a5-413b-9cb5-729f582d711c",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Henri",
-      "role": "viewer",
-      "note": "rents skis at Valle Nevado — no ski bag on the plane",
-      "contact": null
+      "note": "rents skis at Valle Nevado — no ski bag on the plane"
     },
     {
       "$dtId": "4c2fe154-422d-4df6-9a69-b57a2ca04a9e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Renée",
-      "role": "viewer",
-      "note": "15 — intermediate: comfortable blues/reds, not powder. Rents skis.",
-      "contact": null
+      "note": "15 — intermediate: comfortable blues/reds, not powder. Rents skis."
     },
     {
       "$dtId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -125,7 +103,6 @@
     },
     {
       "$dtId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -137,7 +114,6 @@
     },
     {
       "$dtId": "20ad7f21-a245-4989-b0e2-62482075963b",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -149,95 +125,54 @@
     },
     {
       "$dtId": "87d4a112-01f7-4ae6-ba54-f750d75f80f6",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "BRU → SCL",
-      "time": null,
       "description": "No direct flight. Overnight/evening arrival.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-17",
       "title": "Fly BRU → Santiago",
       "notes": "~17h with 1–2 stops (Iberia via Madrid, Air France via Paris, KLM via Amsterdam, Delta, Turkish). July = peak — book by Jan 2027, expect ~$1,400–1,800 pp RT.",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "0f40cd7a-ca42-4166-a17d-05df98f32134",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "lodging",
       "title": "Stay: Las Condes / Providencia",
-      "time": null,
       "description": "Closer to the G-21 mountain road for Day 4. Light stroll, early night — jetlag + start of acclimatisation at ~500 m.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-18",
       "title": "Arrive Santiago — recover",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "7752e46a-4552-46fa-9a8f-54554d238c3d",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Cerro San Cristóbal",
-      "time": null,
       "description": "The city from above: teleférico up to the 880 m summit, the Andes on one side and Gran Torre on the other. Morning light is best — the cordillera glows.",
       "links": [
         {
@@ -245,20 +180,7 @@
           "url": "https://www.parquemet.cl/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Santiago",
       "mapsQuery": "Cerro San Cristóbal Santiago teleférico",
       "images": [
@@ -267,13 +189,11 @@
     },
     {
       "$dtId": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "meal",
       "title": "Mercado Central",
-      "time": null,
       "description": "Lunch at the iron-built 1872 market — congrio frito or a big bowl of chupe de mariscos, standing at the counter like the locals. Fish market chaos, zero tourist markup if you pick the busy stalls.",
       "links": [
         {
@@ -281,33 +201,18 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Mercado+Central+Santiago"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Santiago",
       "mapsQuery": "Mercado Central de Santiago Chile",
       "images": []
     },
     {
       "$dtId": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Sky Costanera at sunset",
-      "time": null,
       "description": "Top of Latin America's tallest tower at golden hour — the whole 6,000 m Andes wall turns pink behind the city. Go 45 min before sunset, it gets busy.",
       "links": [
         {
@@ -315,242 +220,120 @@
           "url": "https://www.costaneracenter.cl/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Santiago",
       "mapsQuery": "Sky Costanera Santiago",
       "images": []
     },
     {
       "$dtId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-19",
       "title": "Santiago city day",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "cfb44a72-9f06-4db9-9730-9e289d2abef1",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "Shuttle Santiago → Valle Nevado",
-      "time": null,
       "description": "90 min. Leave before 13:00 — the G-21 access road only allows uphill traffic in the morning window.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "c3648abc-c976-40d0-add7-fe539eaa3c41",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "lodging",
       "title": "Stay: self-catered studio, ski-in/out",
-      "time": null,
       "description": "~$330–420/nt (or Farellones for budget). 4-day ski pass: weekday ~$33/day, weekend ~$55.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "99b2a19f-9094-4ba1-829d-19f4bcdc74b6",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Rental fitting + warm-up run",
-      "time": null,
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-20",
       "title": "Transfer to Valle Nevado + warm-up",
       "notes": "**G-21 road: up-window 08:00–13:00.** Shared shuttle SCL→VN (~$35–40 pp, 90 min). Afternoon: rental fitting + one gentle warm-up run — first exposure at 3,000 m, take it easy.",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "1988088c-71a3-4d85-bb84-aaa1a21b1c2c",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Valle Nevado full day",
-      "time": null,
       "description": "Renée: groomed blues/reds front side (25% intermediate terrain). Henri: advanced bowls. Niko: wide groomers. Hydrate, layers, sunscreen — altitude sun is brutal.",
       "links": [],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "a3a00531-6077-4766-a68d-8fbcd9336623",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-21",
       "title": "Ski day 1 — Valle Nevado",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "81db137a-597a-4de4-ade8-8114c556506a",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Valle Nevado + La Parva",
-      "time": null,
       "description": "One pass covers the interconnected terrain — La Parva adds intermediate cruising + big views. Weather-chase: pick the side with best visibility.",
       "links": [],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "28b340f8-e07a-441e-ad73-a454bdcd4d56",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-22",
       "title": "Ski day 2 — La Parva connection",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "6f1b9723-c04a-47a9-9b66-e20af69bfdad",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Ski morning",
-      "time": null,
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Valle Nevado",
       "mapsQuery": "Valle Nevado Chile",
       "images": [
@@ -559,48 +342,27 @@
     },
     {
       "$dtId": "e93e366e-a9a4-4d80-8085-95e443924281",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "Transfer to Santiago (~15:00)",
-      "time": null,
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "6e857c8e-6a42-4836-a726-de27a4177834",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-23",
       "title": "Ski day 3 (morning) → Santiago",
       "notes": "**G-21 down-window 15:00–20:00.** Morning ski, lunch at the resort, transfer down ~15:00. Night near SCL airport for the morning flight.",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "591179e1-8155-49be-8ad4-67268b78c0a3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
@@ -609,74 +371,38 @@
       "time": "morning",
       "description": "~2h30–3h30. The stitch that makes this trip work.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "bbaf4b8b-f2d8-4744-82b9-739288417a94",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "lodging",
       "title": "Stay: Urubamba / Ollantaytambo — 3 nights",
-      "time": null,
       "description": "Sacred Valley at 2,800 m — the gentle altitude ramp.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "f799783c-6cb8-44cb-83c7-76ae1d576235",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-24",
       "title": "SCL → CUZ → Sacred Valley",
       "notes": "The linchpin flight: LATAM direct, daily in season, ~2h30–3h30 — book a morning departure. Then the **critical acclimatisation move**: transfer straight to the Sacred Valley (~1.5h, 2,800 m) instead of sleeping in Cusco (3,400 m).",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "43c48d09-dd33-4365-b0ab-58d2c0da7b40",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Pisac ruins + artisan market",
-      "time": null,
       "description": "The hillside citadel above the town — terraces, temples and the famous Sunday artisan market at the foot. The ruins are the morning's altitude-friendly warm-up (2,900 m).",
       "links": [
         {
@@ -684,35 +410,19 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Pisac+ruins"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Pisac",
-      "mapsQuery": null,
       "images": [
         "/media/chile-peru-2027/pi2.jpg"
       ]
     },
     {
       "$dtId": "46a3deaf-4172-4938-be96-5a91e0415345",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Maras salt mines + Moray terraces",
-      "time": null,
       "description": "Thousands of salt ponds terraced into the canyon, worked by hand since pre-Inca times. One of the most photogenic half-hours in Peru.",
       "links": [
         {
@@ -720,221 +430,112 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Salineras+de+Maras"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Maras",
-      "mapsQuery": null,
       "images": [
         "/media/chile-peru-2027/ma1.jpg"
       ]
     },
     {
       "$dtId": "da1ffb91-0cc0-4a79-b0c3-331103edd946",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-25",
       "title": "Pisac + Maras + Moray",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "968d396c-b06b-4d26-9bea-e188d3a38038",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Ollantaytambo fortress",
       "time": "morning",
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "06ae3f35-9283-493e-845e-cc8ccdee1ba5",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "Vistadome train (PeruRail) — 1h45",
-      "time": null,
       "description": "Ollantaytambo → Aguas Calientes.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "f379ba4c-5607-4a33-ac56-b6f474a29326",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "lodging",
       "title": "Stay: Aguas Calientes",
-      "time": null,
       "description": "Inkaterra / Casa del Sol / El Mapi.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "8f2f8297-ed83-48db-bdac-7bced9543568",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-26",
       "title": "Ollantaytambo + train to Aguas Calientes",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "c4d071b4-e9ec-4924-9b42-e39f6d12f3df",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Machu Picchu — guided tour",
-      "time": null,
-      "description": null,
       "links": [
         {
           "label": "Machu Picchu tickets",
           "url": "https://www.machupicchu.gob.pe/"
         }
       ],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "631badbc-c465-48a4-ade9-1b6ba7ec1401",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "lodging",
       "title": "Stay: Cusco — 4 nights",
-      "time": null,
       "description": "3,400 m — the family is pre-acclimatised from Valle Nevado + Sacred Valley.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "3dbc864b-e992-4002-aa18-d943a2dddf92",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-27",
       "title": "Machu Picchu",
       "notes": "Sunrise bus (first 5:30 am), guided tour, optional Huayna Picchu hike (permit — book Jan–Feb 2027!). Mid-afternoon train back + transfer to Cusco.",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Cusco walking tour",
-      "time": null,
       "description": "Plaza de Armas → the 12-angled stone of Hatun Rumiyoc → San Blas artisan quarter. Fiestas Patrias week means parades and dancing in the plaza — join in.",
       "links": [
         {
@@ -942,33 +543,18 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Plaza+de+Armas+Cusco"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Cusco",
       "mapsQuery": "Plaza de Armas Cusco",
       "images": []
     },
     {
       "$dtId": "7816f1fc-1407-4624-9f09-b872e8a6ed73",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "ChocoMuseo chocolate workshop",
-      "time": null,
       "description": "Bean-to-bar workshop — the kids make their own chocolate, parents taste the single-origin dark. A low-effort high-fun afternoon at 3,400 m.",
       "links": [
         {
@@ -976,62 +562,31 @@
           "url": "https://chocomuseo.com/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Cusco",
       "mapsQuery": "ChocoMuseo Cusco",
       "images": []
     },
     {
       "$dtId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-28",
       "title": "Cusco city + 🎉 Fiestas Patrias",
       "notes": "Jul 28 = Peruvian Independence Day — parades and celebrations on Plaza de Armas (festive bonus!). Expect celebratory crowds.",
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "edbddc0f-e526-468a-ad83-9319c1aee834",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Palcoyo full-day trip (5am–4pm)",
-      "time": null,
       "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery.\n\nThe quieter rainbow mountain: a rolling **1.5–2 h loop** across three striped ridges — red, ochre, turquoise and violet strata — with the glacier-capped peak of Ausangate (6,384 m) as the backdrop. Palcoyo sits **~3 h from Cusco** (better road than Vinicunca), so it's a full-day outing: 5am pick-up, lunch back in the valley, early evening in Cusco. 4,800 m means slow steps, coca tea, and no rush — the kids manage it fine, and the llama herd that patrols the ridge is the family photo of the trip.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
       "mapsQuery": "Palcoyo Rainbow Mountain Peru",
       "images": [
         "/media/chile-peru-2027/rb1.jpg",
@@ -1040,165 +595,86 @@
     },
     {
       "$dtId": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-29",
       "title": "Palcoyo Rainbow Mountain",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "a5db52f2-1a8b-4760-a4ab-3f7cce2238b2",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "note",
       "title": "Decide on the day",
-      "time": null,
       "description": "Legs good? **Humantay Lake** (4,200 m, turquoise glacial lake, horse option at trailhead). Need a rest? **Cusco cooking class + San Pedro Market** (ceviche + lucuma juice — teen-approved).",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "6ae0502a-032e-4175-8158-e76e3c07a9a2",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-30",
       "title": "Flex — Humantay Lake OR cooking class",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "fe7ab185-d07c-48d5-8e09-d4dbb27b9786",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "Fly Cusco → Lima (1h15)",
       "time": "morning",
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "e94be3b7-9e1a-4dfd-9a5d-2972169ffff9",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Museo Larco",
-      "time": null,
       "description": "Pre-Columbian gold, beautiful gardens.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "2ee8488c-3a17-4dcd-8724-5fbb988b1df3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "meal",
       "title": "La Mar — one last ceviche",
-      "time": null,
       "description": "Or Astrid y Gastón.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "05511c4f-f101-46ee-af63-7c48229afb5c",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-07-31",
       "title": "CUZ → LIM",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "661a420e-eb5b-4da9-9c0b-27e19eb61450",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Malecón bike ride Miraflores → Barranco",
-      "time": null,
       "description": "The clifftop cycle path from Miraflores to Barranco — paragliders overhead, Pacific below, sunset stop at the Bridge of Sighs.",
       "links": [
         {
@@ -1206,33 +682,17 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Malec%C3%B3n+de+Miraflores"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Miraflores",
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "499e54b9-af57-4dad-adc4-f1ec03cd137e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Magic Water Circuit at night",
-      "time": null,
       "description": "13 illuminated fountains in the Parque de la Reserva, including the world's largest fountain complex. Cheesy, spectacular, and the kids will love it.",
       "links": [
         {
@@ -1240,80 +700,42 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Circuito+Magico+del+Agua+Lima"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
       "location": "Lima",
       "mapsQuery": "Circuito Mágico del Agua Lima",
       "images": []
     },
     {
       "$dtId": "7e8d11d2-9896-438d-8ca7-054e5138da0b",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-08-01",
       "title": "Lima finale",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "6706b30d-c239-478a-b969-e34fa50e0f23",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "Fly home via Madrid/Paris/Amsterdam",
-      "time": null,
-      "description": null,
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2027-08-02",
       "title": "Depart LIM → BRU",
-      "notes": null,
-      "map": null,
       "meta": []
     },
     {
       "$dtId": "6b11a061-54c8-401e-9861-855dea2f7338",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Trip;1"
       },
@@ -1324,14 +746,13 @@
       "startDate": "2027-07-17",
       "endDate": "2027-08-02",
       "token": "a70e86ef1c1ba28cb196421186f2b6ab",
+      "claimToken": "45711f531b9b1fbecd32c92c719931ed",
       "cover": "/media/chile-peru-2027/mp2.jpg",
       "coverCredit": "Machu Picchu",
-      "map": null,
       "summary": "Family trip (Niko + **Henri** 17 + **Renée** 15) combining **3–4 ski days at Valle Nevado** (Chile) with the Peru spine: **Lima → Sacred Valley → Machu Picchu → Cusco**. July is the only month where both countries are simultaneously at their seasonal best — Chilean winter ski peak AND Peruvian dry-season hiking peak.\n\nThe linchpin: **LATAM flies Santiago → Cusco non-stop** (daily, ~2h30–3h30), so the two halves stitch together without backtracking through Lima. Bonus: 3–4 days above 3,000 m at Valle Nevado pre-acclimatises everyone for Cusco (3,400 m).\n\n**Stage: planned** — dates set (Sat Jul 17 → Mon Aug 2), nothing booked yet. Booking windows: international flights by Jan 2027, Valle Nevado by Mar 2027, Machu Picchu permits Jan–Feb 2027.",
       "theme": {
         "primary": "#7f1d1d",
-        "accent": "#b45309",
-        "font": null
+        "accent": "#b45309"
       },
       "coverStats": [],
       "stats": [
@@ -1365,13 +786,11 @@
           {
             "label": "Feasibility + routing confirmed (SCL→CUZ direct)",
             "done": true,
-            "when": null,
             "links": []
           },
           {
             "label": "Ski profile + rental decision (all three rent at Valle Nevado — incl. Henri)",
             "done": true,
-            "when": null,
             "links": [
               {
                 "label": "Valle Nevado ski rental",
@@ -1382,49 +801,41 @@
           {
             "label": "Confirm dates with the kids (currently Jul 17 – Aug 2)",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Check SCL→CUZ availability for chosen dates (LATAM daily)",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Compare open-jaw (BRU→SCL / LIM→BRU) vs return pricing",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Book international flights (by Jan 2027)",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Book Valle Nevado accommodation (Jan–Mar 2027)",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Book Machu Picchu + Huayna Picchu permits (Jan–Feb 2027)",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "Book PeruRail Vistadome + internal flights",
             "done": false,
-            "when": null,
             "links": []
           },
           {
             "label": "No visa needed (Belgian passports)",
             "done": true,
-            "when": null,
             "links": []
           }
         ],
@@ -1462,7 +873,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasCrew",
       "$targetId": "96e51afa-45ba-4e60-9ee8-ed656bd55491",
-      "$etag": "W/\"mock-etag\"",
       "index": 0,
       "role": "owner"
     },
@@ -1471,7 +881,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasCrew",
       "$targetId": "ff3cd380-40a5-413b-9cb5-729f582d711c",
-      "$etag": "W/\"mock-etag\"",
       "index": 1,
       "role": "viewer"
     },
@@ -1480,7 +889,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasCrew",
       "$targetId": "4c2fe154-422d-4df6-9a69-b57a2ca04a9e",
-      "$etag": "W/\"mock-etag\"",
       "index": 2,
       "role": "viewer"
     },
@@ -1489,7 +897,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasSection",
       "$targetId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1497,7 +904,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1505,7 +911,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1513,7 +918,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1521,7 +925,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -1529,7 +932,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "a3a00531-6077-4766-a68d-8fbcd9336623",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
@@ -1537,7 +939,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "28b340f8-e07a-441e-ad73-a454bdcd4d56",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     },
     {
@@ -1545,7 +946,6 @@
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
       "$targetId": "6e857c8e-6a42-4836-a726-de27a4177834",
-      "$etag": "W/\"mock-etag\"",
       "index": 6
     },
     {
@@ -1553,7 +953,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasSection",
       "$targetId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1561,7 +960,6 @@
       "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
       "$relationshipName": "hasDay",
       "$targetId": "f799783c-6cb8-44cb-83c7-76ae1d576235",
-      "$etag": "W/\"mock-etag\"",
       "index": 7
     },
     {
@@ -1569,7 +967,6 @@
       "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
       "$relationshipName": "hasDay",
       "$targetId": "da1ffb91-0cc0-4a79-b0c3-331103edd946",
-      "$etag": "W/\"mock-etag\"",
       "index": 8
     },
     {
@@ -1577,7 +974,6 @@
       "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
       "$relationshipName": "hasDay",
       "$targetId": "8f2f8297-ed83-48db-bdac-7bced9543568",
-      "$etag": "W/\"mock-etag\"",
       "index": 9
     },
     {
@@ -1585,7 +981,6 @@
       "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
       "$relationshipName": "hasDay",
       "$targetId": "3dbc864b-e992-4002-aa18-d943a2dddf92",
-      "$etag": "W/\"mock-etag\"",
       "index": 10
     },
     {
@@ -1593,7 +988,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasSection",
       "$targetId": "20ad7f21-a245-4989-b0e2-62482075963b",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1601,7 +995,6 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8",
-      "$etag": "W/\"mock-etag\"",
       "index": 11
     },
     {
@@ -1609,7 +1002,6 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162",
-      "$etag": "W/\"mock-etag\"",
       "index": 12
     },
     {
@@ -1617,7 +1009,6 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "6ae0502a-032e-4175-8158-e76e3c07a9a2",
-      "$etag": "W/\"mock-etag\"",
       "index": 13
     },
     {
@@ -1625,7 +1016,6 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "05511c4f-f101-46ee-af63-7c48229afb5c",
-      "$etag": "W/\"mock-etag\"",
       "index": 14
     },
     {
@@ -1633,7 +1023,6 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "7e8d11d2-9896-438d-8ca7-054e5138da0b",
-      "$etag": "W/\"mock-etag\"",
       "index": 15
     },
     {
@@ -1641,409 +1030,353 @@
       "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "$relationshipName": "hasDay",
       "$targetId": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f",
-      "$etag": "W/\"mock-etag\"",
       "index": 16
     },
     {
       "$relationshipId": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf__hasBlock__87d4a112-01f7-4ae6-ba54-f750d75f80f6",
       "$sourceId": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
       "$relationshipName": "hasBlock",
-      "$targetId": "87d4a112-01f7-4ae6-ba54-f750d75f80f6",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "87d4a112-01f7-4ae6-ba54-f750d75f80f6"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
       "$relationshipId": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1__hasBlock__0f40cd7a-ca42-4166-a17d-05df98f32134",
       "$sourceId": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1",
       "$relationshipName": "hasBlock",
-      "$targetId": "0f40cd7a-ca42-4166-a17d-05df98f32134",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "0f40cd7a-ca42-4166-a17d-05df98f32134"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__e1aa6e48-80e1-4f72-83ec-abb5dd95add1",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
       "$relationshipId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1__hasBlock__7752e46a-4552-46fa-9a8f-54554d238c3d",
       "$sourceId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
       "$relationshipName": "hasBlock",
-      "$targetId": "7752e46a-4552-46fa-9a8f-54554d238c3d",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "7752e46a-4552-46fa-9a8f-54554d238c3d"
     },
     {
       "$relationshipId": "7752e46a-4552-46fa-9a8f-54554d238c3d__atLocation__4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
       "$sourceId": "7752e46a-4552-46fa-9a8f-54554d238c3d",
       "$relationshipName": "atLocation",
-      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8"
     },
     {
       "$relationshipId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1__hasBlock__89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130",
       "$sourceId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
       "$relationshipName": "hasBlock",
-      "$targetId": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130"
     },
     {
       "$relationshipId": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130__atLocation__4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
       "$sourceId": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130",
       "$relationshipName": "atLocation",
-      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8"
     },
     {
       "$relationshipId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1__hasBlock__0ebb1e30-9766-485b-90b7-9f1402fe8b3c",
       "$sourceId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
       "$relationshipName": "hasBlock",
-      "$targetId": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c"
     },
     {
       "$relationshipId": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c__atLocation__4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
       "$sourceId": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c",
       "$relationshipName": "atLocation",
-      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
       "$relationshipId": "e7ef4b61-e001-4455-9346-cacc5857d4e0__hasBlock__cfb44a72-9f06-4db9-9730-9e289d2abef1",
       "$sourceId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
       "$relationshipName": "hasBlock",
-      "$targetId": "cfb44a72-9f06-4db9-9730-9e289d2abef1",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "cfb44a72-9f06-4db9-9730-9e289d2abef1"
     },
     {
       "$relationshipId": "e7ef4b61-e001-4455-9346-cacc5857d4e0__hasBlock__c3648abc-c976-40d0-add7-fe539eaa3c41",
       "$sourceId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
       "$relationshipName": "hasBlock",
-      "$targetId": "c3648abc-c976-40d0-add7-fe539eaa3c41",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "c3648abc-c976-40d0-add7-fe539eaa3c41"
     },
     {
       "$relationshipId": "e7ef4b61-e001-4455-9346-cacc5857d4e0__hasBlock__99b2a19f-9094-4ba1-829d-19f4bcdc74b6",
       "$sourceId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
       "$relationshipName": "hasBlock",
-      "$targetId": "99b2a19f-9094-4ba1-829d-19f4bcdc74b6",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "99b2a19f-9094-4ba1-829d-19f4bcdc74b6"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__e7ef4b61-e001-4455-9346-cacc5857d4e0",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "e7ef4b61-e001-4455-9346-cacc5857d4e0",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
       "$relationshipId": "a3a00531-6077-4766-a68d-8fbcd9336623__hasBlock__1988088c-71a3-4d85-bb84-aaa1a21b1c2c",
       "$sourceId": "a3a00531-6077-4766-a68d-8fbcd9336623",
       "$relationshipName": "hasBlock",
-      "$targetId": "1988088c-71a3-4d85-bb84-aaa1a21b1c2c",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "1988088c-71a3-4d85-bb84-aaa1a21b1c2c"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__a3a00531-6077-4766-a68d-8fbcd9336623",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "a3a00531-6077-4766-a68d-8fbcd9336623",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
       "$relationshipId": "28b340f8-e07a-441e-ad73-a454bdcd4d56__hasBlock__81db137a-597a-4de4-ade8-8114c556506a",
       "$sourceId": "28b340f8-e07a-441e-ad73-a454bdcd4d56",
       "$relationshipName": "hasBlock",
-      "$targetId": "81db137a-597a-4de4-ade8-8114c556506a",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "81db137a-597a-4de4-ade8-8114c556506a"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__28b340f8-e07a-441e-ad73-a454bdcd4d56",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "28b340f8-e07a-441e-ad73-a454bdcd4d56",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     },
     {
       "$relationshipId": "6e857c8e-6a42-4836-a726-de27a4177834__hasBlock__6f1b9723-c04a-47a9-9b66-e20af69bfdad",
       "$sourceId": "6e857c8e-6a42-4836-a726-de27a4177834",
       "$relationshipName": "hasBlock",
-      "$targetId": "6f1b9723-c04a-47a9-9b66-e20af69bfdad",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "6f1b9723-c04a-47a9-9b66-e20af69bfdad"
     },
     {
       "$relationshipId": "6f1b9723-c04a-47a9-9b66-e20af69bfdad__atLocation__0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3",
       "$sourceId": "6f1b9723-c04a-47a9-9b66-e20af69bfdad",
       "$relationshipName": "atLocation",
-      "$targetId": "0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3"
     },
     {
       "$relationshipId": "6e857c8e-6a42-4836-a726-de27a4177834__hasBlock__e93e366e-a9a4-4d80-8085-95e443924281",
       "$sourceId": "6e857c8e-6a42-4836-a726-de27a4177834",
       "$relationshipName": "hasBlock",
-      "$targetId": "e93e366e-a9a4-4d80-8085-95e443924281",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "e93e366e-a9a4-4d80-8085-95e443924281"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__6e857c8e-6a42-4836-a726-de27a4177834",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "6e857c8e-6a42-4836-a726-de27a4177834",
-      "$etag": "W/\"mock-etag\"",
       "index": 6
     },
     {
       "$relationshipId": "f799783c-6cb8-44cb-83c7-76ae1d576235__hasBlock__591179e1-8155-49be-8ad4-67268b78c0a3",
       "$sourceId": "f799783c-6cb8-44cb-83c7-76ae1d576235",
       "$relationshipName": "hasBlock",
-      "$targetId": "591179e1-8155-49be-8ad4-67268b78c0a3",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "591179e1-8155-49be-8ad4-67268b78c0a3"
     },
     {
       "$relationshipId": "f799783c-6cb8-44cb-83c7-76ae1d576235__hasBlock__bbaf4b8b-f2d8-4744-82b9-739288417a94",
       "$sourceId": "f799783c-6cb8-44cb-83c7-76ae1d576235",
       "$relationshipName": "hasBlock",
-      "$targetId": "bbaf4b8b-f2d8-4744-82b9-739288417a94",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "bbaf4b8b-f2d8-4744-82b9-739288417a94"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__f799783c-6cb8-44cb-83c7-76ae1d576235",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "f799783c-6cb8-44cb-83c7-76ae1d576235",
-      "$etag": "W/\"mock-etag\"",
       "index": 7
     },
     {
       "$relationshipId": "da1ffb91-0cc0-4a79-b0c3-331103edd946__hasBlock__43c48d09-dd33-4365-b0ab-58d2c0da7b40",
       "$sourceId": "da1ffb91-0cc0-4a79-b0c3-331103edd946",
       "$relationshipName": "hasBlock",
-      "$targetId": "43c48d09-dd33-4365-b0ab-58d2c0da7b40",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "43c48d09-dd33-4365-b0ab-58d2c0da7b40"
     },
     {
       "$relationshipId": "da1ffb91-0cc0-4a79-b0c3-331103edd946__hasBlock__46a3deaf-4172-4938-be96-5a91e0415345",
       "$sourceId": "da1ffb91-0cc0-4a79-b0c3-331103edd946",
       "$relationshipName": "hasBlock",
-      "$targetId": "46a3deaf-4172-4938-be96-5a91e0415345",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "46a3deaf-4172-4938-be96-5a91e0415345"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__da1ffb91-0cc0-4a79-b0c3-331103edd946",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "da1ffb91-0cc0-4a79-b0c3-331103edd946",
-      "$etag": "W/\"mock-etag\"",
       "index": 8
     },
     {
       "$relationshipId": "8f2f8297-ed83-48db-bdac-7bced9543568__hasBlock__968d396c-b06b-4d26-9bea-e188d3a38038",
       "$sourceId": "8f2f8297-ed83-48db-bdac-7bced9543568",
       "$relationshipName": "hasBlock",
-      "$targetId": "968d396c-b06b-4d26-9bea-e188d3a38038",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "968d396c-b06b-4d26-9bea-e188d3a38038"
     },
     {
       "$relationshipId": "8f2f8297-ed83-48db-bdac-7bced9543568__hasBlock__06ae3f35-9283-493e-845e-cc8ccdee1ba5",
       "$sourceId": "8f2f8297-ed83-48db-bdac-7bced9543568",
       "$relationshipName": "hasBlock",
-      "$targetId": "06ae3f35-9283-493e-845e-cc8ccdee1ba5",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "06ae3f35-9283-493e-845e-cc8ccdee1ba5"
     },
     {
       "$relationshipId": "8f2f8297-ed83-48db-bdac-7bced9543568__hasBlock__f379ba4c-5607-4a33-ac56-b6f474a29326",
       "$sourceId": "8f2f8297-ed83-48db-bdac-7bced9543568",
       "$relationshipName": "hasBlock",
-      "$targetId": "f379ba4c-5607-4a33-ac56-b6f474a29326",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "f379ba4c-5607-4a33-ac56-b6f474a29326"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__8f2f8297-ed83-48db-bdac-7bced9543568",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "8f2f8297-ed83-48db-bdac-7bced9543568",
-      "$etag": "W/\"mock-etag\"",
       "index": 9
     },
     {
       "$relationshipId": "3dbc864b-e992-4002-aa18-d943a2dddf92__hasBlock__c4d071b4-e9ec-4924-9b42-e39f6d12f3df",
       "$sourceId": "3dbc864b-e992-4002-aa18-d943a2dddf92",
       "$relationshipName": "hasBlock",
-      "$targetId": "c4d071b4-e9ec-4924-9b42-e39f6d12f3df",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "c4d071b4-e9ec-4924-9b42-e39f6d12f3df"
     },
     {
       "$relationshipId": "3dbc864b-e992-4002-aa18-d943a2dddf92__hasBlock__631badbc-c465-48a4-ade9-1b6ba7ec1401",
       "$sourceId": "3dbc864b-e992-4002-aa18-d943a2dddf92",
       "$relationshipName": "hasBlock",
-      "$targetId": "631badbc-c465-48a4-ade9-1b6ba7ec1401",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "631badbc-c465-48a4-ade9-1b6ba7ec1401"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__3dbc864b-e992-4002-aa18-d943a2dddf92",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "3dbc864b-e992-4002-aa18-d943a2dddf92",
-      "$etag": "W/\"mock-etag\"",
       "index": 10
     },
     {
       "$relationshipId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8__hasBlock__2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a",
       "$sourceId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8",
       "$relationshipName": "hasBlock",
-      "$targetId": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a"
     },
     {
       "$relationshipId": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a__atLocation__42513f72-99a3-4f23-b51f-7596e6c994a2",
       "$sourceId": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a",
       "$relationshipName": "atLocation",
-      "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2"
     },
     {
       "$relationshipId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8__hasBlock__7816f1fc-1407-4624-9f09-b872e8a6ed73",
       "$sourceId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8",
       "$relationshipName": "hasBlock",
-      "$targetId": "7816f1fc-1407-4624-9f09-b872e8a6ed73",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "7816f1fc-1407-4624-9f09-b872e8a6ed73"
     },
     {
       "$relationshipId": "7816f1fc-1407-4624-9f09-b872e8a6ed73__atLocation__42513f72-99a3-4f23-b51f-7596e6c994a2",
       "$sourceId": "7816f1fc-1407-4624-9f09-b872e8a6ed73",
       "$relationshipName": "atLocation",
-      "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__290e5f3d-3b82-452e-8d22-5b20b04e1df8",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "290e5f3d-3b82-452e-8d22-5b20b04e1df8",
-      "$etag": "W/\"mock-etag\"",
       "index": 11
     },
     {
       "$relationshipId": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162__hasBlock__edbddc0f-e526-468a-ad83-9319c1aee834",
       "$sourceId": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162",
       "$relationshipName": "hasBlock",
-      "$targetId": "edbddc0f-e526-468a-ad83-9319c1aee834",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "edbddc0f-e526-468a-ad83-9319c1aee834"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__37ab5cfe-9c2b-491d-8e59-3d88a6d0e162",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162",
-      "$etag": "W/\"mock-etag\"",
       "index": 12
     },
     {
       "$relationshipId": "6ae0502a-032e-4175-8158-e76e3c07a9a2__hasBlock__a5db52f2-1a8b-4760-a4ab-3f7cce2238b2",
       "$sourceId": "6ae0502a-032e-4175-8158-e76e3c07a9a2",
       "$relationshipName": "hasBlock",
-      "$targetId": "a5db52f2-1a8b-4760-a4ab-3f7cce2238b2",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "a5db52f2-1a8b-4760-a4ab-3f7cce2238b2"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__6ae0502a-032e-4175-8158-e76e3c07a9a2",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "6ae0502a-032e-4175-8158-e76e3c07a9a2",
-      "$etag": "W/\"mock-etag\"",
       "index": 13
     },
     {
       "$relationshipId": "05511c4f-f101-46ee-af63-7c48229afb5c__hasBlock__fe7ab185-d07c-48d5-8e09-d4dbb27b9786",
       "$sourceId": "05511c4f-f101-46ee-af63-7c48229afb5c",
       "$relationshipName": "hasBlock",
-      "$targetId": "fe7ab185-d07c-48d5-8e09-d4dbb27b9786",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "fe7ab185-d07c-48d5-8e09-d4dbb27b9786"
     },
     {
       "$relationshipId": "05511c4f-f101-46ee-af63-7c48229afb5c__hasBlock__e94be3b7-9e1a-4dfd-9a5d-2972169ffff9",
       "$sourceId": "05511c4f-f101-46ee-af63-7c48229afb5c",
       "$relationshipName": "hasBlock",
-      "$targetId": "e94be3b7-9e1a-4dfd-9a5d-2972169ffff9",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "e94be3b7-9e1a-4dfd-9a5d-2972169ffff9"
     },
     {
       "$relationshipId": "05511c4f-f101-46ee-af63-7c48229afb5c__hasBlock__2ee8488c-3a17-4dcd-8724-5fbb988b1df3",
       "$sourceId": "05511c4f-f101-46ee-af63-7c48229afb5c",
       "$relationshipName": "hasBlock",
-      "$targetId": "2ee8488c-3a17-4dcd-8724-5fbb988b1df3",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "2ee8488c-3a17-4dcd-8724-5fbb988b1df3"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__05511c4f-f101-46ee-af63-7c48229afb5c",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "05511c4f-f101-46ee-af63-7c48229afb5c",
-      "$etag": "W/\"mock-etag\"",
       "index": 14
     },
     {
       "$relationshipId": "7e8d11d2-9896-438d-8ca7-054e5138da0b__hasBlock__661a420e-eb5b-4da9-9c0b-27e19eb61450",
       "$sourceId": "7e8d11d2-9896-438d-8ca7-054e5138da0b",
       "$relationshipName": "hasBlock",
-      "$targetId": "661a420e-eb5b-4da9-9c0b-27e19eb61450",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "661a420e-eb5b-4da9-9c0b-27e19eb61450"
     },
     {
       "$relationshipId": "7e8d11d2-9896-438d-8ca7-054e5138da0b__hasBlock__499e54b9-af57-4dad-adc4-f1ec03cd137e",
       "$sourceId": "7e8d11d2-9896-438d-8ca7-054e5138da0b",
       "$relationshipName": "hasBlock",
-      "$targetId": "499e54b9-af57-4dad-adc4-f1ec03cd137e",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "499e54b9-af57-4dad-adc4-f1ec03cd137e"
     },
     {
       "$relationshipId": "499e54b9-af57-4dad-adc4-f1ec03cd137e__atLocation__754876d0-22ab-4641-b93c-013e5f41ad61",
       "$sourceId": "499e54b9-af57-4dad-adc4-f1ec03cd137e",
       "$relationshipName": "atLocation",
-      "$targetId": "754876d0-22ab-4641-b93c-013e5f41ad61",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "754876d0-22ab-4641-b93c-013e5f41ad61"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__7e8d11d2-9896-438d-8ca7-054e5138da0b",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "7e8d11d2-9896-438d-8ca7-054e5138da0b",
-      "$etag": "W/\"mock-etag\"",
       "index": 15
     },
     {
       "$relationshipId": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f__hasBlock__6706b30d-c239-478a-b969-e34fa50e0f23",
       "$sourceId": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f",
       "$relationshipName": "hasBlock",
-      "$targetId": "6706b30d-c239-478a-b969-e34fa50e0f23",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "6706b30d-c239-478a-b969-e34fa50e0f23"
     },
     {
       "$relationshipId": "6b11a061-54c8-401e-9861-855dea2f7338__hasDay__5ca04c27-6cd8-48cb-997a-4bcfe565c13f",
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "hasDay",
       "$targetId": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f",
-      "$etag": "W/\"mock-etag\"",
       "index": 16
     },
     {
@@ -2051,7 +1384,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -2059,7 +1391,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -2067,7 +1398,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "db0de9d3-1c26-44aa-a35e-20dc9880eec3",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -2075,7 +1405,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "1ce04a29-316a-43d0-bf35-4df602853819",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -2083,7 +1412,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
@@ -2091,7 +1419,6 @@
       "$sourceId": "6b11a061-54c8-401e-9861-855dea2f7338",
       "$relationshipName": "atLocation",
       "$targetId": "754876d0-22ab-4641-b93c-013e5f41ad61",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     }
   ]

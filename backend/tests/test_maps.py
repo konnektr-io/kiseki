@@ -8,6 +8,7 @@ def _trip_with_locations():
         slug="t",
         title="T",
         token="tok",
+        claimToken="claimtok",
         locations=[
             Location(id="t-yyc", name="YYC", alias=["Calgary"], lat=51.1215, lng=-114.0079),
             Location(id="t-banff", name="Banff", lat=51.1784, lng=-115.5708),

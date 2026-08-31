@@ -677,6 +677,13 @@
       },
       {
         "@type": "Property",
+        "name": "claimToken",
+        "schema": "string",
+        "writable": true,
+        "description": "Secret CLAIM key (issue #6) — authorizes claiming a crew identity on this trip ('join link'). Separate from `token`: the read link grants view-only, the claim token grants identity. Editable (rotate without re-wiring the graph)."
+      },
+      {
+        "@type": "Property",
         "name": "cover",
         "schema": "string",
         "writable": true,

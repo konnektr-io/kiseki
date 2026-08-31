@@ -17,10 +17,12 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from .acl import authorize_trip_path, is_trip_id
-from .auth import get_current_user
+from .acl import authorize_trip_path, is_trip_id, require_trip_role
+from .auth import AuthSession, get_current_session, get_current_user
+from .claims import ClaimError, claim_identity, trip_by_claim_token
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
 from .models import Trip
@@ -29,6 +31,21 @@ from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_trip_by_token
 
 app = FastAPI(title="Kiseki", version="0.1.0")
+
+
+def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
+    """Serialize a trip for API responses.
+
+    ``claimToken`` is a SECRET (issue #6) — it is stripped from every trip
+    document response, including anonymous/public ones. The join link is only
+    obtainable via the owner-only ``/join-link`` endpoint. ``my_role`` (the
+    caller's crew role on this trip) is attached for authenticated responses.
+    """
+    data = trip.model_dump(by_alias=True)
+    data.pop("claimToken", None)
+    if my_role:
+        data["myRole"] = my_role
+    return data
 
 
 @app.get("/api/health")
@@ -53,10 +70,70 @@ def auth_me(user: dict = Depends(get_current_user)) -> dict:
     }
 
 
+@app.get("/api/trips/by-claim/{claim_token}")
+def trip_by_claim(claim_token: str) -> dict:
+    """Join-link read (issue #6): the trip behind a claim token.
+
+    Authorized by possession of the claim token (the invite) — same trust
+    model as the share link. Serves the trip + crew so the join page can
+    offer 'This is me' claiming. Registered BEFORE /api/trips/{trip_param}
+    so 'by-claim' is never swallowed by the generic route.
+    """
+    trip = trip_by_claim_token(claim_token)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Unknown join link")
+    return _public_trip(trip)
+
+
+class ClaimRequest(BaseModel):
+    claimToken: str
+    personId: str
+
+
+@app.post("/api/claims")
+def create_claim(
+    body: ClaimRequest,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Claim a crew identity on a trip (issue #6).
+
+    Requires a valid Auth0 token AND the trip's claim token. The claim token
+    is what makes this an *invite*: the read link alone can never grant an
+    identity.
+    """
+    try:
+        trip = claim_identity(
+            body.claimToken,
+            body.personId,
+            session.user["sub"],
+            session.profile,
+        )
+    except ClaimError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return _public_trip(trip)
+
+
+@app.get("/api/trips/{trip_id}/join-link")
+def trip_join_link(
+    trip_id: str,
+    _: None = Depends(require_trip_role("owner")),
+) -> dict:
+    """Owner-only: the trip's join link (issue #6).
+
+    The ``claimToken`` is never included in trip documents — this is the ONLY
+    way to obtain the join link, and it requires the ``owner`` crew role
+    (crews manage their own invites).
+    """
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {"joinUrl": f"/join/{trip.claimToken}"}
+
+
 @app.get("/api/trips/{trip_param}")
 def get_trip(
     trip_param: str,
-    _: None = Depends(authorize_trip_path),
+    my_role: str | None = Depends(authorize_trip_path),
 ) -> dict:
     """Read a trip — two paths in one route, distinguished by param SHAPE:
 
@@ -65,7 +142,8 @@ def get_trip(
     - ``/api/trips/<token>``       → the secret share link: public-by-link,
       no auth (stays the anonymous share flow).
 
-    Both return the same trip document shape.
+    Both return the same trip document shape (``claimToken`` always stripped).
+    The protected path additionally reports the caller's ``myRole``.
     """
     if is_trip_id(trip_param):
         trip = get_trip_by_id_store(trip_param.lower())
@@ -73,7 +151,7 @@ def get_trip(
         trip = get_trip_by_token(trip_param)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return trip.model_dump(by_alias=True)
+    return _public_trip(trip, my_role=my_role)
 
 
 @app.get("/api/trips/{token}/booklet.pdf")

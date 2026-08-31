@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { LandingPage } from "./pages/LandingPage";
+import { JoinPage } from "./pages/JoinPage";
 import { TripLayout } from "./pages/TripLayout";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ItineraryPage } from "./pages/ItineraryPage";
@@ -12,6 +13,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<LandingPage />} />
+      <Route path="/join/:claimToken" element={<JoinPage />} />
       <Route path="/t/:token" element={<TripLayout />}>
         <Route index element={<OverviewPage />} />
         <Route path="itinerary" element={<ItineraryPage />} />

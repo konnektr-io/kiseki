@@ -1141,6 +1141,7 @@
       "startDate": "2027-02-15",
       "endDate": "2027-03-02",
       "token": "SECRET_TOKEN",
+      "claimToken": "2ba8db3168b3cde5b0babb891a497c50",
       "cover": "/media/REDACTED",
       "coverCredit": "REDACTED",
       "map": "/media/REDACTED",

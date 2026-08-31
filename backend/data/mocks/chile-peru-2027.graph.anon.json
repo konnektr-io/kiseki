@@ -743,6 +743,7 @@
       "startDate": "2027-07-17",
       "endDate": "2027-08-02",
       "token": "SECRET_TOKEN",
+      "claimToken": "45711f531b9b1fbecd32c92c719931ed",
       "cover": "/media/REDACTED",
       "coverCredit": "REDACTED",
       "map": "/media/REDACTED",
