@@ -112,20 +112,16 @@ RETURN collect(DISTINCT [t.`$dtId`, t.token, t.title, t.subtitle, t.stage,
 """
 
 # ACL: the role a user has on ONE trip (issue #5). Trip-scoped via `$dtid`;
-# the person is identified as (a) a real User twin whose `$dtId` IS the global
-# auth id (post-#6), or (b) the seeded placeholder Person by name/contact
-# (pre-#6 — same identity, no twin yet). `$uid`/`$email`/`$name` are bound.
+# the person is the User twin whose `$dtId` IS the global auth id (created on
+# claim — issue #6). Deliberately NOT matched by name/email: those are
+# self-asserted claims, not credentials — a spoofed display name must never
+# grant a role. Until a user claims their identity, the protected path is 403.
 _Q_ROLE_FOR_USER = """
-MATCH (trip:Twin)-[crew:hasCrew]->(p:Twin)
-WHERE trip.`$dtId` = $dtid
-  AND (p.`$dtId` = $uid OR p.name = $name OR p.contact = $email)
+MATCH (trip:Twin)-[crew:hasCrew]->(u:Twin)
+WHERE trip.`$dtId` = $dtid AND u.`$dtId` = $uid
 RETURN crew.role AS role
 LIMIT 1
 """
-
-# Values that reach the graph as parameters are validated defensively (they
-# are NEVER interpolated — the Cypher engine binds them).
-_VALUE_RE = re.compile(r"^[^'\x00-\x1f]{0,256}$")
 
 
 class GraphReadClient:
@@ -249,35 +245,24 @@ class GraphReadClient:
         self,
         trip_dtid: str,
         user_dtid: str,
-        email: str | None = None,
-        name: str | None = None,
     ) -> Optional[str]:
         """ACL role (owner|editor|viewer|follower) of a user on one trip.
 
-        The person is matched as (a) a User twin whose ``$dtId`` IS the global
-        auth id (post-#6), or (b) the seeded placeholder Person by ``name`` /
-        ``contact`` (pre-#6). Returns None when there is no role (no access).
-        All values are bound Cypher parameters; inputs are validated
-        defensively first.
+        The person is the User twin whose ``$dtId`` IS the global auth id
+        (created when the user claims their crew identity — issue #6). No
+        name/email matching: self-asserted profile values are not credentials.
+        Returns None when there is no role (no access). Values are bound
+        Cypher parameters, validated defensively first.
         """
         if not self.is_enabled() or not _DTID_RE.match(trip_dtid or ""):
             return None
         if not _USER_RE.match(user_dtid or ""):
             return None
-        email = (email or "").strip()
-        name = (name or "").strip()
-        if not _VALUE_RE.match(email) or not _VALUE_RE.match(name):
-            return None
         try:
             rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
                     _Q_ROLE_FOR_USER,
-                    query_parameters={
-                        "dtid": trip_dtid,
-                        "uid": user_dtid,
-                        "email": email,
-                        "name": name,
-                    },
+                    query_parameters={"dtid": trip_dtid, "uid": user_dtid},
                 )
             )
         except Exception as exc:

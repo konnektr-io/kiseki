@@ -15,15 +15,12 @@ from fastapi.testclient import TestClient
 
 from app import acl as acl_module
 from app import auth as auth_module
-from app import store as store_module
 from app.auth import Auth0JWTValidator
 from app.graph import client as graph_client_mod
 from app.main import app
 from app.store import load_trips
 
 from conftest import CLIENT_ID, TENANT, _claims, _sign
-
-PROFILE = {"email": "niko@example.com", "name": "Niko Raes"}
 
 
 def _uuid() -> str:
@@ -68,12 +65,10 @@ def _calls(c: graph_client_mod.GraphReadClient) -> list:
 
 def test_role_for_user_returns_role(monkeypatch) -> None:
     c = _client_with(monkeypatch, rows=[{"role": "owner"}])
-    got = c.role_for_user_on_trip(_uuid(), "google-oauth2|1", PROFILE["email"], PROFILE["name"])
+    got = c.role_for_user_on_trip(_uuid(), "google-oauth2|1")
     assert got == "owner"
     _, params = _calls(c)[0]
-    assert params["dtid"] == _uuid()
-    assert params["uid"] == "google-oauth2|1"
-    assert params["name"] == "Niko Raes"
+    assert params == {"dtid": _uuid(), "uid": "google-oauth2|1"}
 
 
 def test_role_for_user_none_when_no_rows(monkeypatch) -> None:
@@ -83,10 +78,9 @@ def test_role_for_user_none_when_no_rows(monkeypatch) -> None:
 
 def test_role_for_user_rejects_bad_input(monkeypatch) -> None:
     c = _client_with(monkeypatch)
-    # malformed trip dtid / user id / values → None WITHOUT any SDK call
+    # malformed trip dtid / user id → None WITHOUT any SDK call
     assert c.role_for_user_on_trip("not-a-uuid", "google-oauth2|1") is None
     assert c.role_for_user_on_trip(_uuid(), "bad|id|'quote") is None
-    assert c.role_for_user_on_trip(_uuid(), "google-oauth2|1", name="bad'name") is None
     assert _calls(c) == []
 
 
@@ -160,8 +154,6 @@ def client(rsa_keypair, jwks_url: str, monkeypatch: pytest.MonkeyPatch):
         "_validator",
         Auth0JWTValidator(domain=TENANT, client_id=CLIENT_ID, jwks_uri=jwks_url),
     )
-    # No real userinfo call — profile comes from the fixture.
-    monkeypatch.setattr(auth_module, "fetch_userinfo", lambda token: dict(PROFILE))
     return TestClient(app)
 
 

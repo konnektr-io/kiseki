@@ -22,7 +22,7 @@ import re
 
 from fastapi import Header, HTTPException
 
-from .auth import get_current_session
+from .auth import get_current_user
 from .store import get_trip_role_for_user
 
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
@@ -52,7 +52,9 @@ def authorize_trip_path(
     - share token (non-dashed) → anonymous allowed (public-by-link); the
       Authorization header is ignored entirely (the endpoint is public)
     - dashed UUID ($dtId)      → require a valid token (401) AND a crew role
-      at or above ``viewer`` (403 otherwise)
+      at or above ``viewer`` (403 otherwise). Role = the User twin whose
+      ``$dtId`` is the auth ``sub`` — established by claiming the crew
+      identity (issue #6), never by name/email matching.
     """
 
     if not is_trip_id(trip_param):
@@ -63,13 +65,8 @@ def authorize_trip_path(
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    session = get_current_session(authorization)  # validates; 401 on invalid
-    role = get_trip_role_for_user(
-        trip_param.lower(),
-        session.user["sub"],
-        session.profile.get("email"),
-        session.profile.get("name"),
-    )
+    user = get_current_user(authorization)  # validates; 401 on invalid
+    role = get_trip_role_for_user(trip_param.lower(), user["sub"])
     if not _role_ok(role, "viewer"):
         raise HTTPException(
             status_code=403,

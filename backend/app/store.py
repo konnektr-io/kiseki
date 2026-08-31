@@ -121,15 +121,14 @@ def get_trip_by_id(trip_dtid: str) -> Trip | None:
 def get_trip_role_for_user(
     trip_dtid: str,
     user_dtid: str,
-    email: str | None = None,
-    name: str | None = None,
 ) -> str | None:
     """ACL: the role a user holds on a trip (None = no access).
 
-    Graph-backed (``hasCrew`` edge role). Returns None when the graph is not
-    configured — callers must treat that as 'no role' (fail closed).
+    Graph-backed (``hasCrew`` edge to the User twin identified by the auth
+    ``sub``). Returns None when the graph is not configured — callers must
+    treat that as 'no role' (fail closed).
     """
     client = _graph_client()
     if client is None:
         return None
-    return client.role_for_user_on_trip(trip_dtid, user_dtid, email, name)
+    return client.role_for_user_on_trip(trip_dtid, user_dtid)
