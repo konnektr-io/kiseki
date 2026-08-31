@@ -1,5 +1,6 @@
 import { Auth0Provider } from "@auth0/auth0-react";
 import type { ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AUTH0_AUDIENCE,
   AUTH0_CLIENT_ID,
@@ -21,17 +22,17 @@ interface AuthProviderProps {
  *   experience keeps working with zero auth surface.
  */
 export function AuthProvider({ children }: AuthProviderProps) {
+  const navigate = useNavigate();
+
   if (!isAuthConfigured()) {
     return <>{children}</>;
   }
 
   const onRedirectCallback = (appState?: { returnTo?: string }) => {
-    // Strip the ?code=&state= callback params from the URL after login.
-    window.history.replaceState(
-      {},
-      document.title,
-      appState?.returnTo || window.location.pathname,
-    );
+    // Actually NAVIGATE to the pre-login page: replaceState alone changes the
+    // URL bar but not the router, so the user would see the landing page
+    // until a refresh re-reads the URL.
+    navigate(appState?.returnTo || window.location.pathname, { replace: true });
   };
 
   return (
