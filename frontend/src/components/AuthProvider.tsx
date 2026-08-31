@@ -1,6 +1,7 @@
 import { Auth0Provider } from "@auth0/auth0-react";
 import type { ReactNode } from "react";
 import {
+  AUTH0_AUDIENCE,
   AUTH0_CLIENT_ID,
   AUTH0_DOMAIN,
   isAuthConfigured,
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       authorizationParams={{
         redirect_uri: window.location.origin,
         scope: "openid profile email offline_access",
+        audience: AUTH0_AUDIENCE,
       }}
       useRefreshTokens
       cacheLocation="localstorage"
