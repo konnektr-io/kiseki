@@ -110,6 +110,15 @@ writeup; in short:
 - The **booklet** is a print stylesheet in the frontend (`BookletPage`, A4). Keep it A4-friendly — it becomes the PDF.
 - Tailwind v4 theme tokens are CSS variables in `frontend/src/index.css` (`@theme inline`); per-trip theming injects `--trip-*` vars at runtime. Colors always behind tokens.
 
+## Auth (Auth0 SPA — issue #5 groundwork)
+
+- `@auth0/auth0-react` — `Auth0Provider` wrapper lives in `frontend/src/components/AuthProvider.tsx`; config (domain + client ID) in `frontend/src/lib/auth.ts` with `VITE_AUTH0_*` env overrides. Domain/client ID are **public** (SPA, PKCE) — no secrets.
+- Anonymous visitors keep the full secret-link experience: when unconfigured, the provider is a passthrough and `AuthButton` renders nothing.
+- Login/logout UI: `frontend/src/components/AuthButton.tsx` (on the landing page top-right).
+- **Dev port is pinned** (`strictPort: 5173`) — Auth0 callback URLs are origin-exact; a drifting Vite port breaks login with a callback mismatch. `http://localhost:5173` must be in the Auth0 app's Allowed Callback/Logout URLs + Web Origins.
+- Auth0 tenant `dev-zv5urb33g0msy7bc.eu.auth0.com`, app client `jbMyX3scNHkECOF1lNJTOovXe8fOBmiq` (SPA; Refresh Token Rotation on).
+- Backend JWT validation + `/api/auth/me` + ACL enforcement = next chunk of #5 (not yet implemented).
+
 ## Deployment flow (home-k8s)
 
 1. `git tag v0.x.y && git push origin v0.x.y` + `gh release create v0.x.y --repo konnektr-io/kiseki` (CI builds the image).
