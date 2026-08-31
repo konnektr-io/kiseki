@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
-import { fetchTrip, bookletUrl } from "../lib/api";
+import { fetchTrip, bookletUrl, isTripId, TripAccessError } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -37,37 +38,106 @@ function NavLinks({ token }: { token: string }) {
   );
 }
 
+type LoadError = "auth-required" | "no-access" | string;
+
 export function TripLayout() {
   const { token = "" } = useParams();
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoadError | null>(null);
 
+  const idMode = isTripId(token);
   usePageTitle(trip?.title ?? null);
 
   useEffect(() => {
     let cancelled = false;
     setTrip(null);
     setError(null);
-    fetchTrip(token)
-      .then((t) => {
+
+    (async () => {
+      try {
+        if (idMode) {
+          // Protected route: valid token + ACL role required.
+          if (!isAuthenticated) {
+            if (!cancelled) setError("auth-required");
+            return;
+          }
+          const at = await getAccessTokenSilently();
+          const t = await fetchTrip(token, at);
+          if (!cancelled) setTrip(t);
+          return;
+        }
+        // Public share-link route — works for anyone with the link.
+        const t = await fetchTrip(token);
+        if (isAuthenticated) {
+          // Signed in (in the background): canonicalize to the id route when
+          // the user also has id-access; otherwise stay on the share link
+          // (link access only — the id route would 403).
+          try {
+            const at = await getAccessTokenSilently();
+            await fetchTrip(t.id, at);
+            if (!cancelled) {
+              navigate(pathname.replace(`/t/${token}`, `/t/${t.id}`), { replace: true });
+            }
+            return;
+          } catch {
+            // no id access → fall through to the share-link render
+          }
+        }
         if (!cancelled) setTrip(t);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load trip");
-      });
+      } catch (e) {
+        if (!cancelled) {
+          if (e instanceof TripAccessError && e.status === 401) setError("auth-required");
+          else if (e instanceof TripAccessError && e.status === 403) setError("no-access");
+          else setError(e instanceof Error ? e.message : "Failed to load trip");
+        }
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, idMode, isAuthenticated, getAccessTokenSilently, navigate, pathname]);
+
+  if (authLoading && idMode && !error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="animate-pulse text-muted-foreground">Loading trip…</p>
+      </div>
+    );
+  }
 
   if (error) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 p-6 text-center">
         <h1 className="text-2xl font-bold">Kiseki</h1>
-        <p className="text-muted-foreground">{error}</p>
-        <p className="text-sm text-muted-foreground">
-          Check the link you were given — trip links are private.
-        </p>
+        {error === "auth-required" ? (
+          <>
+            <p className="text-muted-foreground">Sign in to view this trip.</p>
+            <button
+              onClick={() => loginWithRedirect()}
+              className="rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+            >
+              Sign in
+            </button>
+          </>
+        ) : error === "no-access" ? (
+          <>
+            <p className="text-muted-foreground">You don't have access to this trip.</p>
+            <p className="text-sm text-muted-foreground">
+              If you were given a share link, use that instead.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-muted-foreground">{error}</p>
+            <p className="text-sm text-muted-foreground">
+              Check the link you were given — trip links are private.
+            </p>
+          </>
+        )}
         <Link to="/" className="text-sm font-medium underline underline-offset-2">
           Home
         </Link>
@@ -84,7 +154,6 @@ export function TripLayout() {
   }
 
   const days = dayCount(trip.startDate, trip.endDate);
-  const { pathname } = useLocation();
   const onDayPage = pathname.includes(`/t/${trip.token}/day/`);
 
   return (

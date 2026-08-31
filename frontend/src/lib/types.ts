@@ -145,6 +145,7 @@ export interface Practical {
 }
 
 export interface Trip {
+  id: string;
   slug: string;
   title: string;
   subtitle?: string;
