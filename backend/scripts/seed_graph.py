@@ -13,9 +13,11 @@ The graph payload is produced by ``trip_to_graph.py`` (ADT-shaped JSON), which
 already uses the $dtId / $metadata / $relationshipId keys the SDK consumes via
 ``BasicDigitalTwin.from_dict`` / ``BasicRelationship.from_dict``.
 
-Endpoint + auth come from env:
+Endpoint comes from env:
   KONNEKTR_GRAPH_URL      e.g. http://localhost:8080  (or the in-cluster svc)
-  KONNEKTR_GRAPH_TOKEN    the bearer/basic password for the graph-cluster-app
+  KONNEKTR_GRAPH_TOKEN    OPTIONAL — the Graph API has auth disabled, so the client
+                         sends no credentials when this is unset. Set it only if auth
+                         is later enabled (it is NOT the graph-cluster-app DB password).
 
 Usage:
   uv run python scripts/seed_graph.py                 # seed models + twins + rels
@@ -50,13 +52,23 @@ DTDL_FILE = ROOT / "dtdl" / "kiseki-models.json"
 
 def _client() -> KonnektrGraphClient:
     url = os.environ.get("KONNEKTR_GRAPH_URL")
+    if not url:
+        raise SystemExit("Set KONNEKTR_GRAPH_URL (the Graph API endpoint) before seeding.")
     token = os.environ.get("KONNEKTR_GRAPH_TOKEN")
-    if not url or not token:
-        raise SystemExit(
-            "Set KONNEKTR_GRAPH_URL and KONNEKTR_GRAPH_TOKEN "
-            "(graph-cluster-app basic-auth password) before seeding."
-        )
-    return KonnektrGraphClient(url, StaticTokenCredential(token))
+    if token:
+        return KonnektrGraphClient(url, StaticTokenCredential(token))
+    # Auth is disabled on the Graph API (konnektr/kiseki/graph/kustomization.yaml:
+    # api.authentication.enabled=false), so send no credentials. Use a no-op
+    # TokenProvider that injects no Authorization header — NOT the
+    # graph-cluster-app DB password, which is the API↔Postgres internal secret.
+    class _NoAuth:
+        def get_token(self) -> str:
+            return ""
+
+        def get_headers(self) -> dict:
+            return {}
+
+    return KonnektrGraphClient(url, _NoAuth())  # type: ignore[arg-type]
 
 
 def _discover_slugs() -> list[str]:
