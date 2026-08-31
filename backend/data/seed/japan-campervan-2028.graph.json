@@ -3,12 +3,10 @@
   "twins": [
     {
       "$dtId": "28da939e-4ad7-4851-af69-9562b908110d",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "New Chitose",
-      "marker": null,
       "alias": [
         "CTS",
         "Sapporo"
@@ -18,12 +16,10 @@
     },
     {
       "$dtId": "f84223d4-530a-47cf-9a21-4ecb1be172d8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Teine",
-      "marker": null,
       "alias": [
         "Sapporo Teine"
       ],
@@ -32,12 +28,10 @@
     },
     {
       "$dtId": "9b3b8a79-9a6d-4691-a037-9e9290e40805",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Sapporo Kokusai",
-      "marker": null,
       "alias": [
         "Kokusai"
       ],
@@ -46,12 +40,10 @@
     },
     {
       "$dtId": "bcccb485-125b-497c-9bd8-5ba8e787fae4",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Niseko",
-      "marker": null,
       "alias": [
         "Grand Hirafu",
         "Annupuri",
@@ -62,36 +54,30 @@
     },
     {
       "$dtId": "b5cd2f4f-c3f4-4b28-9285-6a043855889e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Rusutsu",
-      "marker": null,
       "alias": [],
       "lat": 42.7426,
       "lng": 140.8901
     },
     {
       "$dtId": "c085127f-5a7b-4dd9-aa8b-af21674d557e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Kiroro",
-      "marker": null,
       "alias": [],
       "lat": 43.0687,
       "lng": 140.9873
     },
     {
       "$dtId": "8226c15a-9e51-4cab-be89-f49471ebb7e9",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Mt Yotei",
-      "marker": null,
       "alias": [
         "Yotei"
       ],
@@ -100,12 +86,10 @@
     },
     {
       "$dtId": "0ee8a33d-2f33-425f-a87c-77447032ec6d",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Mt Racey",
-      "marker": null,
       "alias": [
         "Racey",
         "Yubari"
@@ -115,24 +99,20 @@
     },
     {
       "$dtId": "c09cb1a9-24a6-4573-884c-c1bb83fa321f",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Furano",
-      "marker": null,
       "alias": [],
       "lat": 43.3485,
       "lng": 142.3825
     },
     {
       "$dtId": "165743ee-d002-4320-b2ef-6e762da97998",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Kamui Ski Links",
-      "marker": null,
       "alias": [
         "Kamui",
         "Asahikawa"
@@ -142,12 +122,10 @@
     },
     {
       "$dtId": "bfc15de0-030c-4190-a165-ab2f6d2d703a",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Location;1"
       },
       "name": "Asahidake",
-      "marker": null,
       "alias": [
         "Daisetsuzan"
       ],
@@ -156,58 +134,44 @@
     },
     {
       "$dtId": "3a217d6f-cfe3-43c2-bc00-0cc0c3a71e52",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Niko Raes",
-      "role": "owner",
-      "note": "boarder — splitboard for the missions",
-      "contact": null
+      "note": "boarder — splitboard for the missions"
     },
     {
       "$dtId": "9f579e65-66b8-4196-be93-50119e8a58b1",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Nick Geelen",
-      "role": "editor",
-      "note": "confirmed for 2028",
-      "contact": null
+      "note": "confirmed for 2028"
     },
     {
       "$dtId": "0ee33eb5-dabb-4161-9e83-7e21e83ee104",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Pieter Willems",
-      "role": "editor",
-      "note": "Jozz — confirmed for 2028",
-      "contact": null
+      "note": "Jozz — confirmed for 2028"
     },
     {
       "$dtId": "b88fe16e-3f52-4e0b-8958-16f4d8983ef6",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Person;1"
       },
       "name": "Steven Willems",
-      "role": "viewer",
-      "note": "hopeful — asked, TBC",
-      "contact": null
+      "note": "hopeful — asked, TBC"
     },
     {
       "$dtId": "f2e7266a-f729-4f3f-b054-f308963074e3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Feature;1"
       },
       "kicker": "Why",
       "title": "The powder belt — the best snow on Earth",
       "description": "Hokkaido's annual snowfall is measured in **metres**: Niseko averages 15 m, Kiroro is Japan's snowiest resort at 21 m. The powder belt runs from the Niseko volcano cluster in the southwest up the central spine to the Daisetsuzan range in the northeast — one logical road trip, and the campervan makes it work: you sleep at the resort car park, wake up first in line, and follow the storm. The honest bit: van nights are cold (we'll have a proper heater), no toilet on board (onsens and service stations are legendary), and we sleep at ski-resort lots and onsen towns — exactly how the locals do it.",
-      "image": null,
       "images": [
         "/media/japan-campervan-2028/campervan.jpg",
         "/media/japan-campervan-2028/yotei-annupuri.jpg"
@@ -219,19 +183,16 @@
         "Onsen every night"
       ],
       "cards": [],
-      "map": null,
       "links": []
     },
     {
       "$dtId": "5bb03c07-813d-45c3-a555-d8104f864b0b",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Feature;1"
       },
       "kicker": "The plan",
       "title": "One van, one island, ~700 km of snow",
       "description": "Fly into **New Chitose (CTS)**, pick up a winter campervan (4WD, studless tyres, diesel heater) and drive the powder belt southwest → northeast. The spine is fixed; the daily stops are decided by the **snow forecast** — that's the whole point of the van. Late January, 10–12 days.",
-      "image": null,
       "images": [],
       "chips": [
         "~700 km in 10 days",
@@ -242,65 +203,47 @@
       "cards": [
         {
           "title": "New Chitose",
-          "value": null,
           "description": "Fly in, pick up the van — CTS pickup",
-          "image": null,
           "links": []
         },
         {
           "title": "Sapporo",
-          "value": null,
           "description": "Warm-up: Teine (1972 Olympic venue) + night sessions at Bankei/Kokusai",
-          "image": null,
           "links": []
         },
         {
           "title": "Niseko",
-          "value": null,
           "description": "Powder heartland — Grand Hirafu, Annupuri, storm-chase base",
-          "image": null,
           "links": []
         },
         {
           "title": "Rusutsu",
-          "value": null,
           "description": "Empty glades, theme-park resort, no queues",
-          "image": null,
           "links": []
         },
         {
           "title": "Kiroro",
-          "value": null,
           "description": "Japan's snowiest resort — 21 m a season",
-          "image": null,
           "links": []
         },
         {
           "title": "Mt Yotei",
-          "value": null,
           "description": "Mission 1: skin the 1,898 m volcano",
-          "image": null,
           "links": []
         },
         {
           "title": "Furano",
-          "value": null,
           "description": "Central spine — classic powder, far fewer people",
-          "image": null,
           "links": []
         },
         {
           "title": "Kamui Ski Links",
-          "value": null,
           "description": "Asahikawa — 'Hokkaido's best-kept secret', back bowls",
-          "image": null,
           "links": []
         },
         {
           "title": "Asahidake",
-          "value": null,
           "description": "Mission 2: ropeway to 1,600 m, volcanic bowls",
-          "image": null,
           "links": []
         }
       ],
@@ -318,14 +261,12 @@
     },
     {
       "$dtId": "6046304a-699b-40ea-b36d-3d6992a9dd5f",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Feature;1"
       },
       "kicker": "The missions",
       "title": "Yotei & Asahidake — the reason we go",
       "description": "Two full alpine days that no lift ticket can buy.\n\n**Mt Yotei** — \"Hokkaido's Fuji\", 1,898 m, a perfect stratovolcano. We climb it on our own skin track from the Niseko side: ~6 h up, wind-loaded faces, a summit view over the whole volcano, and a proper line back down. Needs a clear weather window.\n\n**Asahidake** — ropeway to 1,600 m on Hokkaido's highest peak in the Daisetsuzan range. Volcanic bowls and steaming vents, terrain you can't get anywhere else. Both need a **splitboard + skins + transceiver/probe/shovel per person**.",
-      "image": null,
       "images": [
         "/media/japan-campervan-2028/asahidake.jpg",
         "/media/japan-campervan-2028/yotei-snow.jpg"
@@ -337,7 +278,6 @@
         "Avalanche gear per person"
       ],
       "cards": [],
-      "map": null,
       "links": [
         {
           "label": "Asahidake ropeway",
@@ -351,14 +291,12 @@
     },
     {
       "$dtId": "219cf014-09ea-494f-936b-941489cf2309",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Feature;1"
       },
       "kicker": "The van",
       "title": "Campervan + the Powder Belt pass",
       "description": "The \"Powder Belt\" is a proven product: **Hoshino Resorts sells a Hokkaido Powder Belt Campervan Plan** — campervan (Robinson 771/106: 4WD, studless tyres, FF heater, ETC) + **5-day lift pass for Tomamu + Furano + Kamui** + breakfast/sauna/waxing at Tomamu & OMO7 Asahikawa, pickup at New Chitose. From ~¥215,300 (~€1,300) per van for 4n/5d — the hybrid van+hotel loop that makes January nights comfortable. **Book 3–4 months out** (January is Hokkaido's busiest foreign-visitor month).",
-      "image": null,
       "images": [],
       "chips": [
         "From ~€1,300 / van / 4-5d",
@@ -367,7 +305,6 @@
         "Book 3-4 months out"
       ],
       "cards": [],
-      "map": null,
       "links": [
         {
           "label": "Campervan Inc. / Japan C.R.C.",
@@ -381,7 +318,6 @@
     },
     {
       "$dtId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -393,7 +329,6 @@
     },
     {
       "$dtId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -405,7 +340,6 @@
     },
     {
       "$dtId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -417,7 +351,6 @@
     },
     {
       "$dtId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -429,7 +362,6 @@
     },
     {
       "$dtId": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
@@ -441,13 +373,11 @@
     },
     {
       "$dtId": "fb6f490d-62f9-4c9a-a42a-5007c113620f",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "BRU → New Chitose (CTS)",
-      "time": null,
       "description": "Return ~€1,000–1,200. Land afternoon.",
       "links": [
         {
@@ -455,33 +385,18 @@
           "url": "https://www.google.com/travel/flights"
         }
       ],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
       "mode": "flight",
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "ff36168b-103b-4611-ae54-a8b6d3340fe8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "booking",
       "title": "Campervan pickup",
-      "time": null,
       "description": "Hoshino Powder Belt plan or Campervan Inc. — CTS pickup, shuttle timed to arrival. Book 3–4 months out.",
       "links": [
         {
@@ -489,63 +404,30 @@
           "url": "https://www.japan-crc.com/"
         }
       ],
-      "cost": null,
-      "currency": null,
       "status": "planned",
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "d9afb383-7013-401e-8459-15a6b7e988b8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "meal",
       "title": "First Hokkaido ramen",
-      "time": null,
       "description": "Sapporo miso ramen — the city invented it.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-15",
       "title": "Fly to New Chitose → pick up the van",
       "notes": "Day 1 of 10. Land CTS (afternoon), shuttle to the campervan office, pick up the van: 4WD, studless tyres, FF heater. First konbini haul, then a quick drive towards Sapporo.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -555,13 +437,11 @@
     },
     {
       "$dtId": "11a68f7b-ca17-49e7-907c-3de06efb4071",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Teine full day + night session",
-      "time": null,
       "description": "1972 Olympic venue, minutes from the city, night skiing under the lights.",
       "links": [
         {
@@ -569,33 +449,16 @@
           "url": "https://www.sapporo-teine.com/snow/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "8ad70a85-b1cb-4d52-b379-80fec414448b",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Sapporo Kokusai",
-      "time": null,
       "description": "~3 m high-season snow, 40 min from the city. Or Bankei for a cheap night park.",
       "links": [
         {
@@ -603,34 +466,17 @@
           "url": "https://www.sapporo-kokusai.jp/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-16",
       "title": "Sapporo warm-up — Teine, Bankei, Kokusai",
       "notes": "Legs first, legs fresh. Teine is the 1972 Olympic venue with night skiing; Bankei is a tiny local hill with a night park; Sapporo Kokusai (40 min) gets ~3 m of high-season snow. Night sessions in the city, then the best ramen in Japan.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -644,13 +490,11 @@
     },
     {
       "$dtId": "7c37e250-ca6c-41c8-a279-8a0328e9f9d6",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Grand Hirafu",
-      "time": null,
       "description": "Sidecountry gates off the top, Hanazono trees when it's deep. The van sleeps at the bottom of the gondola.",
       "links": [
         {
@@ -658,63 +502,29 @@
           "url": "https://www.niseko-united.jp/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "51d4f37f-3785-46ef-82b4-c1aec80fb770",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "First onsen + kaisen-don",
-      "time": null,
       "description": "Kutchan or Hirafu — seafood bowl and a soak after day one.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "9d891362-490f-462f-9bb2-124f3c570fc1",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-17",
       "title": "Niseko — Grand Hirafu",
       "notes": "The powder heartland. Grand Hirafu first — the most famous powder resort on Earth for a reason. Storm map decides the rest of the week: Rusutsu, Kiroro, or back to Kokusai.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -728,13 +538,11 @@
     },
     {
       "$dtId": "2427ab1d-52c8-4a05-a482-7f8e37442fac",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Rusutsu",
-      "time": null,
       "description": "Isola and East mountains, glades for days, almost no queues.",
       "links": [
         {
@@ -742,33 +550,16 @@
           "url": "https://www.rusutsu.co.jp/en/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "56c96722-7b28-42a0-aeb3-2dcebdbf5681",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Kiroro",
-      "time": null,
       "description": "21 m of annual snowfall — the deepest resort in Japan. Peak-side trees when it's nuking.",
       "links": [
         {
@@ -776,34 +567,17 @@
           "url": "https://www.kiroro.co.jp/en/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "0b32cd6b-ca3d-4cf0-80af-dff311319098",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-18",
       "title": "Rusutsu & Kiroro — wherever the storm hits",
       "notes": "Open day. Rusutsu: empty glades and a resort that feels like a theme park. Kiroro: Japan's snowiest resort, 21 m a year. Both ~1h from Hirafu. The forecast decides — that's the whole point of the van.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -817,72 +591,36 @@
     },
     {
       "$dtId": "596331ce-28f7-40f8-930a-62590a54b9fc",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "note",
       "title": "Things to decide",
-      "time": null,
       "description": "Yotei weather window (needs clear), whether Mt Racey breaks the drive north, and where the first central-spine day goes.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "03e9cfd1-63dd-4012-8169-771ab6583e25",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Yotei scouting",
-      "time": null,
       "description": "Check the Annupuri-side approach and the snowpack. The mission day needs a window.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "7bb414e4-a475-4902-a174-93573f54b251",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-19",
       "title": "Open day — storm chase or Yotei scouting",
       "notes": "Wildcard day. Options: (a) one more Niseko-area powder day wherever the storm is, (b) scout the Yotei approach + soak at an onsen town, (c) start the drive north early. Decide by breakfast.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -892,13 +630,11 @@
     },
     {
       "$dtId": "a954d0e1-f047-4f71-801d-cc4be06788b8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Yotei skin track",
-      "time": null,
       "description": "Start from the Annupuri side early. 6–8 h round trip. Check the forecast — this is a weather-window day.",
       "links": [
         {
@@ -906,34 +642,17 @@
           "url": "https://www.snow-forecast.com/resorts/Mount-Yotei"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "124f74dd-91e2-447f-adbc-03c7c431b25e",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-20",
       "title": "Mt Yotei mission",
       "notes": "The reason we came. Skin up Hokkaido's Fuji (1,898 m) from the Niseko side — ~6 h up, wind-loaded faces on the way down, summit view over the whole volcano. Splitboard + skins + transceiver/probe/shovel. Clear-day only.",
-      "map": null,
       "meta": [
         {
           "label": "Mission",
@@ -947,13 +666,11 @@
     },
     {
       "$dtId": "388b70f0-77ae-4060-8d68-52844b9f6faf",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Mt Racey",
-      "time": null,
       "description": "Huge dumps, Indy Pass resort, breaks the drive north.",
       "links": [
         {
@@ -961,33 +678,16 @@
           "url": "https://www.racey.co.jp/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "4ab5e186-9e64-425e-8b12-577b366236fa",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Furano",
-      "time": null,
       "description": "Central belt: drier snow, tree runs, best when Niseko is tracked out. On the Powder Belt pass.",
       "links": [
         {
@@ -995,34 +695,17 @@
           "url": "https://www.princehotels.com/en/ski/furano/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-21",
       "title": "Up the spine — Mt Racey → Furano",
       "notes": "North towards the central spine. Mt Racey (Yubari) breaks the drive: huge dumps (~8 m+), 40% advanced, one gondola, closest Japow to the airport. Then Furano: classic powder and tree runs, far fewer people than Niseko.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -1036,13 +719,11 @@
     },
     {
       "$dtId": "63d1f938-66e6-4d1c-a016-7ecffe45db2b",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Kamui Ski Links",
-      "time": null,
       "description": "Back bowls + sidecountry, cheap lift tickets, almost no queues. Powder Belt pass covers it.",
       "links": [
         {
@@ -1050,63 +731,29 @@
           "url": "https://kamui.co.jp/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "85fe2967-090a-4047-a4d7-21949f209b57",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "meal",
       "title": "Asahikawa ramen",
-      "time": null,
       "description": "The shio-ramen capital — a different bowl than Sapporo's miso.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "88c718a8-c199-41f1-bc09-0b6015037f7a",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-22",
       "title": "Kamui Ski Links — Asahikawa's secret",
       "notes": "'Hokkaido's best-kept secret': 25 courses, ~600 m vertical, famous back bowls + sidecountry, cheap — and part of the Hoshino Powder Belt pass. 30 min from Asahikawa. A proper hidden-gem day.",
-      "map": null,
       "meta": [
         {
           "label": "Stay",
@@ -1120,13 +767,11 @@
     },
     {
       "$dtId": "1ec5c7e5-5ad7-4726-b723-4407dca77578",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "activity",
       "title": "Asahidake bowls",
-      "time": null,
       "description": "Ropeway to 1,600 m, then it's all you. The famous fumarole zone steams at the base.",
       "links": [
         {
@@ -1134,34 +779,17 @@
           "url": "https://asahidake.hokkaido.jp/"
         }
       ],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "7ae8fb69-51de-4067-812d-c36d253e3dc8",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-23",
       "title": "Asahidake mission",
       "notes": "Ropeway to 1,600 m on Hokkaido's highest peak, in the Daisetsuzan range. Volcanic bowls and steaming vents — terrain you can't get anywhere else. Backcountry: beacon, probe, shovel.",
-      "map": null,
       "meta": [
         {
           "label": "Mission",
@@ -1175,72 +803,37 @@
     },
     {
       "$dtId": "731e0e93-cafc-4c37-8962-c19692159348",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "note",
       "title": "Wrap up",
-      "time": null,
       "description": "Return the van clean-ish, dump gear, last onigiri at the konbini. Debrief on the plane: which storm day wins?",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
-      "mode": null,
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "890d722a-2a17-425e-a472-120858411610",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
       },
       "kind": "transport",
       "title": "New Chitose → Brussels",
-      "time": null,
       "description": "Return flight. ~€1,000–1,200 total.",
       "links": [],
-      "cost": null,
-      "currency": null,
-      "status": null,
-      "bookingCode": null,
-      "order": null,
       "items": [],
-      "html": null,
-      "distance": null,
-      "duration": null,
-      "route": null,
-      "via": null,
-      "from_": null,
-      "to": null,
       "mode": "flight",
-      "location": null,
-      "mapsQuery": null,
       "images": []
     },
     {
       "$dtId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
       "date": "2028-01-24",
       "title": "Flex morning → fly home",
       "notes": "Wildcard morning: one last run wherever the snow is (Teine night session? Kamui again?), return the van at New Chitose, fly home. Ten days, one island, two missions — see you at the next one.",
-      "map": null,
       "meta": [
         {
           "label": "Flight",
@@ -1254,7 +847,6 @@
     },
     {
       "$dtId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
-      "$etag": "W/\"mock-etag\"",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Trip;1"
       },
@@ -1265,14 +857,13 @@
       "startDate": "2028-01-15",
       "endDate": "2028-01-24",
       "token": "5aa2f9df686d66f1357287f88e5ffb58",
+      "claimToken": "52eb9fc99194f844bb29206f62d0cf2d",
       "cover": "/media/japan-campervan-2028/yotei-snow.jpg",
       "coverCredit": "Mt Yotei from the Niseko slopes",
-      "map": null,
       "summary": "Fly to Sapporo, pick up a campervan, chase snow. No fixed bookings except the van — the weather decides where we ride. Hokkaido's powder belt stretches from the **Niseko volcano cluster** in the southwest up the central spine to the **Daisetsuzan range** in the northeast: one logical road trip. Niseko, Rusutsu, Kiroro, Kokusai, then up past Furano and Kamui to Asahidake. Two missions make the trip: **climbing Mt Yotei** and the **Asahidake volcanic bowls**.",
       "theme": {
         "primary": "#334155",
-        "accent": "#b45309",
-        "font": null
+        "accent": "#b45309"
       },
       "coverStats": [
         "10 days · late Jan 2028",
@@ -1409,22 +1000,18 @@
         "contacts": [
           {
             "label": "Campervan Inc. / Japan C.R.C.",
-            "value": "japan-crc.com — CTS pickup, Hoshino Powder Belt partner",
-            "link": null
+            "value": "japan-crc.com — CTS pickup, Hoshino Powder Belt partner"
           },
           {
             "label": "Moving Inn",
-            "value": "moving-inn.com — free CTS shuttle (Tomakomai office)",
-            "link": null
+            "value": "moving-inn.com — free CTS shuttle (Tomakomai office)"
           },
           {
             "label": "Asahidake ropeway",
-            "value": "asahidake.hokkaido.jp — ropeway + conditions",
-            "link": null
+            "value": "asahidake.hokkaido.jp — ropeway + conditions"
           }
         ]
-      },
-      "updated": null
+      }
     }
   ],
   "relationships": [
@@ -1433,7 +1020,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasCrew",
       "$targetId": "3a217d6f-cfe3-43c2-bc00-0cc0c3a71e52",
-      "$etag": "W/\"mock-etag\"",
       "index": 0,
       "role": "owner"
     },
@@ -1442,7 +1028,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasCrew",
       "$targetId": "9f579e65-66b8-4196-be93-50119e8a58b1",
-      "$etag": "W/\"mock-etag\"",
       "index": 1,
       "role": "editor"
     },
@@ -1451,7 +1036,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasCrew",
       "$targetId": "0ee33eb5-dabb-4161-9e83-7e21e83ee104",
-      "$etag": "W/\"mock-etag\"",
       "index": 2,
       "role": "editor"
     },
@@ -1460,7 +1044,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasCrew",
       "$targetId": "b88fe16e-3f52-4e0b-8958-16f4d8983ef6",
-      "$etag": "W/\"mock-etag\"",
       "index": 3,
       "role": "viewer"
     },
@@ -1469,7 +1052,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasFeature",
       "$targetId": "f2e7266a-f729-4f3f-b054-f308963074e3",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1477,7 +1059,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasFeature",
       "$targetId": "5bb03c07-813d-45c3-a555-d8104f864b0b",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1485,7 +1066,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasFeature",
       "$targetId": "6046304a-699b-40ea-b36d-3d6992a9dd5f",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1493,7 +1073,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasFeature",
       "$targetId": "219cf014-09ea-494f-936b-941489cf2309",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -1501,7 +1080,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasSection",
       "$targetId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1509,7 +1087,6 @@
       "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
       "$relationshipName": "hasDay",
       "$targetId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1517,7 +1094,6 @@
       "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
       "$relationshipName": "hasDay",
       "$targetId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1525,7 +1101,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasSection",
       "$targetId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1533,7 +1108,6 @@
       "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
       "$relationshipName": "hasDay",
       "$targetId": "9d891362-490f-462f-9bb2-124f3c570fc1",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1541,7 +1115,6 @@
       "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
       "$relationshipName": "hasDay",
       "$targetId": "0b32cd6b-ca3d-4cf0-80af-dff311319098",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -1549,7 +1122,6 @@
       "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
       "$relationshipName": "hasDay",
       "$targetId": "7bb414e4-a475-4902-a174-93573f54b251",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
@@ -1557,7 +1129,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasSection",
       "$targetId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1565,7 +1136,6 @@
       "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
       "$relationshipName": "hasDay",
       "$targetId": "124f74dd-91e2-447f-adbc-03c7c431b25e",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     },
     {
@@ -1573,7 +1143,6 @@
       "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
       "$relationshipName": "hasDay",
       "$targetId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
-      "$etag": "W/\"mock-etag\"",
       "index": 6
     },
     {
@@ -1581,7 +1150,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasSection",
       "$targetId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -1589,7 +1157,6 @@
       "$sourceId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
       "$relationshipName": "hasDay",
       "$targetId": "88c718a8-c199-41f1-bc09-0b6015037f7a",
-      "$etag": "W/\"mock-etag\"",
       "index": 7
     },
     {
@@ -1597,7 +1164,6 @@
       "$sourceId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
       "$relationshipName": "hasDay",
       "$targetId": "7ae8fb69-51de-4067-812d-c36d253e3dc8",
-      "$etag": "W/\"mock-etag\"",
       "index": 8
     },
     {
@@ -1605,7 +1171,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasSection",
       "$targetId": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
@@ -1613,220 +1178,190 @@
       "$sourceId": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
       "$relationshipName": "hasDay",
       "$targetId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f",
-      "$etag": "W/\"mock-etag\"",
       "index": 9
     },
     {
       "$relationshipId": "a97db023-4878-4ed1-957b-fb9a04cedeca__hasBlock__fb6f490d-62f9-4c9a-a42a-5007c113620f",
       "$sourceId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
       "$relationshipName": "hasBlock",
-      "$targetId": "fb6f490d-62f9-4c9a-a42a-5007c113620f",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "fb6f490d-62f9-4c9a-a42a-5007c113620f"
     },
     {
       "$relationshipId": "a97db023-4878-4ed1-957b-fb9a04cedeca__hasBlock__ff36168b-103b-4611-ae54-a8b6d3340fe8",
       "$sourceId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
       "$relationshipName": "hasBlock",
-      "$targetId": "ff36168b-103b-4611-ae54-a8b6d3340fe8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "ff36168b-103b-4611-ae54-a8b6d3340fe8"
     },
     {
       "$relationshipId": "a97db023-4878-4ed1-957b-fb9a04cedeca__hasBlock__d9afb383-7013-401e-8459-15a6b7e988b8",
       "$sourceId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
       "$relationshipName": "hasBlock",
-      "$targetId": "d9afb383-7013-401e-8459-15a6b7e988b8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "d9afb383-7013-401e-8459-15a6b7e988b8"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__a97db023-4878-4ed1-957b-fb9a04cedeca",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "a97db023-4878-4ed1-957b-fb9a04cedeca",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
       "$relationshipId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117__hasBlock__11a68f7b-ca17-49e7-907c-3de06efb4071",
       "$sourceId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117",
       "$relationshipName": "hasBlock",
-      "$targetId": "11a68f7b-ca17-49e7-907c-3de06efb4071",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "11a68f7b-ca17-49e7-907c-3de06efb4071"
     },
     {
       "$relationshipId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117__hasBlock__8ad70a85-b1cb-4d52-b379-80fec414448b",
       "$sourceId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117",
       "$relationshipName": "hasBlock",
-      "$targetId": "8ad70a85-b1cb-4d52-b379-80fec414448b",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "8ad70a85-b1cb-4d52-b379-80fec414448b"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__4bf7bd05-5471-46a9-af55-dc29fbaeb117",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "4bf7bd05-5471-46a9-af55-dc29fbaeb117",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
       "$relationshipId": "9d891362-490f-462f-9bb2-124f3c570fc1__hasBlock__7c37e250-ca6c-41c8-a279-8a0328e9f9d6",
       "$sourceId": "9d891362-490f-462f-9bb2-124f3c570fc1",
       "$relationshipName": "hasBlock",
-      "$targetId": "7c37e250-ca6c-41c8-a279-8a0328e9f9d6",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "7c37e250-ca6c-41c8-a279-8a0328e9f9d6"
     },
     {
       "$relationshipId": "9d891362-490f-462f-9bb2-124f3c570fc1__hasBlock__51d4f37f-3785-46ef-82b4-c1aec80fb770",
       "$sourceId": "9d891362-490f-462f-9bb2-124f3c570fc1",
       "$relationshipName": "hasBlock",
-      "$targetId": "51d4f37f-3785-46ef-82b4-c1aec80fb770",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "51d4f37f-3785-46ef-82b4-c1aec80fb770"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__9d891362-490f-462f-9bb2-124f3c570fc1",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "9d891362-490f-462f-9bb2-124f3c570fc1",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
       "$relationshipId": "0b32cd6b-ca3d-4cf0-80af-dff311319098__hasBlock__2427ab1d-52c8-4a05-a482-7f8e37442fac",
       "$sourceId": "0b32cd6b-ca3d-4cf0-80af-dff311319098",
       "$relationshipName": "hasBlock",
-      "$targetId": "2427ab1d-52c8-4a05-a482-7f8e37442fac",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "2427ab1d-52c8-4a05-a482-7f8e37442fac"
     },
     {
       "$relationshipId": "0b32cd6b-ca3d-4cf0-80af-dff311319098__hasBlock__56c96722-7b28-42a0-aeb3-2dcebdbf5681",
       "$sourceId": "0b32cd6b-ca3d-4cf0-80af-dff311319098",
       "$relationshipName": "hasBlock",
-      "$targetId": "56c96722-7b28-42a0-aeb3-2dcebdbf5681",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "56c96722-7b28-42a0-aeb3-2dcebdbf5681"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__0b32cd6b-ca3d-4cf0-80af-dff311319098",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "0b32cd6b-ca3d-4cf0-80af-dff311319098",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
       "$relationshipId": "7bb414e4-a475-4902-a174-93573f54b251__hasBlock__596331ce-28f7-40f8-930a-62590a54b9fc",
       "$sourceId": "7bb414e4-a475-4902-a174-93573f54b251",
       "$relationshipName": "hasBlock",
-      "$targetId": "596331ce-28f7-40f8-930a-62590a54b9fc",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "596331ce-28f7-40f8-930a-62590a54b9fc"
     },
     {
       "$relationshipId": "7bb414e4-a475-4902-a174-93573f54b251__hasBlock__03e9cfd1-63dd-4012-8169-771ab6583e25",
       "$sourceId": "7bb414e4-a475-4902-a174-93573f54b251",
       "$relationshipName": "hasBlock",
-      "$targetId": "03e9cfd1-63dd-4012-8169-771ab6583e25",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "03e9cfd1-63dd-4012-8169-771ab6583e25"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__7bb414e4-a475-4902-a174-93573f54b251",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "7bb414e4-a475-4902-a174-93573f54b251",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
       "$relationshipId": "124f74dd-91e2-447f-adbc-03c7c431b25e__hasBlock__a954d0e1-f047-4f71-801d-cc4be06788b8",
       "$sourceId": "124f74dd-91e2-447f-adbc-03c7c431b25e",
       "$relationshipName": "hasBlock",
-      "$targetId": "a954d0e1-f047-4f71-801d-cc4be06788b8",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "a954d0e1-f047-4f71-801d-cc4be06788b8"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__124f74dd-91e2-447f-adbc-03c7c431b25e",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "124f74dd-91e2-447f-adbc-03c7c431b25e",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     },
     {
       "$relationshipId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf__hasBlock__388b70f0-77ae-4060-8d68-52844b9f6faf",
       "$sourceId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
       "$relationshipName": "hasBlock",
-      "$targetId": "388b70f0-77ae-4060-8d68-52844b9f6faf",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "388b70f0-77ae-4060-8d68-52844b9f6faf"
     },
     {
       "$relationshipId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf__hasBlock__4ab5e186-9e64-425e-8b12-577b366236fa",
       "$sourceId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
       "$relationshipName": "hasBlock",
-      "$targetId": "4ab5e186-9e64-425e-8b12-577b366236fa",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "4ab5e186-9e64-425e-8b12-577b366236fa"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf",
-      "$etag": "W/\"mock-etag\"",
       "index": 6
     },
     {
       "$relationshipId": "88c718a8-c199-41f1-bc09-0b6015037f7a__hasBlock__63d1f938-66e6-4d1c-a016-7ecffe45db2b",
       "$sourceId": "88c718a8-c199-41f1-bc09-0b6015037f7a",
       "$relationshipName": "hasBlock",
-      "$targetId": "63d1f938-66e6-4d1c-a016-7ecffe45db2b",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "63d1f938-66e6-4d1c-a016-7ecffe45db2b"
     },
     {
       "$relationshipId": "88c718a8-c199-41f1-bc09-0b6015037f7a__hasBlock__85fe2967-090a-4047-a4d7-21949f209b57",
       "$sourceId": "88c718a8-c199-41f1-bc09-0b6015037f7a",
       "$relationshipName": "hasBlock",
-      "$targetId": "85fe2967-090a-4047-a4d7-21949f209b57",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "85fe2967-090a-4047-a4d7-21949f209b57"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__88c718a8-c199-41f1-bc09-0b6015037f7a",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "88c718a8-c199-41f1-bc09-0b6015037f7a",
-      "$etag": "W/\"mock-etag\"",
       "index": 7
     },
     {
       "$relationshipId": "7ae8fb69-51de-4067-812d-c36d253e3dc8__hasBlock__1ec5c7e5-5ad7-4726-b723-4407dca77578",
       "$sourceId": "7ae8fb69-51de-4067-812d-c36d253e3dc8",
       "$relationshipName": "hasBlock",
-      "$targetId": "1ec5c7e5-5ad7-4726-b723-4407dca77578",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "1ec5c7e5-5ad7-4726-b723-4407dca77578"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__7ae8fb69-51de-4067-812d-c36d253e3dc8",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "7ae8fb69-51de-4067-812d-c36d253e3dc8",
-      "$etag": "W/\"mock-etag\"",
       "index": 8
     },
     {
       "$relationshipId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f__hasBlock__731e0e93-cafc-4c37-8962-c19692159348",
       "$sourceId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f",
       "$relationshipName": "hasBlock",
-      "$targetId": "731e0e93-cafc-4c37-8962-c19692159348",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "731e0e93-cafc-4c37-8962-c19692159348"
     },
     {
       "$relationshipId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f__hasBlock__890d722a-2a17-425e-a472-120858411610",
       "$sourceId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f",
       "$relationshipName": "hasBlock",
-      "$targetId": "890d722a-2a17-425e-a472-120858411610",
-      "$etag": "W/\"mock-etag\""
+      "$targetId": "890d722a-2a17-425e-a472-120858411610"
     },
     {
       "$relationshipId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc__hasDay__7a0481f2-7feb-435f-a0ab-bc31b84e252f",
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "hasDay",
       "$targetId": "7a0481f2-7feb-435f-a0ab-bc31b84e252f",
-      "$etag": "W/\"mock-etag\"",
       "index": 9
     },
     {
@@ -1834,7 +1369,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "28da939e-4ad7-4851-af69-9562b908110d",
-      "$etag": "W/\"mock-etag\"",
       "index": 0
     },
     {
@@ -1842,7 +1376,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "f84223d4-530a-47cf-9a21-4ecb1be172d8",
-      "$etag": "W/\"mock-etag\"",
       "index": 1
     },
     {
@@ -1850,7 +1383,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "9b3b8a79-9a6d-4691-a037-9e9290e40805",
-      "$etag": "W/\"mock-etag\"",
       "index": 2
     },
     {
@@ -1858,7 +1390,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "bcccb485-125b-497c-9bd8-5ba8e787fae4",
-      "$etag": "W/\"mock-etag\"",
       "index": 3
     },
     {
@@ -1866,7 +1397,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "b5cd2f4f-c3f4-4b28-9285-6a043855889e",
-      "$etag": "W/\"mock-etag\"",
       "index": 4
     },
     {
@@ -1874,7 +1404,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "c085127f-5a7b-4dd9-aa8b-af21674d557e",
-      "$etag": "W/\"mock-etag\"",
       "index": 5
     },
     {
@@ -1882,7 +1411,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "8226c15a-9e51-4cab-be89-f49471ebb7e9",
-      "$etag": "W/\"mock-etag\"",
       "index": 6
     },
     {
@@ -1890,7 +1418,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "0ee8a33d-2f33-425f-a87c-77447032ec6d",
-      "$etag": "W/\"mock-etag\"",
       "index": 7
     },
     {
@@ -1898,7 +1425,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "c09cb1a9-24a6-4573-884c-c1bb83fa321f",
-      "$etag": "W/\"mock-etag\"",
       "index": 8
     },
     {
@@ -1906,7 +1432,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "165743ee-d002-4320-b2ef-6e762da97998",
-      "$etag": "W/\"mock-etag\"",
       "index": 9
     },
     {
@@ -1914,7 +1439,6 @@
       "$sourceId": "c3917ca2-8c5d-45cd-b3b3-6bc2fea73afc",
       "$relationshipName": "atLocation",
       "$targetId": "bfc15de0-030c-4190-a165-ab2f6d2d703a",
-      "$etag": "W/\"mock-etag\"",
       "index": 10
     }
   ]

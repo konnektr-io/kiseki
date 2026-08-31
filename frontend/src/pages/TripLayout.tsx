@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarDays, FileDown, Home, ListChecks, Map } from "lucide-react";
-import { fetchTrip, bookletUrl, isTripId, TripAccessError } from "../lib/api";
+import { ArrowLeft, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
+import { fetchTrip, bookletUrl, isTripId, fetchJoinLink, TripAccessError } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -47,6 +47,7 @@ export function TripLayout() {
   const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
+  const [joinCopied, setJoinCopied] = useState(false);
 
   const idMode = isTripId(token);
   usePageTitle(trip?.title ?? null);
@@ -155,6 +156,19 @@ export function TripLayout() {
 
   const days = dayCount(trip.startDate, trip.endDate);
   const onDayPage = pathname.includes(`/t/${trip.token}/day/`);
+  const isOwner = trip.myRole === "owner";
+
+  const copyJoinLink = async () => {
+    try {
+      const at = await getAccessTokenSilently();
+      const joinUrl = await fetchJoinLink(trip.id, at);
+      await navigator.clipboard.writeText(window.location.origin + joinUrl);
+      setJoinCopied(true);
+      setTimeout(() => setJoinCopied(false), 2000);
+    } catch (e) {
+      if (e instanceof TripAccessError && e.status === 403) setJoinCopied(false);
+    }
+  };
 
   return (
     <TripProvider trip={trip}>
@@ -182,6 +196,16 @@ export function TripLayout() {
                   : "Dates TBD"}
               </p>
             </div>
+            {isOwner && (
+              <button
+                onClick={copyJoinLink}
+                title="Copy the crew join link"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+              >
+                <Link2 className="h-4 w-4" />
+                <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
+              </button>
+            )}
             <a
               href={bookletUrl(trip.token)}
               target="_blank"

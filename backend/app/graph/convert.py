@@ -180,6 +180,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "startDate": base.get("startDate"),
             "endDate": base.get("endDate"),
             "token": base.get("token", ""),
+            "claimToken": base.get("claimToken", ""),
             "cover": base.get("cover"),
             "coverCredit": base.get("coverCredit"),
             "map": base.get("map"),

@@ -46,19 +46,20 @@ def _role_ok(role: str | None, min_role: str) -> bool:
 def authorize_trip_path(
     trip_param: str,
     authorization: str | None = Header(default=None),
-) -> None:
+) -> str | None:
     """FastAPI dependency for ``GET /api/trips/{trip_param}``.
 
     - share token (non-dashed) → anonymous allowed (public-by-link); the
-      Authorization header is ignored entirely (the endpoint is public)
+      Authorization header is ignored entirely (the endpoint is public);
+      returns None.
     - dashed UUID ($dtId)      → require a valid token (401) AND a crew role
-      at or above ``viewer`` (403 otherwise). Role = the User twin whose
-      ``$dtId`` is the auth ``sub`` — established by claiming the crew
-      identity (issue #6), never by name/email matching.
+      at or above ``viewer`` (403 otherwise); returns the caller's role.
+      Role = the User twin whose ``$dtId`` is the auth ``sub`` — established
+      by claiming the crew identity (issue #6), never by name/email matching.
     """
 
     if not is_trip_id(trip_param):
-        return  # secret share link — public by design
+        return None  # secret share link — public by design
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=401,
@@ -72,3 +73,35 @@ def authorize_trip_path(
             status_code=403,
             detail="You don't have access to this trip",
         )
+    return role
+
+
+def require_trip_role(min_role: str):
+    """FastAPI dependency factory for owner/editor-only sub-resources.
+
+    Usage on a route with a ``trip_id`` path parameter (dashed UUID), e.g. the
+    join-link endpoint::
+
+        @app.get("/api/trips/{trip_id}/join-link")
+        def join_link(trip_id: str, _: None = Depends(require_trip_role("owner"))): ...
+    """
+
+    def dependency(
+        trip_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> None:
+        if not authorization or not authorization.lower().startswith("bearer "):
+            raise HTTPException(
+                status_code=401,
+                detail="Missing bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        user = get_current_user(authorization)  # validates; 401 on invalid
+        role = get_trip_role_for_user(trip_id.lower(), user["sub"])
+        if not _role_ok(role, min_role):
+            raise HTTPException(
+                status_code=403,
+                detail=f"You need the '{min_role}' role for this trip",
+            )
+
+    return dependency

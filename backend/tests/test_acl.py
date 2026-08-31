@@ -207,6 +207,8 @@ def test_protected_ok_with_role(client: TestClient, rsa_keypair, role) -> None:
     assert body["id"] == _uuid()
     assert body["slug"]  # same shape as the token route
     assert body["token"]  # secret link still rides along (share feature)
+    assert body["myRole"] == "viewer"  # caller's role reported on the protected path
+    assert "claimToken" not in body  # the claim secret never ships in documents
 
 
 def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> None:
@@ -221,7 +223,9 @@ def test_public_token_route_still_anonymous(client: TestClient) -> None:
     trip = load_trips()[0]
     r = client.get(f"/api/trips/{trip.token}")
     assert r.status_code == 200
-    assert r.json()["slug"] == trip.slug
+    body = r.json()
+    assert body["slug"] == trip.slug
+    assert "claimToken" not in body  # never leaked on the anonymous route
 
 
 def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
@@ -232,3 +236,28 @@ def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) ->
         headers={"Authorization": f"Bearer {bad}"},
     )
     assert r.status_code == 200  # anonymous-by-link: auth header is irrelevant
+
+
+# ---------------------------------------------------------------- join link
+
+
+def test_join_link_requires_token(client: TestClient) -> None:
+    r = client.get(f"/api/trips/{_uuid()}/join-link")
+    assert r.status_code == 401
+
+
+def test_join_link_forbidden_for_viewer(client: TestClient, rsa_keypair, role) -> None:
+    role("viewer")
+    token = _token_of(rsa_keypair)
+    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+def test_join_link_ok_for_owner(client: TestClient, rsa_keypair, role) -> None:
+    role("owner")
+    token = _token_of(rsa_keypair)
+    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["joinUrl"].startswith("/join/")
+    assert len(body["joinUrl"]) > len("/join/")

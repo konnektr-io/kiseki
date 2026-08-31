@@ -1,4 +1,4 @@
-"""Live Konnektr Graph read adapter (P1 source of truth, issue #4).
+"""Live Konnektr Graph adapter (P1 source of truth, issue #4).
 
 This module is the ONLY place that imports ``konnektr-graph``. It exposes a
 small, source-agnostic contract so the rest of the backend never depends on the
@@ -6,8 +6,12 @@ SDK directly:
 
     is_enabled()                    -> bool  (graph wired; else local trip.json source)
     find_trip_dtid_by_token(token)  -> dtid | None
+    find_trip_dtid_by_claim_token(t)-> dtid | None   (issue #6 join link)
     fetch_graph(dtid)               -> {"$dtId", "twins", "relationships"}
     list_trips_for_user(user_dtid)  -> [trip summary dict, ...]  (hasCrew access)
+    role_for_user_on_trip(...)      -> role | None                 (ACL, #5)
+    create_user_twin(...)           -> bool   (claim flow, #6)
+    claim_crew_person(...)          -> bool   (edge transfer + placeholder delete, #6)
 
 ``fetch_graph`` always returns the SAME normalized shape as the committed
 ``data/seed/*.graph.json`` fixtures (produced by ``scripts/trip_to_graph.py``):
@@ -48,6 +52,8 @@ from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
 # Every node in the graph is a ``:Twin``; the kind is carried by the
 # ``$metadata.$model`` property (dtmi:kiseki:travel:<Kind>;1).
 TRIP_MODEL = "dtmi:kiseki:travel:Trip;1"
+USER_MODEL = "dtmi:kiseki:travel:User;1"
+PERSON_MODEL = "dtmi:kiseki:travel:Person;1"
 
 # A trip token is a secret-share id from the URL path. Validated as defense in
 # depth — the value is passed as a Cypher parameter, never interpolated.
@@ -74,6 +80,15 @@ MAX_HOPS = 4
 _Q_FIND_TRIP = """
 MATCH (trip:Twin)
 WHERE trip.token = $token
+RETURN trip
+LIMIT 1
+"""
+
+# Same, but keyed on the CLAIM token (issue #6 join link) — a separate secret
+# that authorizes claiming a crew identity on this trip.
+_Q_FIND_TRIP_BY_CLAIM = """
+MATCH (trip:Twin)
+WHERE trip.claimToken = $claimToken
 RETURN trip
 LIMIT 1
 """
@@ -166,6 +181,30 @@ class GraphReadClient:
             )
         except Exception as exc:
             print(f"[kiseki] graph trip lookup failed: {exc}")
+            return None
+        if not rows:
+            return None
+        trip = self._norm_node((rows[0] or {}).get("trip") or {})
+        if trip.get("$metadata", {}).get("$model") != TRIP_MODEL:
+            return None
+        return trip.get("$dtId")
+
+    def find_trip_dtid_by_claim_token(self, claim_token: str) -> Optional[str]:
+        """Return the Trip twin ``$dtId`` whose ``claimToken`` property matches.
+
+        Same contract as ``find_trip_dtid_by_token`` but for the join/claim
+        secret (issue #6). ``$claimToken`` is a bound parameter.
+        """
+        if not self.is_enabled() or not _TOKEN_RE.match(claim_token or ""):
+            return None
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FIND_TRIP_BY_CLAIM, query_parameters={"claimToken": claim_token}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph claim lookup failed: {exc}")
             return None
         if not rows:
             return None
@@ -272,6 +311,89 @@ class GraphReadClient:
             return None
         role = (rows[0] or {}).get("role")
         return role if isinstance(role, str) else None
+
+    # ------------------------------------------------------------- claim (#6)
+
+    def create_user_twin(self, user_dtid: str, profile: dict[str, Any]) -> bool:
+        """Upsert the User twin for an authenticated user (claim flow, #6).
+
+        ``$dtId`` IS the global auth id (the token's ``sub``). The twin carries
+        the OIDC profile; ``role`` stays on the ``hasCrew`` EDGE, never on the
+        node. PUT by ``$dtId`` — idempotent.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return False
+        email = (profile.get("email") or "").strip()
+        if not email:
+            return False  # a User twin without a verified email is not useful
+        name = (profile.get("name") or "").strip() or email.split("@")[0]
+        auth_provider = "external"
+        for prefix, provider in (("google-oauth2|", "google"), ("auth0|", "auth0")):
+            if user_dtid.startswith(prefix):
+                auth_provider = provider
+                break
+        try:
+            from konnektr_graph import BasicDigitalTwin
+
+            twin = BasicDigitalTwin.from_dict(
+                {
+                    "$dtId": user_dtid,
+                    "$metadata": {"$model": USER_MODEL},
+                    "name": name,
+                    "email": email,
+                    "displayName": name,
+                    "authProvider": auth_provider,
+                }
+            )
+            self._client.upsert_digital_twin(user_dtid, twin)  # type: ignore[union-attr]
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph create user twin({user_dtid}) failed: {exc}")
+            return False
+
+    def claim_crew_person(
+        self,
+        trip_dtid: str,
+        user_dtid: str,
+        person_dtid: str,
+        role: str,
+        index: int,
+    ) -> bool:
+        """Transfer a trip's ``hasCrew`` edge from a placeholder Person to the
+        User twin, then retire the placeholder (issue #6).
+
+        Upserts the trip->User edge (same ``role`` + ``index`` as the
+        placeholder's), deletes the old trip->Person edge, and deletes the
+        placeholder node itself — the placeholder is gone once claimed.
+        """
+        if not (self.is_enabled() and _DTID_RE.match(trip_dtid or "")
+                and _USER_RE.match(user_dtid or "") and _DTID_RE.match(person_dtid or "")):
+            return False
+        if role not in {"owner", "editor", "viewer", "follower"} or not isinstance(index, int):
+            return False
+        try:
+            from konnektr_graph import BasicRelationship
+
+            rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
+            rel = BasicRelationship.from_dict(
+                {
+                    "$relationshipId": rel_id,
+                    "$sourceId": trip_dtid,
+                    "$relationshipName": "hasCrew",
+                    "$targetId": user_dtid,
+                    "role": role,
+                    "index": index,
+                }
+            )
+            self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
+            self._client.delete_relationship(  # type: ignore[union-attr]
+                trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
+            )
+            self._client.delete_digital_twin(person_dtid)  # type: ignore[union-attr]
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph claim transfer({person_dtid}) failed: {exc}")
+            return False
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
