@@ -121,3 +121,49 @@ def test_store_falls_back_on_graph_failure(monkeypatch) -> None:
     got = store_mod.get_trip_by_token(trip.token)
     assert got is not None
     assert got.slug == slug  # came from the file fallback, not the graph
+
+
+def test_client_uses_parameterized_queries(monkeypatch) -> None:
+    """The token / dtid / uid are passed as Cypher query parameters, never
+    interpolated into the query string (SDK >= 0.3.8). The queries must contain
+    `$token` / `$dtid` / `$uid` placeholders and NO f-string-style inlining,
+    and query_twins must be called with a non-empty ``query_parameters`` dict."""
+    import app.graph.client as client_mod
+
+    # The module-level query constants must use parameter placeholders, not
+    # str.format() interpolation residues.
+    assert "$token" in client_mod._Q_FIND_TRIP
+    assert "$dtid" in client_mod._Q_NODES
+    assert "$dtid" in client_mod._Q_RELS
+    assert "$uid" in client_mod._Q_TRIPS_FOR_USER
+    # No leftover `{token}` / `{dtid}` / `{uid}` str.format placeholders.
+    assert "{token}" not in client_mod._Q_FIND_TRIP
+    assert "{dtid}" not in client_mod._Q_NODES
+    assert "{uid}" not in client_mod._Q_TRIPS_FOR_USER
+
+    captured = {}
+
+    class _FakeClient:
+        def query_twins(self, query, query_parameters=None, **kwargs):
+            captured.setdefault("calls", []).append((query, query_parameters))
+            return iter([])
+
+    monkeypatch.setenv("KISEKI_GRAPH_URL", "http://localhost:8080")
+    monkeypatch.setenv("KISEKI_GRAPH_TOKEN", "test-token")
+    c = client_mod.GraphReadClient()
+    # is_enabled() requires a real KonnektrGraphClient import; replace the
+    # instance's underlying client with our fake that captures the calls.
+    c._client = _FakeClient()
+    monkeypatch.setattr(client_mod.GraphReadClient, "is_enabled", lambda self: True)
+
+    c.find_trip_dtid_by_token("abc123")
+    c.fetch_graph("bf29a027-2ed2-46b3-b869-d9d81bbcf237")
+    c.list_trips_for_user("user:auth0|niko")
+
+    assert len(captured["calls"]) == 4
+    for query, params in captured["calls"]:
+        assert params, f"query called without query_parameters: {query}"
+        assert isinstance(params, dict)
+    # Token value must travel in the parameter binding, not the string.
+    find_params = captured["calls"][0][1]
+    assert find_params.get("token") == "abc123"

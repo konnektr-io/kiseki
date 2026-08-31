@@ -4,7 +4,7 @@ This module is the ONLY place that imports ``konnektr-graph``. It exposes a
 small, source-agnostic contract so the rest of the backend never depends on the
 SDK directly:
 
-    is_enabled()                    -> bool  (graph wired, or file fallback)
+    is_enabled()                    -> bool  (graph wired; else local trip.json source)
     find_trip_dtid_by_token(token)  -> dtid | None
     fetch_graph(dtid)               -> {"$dtId", "twins", "relationships"}
     list_trips_for_user(user_dtid)  -> [trip summary dict, ...]  (hasCrew access)
@@ -21,12 +21,21 @@ scoped to a single trip's *connected component* (trip + everything reachable
 along outgoing edges), so we never walk the SDK node-by-node and never scan the
 whole graph.
 
-Input safety: the token arrives from the URL and the dtId is an internal id, so
-both are validated against a strict charset before being interpolated into
-Cypher (the SDK's ``query_twins`` does not forward query parameters).
+**Parameterized Cypher (SDK >= 0.3.8).** The token / dtId / uid arrive from the
+URL, so they are passed as Cypher query parameters (``$token`` / ``$dtid`` /
+``$uid``) — never interpolated into the query string. ``query_twins`` forwards
+``query_parameters`` to the server's ``/query`` endpoint, where the Cypher
+engine binds them safely. (A defensive regex still validates each value; it is
+defense-in-depth, not what makes the query safe.) The one value that is NOT a
+parameter is ``MAX_HOPS`` in the variable-length-edge bound ``[*0..MAX_HOPS]``:
+Apache AGE rejects a parameter there (range bounds must be compile-time
+literals), and ``MAX_HOPS`` is a constant non-negative int, so it is inlined as
+a literal.
 
 If the SDK is missing or the endpoint is absent, ``is_enabled()`` is False and
-the backend keeps serving from ``trip.json`` (graceful first boot / fallback).
+the backend serves the local ``trip.json`` files directly (local-dev / CI mode).
+There is no file fallback when the graph is enabled — a graph read failure is
+surfaced as a 404, never masked by a stale file.
 """
 
 from __future__ import annotations
@@ -40,65 +49,64 @@ from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
 # ``$metadata.$model`` property (dtmi:kiseki:travel:<Kind>;1).
 TRIP_MODEL = "dtmi:kiseki:travel:Trip;1"
 
-# A trip token is a secret-share id from the URL path — only these characters
-# are ever interpolated into a Cypher string (no quotes/backslashes/semicolons).
+# A trip token is a secret-share id from the URL path. Validated as defense in
+# depth — the value is passed as a Cypher parameter, never interpolated.
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 # Our twin ids are opaque UUIDs (see issue #8 restructure).
 _DTID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 # A user twin id is `user:<authId>` (global auth id, transferred on login).
 # Auth ids come from external IdPs (Auth0 uses `auth0|...`, `google-oauth2|...`)
-# so we can't use a narrow whitelist. We only reject the characters that would
-# break Cypher single-quoted-string interpolation: the quote itself, the
-# backslash escape char, and control characters. Everything else is safe
-# inside `'...'` and is validated again by the graph (no such node -> []).
+# so we can't use a narrow whitelist; we only reject characters that would break
+# a Cypher single-quoted-string IF we ever had to inline (we don't — it's a
+# parameter). The graph validates again (no such node -> []).
 _USER_RE = re.compile(r"^[^'\\\x00-\x1f]{1,256}$")
 
 # Bounded traversal depth for the subgraph walk. The Kiseki graph is shallow:
 # trip -> day -> block -> atLocation = 3 hops; we allow one hop of headroom so
-# a future edge can't silently miss. Unbounded `[*0..]` makes the AGE planner
-# explore the whole reachable graph and is dramatically slower.
+# a future edge can't silently miss. Unbounded [*0..] makes the AGE planner
+# explore the whole reachable graph and is dramatically slower. This MUST be a
+# compile-time literal in the range bound, so it is inlined (not a parameter).
 MAX_HOPS = 4
 
-# --- Cypher -----------------------------------------------------------------
+# --- Cypher (parameterized) -----------------------------------------------
 # Locate the Trip twin by its secret share token. Scoped to one node; the model
-# kind is re-checked in Python (avoids nested map access in Cypher).
+# kind is re-checked in Python. `$token` is a bound parameter.
 _Q_FIND_TRIP = """
 MATCH (trip:Twin)
-WHERE trip.token = '{token}'
+WHERE trip.token = $token
 RETURN trip
 LIMIT 1
 """
 
 # All twins in the trip's connected component (trip itself + every node
 # reachable along outgoing edges). A single query, scoped to the trip — not the
-# whole store.
+# whole store. `$dtid` is a bound parameter; MAX_HOPS is a literal range bound.
 _Q_NODES = """
 MATCH (trip:Twin)
-WHERE trip.`$dtId` = '{dtid}'
+WHERE trip.`$dtId` = $dtid
 MATCH path = (trip)-[*0..{max_hops}]->(n:Twin)
 RETURN collect(DISTINCT n) AS nodes
-"""
+""".format(max_hops=MAX_HOPS)
 
 # All relationships whose source is in the trip's component. AGE rejects a `$`
 # map key (even quoted), so we collect each edge as a plain LIST
-# ``[sourceId, relationshipName, targetId, role, index]`` and map it to the ADT
-# relationship shape in Python. ``type(r)`` is the edge name.
+# [sourceId, relationshipName, targetId, role, index] and map it to the ADT
+# relationship shape in Python. `type(r)` is the edge name.
 _Q_RELS = """
 MATCH (trip:Twin)
-WHERE trip.`$dtId` = '{dtid}'
+WHERE trip.`$dtId` = $dtid
 MATCH (trip)-[*0..{max_hops}]->(a:Twin)
 MATCH (a)-[r]->(b:Twin)
 RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.role, r.index]) AS rels
-"""
+""".format(max_hops=MAX_HOPS)
 
-# All trips a user has access to, reached via the ``hasCrew`` edge (trip ->
-# user). Returns a flat LIST per trip ``[dtId, token, title, subtitle, stage,
-# startDate, endDate, slug, cover, role]`` (map keys with `$` are rejected by
-# AGE, so we assemble the summary dict in Python). The model-kind filter is
-# applied in Python as elsewhere.
+# All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
+# Returns a flat LIST per trip [dtId, token, title, subtitle, stage, startDate,
+# endDate, slug, cover, role] (map keys with `$` are rejected by AGE, so we
+# assemble the summary dict in Python). `$uid` is a bound parameter.
 _Q_TRIPS_FOR_USER = """
 MATCH (t:Twin)-[crew:hasCrew]->(u:Twin)
-WHERE u.`$dtId` = '{uid}'
+WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT [t.`$dtId`, t.token, t.title, t.subtitle, t.stage,
                          t.startDate, t.endDate, t.slug, t.cover, crew.role]) AS trips
 """
@@ -132,15 +140,16 @@ class GraphReadClient:
     def find_trip_dtid_by_token(self, token: str) -> Optional[str]:
         """Return the Trip twin ``$dtId`` whose ``token`` property matches.
 
-        A single scoped Cypher query (token validated beforehand). Returns None
-        if the graph is disabled, the token is malformed, or it is unknown.
+        A single scoped, parameterized Cypher query (``$token`` bound server-side).
+        Returns None if the graph is disabled, the token is malformed, or it is
+        unknown.
         """
         if not self.is_enabled() or not _TOKEN_RE.match(token or ""):
             return None
         try:
             rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_FIND_TRIP.format(token=token)
+                    _Q_FIND_TRIP, query_parameters={"token": token}
                 )
             )
         except Exception as exc:
@@ -156,21 +165,22 @@ class GraphReadClient:
     def fetch_graph(self, trip_dtid: str) -> Optional[dict]:
         """Return the trip's connected component as a {twins, relationships} bundle.
 
-        Two scoped Cypher queries (nodes + relationships) replace the old
-        per-node walk. Both are limited to the trip's reachable subgraph within
-        ``MAX_HOPS`` (bounded so the AGE planner never expands the whole graph).
+        Two scoped, parameterized Cypher queries (nodes + relationships) replace
+        the old per-node walk. Both are limited to the trip's reachable subgraph
+        within ``MAX_HOPS`` (bounded so the AGE planner never expands the whole
+        graph). ``$dtid`` is bound server-side.
         """
         if not self.is_enabled() or not _DTID_RE.match(trip_dtid or ""):
             return None
         try:
             node_rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_NODES.format(dtid=trip_dtid, max_hops=MAX_HOPS)
+                    _Q_NODES, query_parameters={"dtid": trip_dtid}
                 )
             )
             rel_rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_RELS.format(dtid=trip_dtid, max_hops=MAX_HOPS)
+                    _Q_RELS, query_parameters={"dtid": trip_dtid}
                 )
             )
         except Exception as exc:
@@ -191,7 +201,7 @@ class GraphReadClient:
         summary dict (``dtId`` / ``token`` / ``title`` / ``stage`` / ``role`` …)
         ready for the "my trips" listing — the user does NOT need the full
         subgraph here. The model-kind guard keeps non-Trip ``hasCrew`` sources
-        (shouldn't exist) out of the result.
+        (shouldn't exist) out of the result. ``$uid`` is bound server-side.
 
         Returns an empty list if the graph is disabled, the id is malformed, or
         the user has no trips.
@@ -201,7 +211,7 @@ class GraphReadClient:
         try:
             rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_TRIPS_FOR_USER.format(uid=user_dtid)
+                    _Q_TRIPS_FOR_USER, query_parameters={"uid": user_dtid}
                 )
             )
         except Exception as exc:
@@ -221,7 +231,7 @@ class GraphReadClient:
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
-        """Map a ``[src, name, tgt, role, index]`` row into an ADT relationship.
+        """Map a [src, name, tgt, role, index] row into an ADT relationship.
 
         ``_Q_RELS`` returns each edge as a plain list (AGE rejects `$`-prefixed
         map keys), so we assemble the canonical ``$sourceId`` /
@@ -245,8 +255,8 @@ class GraphReadClient:
 
     @staticmethod
     def _trip_summary_from_list(row: Any) -> dict:
-        """Map a ``[dtId, token, title, subtitle, stage, start, end, slug,
-        cover, role]`` row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
+        """Map a [dtId, token, title, subtitle, stage, start, end, slug,
+        cover, role] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
 
         AGE rejects `$`-prefixed map keys, so the query returns a plain list and
         we name the fields here. ``$model`` is set so the caller's model-kind
