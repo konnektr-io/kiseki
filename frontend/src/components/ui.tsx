@@ -91,7 +91,16 @@ export function StageBadge({ stage, className = "" }: { stage: Stage; className?
   const variant =
     stage === "booked" ? "accent" : stage === "live" ? "default" : ("outline" as const);
   return (
-    <Badge variant={variant} className={className}>
+    <Badge
+      variant={variant}
+      className={twMerge(
+        // The badge always sits on top of imagery (cover photos, card
+        // headers) — a translucent backdrop keeps the label readable
+        // regardless of what the photo looks like.
+        "bg-background/85 backdrop-blur",
+        className,
+      )}
+    >
       {STAGE_LABELS[stage]}
     </Badge>
   );
