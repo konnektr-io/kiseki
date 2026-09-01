@@ -95,18 +95,22 @@ export function DaySummaryRow({
 
         {day.blocks.length ? (
           <ul className="mt-2.5 space-y-1.5">
-            {day.blocks.map((b, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm">
-                <BlockGlyph kind={b.kind} />
-                <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
-                {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
-                {b.status && (
-                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {b.status}
-                  </span>
-                )}
-              </li>
-            ))}
+            {/* sort by the explicit `order` field — parity with DayBlocks; the
+                graph returns a day's blocks in $dtId order, not content order */}
+            {[...day.blocks]
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+              .map((b, i) => (
+                <li key={i} className="flex items-center gap-2 text-sm">
+                  <BlockGlyph kind={b.kind} />
+                  <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
+                  {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
+                  {b.status && (
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {b.status}
+                    </span>
+                  )}
+                </li>
+              ))}
           </ul>
         ) : null}
 

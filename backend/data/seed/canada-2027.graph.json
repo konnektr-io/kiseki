@@ -307,6 +307,7 @@
       "currency": "EUR",
       "status": "booked",
       "bookingCode": "9GMOL3",
+      "order": 0,
       "items": [],
       "mode": "flight",
       "images": []
@@ -326,6 +327,7 @@
           "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving"
         }
       ],
+      "order": 1,
       "items": [],
       "distance": "143 km",
       "duration": "1 h 35",
@@ -356,6 +358,7 @@
           "url": "https://hihostels.com/hostels/hi-banff/"
         }
       ],
+      "order": 2,
       "items": [],
       "location": "Banff",
       "mapsQuery": "Banff Inn Banff Alberta",
@@ -394,6 +397,7 @@
         }
       ],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -414,6 +418,7 @@
           "url": "https://elkandavenuehotel.com/"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Banff",
       "mapsQuery": "Banff Inn Banff Alberta",
@@ -446,6 +451,7 @@
       "title": "Decide on the hill",
       "description": "If Sunshine is riding well: another half-day there, then the ~3 h 05 drive to Revelstoke after lunch (over Kicking Horse & Rogers Pass). Otherwise: morning drive + afternoon leg-shakedown at RMR.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -466,6 +472,7 @@
           "url": "https://drivebc.ca/"
         }
       ],
+      "order": 1,
       "items": [],
       "distance": "280 km",
       "duration": "3 h 05",
@@ -484,6 +491,7 @@
       "title": "RMR afternoon leg-shakedown",
       "links": [],
       "status": "planned",
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -501,6 +509,7 @@
           "url": "https://www.basecampresorts.com/northwinds-revelstoke"
         }
       ],
+      "order": 3,
       "items": [],
       "location": "Revelstoke",
       "mapsQuery": "Northwinds Revelstoke BC",
@@ -539,6 +548,7 @@
         }
       ],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -555,6 +565,7 @@
           "url": "https://www.basecampresorts.com/northwinds-revelstoke"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Revelstoke",
       "mapsQuery": "Northwinds Revelstoke BC",
@@ -588,6 +599,7 @@
       "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander.",
       "links": [],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -604,6 +616,7 @@
           "url": "https://www.basecampresorts.com/northwinds-revelstoke"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Revelstoke",
       "mapsQuery": "Northwinds Revelstoke BC",
@@ -644,6 +657,7 @@
       ],
       "status": "booked",
       "bookingCode": "STHS Feb 20–24",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -661,6 +675,7 @@
           "url": "https://www.coasthotels.com/hotels/hillcrest/"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Hillcrest",
       "mapsQuery": "Coast Hillcrest Hotel Revelstoke",
@@ -692,6 +707,7 @@
       "cost": 5880.0,
       "currency": "EUR",
       "status": "booked",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -705,6 +721,7 @@
       "description": "Weather window, terrain picked by the guides for the group.",
       "links": [],
       "status": "booked",
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -718,6 +735,7 @@
       "description": "Final day — chase the best snow of the week.",
       "links": [],
       "status": "booked",
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -753,6 +771,7 @@
           "url": "https://drivebc.ca/"
         }
       ],
+      "order": 0,
       "items": [],
       "distance": "133 km",
       "duration": "1 h 30",
@@ -777,6 +796,7 @@
         }
       ],
       "status": "planned",
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -794,6 +814,7 @@
           "url": "https://glaciermountaineerlodge.com/"
         }
       ],
+      "order": 2,
       "items": [],
       "location": "Golden",
       "mapsQuery": "Glacier Mountaineer Lodge Golden BC",
@@ -834,6 +855,7 @@
       "cost": 170.0,
       "currency": "CAD",
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -872,6 +894,7 @@
       "cost": 170.0,
       "currency": "CAD",
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -910,6 +933,7 @@
           "url": "https://www.skilouise.com/"
         }
       ],
+      "order": 0,
       "items": [],
       "distance": "93 km",
       "duration": "1 h 00",
@@ -929,6 +953,7 @@
       "description": "4,200 acres across four mountain faces — one of the great views in skiing.",
       "links": [],
       "status": "planned",
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -946,6 +971,7 @@
           "url": "https://lakelouiseinn.com/"
         }
       ],
+      "order": 2,
       "items": [],
       "location": "Lake Louise",
       "mapsQuery": "Lake Louise Inn Alberta",
@@ -979,6 +1005,7 @@
       "description": "Final mountain day: back bowls via the Summit Platter hike, World Cup DH run, West Bowl trees. Soak in the view of Victoria Glacier.",
       "links": [],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -1009,6 +1036,7 @@
       "title": "Flex: LL morning or relaxed drive",
       "description": "Optional LL morning (off the hill by ~11:30), or a relaxed drive with a Banff lunch stop. Aim to arrive YYC by 15:30 for the 18:05 flight.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -1029,6 +1057,7 @@
           "url": "https://drivebc.ca/"
         }
       ],
+      "order": 1,
       "items": [],
       "distance": "199 km",
       "duration": "2 h 05",
@@ -1058,6 +1087,7 @@
       ],
       "status": "booked",
       "bookingCode": "9GMOL3",
+      "order": 2,
       "items": [],
       "mode": "flight",
       "images": []
@@ -1093,6 +1123,7 @@
       "title": "Arrive BRU 13:35",
       "description": "The trail behind us. 🏔️",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },

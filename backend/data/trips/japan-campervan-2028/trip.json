@@ -489,7 +489,8 @@
               "url": "https://www.google.com/travel/flights"
             }
           ],
-          "id": "fb6f490d-62f9-4c9a-a42a-5007c113620f"
+          "id": "fb6f490d-62f9-4c9a-a42a-5007c113620f",
+          "order": 0
         },
         {
           "kind": "booking",
@@ -502,13 +503,15 @@
               "url": "https://www.japan-crc.com/"
             }
           ],
-          "id": "ff36168b-103b-4611-ae54-a8b6d3340fe8"
+          "id": "ff36168b-103b-4611-ae54-a8b6d3340fe8",
+          "order": 1
         },
         {
           "kind": "meal",
           "title": "First Hokkaido ramen",
           "description": "Sapporo miso ramen — the city invented it.",
-          "id": "d9afb383-7013-401e-8459-15a6b7e988b8"
+          "id": "d9afb383-7013-401e-8459-15a6b7e988b8",
+          "order": 2
         }
       ],
       "id": "a97db023-4878-4ed1-957b-fb9a04cedeca"
@@ -538,7 +541,8 @@
               "url": "https://www.sapporo-teine.com/snow/"
             }
           ],
-          "id": "11a68f7b-ca17-49e7-907c-3de06efb4071"
+          "id": "11a68f7b-ca17-49e7-907c-3de06efb4071",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -550,7 +554,8 @@
               "url": "https://www.sapporo-kokusai.jp/"
             }
           ],
-          "id": "8ad70a85-b1cb-4d52-b379-80fec414448b"
+          "id": "8ad70a85-b1cb-4d52-b379-80fec414448b",
+          "order": 1
         }
       ],
       "id": "4bf7bd05-5471-46a9-af55-dc29fbaeb117"
@@ -580,13 +585,15 @@
               "url": "https://www.niseko-united.jp/"
             }
           ],
-          "id": "7c37e250-ca6c-41c8-a279-8a0328e9f9d6"
+          "id": "7c37e250-ca6c-41c8-a279-8a0328e9f9d6",
+          "order": 0
         },
         {
           "kind": "activity",
           "title": "First onsen + kaisen-don",
           "description": "Kutchan or Hirafu — seafood bowl and a soak after day one.",
-          "id": "51d4f37f-3785-46ef-82b4-c1aec80fb770"
+          "id": "51d4f37f-3785-46ef-82b4-c1aec80fb770",
+          "order": 1
         }
       ],
       "id": "9d891362-490f-462f-9bb2-124f3c570fc1"
@@ -616,7 +623,8 @@
               "url": "https://www.rusutsu.co.jp/en/"
             }
           ],
-          "id": "2427ab1d-52c8-4a05-a482-7f8e37442fac"
+          "id": "2427ab1d-52c8-4a05-a482-7f8e37442fac",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -628,7 +636,8 @@
               "url": "https://www.kiroro.co.jp/en/"
             }
           ],
-          "id": "56c96722-7b28-42a0-aeb3-2dcebdbf5681"
+          "id": "56c96722-7b28-42a0-aeb3-2dcebdbf5681",
+          "order": 1
         }
       ],
       "id": "0b32cd6b-ca3d-4cf0-80af-dff311319098"
@@ -648,13 +657,15 @@
           "kind": "note",
           "title": "Things to decide",
           "description": "Yotei weather window (needs clear), whether Mt Racey breaks the drive north, and where the first central-spine day goes.",
-          "id": "596331ce-28f7-40f8-930a-62590a54b9fc"
+          "id": "596331ce-28f7-40f8-930a-62590a54b9fc",
+          "order": 0
         },
         {
           "kind": "activity",
           "title": "Yotei scouting",
           "description": "Check the Annupuri-side approach and the snowpack. The mission day needs a window.",
-          "id": "03e9cfd1-63dd-4012-8169-771ab6583e25"
+          "id": "03e9cfd1-63dd-4012-8169-771ab6583e25",
+          "order": 1
         }
       ],
       "id": "7bb414e4-a475-4902-a174-93573f54b251"
@@ -684,7 +695,8 @@
               "url": "https://www.snow-forecast.com/resorts/Mount-Yotei"
             }
           ],
-          "id": "a954d0e1-f047-4f71-801d-cc4be06788b8"
+          "id": "a954d0e1-f047-4f71-801d-cc4be06788b8",
+          "order": 0
         }
       ],
       "id": "124f74dd-91e2-447f-adbc-03c7c431b25e"
@@ -714,7 +726,8 @@
               "url": "https://www.racey.co.jp/"
             }
           ],
-          "id": "388b70f0-77ae-4060-8d68-52844b9f6faf"
+          "id": "388b70f0-77ae-4060-8d68-52844b9f6faf",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -726,7 +739,8 @@
               "url": "https://www.princehotels.com/en/ski/furano/"
             }
           ],
-          "id": "4ab5e186-9e64-425e-8b12-577b366236fa"
+          "id": "4ab5e186-9e64-425e-8b12-577b366236fa",
+          "order": 1
         }
       ],
       "id": "a21abd63-d8ca-43e2-b15e-e00b2b1eafdf"
@@ -756,13 +770,15 @@
               "url": "https://kamui.co.jp/"
             }
           ],
-          "id": "63d1f938-66e6-4d1c-a016-7ecffe45db2b"
+          "id": "63d1f938-66e6-4d1c-a016-7ecffe45db2b",
+          "order": 0
         },
         {
           "kind": "meal",
           "title": "Asahikawa ramen",
           "description": "The shio-ramen capital — a different bowl than Sapporo's miso.",
-          "id": "85fe2967-090a-4047-a4d7-21949f209b57"
+          "id": "85fe2967-090a-4047-a4d7-21949f209b57",
+          "order": 1
         }
       ],
       "id": "88c718a8-c199-41f1-bc09-0b6015037f7a"
@@ -792,7 +808,8 @@
               "url": "https://asahidake.hokkaido.jp/"
             }
           ],
-          "id": "1ec5c7e5-5ad7-4726-b723-4407dca77578"
+          "id": "1ec5c7e5-5ad7-4726-b723-4407dca77578",
+          "order": 0
         }
       ],
       "id": "7ae8fb69-51de-4067-812d-c36d253e3dc8"
@@ -816,14 +833,16 @@
           "kind": "note",
           "title": "Wrap up",
           "description": "Return the van clean-ish, dump gear, last onigiri at the konbini. Debrief on the plane: which storm day wins?",
-          "id": "731e0e93-cafc-4c37-8962-c19692159348"
+          "id": "731e0e93-cafc-4c37-8962-c19692159348",
+          "order": 0
         },
         {
           "kind": "transport",
           "mode": "flight",
           "title": "New Chitose → Brussels",
           "description": "Return flight. ~€1,000–1,200 total.",
-          "id": "890d722a-2a17-425e-a472-120858411610"
+          "id": "890d722a-2a17-425e-a472-120858411610",
+          "order": 1
         }
       ],
       "id": "7a0481f2-7feb-435f-a0ab-bc31b84e252f"

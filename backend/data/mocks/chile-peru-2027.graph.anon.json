@@ -129,6 +129,7 @@
       "title": "BRU → SCL",
       "description": "No direct flight. Overnight/evening arrival.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -151,6 +152,7 @@
       "title": "Stay: Las Condes / Providencia",
       "description": "Closer to the G-21 mountain road for Day 4. Light stroll, early night — jetlag + start of acclimatisation at ~500 m.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -177,6 +179,7 @@
           "url": "https://www.parquemet.cl/"
         }
       ],
+      "order": 0,
       "items": [],
       "location": "Santiago",
       "mapsQuery": "Cerro San Cristóbal Santiago teleférico",
@@ -198,6 +201,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Mercado+Central+Santiago"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Santiago",
       "mapsQuery": "Mercado Central de Santiago Chile",
@@ -217,6 +221,7 @@
           "url": "https://www.costaneracenter.cl/"
         }
       ],
+      "order": 2,
       "items": [],
       "location": "Santiago",
       "mapsQuery": "Sky Costanera Santiago",
@@ -240,6 +245,7 @@
       "title": "Shuttle Santiago → Valle Nevado",
       "description": "90 min. Leave before 13:00 — the G-21 access road only allows uphill traffic in the morning window.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -252,6 +258,7 @@
       "title": "Stay: self-catered studio, ski-in/out",
       "description": "~$330–420/nt (or Farellones for budget). 4-day ski pass: weekday ~$33/day, weekend ~$55.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -264,6 +271,7 @@
       "title": "Rental fitting + warm-up run",
       "links": [],
       "status": "planned",
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -287,6 +295,7 @@
       "description": "Person 3: groomed blues/reds front side (25% intermediate terrain). Person 2: advanced bowls. Niko: wide groomers. Hydrate, layers, sunscreen — altitude sun is brutal.",
       "links": [],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -309,6 +318,7 @@
       "description": "One pass covers the interconnected terrain — La Parva adds intermediate cruising + big views. Weather-chase: pick the side with best visibility.",
       "links": [],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -330,6 +340,7 @@
       "title": "Ski morning",
       "links": [],
       "status": "planned",
+      "order": 0,
       "items": [],
       "location": "Valle Nevado",
       "mapsQuery": "Valle Nevado Chile",
@@ -345,6 +356,7 @@
       "kind": "transport",
       "title": "Transfer to Santiago (~15:00)",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -368,6 +380,7 @@
       "time": "morning",
       "description": "~2h30–3h30. The stitch that makes this trip work.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -380,6 +393,7 @@
       "title": "Stay: Urubamba / Ollantaytambo — 3 nights",
       "description": "Sacred Valley at 2,800 m — the gentle altitude ramp.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -407,6 +421,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Pisac+ruins"
         }
       ],
+      "order": 0,
       "items": [],
       "location": "Pisac",
       "images": [
@@ -427,6 +442,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Salineras+de+Maras"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Maras",
       "images": [
@@ -451,6 +467,7 @@
       "title": "Ollantaytambo fortress",
       "time": "morning",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -463,6 +480,7 @@
       "title": "Vistadome train (PeruRail) — 1h45",
       "description": "Ollantaytambo → Aguas Calientes.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -475,6 +493,7 @@
       "title": "Stay: Aguas Calientes",
       "description": "Inkaterra / Casa del Sol / El Mapi.",
       "links": [],
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -501,6 +520,7 @@
         }
       ],
       "status": "planned",
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -513,6 +533,7 @@
       "title": "Stay: Cusco — 4 nights",
       "description": "3,400 m — the family is pre-acclimatised from Valle Nevado + Sacred Valley.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -540,6 +561,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Plaza+de+Armas+Cusco"
         }
       ],
+      "order": 0,
       "items": [],
       "location": "Cusco",
       "mapsQuery": "Plaza de Armas Cusco",
@@ -559,6 +581,7 @@
           "url": "https://chocomuseo.com/"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Cusco",
       "mapsQuery": "ChocoMuseo Cusco",
@@ -583,6 +606,7 @@
       "title": "Palcoyo full-day trip (5am–4pm)",
       "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery.\n\nThe quieter rainbow mountain: a rolling **1.5–2 h loop** across three striped ridges — red, ochre, turquoise and violet strata — with the glacier-capped peak of Ausangate (6,384 m) as the backdrop. Palcoyo sits **~3 h from Cusco** (better road than Vinicunca), so it's a full-day outing: 5am pick-up, lunch back in the valley, early evening in Cusco. 4,800 m means slow steps, coca tea, and no rush — the kids manage it fine, and the llama herd that patrols the ridge is the family photo of the trip.",
       "links": [],
+      "order": 0,
       "items": [],
       "mapsQuery": "Palcoyo Rainbow Mountain Peru",
       "images": [
@@ -608,6 +632,7 @@
       "title": "Decide on the day",
       "description": "Legs good? **Humantay Lake** (4,200 m, turquoise glacial lake, horse option at trailhead). Need a rest? **Cusco cooking class + San Pedro Market** (ceviche + lucuma juice — teen-approved).",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -629,6 +654,7 @@
       "title": "Fly Cusco → Lima (1h15)",
       "time": "morning",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -641,6 +667,7 @@
       "title": "Museo Larco",
       "description": "Pre-Columbian gold, beautiful gardens.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -653,6 +680,7 @@
       "title": "La Mar — one last ceviche",
       "description": "Or Astrid y Gastón.",
       "links": [],
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -679,6 +707,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Malec%C3%B3n+de+Miraflores"
         }
       ],
+      "order": 0,
       "items": [],
       "location": "Miraflores",
       "images": []
@@ -697,6 +726,7 @@
           "url": "https://www.google.com/maps/search/?api=1&query=Circuito+Magico+del+Agua+Lima"
         }
       ],
+      "order": 1,
       "items": [],
       "location": "Lima",
       "mapsQuery": "Circuito Mágico del Agua Lima",
@@ -719,6 +749,7 @@
       "kind": "transport",
       "title": "Fly home via Madrid/Paris/Amsterdam",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
