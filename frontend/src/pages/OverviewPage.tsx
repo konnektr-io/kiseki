@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card, Separator, StageBadge } from "../components/ui";
@@ -137,6 +137,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 
 export function OverviewPage() {
   const trip = useTrip();
+  const { token } = useParams();
   const doneTodos = (trip.practical.todos ?? []).filter((t) => t.done).length;
   const totalTodos = (trip.practical.todos ?? []).length;
 
@@ -212,7 +213,7 @@ export function OverviewPage() {
               <li key={i} className="flex items-baseline gap-3">
                 <span className="font-display text-2xl leading-none text-primary/70">{String(i + 1).padStart(2, "0")}</span>
                 <Link
-                  to={`/t/${trip.token}/itinerary`}
+                  to={`/t/${token}/itinerary`}
                   className="font-heading text-base font-medium text-foreground hover:text-primary"
                 >
                   {s.title}
@@ -251,7 +252,7 @@ export function OverviewPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <p className="kicker">Practical</p>
-            <Link to={`/t/${trip.token}/practical`} className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
+            <Link to={`/t/${token}/practical`} className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
               Full list <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
