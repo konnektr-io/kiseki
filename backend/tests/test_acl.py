@@ -324,6 +324,42 @@ def test_booklet_renders_with_role(
     assert captured["token"] == token
 
 
+# ------------------------------------------------------------- #58 auth cache seed
+
+
+def test_auth0_cache_seed_id_token_at_client_only_key(monkeypatch) -> None:
+    """Bug #58: the id-token entry must live at the client-only key, NOT the
+    audience-scoped key + '@@user@@'. auth0-spa-js v2's getIdTokenCacheKey
+    produces `@@auth0spajs@@::{clientId}::@@user@@`."""
+    import app.config as cfg
+    import app.pdf as pdf
+
+    monkeypatch.setattr(cfg, "AUTH0_CLIENT_ID", "test-client-123")
+    monkeypatch.setattr(cfg, "AUTH0_AUDIENCE", "https://kiseki.konnektr.io")
+    monkeypatch.setattr(pdf, "AUTH0_CLIENT_ID", "test-client-123")
+    monkeypatch.setattr(pdf, "AUTH0_AUDIENCE", "https://kiseki.konnektr.io")
+
+    script = pdf._auth0_cache_seed("fake-access-token")
+
+    expected_access_key = "@@auth0spajs@@::test-client-123::https://kiseki.konnektr.io::openid profile email offline_access"
+    expected_id_token_key = "@@auth0spajs@@::test-client-123::@@user@@"
+    buggy_key = expected_access_key + "@@user@@"
+
+    # The script must NOT write at the buggy audience-scoped key.
+    assert buggy_key not in script
+
+    # The script must write the id token at the canonical client-only key.
+    assert expected_id_token_key in script
+
+    # The access token is still seeded at the audience-scoped key (unchanged).
+    assert expected_access_key in script
+
+    # The fabricated id-token claims must use CLIENT_ID as aud (mirrors real
+    # ID tokens), not the API audience.
+    assert '"aud": "test-client-123"' in script
+    assert '"azp": "test-client-123"' in script
+
+
 # ---------------------------------------------------------------- join link
 
 
