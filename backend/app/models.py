@@ -240,6 +240,7 @@ class Trip(BaseModel):
     stage: Stage = Field(default="idea", description="Maturity: idea → options → shortlist → planned → booked → live → archive.")
     startDate: Optional[str] = Field(default=None, description="ISO start date.")
     endDate: Optional[str] = Field(default=None, description="ISO end date.")
+    timezone: Optional[str] = Field(default=None, description="IANA timezone, e.g. 'Asia/Tokyo' — resolves 'today' in the trip's local calendar date, not the viewer's. Optional; when absent, the viewer's local date is used.")
     token: str = Field(..., description="Secret share key — appears in share URLs; editable (rotate without re-wiring the graph).")
     claimToken: str = Field(..., description="Secret CLAIM key (issue #6) — authorizes claiming a crew identity on this trip ('join link'). Separate from `token`: the read link grants view-only, the claim token grants identity. Editable (rotate without re-wiring the graph).")
     cover: Optional[str] = Field(default=None, description="Cover image URL (absolute or /media/...).")

@@ -1,25 +1,35 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
 import { fetchTrip, downloadBooklet, isTripId, fetchJoinLink, TripAccessError } from "../lib/api";
-import { formatDate, dayCount } from "../lib/dates";
+import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
 import { Button, StageBadge } from "../components/ui";
 
-const NAV = [
+const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
   { to: "", label: "Overview", icon: Home, end: true },
   { to: "itinerary", label: "Itinerary", icon: Map },
   { to: "practical", label: "Practical", icon: ListChecks },
 ];
 
-function NavLinks({ token }: { token: string }) {
+function navForTrip(trip: Trip | null) {
+  if (trip && shouldShowToday(trip)) {
+    return [{ to: "today", label: "Today", icon: CalendarCheck }, ...NAV_BASE.slice(1)] as typeof NAV_BASE;
+  }
+  return NAV_BASE;
+}
+
+function NavLinks({ token, trip }: { token: string; trip: Trip | null }) {
   const { pathname } = useLocation();
   const base = `/t/${token}`;
-  const active = (to: string, end?: boolean) =>
-    end ? pathname === base : pathname === `${base}/${to}` || (to === "itinerary" && pathname.startsWith(`${base}/day`));
+  const NAV = navForTrip(trip);
+  const active = (to: string, end?: boolean) => {
+    if (to === "today") return pathname === `${base}/today`;
+    return end ? pathname === base : pathname === `${base}/${to}` || (to === "itinerary" && pathname.startsWith(`${base}/day`));
+  };
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => {
@@ -261,7 +271,7 @@ export function TripLayout() {
           </div>
           {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
-            <NavLinks token={token} />
+            <NavLinks token={token} trip={trip} />
           </div>
         </header>
 
@@ -271,14 +281,18 @@ export function TripLayout() {
         </main>
 
         {/* Mobile bottom nav (hidden on day pages — DayPage has its own bar) */}
-        {!onDayPage && (
+        {!onDayPage && (() => {
+          const NAV = navForTrip(trip);
+          return (
           <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
             <div className="grid grid-cols-3">
               {NAV.map(({ to, label, icon: Icon, end }) => {
-                const isActive = end
-                  ? pathname === `/t/${token}`
-                  : pathname === `/t/${token}/${to}` ||
-                    (to === "itinerary" && pathname.startsWith(`/t/${token}/day`));
+                const isActive = to === "today"
+                  ? pathname === `/t/${token}/today`
+                  : end
+                    ? pathname === `/t/${token}`
+                    : pathname === `/t/${token}/${to}` ||
+                      (to === "itinerary" && pathname.startsWith(`/t/${token}/day`));
                 return (
                   <Link
                     key={to}
@@ -295,7 +309,8 @@ export function TripLayout() {
               })}
             </div>
           </nav>
-        )}
+          );
+        })()}
       </div>
     </TripProvider>
   );
