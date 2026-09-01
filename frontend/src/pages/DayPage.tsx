@@ -6,6 +6,7 @@ import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import { sectionIndexForDay } from "../lib/sections";
 
 type Dir = "prev" | "next" | null;
 
@@ -22,6 +23,14 @@ export function DayPage() {
 
   const prev = i > 0 ? i - 1 : null;
   const next = i < trip.days.length - 1 ? i + 1 : null;
+
+  // The "up" button returns to the scan view IN CONTEXT: the day's own
+  // chapter anchor, labelled with the section name (§7.5). Fall back to the
+  // plain itinerary when the day belongs to no section.
+  const sectionIdx = sectionIndexForDay(trip.sections, i);
+  const upSection = sectionIdx != null ? trip.sections?.[sectionIdx] : undefined;
+  const upTarget = upSection ? `/t/${token}/itinerary#s-${sectionIdx}` : `/t/${token}/itinerary`;
+  const upLabel = upSection?.title ?? "Itinerary";
 
   const go = (target: number | null, d: Dir) => {
     if (target == null || target === i) return;
@@ -95,11 +104,12 @@ export function DayPage() {
           {dayNavBtn(prev, "prev", trip.days[prev ?? i]?.title ?? "")}
           {/* icon-only below `sm` — the label has to survive that */}
           <Link
-            to={`/t/${token}/itinerary`}
-            aria-label="Back to the itinerary"
+            to={upTarget}
+            aria-label={`Back to the itinerary${upSection ? ` — ${upSection.title}` : ""}`}
             className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
           >
-            <Map className="h-4 w-4" /> <span className="hidden sm:inline">Itinerary</span>
+            <Map className="h-4 w-4 shrink-0" />{" "}
+            <span className="hidden max-w-[10rem] truncate sm:inline">{upLabel}</span>
           </Link>
           {dayNavBtn(next, "next", trip.days[next ?? i]?.title ?? "")}
         </div>

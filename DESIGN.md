@@ -681,7 +681,7 @@ Don't do this as one redesign. Suggested order, each independently shippable:
 3. **The Today surface** — `/today`, live-aware home, timezone. Small, independent of everything
    else here, and the biggest single win for followers and for travelling. *(§7.5)*
 4. **Itinerary: accordion → continuous scroll.** No data change. *(§7.5)*
-5. **Sections first-class** — `locationRefs`, section-level blocks, section pages, retitled
+5. **Sections first-class** — `locationRefs`, section-level blocks, anchored chapters, retitled
    sections. Do this *before* the map surfaces: a section is a place is a map extent. *(§7.5)*
 6. **MapLibre migration at parity** — same surfaces, same numbered markers, new renderer, route/marker
    colours from tokens. No layout change yet. *(§8)*

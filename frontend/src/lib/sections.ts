@@ -1,3 +1,5 @@
+import type { TripSection } from "./types";
+
 /** Trip sections store an inclusive day-index RANGE ([first, last]) — expand it
  *  to the full day list for rendering. Used by the itinerary + booklet. */
 export function expandSectionDays(days: number[] | undefined): number[] {
@@ -23,4 +25,13 @@ export function sectionRange(days: number[] | undefined): string | null {
     return first === last ? `Day ${first}` : `Days ${first}\u2013${last}`;
   }
   return `Days ${d.map((v) => v + 1).join(", ")}`;
+}
+
+/** Index of the section that contains the given (0-based) day index, or
+ *  undefined when the day belongs to no section. The day page's "up" button
+ *  uses this to return to its chapter anchor (DESIGN.md §7.5). */
+export function sectionIndexForDay(sections: TripSection[] | undefined, dayIdx: number): number | undefined {
+  if (!sections?.length) return undefined;
+  const si = sections.findIndex((s) => expandSectionDays(s.days).includes(dayIdx));
+  return si === -1 ? undefined : si;
 }

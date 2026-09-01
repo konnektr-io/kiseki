@@ -224,7 +224,7 @@ export function OverviewPage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <Link
-                    to={`/t/${token}/s/${i}`}
+                    to={`/t/${token}/itinerary#s-${i}`}
                     className="font-heading text-base font-medium text-foreground hover:text-primary"
                   >
                     {s.title}

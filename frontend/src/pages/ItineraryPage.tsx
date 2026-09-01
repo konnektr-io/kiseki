@@ -1,23 +1,26 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ChevronRight } from "lucide-react";
+import { useLocation, useParams } from "react-router-dom";
+import { MapPin } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { BlockSummaryRow, DaySummaryRow } from "../components/DaySummaryRow";
+import { useLocationMarkers } from "../components/blocks";
+import { findLocation } from "../lib/maps";
 import { tripTodayIso, isTodayInRange } from "../lib/dates";
 import { expandSectionDays, sectionRange } from "../lib/sections";
 import type { Day, TripSection } from "../lib/types";
 
 const scrollKey = (token: string) => `kiseki:itinerary-scroll:${token}`;
 
-/** Sticky chapter header — the whole bar links to the section's own page.
- *  Sticks below the app header (`--kiseki-header-h`, measured by TripLayout). */
-function SectionHeader({ section, si, token }: { section: TripSection; si: number; token: string }) {
+const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** Sticky chapter header — title + derived range on one line. A section is a
+ *  chapter within the itinerary, not a page (§7.5), so this bar is a plain
+ *  header: the chapter itself is the anchor target (id="s-<si>"). */
+function SectionHeader({ section }: { section: TripSection }) {
   const range = sectionRange(section.days);
   return (
-    <Link
-      to={`/t/${token}/s/${si}`}
-      aria-label={`${section.title}${range ? ` — ${range}` : ""}. Open section`}
-      className="sticky z-10 -mx-4 flex items-center gap-3 border-b border-border bg-background/90 px-4 py-2.5 backdrop-blur transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+    <div
+      className="sticky z-10 -mx-4 flex items-center gap-3 border-b border-border bg-background/90 px-4 py-2.5 backdrop-blur"
       style={{ top: "var(--kiseki-header-h, 3.5rem)" }}
     >
       <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -27,30 +30,70 @@ function SectionHeader({ section, si, token }: { section: TripSection; si: numbe
       {range && (
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{range}</span>
       )}
-      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-    </Link>
+    </div>
+  );
+}
+
+/** Location chips for a chapter — orientation read once on arrival, so they
+ *  live in the (non-sticky) chapter body, not the pinned bar. Marker numbers
+ *  are the section → place → map-marker tie (§7.5, §8.3). */
+function SectionLocations({ section }: { section: TripSection }) {
+  const trip = useTrip();
+  const marker = useLocationMarkers();
+  const refs = (section.locationRefs ?? []).filter((ref) => findLocation(trip, ref));
+  if (!refs.length) return null;
+  return (
+    <ul className="flex flex-wrap gap-1.5 pt-3">
+      {refs.map((ref) => (
+        <li
+          key={ref}
+          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground"
+        >
+          <MapPin className="h-3 w-3 text-primary" aria-hidden />
+          <span aria-hidden>{marker(ref) !== "•" ? `${marker(ref)} ` : ""}</span>
+          {ref}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 export function ItineraryPage() {
   const trip = useTrip();
   const { token = "" } = useParams();
+  const { hash } = useLocation();
   const todayIso = tripTodayIso(trip);
   const todayInRange = isTodayInRange(trip, todayIso);
   const key = scrollKey(token);
 
-  // Restore the saved scroll position (returning from a day page). A fresh
-  // visit with no saved position settles on today when it's in range (#42).
+  // Restore position with strict precedence: an incoming #s-<n> anchor (from a
+  // shared /s/<n> link, the Overview TOC, or a day page's up button) wins;
+  // then the saved scroll position (returning from a day); then settle on
+  // today when it's in range (#42). Hash arrival is INSTANT — the user asked
+  // for a specific place, smooth-scrolling across the whole trip is
+  // disorienting. Today keeps its smooth "here's where you are" gesture.
+  // Both degrade to instant under prefers-reduced-motion (§10).
   useLayoutEffect(() => {
+    if (hash.startsWith("#s-")) {
+      const el = document.getElementById(hash.slice(1));
+      if (el) {
+        el.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "instant" });
+        return;
+      }
+      // Hash present but no such chapter (stale link, section removed) —
+      // fall through to the next precedence rule rather than doing nothing.
+    }
     const saved = sessionStorage.getItem(key);
     if (saved != null && !Number.isNaN(Number(saved))) {
       window.scrollTo(0, Number(saved));
-    } else if (todayInRange) {
+      return;
+    }
+    if (todayInRange) {
       const el = document.querySelector<HTMLElement>('[data-today="true"]');
-      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (el) el.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, hash]);
 
   // Track scroll live (passive) so the unmount-save below reads the LAST real
   // position: passive cleanups run after React swaps the DOM, when
@@ -66,7 +109,7 @@ export function ItineraryPage() {
   }, []);
 
   // Persist the scroll position whenever the itinerary unmounts (day page,
-  // section page, nav away) so the scan view resumes where it was.
+  // nav away) so the scan view resumes where it was.
   useEffect(() => {
     return () => sessionStorage.setItem(key, String(lastY.current));
   }, [key]);
@@ -96,8 +139,13 @@ export function ItineraryPage() {
     <div className="space-y-8">
       {hasSections ? (
         sections.map(({ section, si, days }) => (
-          <section key={si} className="scroll-mt-24">
-            <SectionHeader section={section} si={si} token={token} />
+          <section
+            key={si}
+            id={`s-${si}`}
+            style={{ scrollMarginTop: "var(--kiseki-header-h, 3.5rem)" }}
+          >
+            <SectionHeader section={section} />
+            <SectionLocations section={section} />
             {days.length ? (
               <div className="space-y-2.5 pt-3">
                 {days.map(({ day, idx }) => (
@@ -106,7 +154,7 @@ export function ItineraryPage() {
               </div>
             ) : (
               /* a section with no days yet — its unscheduled blocks ARE the
-                 content (idea-stage chapter). Link lives on the header. */
+                 chapter content (idea-stage trip). */
               <div className="space-y-2.5 pt-3">
                 {(section.blocks ?? []).map((b, i) => (
                   <BlockSummaryRow key={i} block={b} />

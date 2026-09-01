@@ -78,6 +78,12 @@ unit changes with stage: section while planning, **today** while `live`, section
 archive. Mobile bottom nav caps at **four** items. Before adding a page or a nav entry, read
 DESIGN.md §7.5 — the surface list there is the intended IA, not a suggestion.
 
+**Sections are a grouping, not a level** (§7.5, corrected 2026-09-01): there are exactly two
+navigational levels — Itinerary (scan, sections as sticky anchored chapters `#s-<n>`) and Day
+(read). `/s/<n>` is a redirect to `/itinerary#s-<n>`, never a page; the day page's "up" button
+returns to its chapter anchor labelled with the section name. If a candidate page is a filtered
+view of its parent, it is a *filter* or an *anchor*, not a page.
+
 ### Elevation
 Anything floating over a map or photo needs all four layers, not just a shadow
 (DESIGN.md §2.4):
