@@ -3,6 +3,11 @@
 Kiseki (軌跡) — **the trip as a living, agent-maintained document.**
 
 Product spec: [`docs/spec.md`](docs/spec.md) — **read it before large changes.**
+Design system & UX direction: [`DESIGN.md`](DESIGN.md) — **read it before any user-visible change.**
+
+Repo-local agent skills live in `.claude/skills/`: `kiseki-design-system` (tokens, components,
+responsive, a11y), `kiseki-map-ux` (map surfaces, MapLibre, markers/routes, print parity),
+`kiseki-trip-identity` (per-trip presets, palettes, fonts, album coherence).
 
 ## What this is
 
@@ -109,6 +114,7 @@ writeup; in short:
 - Markdown (GFM) allowed in `summary`, day `notes`, block `description`.
 - The **booklet** is a print stylesheet in the frontend (`BookletPage`, A4). Keep it A4-friendly — it becomes the PDF.
 - Tailwind v4 theme tokens are CSS variables in `frontend/src/index.css` (`@theme inline`); per-trip theming injects `--trip-*` vars at runtime. Colors always behind tokens.
+- **UI work follows [`DESIGN.md`](DESIGN.md)**: every component is a *document*, *map*, or *chrome* surface (they obey different rules and different print behavior); no hex literals in components; a11y floor (focus rings, 44px targets, reduced motion) is not optional.
 
 ## Auth (Auth0 SPA — issue #5 groundwork)
 

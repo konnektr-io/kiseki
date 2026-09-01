@@ -23,7 +23,9 @@ Kiseki turns a trip plan into a responsive web experience with a printable PDF b
 backend/    FastAPI app (app/, data/trips/, tests/)
 frontend/   React SPA (src/pages, src/components/blocks, src/lib)
 deployments/docker/Dockerfile
-docs/spec.md   ← product & design spec
+docs/spec.md   ← product spec
+DESIGN.md      ← design system & UX direction
+.claude/skills ← repo-local agent skills (design system, map UX, trip identity)
 ```
 
 ## Quick start
