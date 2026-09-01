@@ -248,10 +248,6 @@ export function FoldedDayCard({
             ))}
           </div>
         ) : null}
-
-        <p className="mt-2.5 text-xs italic text-muted-foreground">
-          One card for {days.length} days — day pages stay available per day.
-        </p>
       </div>
     </article>
   );
