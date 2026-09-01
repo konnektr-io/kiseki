@@ -23,7 +23,7 @@ related:
 - **Working name: Kiseki** (軌跡 — "the trail you leave behind"; homophone of 奇跡, *miracle*). Chosen by Niko 2026-08-28. ⚠️ Domain/store availability still to check.
 - **Status**: v0.2 draft, second review round incorporated (2026-08-28). Decisions marked ✅ settled, ⚠️ needs your call.
 - **Origin**: [[Travel App - AI-Native Trip Platform]] — the booklet/brochure workflow (Canada, Chile-Peru, Japan, …) productized.
-- **Revision history**: v0.1 → v0.2 (Niko review 1): React frontend decision; trip.json clarified as P0 storage; agent architecture scoped (current profile → future separate profile); 3 proof trips across stages; #85 fetched and documented; secret-link auth confirmed.
+- **Revision history**: v0.1 → v0.2 (Niko review 1): React frontend decision; trip.json clarified as P0 storage; agent architecture scoped (current profile → future separate profile); 3 proof trips across stages; #85 fetched and documented; secret-link auth confirmed. → v0.2+ (Aug 31 2026): auth/roles shipped ahead of plan (see P0 auth note below).
 
 ## 1. Vision
 
@@ -62,6 +62,7 @@ related:
 | **Follower** | parents, kids at home | Follower | read-only + notifications; sees the live journal |
 
 **P0 auth**: ✅ **secret/unlisted share link** per trip (confirmed by Niko). *"Security by obscurity", fine for a trusted group; Auth0 in P2.*
+**✅ Shipped (Aug 31 2026, v0.8.0 → v0.12.3)**: the whole P2 auth scope landed early — Auth0 SPA login, JWT ACL (crew role via `hasCrew`, identity = auth `sub` only), Tricount-style join-link crew claiming (claim token, placeholder → user), logged-in "My trips" landing, crew-only PDF booklet, and the public/private model where the share `token` itself is the switch (empty token = private). See README → *Auth & access* and AGENTS.md.
 
 ## 4. Core flows
 
