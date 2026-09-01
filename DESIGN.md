@@ -361,7 +361,8 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 /t/<token>            Overview    stage-aware home; redirects to /today while live
 /t/<token>/today      Today       the travel surface                          (TARGET)
 /t/<token>/itinerary  Itinerary   one scroll, sticky sections, days inline
-/t/<token>/s/<n>      Section     place / chapter + unscheduled blocks         (TARGET)
+/t/<token>/itinerary#s-<n>        a section — an ANCHOR, not a page (see below)
+/t/<token>/s/<n>      →           redirect to /itinerary#s-<n> (legacy links)
 /t/<token>/day/<i>    Day         full detail, swipe prev/next
 /t/<token>/map        Map         §2.2, §7.2                                   (TARGET)
 /t/<token>/practical  Practical
@@ -403,16 +404,49 @@ link on day 7 must know the date and hunt for it.
 - Today is screen-only — a printed booklet has no today. The Today surface is chrome (§2.3),
   `no-print`.
 
-#### Sections as a navigable surface
+#### Sections are a grouping, not a level
 
-- A section page is "Revelstoke · days 3–5": its own unscheduled blocks plus the days inside it.
-- Set `locationRefs` — a section then ties to a place, which makes it the natural unit for a map
-  extent (§2.2). **A section is a place is a map view.** Build sections before the map surfaces.
-- **Section titles should name the place or theme, not the range.** Today they read
-  `"Days 3–5 — Revelstoke"`; the range is data compensating for a UI gap. Title is `"Revelstoke"`;
-  the range is derived and rendered.
-- This also improves print parity (§12): the booklet is already chapter-organised and the web app
-  isn't.
+**Corrected 2026-09-01, after shipping it wrong.** The first draft of this section asked for both
+*sticky section headers inside a continuous itinerary* **and** *a section page at `/s/<n>`*. Those
+two overlap almost entirely, and building both produced exactly the mess you would expect: the
+section page rendered the same `DaySummaryRow` list as the itinerary, section title + range
+appeared in three places, and the extra level had no siblings — so there was nothing sensible to
+hang prev/next on and no obvious parent for the day page to point at.
+
+**There are two navigational levels, and only two:**
+
+| Level | Surface | Job |
+|---|---|---|
+| 1 | **Itinerary** | Scan. Continuous scroll, sections as sticky anchored chapters. |
+| 2 | **Day** | Read. Full detail, swipe prev/next. |
+
+A **section is a chapter within level 1**, not a level of its own:
+
+- Sticky section header carries the title, the derived day range, and the location chips (with
+  marker numbers — that's the section → place → map-marker tie).
+- Section-level `blocks` (the unscheduled pool) render inline under their header. For an
+  `idea`-stage trip with no days at all, those blocks *are* the chapter.
+- `/s/<n>` redirects to `/itinerary#s-<n>`. Keep the route as a redirect: links have been shared,
+  and the map work (§2.2) wants a stable per-section target.
+- **The day page's "up" button goes to `/itinerary#s-<n>` and is labelled with the section name**
+  — one button that returns you to the scan view *in context*. Do not add a second button for
+  "section" alongside "itinerary"; that is the complicated version.
+
+The Overview may keep a compact chapter strip as a table of contents, linking to the same anchors.
+A table of contents and the thing itself are not duplication — a third full rendering is.
+
+**Still true, and worth keeping:**
+
+- Set `locationRefs`. A section ties to a place, which makes it the natural unit for a map extent
+  (§2.2). **A section is a place is a map view** — but that view is a *map surface*, not a document
+  page. Don't reintroduce `/s/<n>` as a page to serve it.
+- **Section titles name the place or theme, not the range** (`"Revelstoke"`, not
+  `"Days 3–5 — Revelstoke"`). The range is derived and rendered.
+- This improves print parity (§12): the booklet is already chapter-organised.
+
+**The general lesson, applicable beyond sections:** a level of navigation has to earn itself with
+content that exists nowhere else. If a candidate page is a filtered view of its parent, it is a
+*filter* or an *anchor*, not a page.
 
 ---
 
