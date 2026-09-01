@@ -18,12 +18,24 @@ export class TripAccessError extends Error {
   }
 }
 
+/** Extract a readable message from an API error body ({"detail": "..."}). */
+async function apiErrorMessage(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const body = JSON.parse(text) as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+  } catch {
+    // not JSON — fall through to the raw text
+  }
+  return text || `Request failed (${res.status})`;
+}
+
 export async function fetchTrip(param: string, accessToken?: string): Promise<Trip> {
   const headers: Record<string, string> = {};
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const res = await fetch(`/api/trips/${encodeURIComponent(param)}`, { headers });
   if (!res.ok) {
-    throw new TripAccessError(res.status, await res.text());
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
   return (await res.json()) as Trip;
 }
@@ -32,7 +44,7 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
 export async function fetchTripByClaim(claimToken: string): Promise<Trip> {
   const res = await fetch(`/api/trips/by-claim/${encodeURIComponent(claimToken)}`);
   if (!res.ok) {
-    throw new TripAccessError(res.status, await res.text());
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
   return (await res.json()) as Trip;
 }
@@ -52,7 +64,7 @@ export async function claimIdentity(
     body: JSON.stringify({ claimToken, personId }),
   });
   if (!res.ok) {
-    throw new TripAccessError(res.status, await res.text());
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
   return (await res.json()) as Trip;
 }
@@ -63,7 +75,7 @@ export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> 
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
-    throw new TripAccessError(res.status, await res.text());
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
   const body = (await res.json()) as { trips: TripSummary[] };
   return body.trips;
@@ -75,7 +87,7 @@ export async function fetchJoinLink(tripId: string, accessToken: string): Promis
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
-    throw new TripAccessError(res.status, await res.text());
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
   const body = (await res.json()) as { joinUrl: string };
   return body.joinUrl;
