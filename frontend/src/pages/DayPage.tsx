@@ -10,7 +10,7 @@ type Dir = "prev" | "next" | null;
 
 export function DayPage() {
   const trip = useTrip();
-  const { idx } = useParams();
+  const { token, idx } = useParams();
   const i = Math.min(Math.max(parseInt(idx ?? "0", 10) || 0, 0), trip.days.length - 1);
   const day = trip.days[i];
   const navigate = useNavigate();
@@ -26,7 +26,7 @@ export function DayPage() {
     if (target == null || target === i) return;
     setDir(d);
     setAnimKey(target);
-    navigate(`/t/${trip.token}/day/${target}`);
+    navigate(`/t/${token}/day/${target}`);
     window.scrollTo(0, 0);
   };
 
@@ -90,7 +90,7 @@ export function DayPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-1.5 px-3 py-2.5 md:gap-2 md:px-4">
           {dayNavBtn(prev, "prev", trip.days[prev ?? i]?.title ?? "")}
           <Link
-            to={`/t/${trip.token}/itinerary`}
+            to={`/t/${token}/itinerary`}
             className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
           >
             <Map className="h-4 w-4" /> <span className="hidden sm:inline">Itinerary</span>

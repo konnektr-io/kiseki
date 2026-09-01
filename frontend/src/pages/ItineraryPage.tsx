@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Badge } from "../components/ui";
@@ -9,7 +9,7 @@ import { expandSectionDays } from "../lib/sections";
 import type { Block, Day, TripSection } from "../lib/types";
 
 function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
-  const trip = useTrip();
+  const { token } = useParams();
   const [open, setOpen] = useState(false);
   const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
   const hasPlanned = day.blocks.some((b) => b.status === "planned");
@@ -64,7 +64,7 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
             ))}
           </ul>
           <Link
-            to={`/t/${trip.token}/day/${idx}`}
+            to={`/t/${token}/day/${idx}`}
             className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
           >
             Open day <ChevronRight className="h-3.5 w-3.5" />

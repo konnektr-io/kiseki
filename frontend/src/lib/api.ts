@@ -31,13 +31,28 @@ async function apiErrorMessage(res: Response): Promise<string> {
 }
 
 export async function fetchTrip(param: string, accessToken?: string): Promise<Trip> {
+  const cached = tripCache.get(param);
+  if (cached) return cached;
   const headers: Record<string, string> = {};
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const res = await fetch(`/api/trips/${encodeURIComponent(param)}`, { headers });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
   }
-  return (await res.json()) as Trip;
+  const trip = (await res.json()) as Trip;
+  // Keep the trip in memory for the rest of the session: navigating between
+  // the token route and the id route (and back from the landing) must not
+  // re-fetch the same document. A full page load clears it naturally.
+  tripCache.set(param, trip);
+  tripCache.set(trip.id, trip);
+  return trip;
+}
+
+/** Session-scoped trip documents (immutable during a visit). */
+const tripCache = new Map<string, Trip>();
+
+export function clearTripCache(): void {
+  tripCache.clear();
 }
 
 /** Resolve the trip behind a claim token (join link) — the 'invite' view. */
