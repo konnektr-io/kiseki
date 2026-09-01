@@ -34,9 +34,19 @@ _AUTH0_SCOPE = "openid profile email offline_access"
 
 
 def _auth0_cache_seed(access_token: str) -> str:
-    """Init script that seeds the SPA's auth0 session cache with a token."""
-    cache_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::{AUTH0_AUDIENCE}::{_AUTH0_SCOPE}"
-    entry = {
+    """Init script that seeds the SPA's auth0 session cache with a token.
+
+    The SDK needs BOTH entries to consider the session valid:
+    - the access-token entry (``@@auth0spajs@@::{clientId}::{audience}::{scope}``)
+      — returned by ``getAccessTokenSilently()``, so the protected trip fetch
+      carries the real caller token;
+    - the id-token entry (same key + ``@@user@@``) with its ``decodedToken`` —
+      ``isAuthenticated``/``user`` read the DECODED user from the cache (the
+      SDK re-verifies only at login, so a fabricated id token is fine here).
+    """
+    base_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::{AUTH0_AUDIENCE}::{_AUTH0_SCOPE}"
+    now = "Math.floor(Date.now() / 1000)"
+    access_entry = {
         "body": {
             "access_token": access_token,
             "expires_in": 3600,
@@ -45,12 +55,31 @@ def _auth0_cache_seed(access_token: str) -> str:
             "audience": AUTH0_AUDIENCE,
             "client_id": AUTH0_CLIENT_ID,
         },
-        "expiresAt": 0,  # set to epoch-seconds in-page (we are not at the page's clock)
+        "expiresAt": 0,  # replaced in-page
+    }
+    fake_id_token = (
+        "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiJjcmV3IiwiYXVkIjoia2lzZWtpIn0."
+        "ZmFrZS1zaWduYXR1cmU"
+    )
+    id_entry = {
+        "id_token": fake_id_token,
+        "decodedToken": {
+            "claims": {
+                "sub": "crew",
+                "name": "Crew member",
+                "aud": AUTH0_AUDIENCE,
+                "iss": "https://kiseki.invalid/",
+                "exp": 4_102_444_800,
+            },
+            "user": {"sub": "crew", "name": "Crew member"},
+        },
     }
     return (
         "const cache = JSON.parse(localStorage.getItem('auth0.spa.js') || '{}');"
-        f"cache[{json.dumps(cache_key)}] = {json.dumps(entry)};"
-        f"cache[{json.dumps(cache_key)}].expiresAt = Math.floor(Date.now() / 1000) + 3600;"
+        f"cache[{json.dumps(base_key)}] = {json.dumps(access_entry)};"
+        f"cache[{json.dumps(base_key)}].expiresAt = {now} + 3600;"
+        f"cache[{json.dumps(base_key + '@@user@@')}] = {json.dumps(id_entry)};"
         "localStorage.setItem('auth0.spa.js', JSON.stringify(cache));"
     )
 
