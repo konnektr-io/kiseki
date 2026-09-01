@@ -123,6 +123,33 @@ def get_trip_by_id(trip_dtid: str) -> Trip | None:
     return None
 
 
+def list_trips_for_user(user_dtid: str) -> list[dict]:
+    """Trip summaries for the logged-in landing ('my trips', issue #7).
+
+    Graph-backed: every trip the User twin (``$dtId`` = auth ``sub``) has a
+    ``hasCrew`` edge to, with the caller's role. Local-dev mode (no graph)
+    returns every baked trip without a role — a dev convenience so the
+    landing is never empty in CI/local.
+    """
+    client = _graph_client()
+    if client is not None:
+        return client.list_trips_for_user(user_dtid)
+    return [
+        {
+            "dtId": t.id,
+            "token": t.token,
+            "title": t.title,
+            "subtitle": t.subtitle,
+            "stage": t.stage,
+            "startDate": t.startDate,
+            "endDate": t.endDate,
+            "slug": t.slug,
+            "cover": t.cover,
+        }
+        for t in load_trips()
+    ]
+
+
 def get_trip_role_for_user(
     trip_dtid: str,
     user_dtid: str,

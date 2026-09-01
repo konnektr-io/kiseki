@@ -238,6 +238,55 @@ def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) ->
     assert r.status_code == 200  # anonymous-by-link: auth header is irrelevant
 
 
+# ------------------------------------------------------------- my trips (#7)
+
+
+def test_my_trips_requires_token(client: TestClient) -> None:
+    r = client.get("/api/trips")
+    assert r.status_code == 401
+
+
+def test_my_trips_local_mode_lists_all(client: TestClient, rsa_keypair) -> None:
+    # Graph is not configured in tests → store returns every baked trip.
+    token = _token_of(rsa_keypair)
+    r = client.get("/api/trips", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    trips = r.json()["trips"]
+    assert len(trips) == len(load_trips())
+    first = trips[0]
+    assert first["dtId"]
+    assert first["title"]
+    assert "token" in first  # the share token rides along for links/booklet
+
+
+def test_my_trips_role_from_graph(
+    client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Graph mode: summaries carry the caller's role from the hasCrew edge."""
+    fake_rows = [
+        {
+            "dtId": "t-1",
+            "token": "tok",
+            "title": "T1",
+            "subtitle": "s",
+            "stage": "booked",
+            "startDate": "2027-02-15",
+            "endDate": "2027-03-02",
+            "slug": "t1",
+            "cover": "/media/t1/c.jpg",
+            "role": "owner",
+        }
+    ]
+    monkeypatch.setattr("app.main.list_trips_for_user", lambda sub: fake_rows)
+    token = _token_of(rsa_keypair)
+    r = client.get("/api/trips", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    trips = r.json()["trips"]
+    assert len(trips) == 1
+    assert trips[0]["role"] == "owner"
+    assert trips[0]["dtId"] == "t-1"
+
+
 # ---------------------------------------------------------------- join link
 
 

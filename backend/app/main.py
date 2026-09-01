@@ -28,7 +28,7 @@ from .maps import build_single_place_url, build_static_map_url, build_static_map
 from .models import Trip
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_id as get_trip_by_id_store
-from .store import get_trip_by_token
+from .store import get_trip_by_token, list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
 
@@ -68,6 +68,17 @@ def auth_me(user: dict = Depends(get_current_user)) -> dict:
             if k in user
         },
     }
+
+
+@app.get("/api/trips")
+def my_trips(user: dict = Depends(get_current_user)) -> dict:
+    """The caller's trips (issue #7 — logged-in landing).
+
+    Requires a valid Auth0 token; returns the trips the user has a crew role
+    on (via ``hasCrew``), with that role. Registered before the
+    ``{trip_param}`` route so the bare path is never captured by it.
+    """
+    return {"trips": list_trips_for_user(user["sub"])}
 
 
 @app.get("/api/trips/by-claim/{claim_token}")
