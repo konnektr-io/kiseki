@@ -121,6 +121,16 @@ class Day(BaseModel):
     blocks: list[Block] = Field(default_factory=list, description="Ordered blocks scheduled on this day (hasBlock edges in the graph).")
 
 
+class SectionFold(BaseModel):
+    """One itinerary card that folds several CONSECUTIVE days into a single
+    summary row (e.g. three near-empty heli days shown as one card). The days
+    themselves keep existing — this is display grouping only, so unfolding
+    (when real per-day content lands) is a pure data edit."""
+
+    title: str = Field(..., description="Card title for the folded group, e.g. 'Heli Days 1–3'.")
+    days: list[int] = Field(..., description="Consecutive 0-based day indices folded into this card, in trip.days order.")
+
+
 class TripSection(BaseModel):
     """Itinerary grouping with two jobs:
     (1) group existing days by an INCLUSIVE [first,last] 0-based index range;
@@ -133,6 +143,7 @@ class TripSection(BaseModel):
     days: list[int] = Field(default_factory=list, description="Inclusive [first,last] 0-based day indices this section groups. Empty during pure ideation. Becomes hasDay edges in the graph.")
     locationRefs: list[str] = Field(default_factory=list, description="Location name/alias(es) this section covers (resolves to Location twins). Multi-place sections allowed.")
     blocks: list[Block] = Field(default_factory=list, description="Unscheduled ideas owned by this section (ideation content, before landing on a day). Becomes hasBlock edges.")
+    fold: list[SectionFold] = Field(default_factory=list, description="Display-only: consecutive day groups rendered as a single card in the itinerary (day pages + booklet stay per-day). Empty = render every day.")
 
 
 class Stat(BaseModel):

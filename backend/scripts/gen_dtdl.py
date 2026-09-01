@@ -75,6 +75,7 @@ OBJECT_MODELS = {
     "Theme",
     "Practical",
     "BlockItem",
+    "SectionFold",
 }
 
 # Enum-backed Literal fields -> (enum model name, valueSchema)

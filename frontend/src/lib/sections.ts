@@ -35,3 +35,35 @@ export function sectionIndexForDay(sections: TripSection[] | undefined, dayIdx: 
   const si = sections.findIndex((s) => expandSectionDays(s.days).includes(dayIdx));
   return si === -1 ? undefined : si;
 }
+
+/** One renderable row inside a section: a single day, or a FOLDED group of
+ *  consecutive days shown as one card (`fold` on the section — display-only,
+ *  the days themselves still exist and keep their day pages). */
+export type ItineraryItem =
+  | { kind: "day"; idx: number }
+  | { kind: "fold"; title: string; indices: number[] };
+
+/** Expand a section into its itinerary rows: every day in its range, except
+ *  day groups listed in `section.fold`, which collapse into one fold item.
+ *  Fold groups must be consecutive and fully inside the section's range —
+ *  anything else is ignored (rendered as plain days). */
+export function itineraryItems(section: TripSection): ItineraryItem[] {
+  const days = expandSectionDays(section.days);
+  if (!days.length) return [];
+  const folds = (section.fold ?? []).filter(
+    (f) => f.days.length >= 2 && f.days.every((d, i) => i === 0 || d === f.days[i - 1] + 1) && f.days.every((d) => days.includes(d)),
+  );
+  const items: ItineraryItem[] = [];
+  let i = 0;
+  while (i < days.length) {
+    const fold = folds.find((f) => f.days[0] === days[i]);
+    if (fold) {
+      items.push({ kind: "fold", title: fold.title, indices: fold.days });
+      i += fold.days.length;
+    } else {
+      items.push({ kind: "day", idx: days[i] });
+      i += 1;
+    }
+  }
+  return items;
+}

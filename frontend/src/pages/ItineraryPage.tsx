@@ -2,11 +2,11 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { MapPin } from "lucide-react";
 import { useTrip } from "../components/theme";
-import { BlockSummaryRow, DaySummaryRow } from "../components/DaySummaryRow";
+import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "../components/DaySummaryRow";
 import { useLocationMarkers } from "../components/blocks";
 import { findLocation } from "../lib/maps";
 import { tripTodayIso, isTodayInRange } from "../lib/dates";
-import { expandSectionDays, sectionRange } from "../lib/sections";
+import { itineraryItems, sectionRange } from "../lib/sections";
 import type { Day, TripSection } from "../lib/types";
 
 const scrollKey = (token: string) => `kiseki:itinerary-scroll:${token}`;
@@ -118,9 +118,22 @@ export function ItineraryPage() {
     ? trip.sections.map((section, si) => ({
         section,
         si,
-        days: expandSectionDays(section.days)
-          .map((idx) => ({ day: trip.days[idx], idx }))
-          .filter((d): d is { day: Day; idx: number } => Boolean(d.day)),
+        items: itineraryItems(section).map((item) =>
+          item.kind === "fold"
+            ? {
+                kind: "fold" as const,
+                title: item.title,
+                days: item.indices
+                  .map((idx) => trip.days[idx])
+                  .filter((d): d is Day => Boolean(d)),
+                startNo: item.indices[0] + 1,
+              }
+            : {
+                kind: "day" as const,
+                day: trip.days[item.idx],
+                idx: item.idx,
+              },
+        ),
       }))
     : [];
 
@@ -138,7 +151,7 @@ export function ItineraryPage() {
   return (
     <div className="space-y-8">
       {hasSections ? (
-        sections.map(({ section, si, days }) => (
+        sections.map(({ section, si, items }) => (
           <section
             key={si}
             id={`s-${si}`}
@@ -146,11 +159,27 @@ export function ItineraryPage() {
           >
             <SectionHeader section={section} />
             <SectionLocations section={section} />
-            {days.length ? (
+            {items.length ? (
               <div className="space-y-2.5 pt-3">
-                {days.map(({ day, idx }) => (
-                  <DaySummaryRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
-                ))}
+                {items.map((item) =>
+                  item.kind === "fold" ? (
+                    <FoldedDayCard
+                      key={`fold-${item.startNo}`}
+                      days={item.days}
+                      title={item.title}
+                      startNo={item.startNo}
+                      isToday={item.days.some((d) => d.date === todayIso)}
+                    />
+                  ) : (
+                    <DaySummaryRow
+                      key={item.idx}
+                      day={item.day}
+                      idx={item.idx}
+                      dayNo={item.idx + 1}
+                      isToday={item.day.date === todayIso}
+                    />
+                  ),
+                )}
               </div>
             ) : (
               /* a section with no days yet — its unscheduled blocks ARE the

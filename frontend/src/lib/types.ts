@@ -113,11 +113,19 @@ export interface Day {
   blocks: Block[];
 }
 
+export interface SectionFold {
+  /** Card title for the folded group, e.g. "Heli Days 1–3". */
+  title: string;
+  /** Consecutive 0-based day indices folded into this card. */
+  days: number[];
+}
+
 export interface TripSection {
   title: string;
   days: number[]; // inclusive [first,last] 0-based day indices this section groups
   locationRefs?: string[]; // location name/alias(es) this section covers
   blocks?: Block[]; // unscheduled ideas owned by this section (ideation content)
+  fold?: SectionFold[]; // display-only: consecutive day groups as a single itinerary card
 }
 
 export interface Stat {
