@@ -216,15 +216,17 @@ export function TripLayout() {
                 <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
               </button>
             )}
-            <a
-              href={bookletUrl(trip.token)}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
-            >
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline">PDF</span>
-            </a>
+            {trip.token && (
+              <a
+                href={bookletUrl(trip.token)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
+              >
+                <FileDown className="h-4 w-4" />
+                <span className="hidden sm:inline">PDF</span>
+              </a>
+            )}
           </div>
           {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
