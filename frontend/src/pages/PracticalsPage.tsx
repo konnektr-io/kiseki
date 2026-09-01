@@ -16,7 +16,7 @@ export function PracticalsPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <p className="kicker">Checklist</p>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium tabular-nums text-muted-foreground">
               <ListChecks className="h-3.5 w-3.5" /> {done}/{todos.length}
             </span>
           </div>

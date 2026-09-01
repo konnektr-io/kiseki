@@ -7,7 +7,7 @@ import { formatDate, dayCount } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
-import { StageBadge } from "../components/ui";
+import { Button, StageBadge } from "../components/ui";
 
 const NAV = [
   { to: "", label: "Overview", icon: Home, end: true },
@@ -22,18 +22,22 @@ function NavLinks({ token }: { token: string }) {
     end ? pathname === base : pathname === `${base}/${to}` || (to === "itinerary" && pathname.startsWith(`${base}/day`));
   return (
     <nav className="flex items-center gap-1">
-      {NAV.map(({ to, label, icon: Icon, end }) => (
-        <Link
-          key={to}
-          to={to}
-          className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-            active(to, end) ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-          }`}
-        >
-          <Icon className="h-4 w-4" />
-          {label}
-        </Link>
-      ))}
+      {NAV.map(({ to, label, icon: Icon, end }) => {
+        const isActive = active(to, end);
+        return (
+          <Link
+            key={to}
+            to={to}
+            aria-current={isActive ? "page" : undefined}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              isActive ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }
@@ -112,7 +116,9 @@ export function TripLayout() {
   if (authLoading && idMode && !error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="animate-pulse text-muted-foreground">Loading trip…</p>
+        <p className="animate-pulse text-muted-foreground" role="status">
+          Loading trip…
+        </p>
       </div>
     );
   }
@@ -124,16 +130,16 @@ export function TripLayout() {
         {error === "auth-required" ? (
           <>
             <p className="text-muted-foreground">Sign in to view this trip.</p>
-            <button
+            <Button
+              variant="outline"
               onClick={() =>
                 loginWithRedirect({
                   appState: { returnTo: window.location.pathname },
                 })
               }
-              className="rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
             >
               Sign in
-            </button>
+            </Button>
           </>
         ) : error === "no-access" ? (
           <>
@@ -160,7 +166,9 @@ export function TripLayout() {
   if (!trip) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="animate-pulse text-muted-foreground">Loading trip…</p>
+        <p className="animate-pulse text-muted-foreground" role="status">
+          Loading trip…
+        </p>
       </div>
     );
   }
@@ -213,33 +221,42 @@ export function TripLayout() {
                 <h1 className="truncate text-lg font-bold leading-tight">{trip.title}</h1>
                 <StageBadge stage={trip.stage} />
               </div>
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <p className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
                 <CalendarDays className="h-3 w-3" />
                 {trip.startDate && trip.endDate
                   ? `${formatDate(trip.startDate)} → ${formatDate(trip.endDate)}${days ? ` · ${days} days` : ""}`
                   : "Dates TBD"}
               </p>
             </div>
+            {/* Both header actions collapse to icon-only below `sm`, so the
+                label has to live in aria-label, not only in the span. */}
             {isOwner && (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={copyJoinLink}
                 title="Copy the crew join link"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+                aria-label={joinCopied ? "Join link copied" : "Copy the crew join link"}
               >
                 <Link2 className="h-4 w-4" />
                 <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
-              </button>
+              </Button>
             )}
             {idMode && (
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleDownloadPdf}
                 disabled={pdfBusy}
                 title="Download the booklet PDF (crew only)"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+                aria-label={pdfBusy ? "Preparing the booklet PDF" : "Download the booklet PDF"}
+                className="disabled:opacity-60"
               >
                 <FileDown className="h-4 w-4" />
-                <span className="hidden sm:inline">{pdfBusy ? "Preparing…" : "PDF"}</span>
-              </button>
+                <span className="hidden sm:inline" aria-live="polite">
+                  {pdfBusy ? "Preparing…" : "PDF"}
+                </span>
+              </Button>
             )}
           </div>
           {/* Desktop nav */}
@@ -266,6 +283,7 @@ export function TripLayout() {
                   <Link
                     key={to}
                     to={to}
+                    aria-current={isActive ? "page" : undefined}
                     className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
                       isActive ? "text-primary" : "text-muted-foreground"
                     }`}

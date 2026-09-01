@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Map } from "lucide-react";
 import { useTrip } from "../components/theme";
+import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
@@ -33,19 +34,22 @@ export function DayPage() {
   const dayNavBtn = (target: number | null, d: "prev" | "next", label: string) => {
     if (target == null) return <span className="flex-1" />;
     return (
-      <button
+      <Button
+        variant="outline"
+        size="auto"
         onClick={() => go(target, d)}
-        className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-left hover:bg-muted md:px-3"
+        aria-label={`${d === "prev" ? "Previous" : "Next"} day — day ${target + 1}, ${label}`}
+        className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2.5 text-left md:px-3"
       >
         {d === "prev" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium leading-tight">{label}</span>
-          <span className="block whitespace-nowrap text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="block whitespace-nowrap text-[10px] uppercase tracking-wide tabular-nums text-muted-foreground">
             Day {target + 1} · {formatDay(trip.days[target].date).replace(",", "")}
           </span>
         </span>
         {d === "next" ? <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-      </button>
+      </Button>
     );
   };
 
@@ -62,7 +66,7 @@ export function DayPage() {
     >
       <div key={animKey} className={`space-y-5 ${dir === "prev" ? "animate-day-prev" : dir === "next" ? "animate-day-next" : ""}`}>
         <div>
-          <p className="kicker">
+          <p className="kicker tabular-nums">
             Day {i + 1} of {trip.days.length} · {formatDay(day.date)}
           </p>
           <h2 className="mt-1 font-display text-4xl uppercase leading-none text-foreground">
@@ -89,8 +93,10 @@ export function DayPage() {
       <div className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center gap-1.5 px-3 py-2.5 md:gap-2 md:px-4">
           {dayNavBtn(prev, "prev", trip.days[prev ?? i]?.title ?? "")}
+          {/* icon-only below `sm` — the label has to survive that */}
           <Link
             to={`/t/${token}/itinerary`}
+            aria-label="Back to the itinerary"
             className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground"
           >
             <Map className="h-4 w-4" /> <span className="hidden sm:inline">Itinerary</span>

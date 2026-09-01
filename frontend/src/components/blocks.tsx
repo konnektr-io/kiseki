@@ -51,7 +51,7 @@ function StatusChip({ status }: { status?: BlockStatus }) {
 function Cost({ cost, currency }: { cost?: number; currency?: string }) {
   if (cost == null) return null;
   return (
-    <span className="whitespace-nowrap font-heading text-sm font-medium text-muted-foreground">
+    <span className="whitespace-nowrap font-heading text-sm font-medium tabular-nums text-muted-foreground">
       {cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} {currency}
     </span>
   );
@@ -60,7 +60,7 @@ function Cost({ cost, currency }: { cost?: number; currency?: string }) {
 function BookingCode({ code }: { code?: string }) {
   if (!code) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
+    <span className="inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-foreground">
       <CreditCard className="h-3 w-3" /> {code}
     </span>
   );
@@ -144,7 +144,7 @@ function CardMedia({ b }: { b: Block }) {
 
 function BlockCard({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`booklet-keep rounded-xl border border-border bg-card p-4 shadow-sm ${className}`}>{children}</div>
+    <div className={`booklet-keep rounded-xl border border-border bg-card p-4 shadow-card ${className}`}>{children}</div>
   );
 }
 
@@ -160,7 +160,7 @@ function IconBadge({ icon, tone }: { icon: ReactNode; tone: "muted" | "primary" 
 function TimeChip({ time }: { time?: string }) {
   if (!time) return null;
   return (
-    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
       <Clock className="h-3 w-3" /> {time}
     </span>
   );
@@ -212,7 +212,7 @@ function TransportBlock({ b }: { b: Block }) {
   if (isFlight) {
     // flight card — dark, like the booklet's flight treatment
     return (
-      <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+      <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-card">
         <div className="flex items-start gap-3 p-4">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Plane className="h-4 w-4" />
@@ -275,16 +275,18 @@ function TransportBlock({ b }: { b: Block }) {
           )}
           {(b.distance || b.duration || b.route) && (
             <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
+              {/* distance and drive time sit in a two-column grid across
+                  stacked cards — tabular numerals so they line up (§4) */}
               {b.distance && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Distance</p>
-                  <p className="font-heading text-lg font-semibold leading-tight">{b.distance}</p>
+                  <p className="font-heading text-lg font-semibold leading-tight tabular-nums">{b.distance}</p>
                 </div>
               )}
               {b.duration && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Drive time</p>
-                  <p className="font-heading text-lg font-semibold leading-tight">{b.duration}</p>
+                  <p className="font-heading text-lg font-semibold leading-tight tabular-nums">{b.duration}</p>
                 </div>
               )}
               {b.route && (

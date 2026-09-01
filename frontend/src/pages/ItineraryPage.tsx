@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTrip } from "../components/theme";
-import { Badge } from "../components/ui";
+import { Badge, Button } from "../components/ui";
 import { BlockGlyph, MetaChips } from "../components/blocks";
 import { formatDay } from "../lib/dates";
 import { expandSectionDays } from "../lib/sections";
@@ -14,13 +14,20 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
   const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
   const hasPlanned = day.blocks.some((b) => b.status === "planned");
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      <button
+    /* The toggle fills the card edge-to-edge, so its own focus ring would be
+       clipped by this wrapper's `overflow-hidden` (an ancestor's overflow does
+       clip a descendant's outline). Draw the ring on the wrapper instead — an
+       element's own overflow never clips its own outline. */
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card has-[:focus-visible]:focus-ring">
+      <Button
+        variant="ghost"
+        size="auto"
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-muted/60"
+        aria-expanded={open}
+        className="flex w-full items-center justify-start gap-3 rounded-none p-3 text-left hover:bg-muted/60"
       >
         <div className="flex w-14 shrink-0 flex-col items-center rounded-lg bg-muted py-1.5">
-          <span className="font-display text-xl leading-none text-foreground">{dayNo}</span>
+          <span className="font-display text-xl leading-none tabular-nums text-foreground">{dayNo}</span>
           <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
             {formatDay(day.date).split(" ")[0]}
           </span>
@@ -41,7 +48,7 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
           {hasPlanned && <Badge variant="outline">Planned</Badge>}
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
         </div>
-      </button>
+      </Button>
 
       {open && (
         <div className="border-t border-border bg-muted/30 p-3">
@@ -54,7 +61,7 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
               <li key={i} className="flex items-center gap-2 text-sm">
                 <BlockGlyph kind={b.kind} />
                 <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
-                {b.time && <span className="shrink-0 text-xs text-muted-foreground">{b.time}</span>}
+                {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
                 {b.status && (
                   <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                     {b.status}

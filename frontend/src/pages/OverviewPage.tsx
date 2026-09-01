@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
-import { Card, Separator, StageBadge } from "../components/ui";
+import { Button, Card, Separator, StageBadge } from "../components/ui";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { TripMap } from "../components/MapView";
@@ -79,15 +79,18 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
               </div>
             ))}
           </div>
-          <button
+          <Button
+            variant="outline"
+            size="auto"
             onClick={() => setOpen(!open)}
-            className="mt-3 flex w-full items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2.5 md:hidden"
+            aria-expanded={open}
+            className="mt-3 flex w-full items-center justify-between rounded-lg bg-muted/40 px-3 py-2.5 md:hidden"
           >
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {open ? "Hide details" : `Show details (${f.cards.length})`}
             </span>
             <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
-          </button>
+          </Button>
           {open && (
             <div className="mt-2 space-y-2.5 md:hidden">
               {f.cards.map((c) => (
@@ -151,8 +154,10 @@ export function OverviewPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/20" />
         <div className="relative flex min-h-[280px] flex-col justify-end p-5 md:min-h-[360px] md:p-8">
           <div className="flex flex-wrap items-center gap-2">
-            <StageBadge stage={trip.stage} className="bg-background/85 text-foreground backdrop-blur" />
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-white/80">
+            {/* the floating recipe is StageBadge's own now — only the text
+                colour needs forcing against the cover photo */}
+            <StageBadge stage={trip.stage} className="text-foreground" />
+            <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums text-white/80">
               <CalendarDays className="h-3.5 w-3.5" />
               {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}
               {trip.days.length > 0 && ` · ${trip.days.length} days`}
@@ -175,7 +180,9 @@ export function OverviewPage() {
         <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-6">
           {trip.stats.map((s) => (
             <div key={s.label} className="bg-card px-3 py-4 text-center">
-              <p className="font-display text-3xl leading-none tracking-wide text-foreground md:text-4xl">{s.value}</p>
+              <p className="font-display text-3xl leading-none tracking-wide tabular-nums text-foreground md:text-4xl">
+                {s.value}
+              </p>
               <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 {s.label}
               </p>
@@ -211,7 +218,9 @@ export function OverviewPage() {
           <ol className="space-y-2">
             {trip.sections.map((s, i) => (
               <li key={i} className="flex items-baseline gap-3">
-                <span className="font-display text-2xl leading-none text-primary/70">{String(i + 1).padStart(2, "0")}</span>
+                <span className="font-display text-2xl leading-none tabular-nums text-primary/70">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
                 <Link
                   to={`/t/${token}/itinerary`}
                   className="font-heading text-base font-medium text-foreground hover:text-primary"
@@ -264,7 +273,7 @@ export function OverviewPage() {
                   style={{ width: `${Math.round((doneTodos / totalTodos) * 100)}%` }}
                 />
               </div>
-              <p className="mt-1.5 text-xs text-muted-foreground">
+              <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">
                 {doneTodos}/{totalTodos} done
               </p>
             </>

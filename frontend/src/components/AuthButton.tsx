@@ -1,6 +1,7 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { LogIn, LogOut } from "lucide-react";
 import { isAuthConfigured } from "../lib/auth";
+import { Button } from "./ui";
 
 /**
  * Sign in / sign out chip. Renders nothing when Auth0 is not configured
@@ -36,13 +37,15 @@ function AuthButtonInner() {
 
   if (!isAuthenticated) {
     return (
-      <button
+      <Button
+        variant="outline"
+        size="sm"
         onClick={() => loginWithRedirect()}
-        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+        className="bg-background/80"
       >
         <LogIn className="h-4 w-4" />
         Sign in
-      </button>
+      </Button>
     );
   }
 
@@ -65,16 +68,18 @@ function AuthButtonInner() {
           {initialsFor(user ?? {})}
         </span>
       )}
-      <button
+      <Button
+        variant="outline"
+        size="sm"
         onClick={() =>
           logout({ logoutParams: { returnTo: window.location.origin } })
         }
-        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background/80 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted"
+        className="bg-background/80"
         title={`Sign out (${name})`}
       >
         <LogOut className="h-4 w-4" />
         Sign out
-      </button>
+      </Button>
     </div>
   );
 }
