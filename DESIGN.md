@@ -313,6 +313,107 @@ Build it once, as a real primitive, before building any map surface on top of it
 One spacing rhythm: `4 / 8 / 12 / 16 / 24 / 32 / 48`. Cards use 16 (mobile) / 20–24 (desktop)
 padding. Don't introduce a compact mode; the app's value is legibility.
 
+### 7.5 Navigation & information architecture
+
+#### The governing rule: the primary unit changes with stage
+
+A trip is not always read at the same granularity, and the navigation should follow the stage
+machine rather than pretend the day is universal.
+
+| Stage | Primary unit | Why |
+|---|---|---|
+| `idea`, `options`, `shortlist` | **Section / place** | Days often don't exist yet. "Four nights in Cusco, here are options." |
+| `planned`, `booked` | **Mixed** | Flights and heli days are precise; "we're in the Sacred Valley" is not. |
+| `live` | **Today** | Nothing else matters. |
+| `archive` | **Section** | A chapter in the album. |
+
+Stage already drives colour (§5.3). This is the other place it must drive the UI.
+
+#### Evidence: the day is the wrong default
+
+Audited against the three live trips (2026-09-01):
+
+| Trip | Days | Days with ≤1 block |
+|---|---|---|
+| canada-2027 (booked) | 16 | **7** |
+| chile-peru-2027 (planned) | 17 | **7** |
+| japan-campervan-2028 (idea) | 10 | 2 |
+
+Nearly half the day pages in a *booked* trip are near-empty — not a rendering fault, a granularity
+mismatch. Those days have no per-day content because the trip is simply *in Revelstoke for three
+days*. Meanwhile `TripSection` already models exactly that case (`locationRefs`, section-level
+`blocks`) and the UI uses neither: sections render as decorative headers only.
+
+#### The hierarchy
+
+**Trip → Section → Day → Block**, with blocks attachable at *section* level, not only day level.
+
+Section-level blocks are the unscheduled pool: restaurant candidates, "maybe a rest day",
+things-to-do options for a multi-night stay. As commitment increases, **blocks move down the
+hierarchy** — trip → section → day. That mirrors the stage machine and makes the future write-path
+operation obvious ("schedule this" = promote a block from its section to a day).
+
+Navigation mirrors the data model. That is what makes an IA feel inevitable rather than arbitrary.
+
+#### Surfaces
+
+```
+/t/<token>            Overview    stage-aware home; redirects to /today while live
+/t/<token>/today      Today       the travel surface                          (TARGET)
+/t/<token>/itinerary  Itinerary   one scroll, sticky sections, days inline
+/t/<token>/s/<n>      Section     place / chapter + unscheduled blocks         (TARGET)
+/t/<token>/day/<i>    Day         full detail, swipe prev/next
+/t/<token>/map        Map         §2.2, §7.2                                   (TARGET)
+/t/<token>/practical  Practical
+/t/<token>/crew       Crew
+```
+
+Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Map · Practical*. Crew folds
+into Overview — it's a low-frequency page. Map earns its slot only once a real map surface exists.
+
+#### List vs. detail — keep both, and let each do one job
+
+The itinerary is the **scan** view; the day page is the **read** view. The current accordion is
+neither: it costs a tap to reveal a truncated list you then leave anyway. Reading one day from the
+trip root today takes four interactions (Overview → Itinerary → expand → Open day), against the
+≤2-taps success criterion in `docs/spec.md` §13.1.
+
+- **Itinerary = one continuous scrollable page** at *summary* density. Sections are sticky chapter
+  headers; days render inline, always visible, never collapsed. This is where the
+  continuous-narrative feel belongs.
+- **Day pages stay.** Deep links are genuinely useful ("look at day 4" in a chat); 17 days of
+  photos and maps on one page is punishing on mobile data — the "car park, in the rain" user is the
+  design target; and prev/next swipe is the right travel interaction and cannot exist on one page.
+- Summary density means: lazy images below the fold, no maps inline in the list, block glyphs
+  rather than block cards.
+
+#### Today
+
+There is currently **no concept of "today" anywhere in the frontend**. A follower opening a share
+link on day 7 must know the date and hunt for it.
+
+- `/today` resolves to the current day, and degrades honestly when it can't: *"starts in 5 days"*,
+  *"ended 3 weeks ago"*, or the nearest day.
+- While `stage === 'live'` and today falls inside the range, the trip root goes there and a
+  **Today** item appears in the nav. Outside that window it isn't shown at all.
+- The itinerary marks today and scrolls to it.
+- **Resolve against the trip's timezone, not the viewer's.** Today in Hokkaido is not today in
+  Belgium. Needs an optional IANA `timezone` on the trip, falling back to viewer-local. Don't
+  build more than that.
+- Today is screen-only — a printed booklet has no today. The Today surface is chrome (§2.3),
+  `no-print`.
+
+#### Sections as a navigable surface
+
+- A section page is "Revelstoke · days 3–5": its own unscheduled blocks plus the days inside it.
+- Set `locationRefs` — a section then ties to a place, which makes it the natural unit for a map
+  extent (§2.2). **A section is a place is a map view.** Build sections before the map surfaces.
+- **Section titles should name the place or theme, not the range.** Today they read
+  `"Days 3–5 — Revelstoke"`; the range is data compensating for a UI gap. Title is `"Revelstoke"`;
+  the range is derived and rendered.
+- This also improves print parity (§12): the booklet is already chapter-organised and the web app
+  isn't.
+
 ---
 
 ## 8. Maps as a design surface
@@ -494,6 +595,13 @@ Ordered by cost-to-fix vs. value:
 6. **No dark mode.** §3.3.
 7. **No spacing/radius/elevation tokens** — magic numbers per component. §3.2.
 8. Two `aria-label`s in the whole app. §11.
+9. **`expandSectionDays([n,n])` renders the day twice.** The guard is `days[1] > days[0]`, so a
+   single-day section falls through and returns `[n,n]` verbatim — duplicate React keys and the day
+   rendered twice. Japan 2028's *"Day 10 — flex & fly home"* has exactly `days: [9,9]`, and
+   `BookletPage` shares the helper, so it's in the PDF too. §7.5.
+10. **`/t/<token>/crew` is orphaned** — the route and `CrewPage` exist; nothing links to them.
+    `NAV` has only Overview/Itinerary/Practical. §7.5.
+11. **No concept of "today"** anywhere in the frontend. §7.5.
 
 ### 13.3 Components to build (in dependency order)
 
@@ -536,13 +644,18 @@ Don't do this as one redesign. Suggested order, each independently shippable:
    guard. Invisible to users, unblocks everything. *(§3, §10, §11)*
 2. **`Button` adoption + `Floating` primitive.** Pure cleanup, immediately makes the app look
    intentional. *(§13.3)*
-3. **MapLibre migration at parity** — same surfaces, same numbered markers, new renderer, route/marker
+3. **The Today surface** — `/today`, live-aware home, timezone. Small, independent of everything
+   else here, and the biggest single win for followers and for travelling. *(§7.5)*
+4. **Itinerary: accordion → continuous scroll.** No data change. *(§7.5)*
+5. **Sections first-class** — `locationRefs`, section-level blocks, section pages, retitled
+   sections. Do this *before* the map surfaces: a section is a place is a map extent. *(§7.5)*
+6. **MapLibre migration at parity** — same surfaces, same numbered markers, new renderer, route/marker
    colours from tokens. No layout change yet. *(§8)*
-4. **The `Sheet` primitive + first map surface** — the trip route view. This is the visible leap.
+7. **The `Sheet` primitive + first map surface** — the trip route view. This is the visible leap.
    *(§7.3)*
-5. **Preset system** — `theme.preset`, 8–12 presets, validation, lazy fonts, map style per preset.
+8. **Preset system** — `theme.preset`, 8–12 presets, validation, lazy fonts, map style per preset.
    *(§6)*
-6. **Dark mode.** *(§3.3)*
-7. **Discovery surfaces** (public trips, follows, "things to do") — only once 3–5 exist, because they
-   are all map surfaces. *(§2.2)*
-8. **Album output** as a second print variant. *(§12.1)*
+9. **Dark mode.** *(§3.3)*
+10. **Discovery surfaces** (public trips, follows, "things to do") — only once 3–5 exist, because they
+    are all map surfaces. *(§2.2)*
+11. **Album output** as a second print variant. *(§12.1)*

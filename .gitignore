@@ -23,8 +23,9 @@ backend/app/static/
 .idea/
 .DS_Store
 
-# Claude Code — share .claude/skills/, keep per-machine settings local
+# Claude Code — share .claude/skills/, keep per-machine settings + worktrees local
 .claude/settings.local.json
+.claude/worktrees/
 
 # Playwright
 ms-playwright/

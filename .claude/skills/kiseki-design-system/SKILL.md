@@ -71,6 +71,13 @@ Never more than three families on screen.
   anything fixed to the bottom.
 - Use `100dvh`, never `100vh`.
 
+### Navigation & information architecture
+The hierarchy is **Trip → Section → Day → Block**, and blocks can attach at *section* level, not
+only day level (`TripSection.blocks` — the unscheduled pool for a multi-night stay). The primary
+unit changes with stage: section while planning, **today** while `live`, section again in the
+archive. Mobile bottom nav caps at **four** items. Before adding a page or a nav entry, read
+DESIGN.md §7.5 — the surface list there is the intended IA, not a suggestion.
+
 ### Elevation
 Anything floating over a map or photo needs all four layers, not just a shadow
 (DESIGN.md §2.4):
