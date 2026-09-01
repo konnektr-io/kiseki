@@ -96,6 +96,31 @@ export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> 
   return body.trips;
 }
 
+/** Download the crew-only PDF booklet (issue #13): the endpoint is the
+ *  protected id route, so the access token rides in the Authorization header
+ *  and the file is saved via a blob (a plain <a href> can't send headers). */
+export async function downloadBooklet(
+  tripId: string,
+  accessToken: string,
+  filename: string,
+): Promise<void> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/booklet.pdf`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Owner-only: the trip's join link (claimToken is never in trip documents). */
 export async function fetchJoinLink(tripId: string, accessToken: string): Promise<string> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/join-link`, {

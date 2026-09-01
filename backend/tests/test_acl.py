@@ -287,6 +287,43 @@ def test_my_trips_role_from_graph(
     assert trips[0]["dtId"] == "t-1"
 
 
+# ---------------------------------------------------------------- booklet
+
+
+def test_booklet_requires_auth(client: TestClient) -> None:
+    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf")
+    assert r.status_code == 401
+
+
+def test_booklet_forbidden_without_role(client: TestClient, rsa_keypair, role) -> None:
+    role(None)  # no hasCrew edge
+    token = _token_of(rsa_keypair)
+    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 403
+
+
+def test_booklet_renders_with_role(
+    client: TestClient, rsa_keypair, role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role("viewer")
+    captured: dict = {}
+    async def fake_render(base_url, key, out_path, access_token=None):
+        captured["key"] = key
+        captured["token"] = access_token
+        out_path.write_bytes(b"%PDF-fake")
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    token = _token_of(rsa_keypair)
+    trip = load_trips()[0]
+    r = client.get(
+        f"/api/trips/{trip.id}/booklet.pdf",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF-")
+    assert captured["key"] == trip.id
+    assert captured["token"] == token
+
+
 # ---------------------------------------------------------------- join link
 
 
