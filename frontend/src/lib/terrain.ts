@@ -36,16 +36,31 @@ const DEM_SOURCE_ID = "kiseki-dem";
 const CONTOUR_SOURCE_ID = "kiseki-contours";
 
 /**
- * 3D terrain is **off by default**, everywhere.
+ * 3D terrain: **attached the first time the camera actually tilts.**
  *
- * It only reads as terrain once the camera is pitched, and pitch costs
- * legibility on a 192px-tall inline map, drains battery, and makes labels swim
- * — for a view almost nobody rotates. The per-trip switch ("terrain on,
- * exaggeration 1.3" vs "flat, minimal") belongs to the theme preset in #40;
- * this constant is the seam it will hook into.
+ * It was off entirely at first, on the reasoning that pitch costs legibility on
+ * a 192px map, drains battery and makes labels swim for a view almost nobody
+ * rotates. That reasoning was half right and produced a worse state than either
+ * extreme: pitch gestures are enabled, so the map *invites* a tilt and then
+ * stays stubbornly flat. Nothing signals that the elevation is only shading.
+ *
+ * Lazy attachment gets both. At `pitch: 0` a terrain mesh is invisible by
+ * definition, so waiting for `pitchstart` costs the flat view — the one
+ * practically everyone sees — literally nothing: no mesh built, no layers
+ * draped, no extra draw. Tilt and it is there. It also satisfies #38's
+ * guardrail ("do not enable pitch/3D by default on mobile") precisely, rather
+ * than by giving up the feature.
+ *
+ * The per-trip switch ("terrain on, exaggeration 1.3" vs "flat, minimal")
+ * belongs to the theme preset in #40; these constants are the seam.
  */
-export const TERRAIN_3D = false;
-export const TERRAIN_EXAGGERATION = 1.15;
+export const TERRAIN_3D = true;
+/**
+ * Slightly above life-size. At trip scale a real 1.0 vertical is nearly
+ * invisible — even the Selkirks are a few km of relief across a few hundred km
+ * of map — and anything past ~1.5 turns the Rockies into a cardboard cutout.
+ */
+export const TERRAIN_EXAGGERATION = 1.3;
 
 /**
  * The layer these should sit under.
@@ -178,6 +193,33 @@ function addContourLayers(map: MapLibreMap, before?: string): void {
 }
 
 /**
+ * Build the terrain mesh the moment the camera starts to tilt, once.
+ *
+ * `pitchstart` fires before the pitch actually moves, so the mesh is in place
+ * by the time there is anything to see. The map is created at `pitch: 0`, so on
+ * a map nobody tilts this never runs at all.
+ */
+function attachTerrainOnPitch(map: MapLibreMap): void {
+  let attached = false;
+  const attach = () => {
+    if (attached) return;
+    attached = true;
+    map.setTerrain({ source: DEM_SOURCE_ID, exaggeration: TERRAIN_EXAGGERATION });
+    // Without a sky, tilting shows the page background above the horizon. There
+    // is no `sky` LAYER in MapLibre — it is a root-level object.
+    map.setSky({
+      "sky-color": "#c8d4e3",
+      "horizon-color": "#f6f3ee",
+      "sky-horizon-blend": 0.6,
+      "horizon-fog-blend": 0.6,
+    });
+    map.off("pitchstart", attach);
+  };
+  if (map.getPitch() > 0) attach();
+  else map.on("pitchstart", attach);
+}
+
+/**
  * Put elevation on a loaded map. Never throws: terrain is atmosphere, so a DEM
  * that will not load must cost the trip its hillshade, not its route.
  */
@@ -187,17 +229,7 @@ export async function addTerrain(map: MapLibreMap, lib: typeof import("maplibre-
     addDemSource(map);
     addHillshade(map, before);
 
-    if (TERRAIN_3D) {
-      map.setTerrain({ source: DEM_SOURCE_ID, exaggeration: TERRAIN_EXAGGERATION });
-      // Without a sky, pitching the camera shows the page background above the
-      // horizon. There is no `sky` LAYER in MapLibre — it is a root-level object.
-      map.setSky({
-        "sky-color": "#c8d4e3",
-        "horizon-color": "#f6f3ee",
-        "sky-horizon-blend": 0.6,
-        "horizon-fog-blend": 0.6,
-      });
-    }
+    if (TERRAIN_3D) attachTerrainOnPitch(map);
 
     await addContours(map, lib);
     addContourLayers(map, before);

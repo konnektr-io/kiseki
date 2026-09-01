@@ -142,7 +142,26 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // whole bottom strip is attribution — which wraps to two lines on a
         // phone-width map and would sit straight on top of the zoom-out
         // button. Attribution is a legal requirement, so the controls move.
-        map.addControl(new lib.NavigationControl({ showCompass: false }), "top-left");
+        //
+        // The compass is the way BACK. Rotate and pitch are on by default, and
+        // now that a tilt actually extrudes terrain (#38) people will use them
+        // — leaving them stuck askew with no reset is not acceptable.
+        // `visualizePitch` is what makes clicking it call `resetNorthPitch`
+        // rather than only `resetNorth`, so one press undoes both.
+        map.addControl(
+          new lib.NavigationControl({ showCompass: true, visualizePitch: true }),
+          "top-left",
+        );
+
+        // ...but a third permanent chip on a 192px map is chrome nobody asked
+        // for, so the compass only appears once the map is off north or tilted
+        // (index.css keys off this class).
+        const syncOriented = () => {
+          if (!map || !ref.current) return;
+          ref.current.classList.toggle("map-oriented", map.getBearing() !== 0 || map.getPitch() !== 0);
+        };
+        map.on("rotate", syncOriented);
+        map.on("pitch", syncOriented);
 
         // Tiles or style unreachable → fall back to the static image rather
         // than leaving an empty grey box (DESIGN.md §8.5). Only failures before
