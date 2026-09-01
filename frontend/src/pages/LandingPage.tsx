@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Compass, MapPin, Ticket } from "lucide-react";
 import { AuthButton } from "../components/AuthButton";
-import { StageBadge } from "../components/ui";
+import { Button, StageBadge } from "../components/ui";
 import { fetchMyTrips } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { isAuthConfigured } from "../lib/auth";
@@ -50,12 +50,9 @@ function AnonymousHero() {
         The trip as a living document. Open your trip link to continue, or sign
         in to see your trips.
       </p>
-      <button
-        onClick={() => loginWithRedirect()}
-        className="mt-2 rounded-md border border-border bg-card px-5 py-2 text-sm font-medium transition-colors hover:bg-muted"
-      >
+      <Button variant="outline" onClick={() => loginWithRedirect()} className="mt-2 px-5">
         Sign in
-      </button>
+      </Button>
     </div>
   );
 }
@@ -83,7 +80,7 @@ function TripCard({ trip }: { trip: TripSummary }) {
             <MapPin className="h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent" />
+        <div className="scrim absolute inset-0" />
         <div className="absolute left-3 top-3">
           <StageBadge stage={trip.stage} />
         </div>
@@ -153,7 +150,9 @@ function AuthenticatedLanding() {
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="animate-pulse text-muted-foreground">Loading…</p>
+        <p className="animate-pulse text-muted-foreground" role="status">
+          Loading…
+        </p>
       </div>
     );
   }
@@ -183,14 +182,14 @@ function AuthenticatedLanding() {
         </div>
 
         {error ? (
-          <div className="rounded-xl border border-destructive/40 bg-card p-6 text-center">
-            <p className="text-sm text-destructive">{error}</p>
-            <button
-              onClick={() => setError(null)}
-              className="mt-3 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-            >
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
+          >
+            <p className="text-sm font-medium text-destructive">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => setError(null)} className="mt-3 text-xs">
               Retry
-            </button>
+            </Button>
           </div>
         ) : trips === null ? (
           <TripGridSkeleton />

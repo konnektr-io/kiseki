@@ -9,7 +9,13 @@
 @import "tailwindcss";
 
 /* Design tokens — per-trip theming injects --trip-* variables at runtime.
-   Colors must always be referenced through these tokens, never hardcoded. */
+   Colors must always be referenced through these tokens, never hardcoded.
+
+   `@theme inline` is deliberate (DESIGN.md §3): it inlines the whole
+   `var(--trip-*, fallback)` expression into every generated utility, so the
+   substitution happens at the element that uses the utility and picks up the
+   nearest `--trip-*` value. Plain `@theme` would resolve once at :root and
+   per-trip theming would stop working. Do not "fix" it. */
 @theme inline {
   --color-background: var(--trip-bg, #fafaf9);
   --color-foreground: var(--trip-fg, #1c1917);
@@ -21,9 +27,96 @@
   --color-muted-foreground: var(--trip-muted-fg, #78716c);
   --color-border: var(--trip-border, #e7e5e4);
   --color-card: var(--trip-card, #ffffff);
+
+  /* Raised surface over `card` — the "paper tint" a theme preset shifts
+     (DESIGN.md §6.2). White by default, so it is a no-op today; everything
+     that floats (§2.4) reads it, so tinting a preset tints all chrome. */
+  --color-surface: var(--trip-surface, #ffffff);
+  /* Base colour of the text-over-photo scrim (§9) — see the `scrim` utility. */
+  --color-scrim: #000000;
+
+  /* Semantic status — NEVER per-trip (DESIGN.md §5.1): a failure has to look
+     like a failure in every palette, so these carry no --trip-* hook. */
+  --color-destructive: #b91c1c;
+  --color-destructive-foreground: #fef2f2;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+
+  /* Map (DESIGN.md §8.4) — the trip's identity has to reach the map, so these
+     DO follow the trip and default to its signature colour. Their runtime
+     values are also readable from JS via the --map-* properties below, which
+     is how the canvas renderers (MapView today, MapLibre in #18) get them. */
+  --color-route: var(--map-route);
+  --color-route-casing: var(--map-route-casing);
+  --color-marker: var(--map-marker);
+  --color-marker-fg: var(--map-marker-fg);
+
+  /* Radius scale — values are Tailwind's current defaults on purpose, so this
+     is a scale, not a restyle. A preset shifts it later (sharp → soft). */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* Elevation (DESIGN.md §2.4). --shadow-card matches Tailwind's `shadow-sm`
+     exactly — adopting it changes nothing on screen or on paper. */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-floating: 0 2px 12px rgb(0 0 0 / 0.12);
+
   --font-sans: "Inter", var(--trip-font, ui-sans-serif, system-ui, sans-serif);
   --font-heading: "Oswald", sans-serif;
   --font-display: "Bebas Neue", sans-serif;
+}
+
+/* Map colours as real custom properties, declared on EVERY element rather than
+   on :root. A custom property declared once at :root computes there and is
+   inherited already-substituted, so a `--trip-primary` set further down the
+   tree could never reach it — the same reason `@theme inline` exists above.
+   Declared universally, each element re-resolves against its own trip.
+   This is what makes `getComputedStyle(el).getPropertyValue("--map-route")`
+   return the *current trip's* route colour (see lib/tokens.ts). */
+*,
+*::before,
+*::after {
+  --map-route: var(--trip-route, var(--trip-primary, #9f1239));
+  --map-route-casing: var(--trip-route-casing, #ffffff);
+  --map-marker: var(--trip-marker, var(--trip-primary, #9f1239));
+  --map-marker-fg: var(--trip-marker-fg, var(--trip-primary-fg, #fff7ed));
+}
+
+/* The focus ring (DESIGN.md §11). `outline` rather than a ring box-shadow so
+   it is never clipped by an `overflow-hidden` ancestor; the `ring-background`
+   halo fills the offset gap so the ring survives a photo background too. */
+@utility focus-ring {
+  @apply outline-2 outline-offset-2 outline-primary ring-2 ring-background;
+}
+
+/* The four-layer floating recipe (DESIGN.md §2.4) — anything sitting over a
+   map or a photo. Plain shadows disappear over satellite imagery. */
+@utility floating {
+  @apply border border-border/60 bg-surface/85 shadow-floating backdrop-blur-md;
+}
+
+/* Text-over-photo scrim (DESIGN.md §9) — never rely on drop-shadow alone.
+   Written with @apply rather than raw `var(--color-scrim)`: `@theme inline`
+   does not emit the theme variables, it inlines them into utilities, so a
+   hand-written `var(--color-*)` would be undefined at runtime. */
+@utility scrim {
+  @apply bg-gradient-to-t from-scrim/85 via-scrim/25 to-transparent;
+}
+
+/* Accessibility floor: a visible focus ring on every interactive element, so
+   this is a real floor and not something each new component has to remember. */
+@layer base {
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    @apply focus-ring;
+  }
 }
 
 html,
@@ -115,6 +208,20 @@ h4 {
 }
 .animate-day-next {
   animation: day-next 0.2s ease-out;
+}
+
+/* ---------- reduced motion (DESIGN.md §10) ----------
+   Global guard: without it the day-swipe keyframes and the `live` pulse both
+   run regardless of the OS setting. Note this only reaches CSS — a JS-driven
+   map camera (#18) has to check the media query itself. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ---------- booklet print (PDF) ---------- */

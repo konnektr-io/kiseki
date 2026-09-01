@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTrip } from "./theme";
 import { findLocation, loadGoogleMaps, locatedPlaces, staticMapUrl } from "../lib/maps";
+import { mapColors } from "../lib/tokens";
+import { Floating } from "./ui";
 
 interface MapViewProps {
   places: string[];
@@ -40,6 +42,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         const maps = await loadGoogleMaps(keyResp.key);
         if (cancelled || !ref.current) return;
 
+        // Route/marker colours come from the token layer, resolved against the
+        // element so they carry THIS trip's identity (DESIGN.md §8.4).
+        const colors = mapColors(ref.current);
+
         const coords = located.map((l) => ({ lat: l.lat!, lng: l.lng! }));
         const center = {
           lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
@@ -64,7 +70,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
             new maps.Marker({
               map,
               position: pos,
-              label: { text: String(n), color: "#ffffff", fontWeight: "700", fontSize: "12px" },
+              label: { text: String(n), color: colors.markerFg, fontWeight: "700", fontSize: "12px" },
               title: l.name,
             }),
           );
@@ -100,7 +106,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
                 const renderer = new maps.DirectionsRenderer({
                   map,
                   suppressMarkers: true,
-                  polylineOptions: { strokeColor: "#1e3a8a", strokeWeight: 5, strokeOpacity: 0.95 },
+                  polylineOptions: { strokeColor: colors.route, strokeWeight: 5, strokeOpacity: 0.95 },
                 });
                 renderer.setDirections(result);
                 renderers.push(renderer);
@@ -110,13 +116,15 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
                   if (dur) setLiveTime(dur);
                 }
               } else {
-                // no road route (future flight/ferry leg) → dashed straight line
+                // no road route (future flight/ferry leg) → dashed straight
+                // line. Same route colour, dashed + lower opacity: the trip's
+                // vocabulary for "not a committed road leg" (DESIGN.md §8.4).
                 const line = new maps.Polyline({
                   map,
                   path: [a, b],
-                  strokeColor: "#94a3b8",
+                  strokeColor: colors.route,
                   strokeWeight: 2.5,
-                  strokeOpacity: 0.9,
+                  strokeOpacity: 0.5,
                   strokeDasharray: "6 8",
                 });
                 renderers.push(line);
@@ -147,10 +155,14 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
     <div className={`relative ${className}`}>
       <div ref={ref} className="h-48 w-full rounded-lg border border-border md:h-56" />
       {liveTime && (
-        <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-          ≈ {liveTime} · live
-        </span>
+        // Sits over the map, so it takes the floating recipe (DESIGN.md §2.4)
+        // rather than the shadow-only chip it used to be.
+        <Floating
+          className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums text-foreground"
+          aria-live="polite"
+        >
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />≈ {liveTime} · live
+        </Floating>
       )}
     </div>
   );

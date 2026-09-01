@@ -95,7 +95,7 @@ function DayCard({ day, no }: { day: Day; no: number }) {
   return (
     <div className="booklet-day mb-4">
       <div className="booklet-day-head mb-2 flex items-baseline gap-3">
-        <span className="font-display text-3xl leading-none text-primary">{no}</span>
+        <span className="font-display text-3xl leading-none tabular-nums text-primary">{no}</span>
         <div>
           <p className="kicker">{formatDay(day.date)}</p>
           <h3 className="font-heading text-lg font-semibold uppercase leading-tight text-foreground">
@@ -205,7 +205,7 @@ export function BookletPage() {
             <tbody>
               {bookedBlocks.map(({ dayNo, block }, i) => (
                 <tr key={`b${i}`} className="border-b border-border">
-                  <td className="py-1.5 pr-3 font-heading font-semibold">{dayNo}</td>
+                  <td className="py-1.5 pr-3 font-heading font-semibold tabular-nums">{dayNo}</td>
                   <td className="py-1.5 pr-3">
                     <span className="mr-1.5 inline-flex align-middle">
                       <BlockGlyph kind={block.kind} />
@@ -215,7 +215,7 @@ export function BookletPage() {
                   <td className="py-1.5 pr-3 text-xs uppercase tracking-wide">
                     <span className="font-semibold">{block.status ?? "booked"}</span>
                   </td>
-                  <td className="py-1.5 font-mono text-xs">
+                  <td className="py-1.5 font-mono text-xs tabular-nums">
                     {block.bookingCode ?? ""}{block.cost != null ? ` ${block.cost.toLocaleString("de-DE", { maximumFractionDigits: 0 })} ${block.currency ?? ""}` : ""}
                   </td>
                 </tr>

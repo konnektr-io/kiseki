@@ -6,7 +6,7 @@ import { claimIdentity, fetchTripByClaim, TripAccessError } from "../lib/api";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
-import { StageBadge } from "../components/ui";
+import { Button, StageBadge } from "../components/ui";
 
 /**
  * Join page (issue #6): the destination of a trip's CLAIM token — the invite.
@@ -58,7 +58,9 @@ export function JoinPage() {
   if (!trip) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <p className="animate-pulse text-muted-foreground">Loading…</p>
+        <p className="animate-pulse text-muted-foreground" role="status">
+          Loading…
+        </p>
       </div>
     );
   }
@@ -120,16 +122,15 @@ export function JoinPage() {
             </p>
 
             {!isAuthenticated && !authLoading ? (
-              <button
+              <Button
                 onClick={() =>
                   loginWithRedirect({
                     appState: { returnTo: window.location.pathname },
                   })
                 }
-                className="rounded-md border border-border bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
               >
                 Sign in to claim your identity
-              </button>
+              </Button>
             ) : (
               <ul className="flex flex-col gap-2">
                 {crew.map((person) => (
@@ -144,19 +145,27 @@ export function JoinPage() {
                         {person.note ? ` — ${person.note}` : ""}
                       </p>
                     </div>
-                    <button
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleClaim(person.id)}
                       disabled={claiming !== null}
-                      className="shrink-0 rounded-md border border-border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
+                      aria-label={`Claim the crew identity ${person.name}`}
+                      className="shrink-0 bg-transparent"
                     >
                       {claiming === person.id ? "Claiming…" : "This is me"}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
             )}
             {claimError && (
-              <p className="mt-4 text-sm text-destructive">{claimError}</p>
+              <p
+                role="alert"
+                className="mt-4 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm font-medium text-destructive"
+              >
+                {claimError}
+              </p>
             )}
           </div>
         </main>
