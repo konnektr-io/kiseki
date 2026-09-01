@@ -224,6 +224,27 @@ h4 {
   }
 }
 
+/* ---------- MapLibre chrome (DESIGN.md §8.5, §11) ----------
+   MapLibre's own controls are already real <button>s with aria-labels, but
+   they ship at 29px — below the 44px hit-target floor. Attribution is a legal
+   requirement AND a design element: styled to the trip's tokens, never hidden. */
+.maplibregl-ctrl-group button {
+  width: 44px;
+  height: 44px;
+}
+.maplibregl-ctrl-group {
+  @apply border border-border/60 bg-surface/85 shadow-floating backdrop-blur-md;
+}
+.maplibregl-ctrl-group button + button {
+  @apply border-t border-border/60;
+}
+.maplibregl-ctrl-attrib {
+  @apply bg-surface/80 text-[10px] text-muted-foreground backdrop-blur-sm;
+}
+.maplibregl-ctrl-attrib a {
+  @apply text-muted-foreground underline decoration-border underline-offset-2;
+}
+
 /* ---------- booklet print (PDF) ---------- */
 .booklet-section {
   break-before: page;

@@ -1,12 +1,14 @@
-"""Google Maps helpers — dynamic JS map (client) + static map proxy (PDF/print).
+"""Google Maps helpers — every one of them SERVER-SIDE (#27).
 
-The static map URL is built server-side so the API key never leaves the backend;
-the JS map key is served via /api/maps/key for the private SPA (restrict it to the
-site's referrer in Google Cloud Console).
+The browser never calls Google. MapLibre renders the basemap from keyless
+tiles, and everything that still needs Google — Directions for the real road
+route and the live drive time, Geocoding for an exact pin, Static Maps for the
+booklet — happens here, behind /api/maps/*, so the key never leaves the
+backend. `GET /api/maps/key` is gone; do not reintroduce a client-side key.
 
-Real driving routes come from the Directions API (encoded polylines, server-side
-for the static maps; DirectionsService client-side for the JS maps), so maps show
-the actual road route — and the loop map closes back to the start.
+Real driving routes come from the Directions API (encoded polylines, decoded to
+GeoJSON for the dynamic map, passed through raw for the static one), so maps
+show the actual road route — and the loop map closes back to the start.
 
 ENCODING GOTCHA: Google's Static Maps parser only tolerates the pipe (|) as an
 encoded separator — colons (color:...) and commas (lat,lng) must stay RAW. Fully
@@ -199,6 +201,117 @@ def build_static_map_url_legs(
     q.append("markers=" + _enc("|".join(f"{lat:.6f},{lng:.6f}" for _, lat, lng in places)))
     q.append("key=" + urllib.parse.quote(key, safe=""))
     return "https://maps.googleapis.com/maps/api/staticmap?" + "&".join(q)
+
+
+
+# --- Dynamic map support (#18/#27) ---------------------------------------
+#
+# The client no longer talks to Google at all: MapLibre renders geometry, and
+# the geometry comes from here. Directions stays on Google (MapLibre renders,
+# it does not route) but the call is server-side, so the key never ships.
+
+
+def decode_polyline(encoded: str) -> list[tuple[float, float]]:
+    """Decode Google's encoded polyline into [(lat, lng), ...].
+
+    Decoding server-side keeps the client free of a polyline dependency and
+    lets the route reach MapLibre as plain GeoJSON.
+    """
+    coords: list[tuple[float, float]] = []
+    index = lat = lng = 0
+    length = len(encoded)
+    while index < length:
+        for axis in (0, 1):
+            shift = result = 0
+            while True:
+                if index >= length:
+                    return coords  # truncated input — return what decoded cleanly
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1F) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            delta = ~(result >> 1) if result & 1 else result >> 1
+            if axis == 0:
+                lat += delta
+            else:
+                lng += delta
+        coords.append((lat * 1e-5, lng * 1e-5))
+    return coords
+
+
+def directions_leg(
+    a: tuple[str, float, float],
+    b: tuple[str, float, float],
+    key: str,
+) -> dict | None:
+    """One driving leg: encoded geometry + live duration.
+
+    `departure_time=now` is what makes Google return `duration_in_traffic` —
+    the number behind the live drive-time chip. (Do NOT add `traffic_model`:
+    the JS DirectionsService rejected it outright, and the REST API only
+    honours it alongside a future departure time.)
+
+    Returns None on any failure so the caller can fall back to a straight
+    line rather than dropping the leg.
+    """
+    params = {
+        "origin": f"{a[1]:.6f},{a[2]:.6f}",
+        "destination": f"{b[1]:.6f},{b[2]:.6f}",
+        "mode": "driving",
+        "departure_time": "now",
+        "key": key,
+    }
+    url = "https://maps.googleapis.com/maps/api/directions/json?" + urllib.parse.urlencode(params)
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.load(resp)
+    except Exception:
+        return None
+    if data.get("status") != "OK" or not data.get("routes"):
+        return None
+    route = data["routes"][0]
+    leg = (route.get("legs") or [{}])[0]
+    duration = leg.get("duration_in_traffic") or leg.get("duration") or {}
+    return {
+        "points": route["overview_polyline"]["points"],
+        "duration": duration.get("text"),
+        "distance": (leg.get("distance") or {}).get("text"),
+    }
+
+
+def route_legs(places: list[tuple[str, float, float]], key: str, *, loop: bool = False) -> list[dict]:
+    """Per-leg GeoJSON for a set of places — the payload the MapLibre map draws.
+
+    One Directions call per consecutive pair (the loop closes back to the
+    start), mirroring what the Google JS map did client-side. A leg with no
+    road route (a future flight/ferry) comes back with `road: false` and a
+    straight two-point line, which the client draws dashed.
+    """
+    pairs = [(places[i], places[i + 1]) for i in range(len(places) - 1)]
+    if loop and len(places) >= 2:
+        pairs.append((places[-1], places[0]))
+    legs: list[dict] = []
+    for a, b in pairs:
+        hit = directions_leg(a, b, key) if key else None
+        if hit:
+            coords = [[lng, lat] for lat, lng in decode_polyline(hit["points"])]
+            road = True
+        else:
+            coords, road = [[a[2], a[1]], [b[2], b[1]]], False
+            hit = {"duration": None, "distance": None}
+        legs.append(
+            {
+                "from": a[0],
+                "to": b[0],
+                "road": road,
+                "duration": hit["duration"],
+                "distance": hit["distance"],
+                "geometry": {"type": "LineString", "coordinates": coords},
+            }
+        )
+    return legs
 
 
 if __name__ == "__main__":

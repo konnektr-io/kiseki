@@ -1,8 +1,43 @@
 import { useEffect, useRef, useState } from "react";
+import type { Map as MapLibreMap } from "maplibre-gl";
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useTrip } from "./theme";
-import { findLocation, loadGoogleMaps, locatedPlaces, staticMapUrl } from "../lib/maps";
+import {
+  MAP_STYLE_URL,
+  fetchRouteLegs,
+  findLocation,
+  hasWebGL2,
+  locatedPlaces,
+  markerNumber,
+  staticMapUrl,
+} from "../lib/maps";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
+
+/**
+ * MapLibre is loaded on demand, once per session.
+ *
+ * It is ~800 kB of WebGL renderer and most pages have no map on them, so it
+ * stays out of the entry bundle — the same reason the Google JS API used to be
+ * injected lazily. Vite code-splits the dynamic import automatically.
+ *
+ * `setWorkerUrl` is mandatory for bundled builds in v6 (the worker can no
+ * longer find itself via `import.meta.url` inside a bundler's module graph),
+ * and Vite needs `?worker&url` rather than plain `?url` — plain `?url` emits
+ * the worker without its sibling `maplibre-gl-shared.mjs` and no tile ever
+ * loads in production.
+ */
+let libPromise: Promise<typeof import("maplibre-gl")> | null = null;
+function loadMapLibre() {
+  if (!libPromise) {
+    libPromise = import("maplibre-gl").then((lib) => {
+      lib.setWorkerUrl(workerUrl);
+      return lib;
+    });
+  }
+  return libPromise;
+}
 
 interface MapViewProps {
   places: string[];
@@ -12,23 +47,60 @@ interface MapViewProps {
 }
 
 /**
- * Dynamic Google Map (JS API): numbered markers + the REAL driving route
- * (DirectionsService), live traffic layer, and — for two-place legs — a live
- * drive-time chip. Terrain basemap (closest to the old booklet maps).
- * Hidden in print — the booklet uses StaticMapImg instead.
+ * Dynamic map (MapLibre GL JS v6, #18): numbered markers + the REAL driving
+ * route, and — for two-place legs — a live drive-time chip.
+ *
+ * Nothing here talks to Google (#27). The basemap comes from keyless tiles and
+ * the route geometry comes from our own backend, which calls Directions with
+ * the key server-side. There is no traffic layer any more: `TrafficLayer` is
+ * exclusive to the Google JS API, and keeping that API loaded is precisely what
+ * kept the key visible in devtools.
+ *
+ * Hidden in print — the booklet uses StaticMapImg instead (see TripMap).
  */
 export function MapView({ places, loop = false, className = "", showLiveTime = true }: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState(false);
+  // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
+  // preference — without WebGL2 the constructor throws (DESIGN.md §8.2).
+  const [webgl2] = useState(hasWebGL2);
+  const [failed, setFailed] = useState(false);
+  const [ready, setReady] = useState(false);
   const [liveTime, setLiveTime] = useState<string | null>(null);
+  // Every MapLibre map is a WebGL context and browsers cap those around 16, so
+  // a map may not exist until it is actually on screen. A continuous itinerary
+  // has one drive card per leg and the booklet renders EVERY day at once —
+  // mounting eagerly would exhaust the cap on both. It also keeps the print
+  // path clean: a `display:none` element never intersects, so the PDF creates
+  // no contexts and pulls no tiles (DESIGN.md §8.2).
+  const [onScreen, setOnScreen] = useState(typeof IntersectionObserver === "undefined");
+  // `places` is built inline by callers, so its identity changes every render —
+  // key the effect on the contents instead of the array.
+  const placesKey = places.join("|");
 
   useEffect(() => {
+    if (onScreen || typeof IntersectionObserver === "undefined") return;
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setOnScreen(true);
+          io.disconnect();
+        }
+      },
+      // Start loading just before it scrolls in, so the map is ready on arrival.
+      { rootMargin: "200px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [onScreen]);
+
+  useEffect(() => {
+    if (!webgl2 || !onScreen) return;
     let cancelled = false;
-    let map: any = null;
-    let traffic: any = null;
-    const markers: any[] = [];
-    const renderers: any[] = [];
+    let map: MapLibreMap | null = null;
+    const abort = new AbortController();
 
     const located = places
       .map((p) => findLocation(trip, p))
@@ -37,123 +109,162 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
     (async () => {
       try {
-        const keyResp = await fetch("/api/maps/key").then((r) => r.json());
-        if (!keyResp.key || cancelled) return;
-        const maps = await loadGoogleMaps(keyResp.key);
+        const lib = await loadMapLibre();
         if (cancelled || !ref.current) return;
 
-        // Route/marker colours come from the token layer, resolved against the
-        // element so they carry THIS trip's identity (DESIGN.md §8.4).
+        // Route colours come from the token layer, resolved against the element
+        // so they carry THIS trip's identity (DESIGN.md §8.4). A hex literal
+        // here is how every trip ended up drawing Canada-blue routes.
         const colors = mapColors(ref.current);
 
-        const coords = located.map((l) => ({ lat: l.lat!, lng: l.lng! }));
-        const center = {
-          lat: coords.reduce((s, c) => s + c.lat, 0) / coords.length,
-          lng: coords.reduce((s, c) => s + c.lng, 0) / coords.length,
-        };
-        map = new maps.Map(ref.current, {
-          center,
-          zoom: 6,
-          mapTypeId: "terrain",
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
+        const bounds = new lib.LngLatBounds();
+        located.forEach((l) => bounds.extend([l.lng!, l.lat!]));
+
+        map = new lib.Map({
+          container: ref.current,
+          style: MAP_STYLE_URL,
+          bounds,
+          fitBoundsOptions: { padding: 32, maxZoom: 12 },
+          attributionControl: { compact: true },
+        });
+        // Real <button>s with aria-labels, sized to the 44px floor in index.css.
+        map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
+
+        // Tiles or style unreachable → fall back to the static image rather
+        // than leaving an empty grey box (DESIGN.md §8.5). Only failures before
+        // first paint count; a single dropped tile later is not a dead map.
+        map.on("error", () => {
+          if (!cancelled && !map?.loaded()) setFailed(true);
         });
 
-        // numbered markers — numbers = the trip's OWN location markers
-        // (position in trip.locations or explicit `marker`), so a leg like
-        // Revelstoke→Golden shows ③→④, matching the loop map + directions pill
         located.forEach((l) => {
-          const pos = { lat: l.lat!, lng: l.lng! };
-          const n = l.marker ?? (trip.locations ?? []).indexOf(l) + 1;
-          markers.push(
-            new maps.Marker({
-              map,
-              position: pos,
-              label: { text: String(n), color: colors.markerFg, fontWeight: "700", fontSize: "12px" },
-              title: l.name,
-            }),
-          );
+          const n = markerNumber(trip, l);
+          const el = document.createElement("div");
+          // 44px hit target around a ~28px pin (DESIGN.md §8.3). Colours are
+          // Tailwind utilities off --color-marker / --color-marker-fg, so the
+          // pin is per-trip for free and no colour is written in JS at all.
+          el.className = "grid h-11 w-11 place-items-center";
+          el.setAttribute("aria-hidden", "true");
+          el.title = l.name;
+          const pin = document.createElement("span");
+          pin.className =
+            "grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card";
+          pin.textContent = String(n);
+          el.appendChild(pin);
+          new lib.Marker({ element: el }).setLngLat([l.lng!, l.lat!]).addTo(map!);
         });
 
-        // live traffic
-        traffic = new maps.TrafficLayer();
-        traffic.setMap(map);
+        const loaded = new Promise<void>((resolve) => map!.once("load", () => resolve()));
+        const [, legs] = await Promise.all([
+          loaded,
+          fetchRouteLegs(trip, places, loop, abort.signal),
+        ]);
+        if (cancelled || !map) return;
+        setReady(true);
+        if (!legs?.length) return;
 
-        // Real driving routes: one Directions request PER LEG (consecutive pairs;
-        // the loop closes back to the start). Per-leg keeps each request simple
-        // (no origin==destination quirk) and lets future mixed transport draw
-        // dashed straight lines for flight/ferry legs that have no road route.
-        const dirService = new maps.DirectionsService();
-        const pairs: { a: any; b: any }[] = [];
-        for (let i = 0; i < coords.length - 1; i++) pairs.push({ a: coords[i], b: coords[i + 1] });
-        if (loop && coords.length >= 2) pairs.push({ a: coords[coords.length - 1], b: coords[0] });
+        map.addSource("route", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: legs.map((leg) => ({
+              type: "Feature" as const,
+              properties: { road: leg.road },
+              geometry: leg.geometry,
+            })),
+          },
+        });
 
-        for (const { a, b } of pairs) {
-          dirService.route(
-            {
-              origin: a,
-              destination: b,
-              travelMode: "DRIVING",
-              // NOTE: trafficModel is NOT accepted by DirectionsService in the
-              // current API (throws InvalidValueError → no route ever renders).
-              // departureTime alone still returns duration_in_traffic.
-              drivingOptions: { departureTime: new Date() },
+        // Draw the route UNDER the basemap's labels, so place names stay
+        // readable across it (DESIGN.md §8.5).
+        const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+        const road: import("maplibre-gl").FilterSpecification = ["==", ["get", "road"], true];
+
+        // Every line twice: a wide casing under a narrower body, or the route
+        // vanishes over roads of a similar colour (DESIGN.md §8.4). This is the
+        // single highest-value cartographic trick available.
+        map.addLayer(
+          {
+            id: "route-casing",
+            type: "line",
+            source: "route",
+            filter: road,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+          },
+          firstSymbol,
+        );
+        map.addLayer(
+          {
+            id: "route-body",
+            type: "line",
+            source: "route",
+            filter: road,
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: { "line-color": colors.route, "line-width": 4 },
+          },
+          firstSymbol,
+        );
+        // A leg with no road route (a flight/ferry) keeps the route colour but
+        // goes dashed and dimmer — the trip's vocabulary for "not a road leg".
+        map.addLayer(
+          {
+            id: "route-nonroad",
+            type: "line",
+            source: "route",
+            filter: ["!", road],
+            layout: { "line-cap": "round", "line-join": "round" },
+            paint: {
+              "line-color": colors.route,
+              "line-width": 2.5,
+              "line-opacity": 0.5,
+              "line-dasharray": [2, 2.5],
             },
-            (result: any, status: string) => {
-              if (cancelled) return;
-              if (status === "OK" && result?.routes?.length) {
-                const renderer = new maps.DirectionsRenderer({
-                  map,
-                  suppressMarkers: true,
-                  polylineOptions: { strokeColor: colors.route, strokeWeight: 5, strokeOpacity: 0.95 },
-                });
-                renderer.setDirections(result);
-                renderers.push(renderer);
-                if (pairs.length === 1 && showLiveTime) {
-                  const leg = result.routes[0].legs[0];
-                  const dur = leg?.duration_in_traffic?.text ?? leg?.duration?.text;
-                  if (dur) setLiveTime(dur);
-                }
-              } else {
-                // no road route (future flight/ferry leg) → dashed straight
-                // line. Same route colour, dashed + lower opacity: the trip's
-                // vocabulary for "not a committed road leg" (DESIGN.md §8.4).
-                const line = new maps.Polyline({
-                  map,
-                  path: [a, b],
-                  strokeColor: colors.route,
-                  strokeWeight: 2.5,
-                  strokeOpacity: 0.5,
-                  strokeDasharray: "6 8",
-                });
-                renderers.push(line);
-              }
-            },
-          );
-        }
+          },
+          firstSymbol,
+        );
 
-        const bounds = new maps.LatLngBounds();
-        coords.forEach((c) => bounds.extend(c));
-        map.fitBounds(bounds);
+        // Re-frame on the real geometry: a road route swings well outside the
+        // straight line between two pins.
+        const full = new lib.LngLatBounds();
+        located.forEach((l) => full.extend([l.lng!, l.lat!]));
+        legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        map.fitBounds(full, { padding: 32, maxZoom: 12, animate: !reduceMotion, duration: 500 });
+
+        if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
       } catch {
-        if (!cancelled) setError(true);
+        if (!cancelled) setFailed(true);
       }
     })();
 
     return () => {
       cancelled = true;
-      markers.forEach((m) => m.setMap(null));
-      renderers.forEach((r) => r.setMap(null));
-      traffic?.setMap(null);
-      map?.unbindAll();
+      abort.abort();
+      map?.remove();
     };
-  }, [trip, places, loop, showLiveTime]);
+  }, [trip, placesKey, loop, showLiveTime, webgl2, onScreen]);
 
-  if (error) return null;
+  // No WebGL2, or the style/tiles never arrived: show the same view as a
+  // server-rendered image. Never a crash, never an empty grey box.
+  if (!webgl2 || failed) {
+    // Same box as the live map, so the page does not reflow into a different
+    // shape depending on whether WebGL and the tiles were available.
+    return <StaticMapImg places={places} loop={loop} className={`h-48 object-cover md:h-56 ${className}`} />;
+  }
+
   return (
     <div className={`relative ${className}`}>
-      <div ref={ref} className="h-48 w-full rounded-lg border border-border md:h-56" />
+      <div
+        ref={ref}
+        role="img"
+        aria-label={`Map of the route: ${places.join(" to ")}`}
+        className="h-48 w-full overflow-hidden rounded-lg border border-border md:h-56"
+      />
+      {!ready && (
+        // Themed skeleton while the style loads (DESIGN.md §8.5).
+        <div className="pointer-events-none absolute inset-0 animate-pulse rounded-lg bg-muted" />
+      )}
       {liveTime && (
         // Sits over the map, so it takes the floating recipe (DESIGN.md §2.4)
         // rather than the shadow-only chip it used to be.
@@ -177,8 +288,9 @@ export function StaticMapImg({ places, loop = false, query, className = "" }: { 
 }
 
 /**
- * One map, both worlds: JS map on screen (traffic + live drive time), static
- * image in print (real route). Falls back gracefully when maps aren't configured.
+ * One map, both worlds: MapLibre on screen (live drive time), static image in
+ * print (real route). This split is the contract — any map component provides
+ * both halves or it isn't done. Retiring the static half is #37.
  */
 export function TripMap({ places, loop = false }: { places: string[]; loop?: boolean }) {
   const trip = useTrip();

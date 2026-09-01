@@ -35,3 +35,9 @@ playwright-report/
 # Graph mocks — keep anonymized fixtures, never commit real (token-bearing) ones
 backend/data/mocks/*.graph.json
 !backend/data/mocks/*.graph.anon.json
+
+# Vendored agent skills (`npx skills add maplibre/maplibre-agent-skills`, #18).
+# skills-lock.json pins them, so the content is restorable and not worth
+# carrying in the repo; the kiseki-* skills under .claude/skills ARE ours.
+.agents/
+.claude/skills/maplibre-*

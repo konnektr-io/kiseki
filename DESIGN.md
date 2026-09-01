@@ -452,9 +452,9 @@ content that exists nowhere else. If a candidate page is a filtered view of its 
 
 ## 8. Maps as a design surface
 
-Currently Google Maps JS (`MapView`) + a server-side Static Maps proxy for print. The move to
-**MapLibre GL JS v6** is a design decision as much as a technical one: it's the only way the map gets
-the trip's identity.
+**MapLibre GL JS v6** (`MapView`, #18) + a server-side Static Maps proxy for print. Moving off
+Google Maps JS was a design decision as much as a technical one: it's the only way the map gets the
+trip's identity — and it's what removed the API key from the browser (#27).
 
 ### 8.1 What MapLibre buys us
 
@@ -468,12 +468,21 @@ the trip's identity.
 - **ESM only** — `import * as maplibregl from "maplibre-gl"`, no UMD bundle.
 - **WebGL2 mandatory** — no WebGL1 fallback. Detect and degrade to a static image.
 - Use the official MapLibre agent skills for the mechanics (§14) rather than re-deriving them.
-- Wrapper: `react-maplibre` (visgl, the MapLibre-specific successor to `react-map-gl`) if we want a
-  reactive component model; a thin hand-rolled hook is also defensible given we have exactly one map
-  component today. Decide once, in the migration PR.
-- **Tiles are a separate decision from the renderer.** Options: a hosted provider (MapTiler, Stadia)
-  or self-hosted **PMTiles** on the home cluster / Garage — a single static file, no tile server,
-  which fits this stack unusually well. Choose before styling, not after.
+- Wrapper: *settled in #18* — **no wrapper**. A thin hand-rolled effect in `MapView`, given there is
+  exactly one map component. `react-maplibre` (visgl) is the option if a second map surface (#39)
+  makes the imperative code hurt; until then a wrapper is a dependency for one consumer.
+- MapLibre is loaded via a **dynamic import** — ~1 MB of renderer that most pages have no use for.
+- **Tiles are a separate decision from the renderer.** *Settled in #18:* **OpenFreeMap `positron`** —
+  keyless (nothing to proxy, nothing to leak) and already desaturated, which is §8.5's floor for
+  free. It is community-funded with no SLA, so the swap is kept to one constant: `MAP_STYLE_URL`
+  in `lib/maps.ts`, overridable via `VITE_MAP_STYLE_URL`. Self-hosted PMTiles on Garage remains the
+  escape hatch — it was not chosen now because a travel app is global by definition, so it means
+  either the whole-planet archive or per-region extracts maintained forever, plus self-hosted
+  glyphs and sprites.
+- **The traffic layer did not come along.** `TrafficLayer` is exclusive to the Google *JavaScript*
+  API; keeping it would have kept the key in the browser and left #27 open. The live drive-time
+  chip — the number anyone actually reads — survives, via the server-proxied Directions call.
+  Coloured roads were decoration.
 
 ### 8.3 The marker system is the trip's index
 
@@ -497,7 +506,11 @@ idea.** Formalize it:
 - Per-mode: drive = solid; train = solid + dot pattern; ferry/flight = dashed, drawn as a
   **great-circle arc**, not a straight screen-space line.
 - Unbooked legs are dashed and lower-opacity regardless of mode (§5.3 again).
-- Route colour comes from `--color-route`, which comes from the trip preset. Kill the `#1e3a8a`.
+- Route colour comes from `--color-route`, which comes from the trip preset, read off the DOM by
+  `lib/tokens.ts` (a canvas renderer takes strings, not classes). The `#1e3a8a` is dead — no hex
+  literal belongs in map code, ever; that leak is how every trip drew Canada-blue routes.
+- Markers are **DOM markers**, so their colours are plain Tailwind utilities off `--color-marker` /
+  `--color-marker-fg` and no colour is written in JS at all.
 
 ### 8.5 Map legibility floor
 
