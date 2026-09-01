@@ -236,7 +236,15 @@ export function OverviewPage() {
       {/* crew */}
       {trip.crew.length > 0 && (
         <Card className="p-5">
-          <p className="kicker mb-3">The crew</p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="kicker">The crew</p>
+            <Link
+              to={`/t/${token}/crew`}
+              className="no-print inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+            >
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
           <ul className="space-y-2.5">
             {trip.crew.map((p) => (
               <li key={p.name} className="flex items-center gap-3">

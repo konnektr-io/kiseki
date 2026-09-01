@@ -35,6 +35,7 @@ jobs:
           cd frontend
           pnpm install --frozen-lockfile
           pnpm build
+          pnpm test
 
       - name: Setup Python
         uses: actions/setup-python@v5
