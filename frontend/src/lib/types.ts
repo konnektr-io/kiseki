@@ -133,6 +133,19 @@ export interface Person {
   contact?: string;
 }
 
+export interface TripSummary {
+  dtId: string;
+  token: string;
+  title: string;
+  subtitle?: string;
+  stage: Stage;
+  startDate?: string;
+  endDate?: string;
+  slug: string;
+  cover?: string;
+  role?: Role;
+}
+
 export interface Theme {
   primary?: string;
   accent?: string;

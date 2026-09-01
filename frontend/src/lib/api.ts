@@ -1,4 +1,4 @@
-import type { Trip } from "./types";
+import type { Trip, TripSummary } from "./types";
 
 /**
  * Trip $dtIds are opaque UUIDs (dashed); share tokens are NOT. The SPA routes
@@ -55,6 +55,18 @@ export async function claimIdentity(
     throw new TripAccessError(res.status, await res.text());
   }
   return (await res.json()) as Trip;
+}
+
+/** The caller's trips (issue #7 — logged-in landing). */
+export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> {
+  const res = await fetch("/api/trips", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await res.text());
+  }
+  const body = (await res.json()) as { trips: TripSummary[] };
+  return body.trips;
 }
 
 /** Owner-only: the trip's join link (claimToken is never in trip documents). */
