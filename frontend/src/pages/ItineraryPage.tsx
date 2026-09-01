@@ -1,117 +1,90 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useTrip } from "../components/theme";
-import { Badge, Button } from "../components/ui";
-import { BlockGlyph, MetaChips } from "../components/blocks";
-import { formatDay, tripTodayIso } from "../lib/dates";
-import { expandSectionDays } from "../lib/sections";
-import type { Block, Day, TripSection } from "../lib/types";
+import { BlockSummaryRow, DaySummaryRow } from "../components/DaySummaryRow";
+import { tripTodayIso, isTodayInRange } from "../lib/dates";
+import { expandSectionDays, sectionRange } from "../lib/sections";
+import type { Day, TripSection } from "../lib/types";
 
-function DayRow({ day, idx, dayNo, isToday }: { day: Day; idx: number; dayNo: number; isToday?: boolean }) {
-  const { token } = useParams();
-  const [open, setOpen] = useState(false);
-  const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
-  const hasPlanned = day.blocks.some((b) => b.status === "planned");
+const scrollKey = (token: string) => `kiseki:itinerary-scroll:${token}`;
+
+/** Sticky chapter header — the whole bar links to the section's own page.
+ *  Sticks below the app header (`--kiseki-header-h`, measured by TripLayout). */
+function SectionHeader({ section, si, token }: { section: TripSection; si: number; token: string }) {
+  const range = sectionRange(section.days);
   return (
-    /* The toggle fills the card edge-to-edge, so its own focus ring would be
-       clipped by this wrapper's `overflow-hidden` (an ancestor's overflow does
-       clip a descendant's outline). Draw the ring on the wrapper instead — an
-       element's own overflow never clips its own outline. */
-    <div
-      data-today={isToday ? "true" : undefined}
-      className={`overflow-hidden rounded-xl border bg-card shadow-card has-[:focus-visible]:focus-ring ${isToday ? "border-primary ring-1 ring-primary/30" : "border-border"}`}
+    <Link
+      to={`/t/${token}/s/${si}`}
+      aria-label={`${section.title}${range ? ` — ${range}` : ""}. Open section`}
+      className="sticky z-10 -mx-4 flex items-center gap-3 border-b border-border bg-background/90 px-4 py-2.5 backdrop-blur transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      style={{ top: "var(--kiseki-header-h, 3.5rem)" }}
     >
-      <Button
-        variant="ghost"
-        size="auto"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        className="flex w-full items-center justify-start gap-3 rounded-none p-3 text-left hover:bg-muted/60"
-      >
-        <div className="flex w-14 shrink-0 flex-col items-center rounded-lg bg-muted py-1.5">
-          <span className="font-display text-xl leading-none tabular-nums text-foreground">{dayNo}</span>
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {formatDay(day.date).split(" ")[0]}
-          </span>
-        </div>
-        <div className="min-w-0 flex-1">
-          <h4 className="font-heading text-base font-semibold leading-snug flex items-center gap-2">
-            {day.title || formatDay(day.date)}
-            {isToday && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground" aria-hidden /> Today
-              </span>
-            )}
-          </h4>
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span>{day.blocks.length} items</span>
-            <span className="inline-flex items-center gap-0.5">
-              {day.blocks.map((b, i) => (
-                <BlockGlyph key={i} kind={b.kind} />
-              ))}
-            </span>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {hasBooked && <Badge variant="accent">Booked</Badge>}
-          {hasPlanned && <Badge variant="outline">Planned</Badge>}
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
-        </div>
-      </Button>
-
-      {open && (
-        <div className="border-t border-border bg-muted/30 p-3">
-          <div className="mb-3">
-            <MetaChips meta={day.meta} />
-          </div>
-          {day.notes && <p className="mb-3 text-sm leading-relaxed text-muted-foreground">{day.notes}</p>}
-          <ul className="space-y-1.5">
-            {day.blocks.map((b: Block, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm">
-                <BlockGlyph kind={b.kind} />
-                <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
-                {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
-                {b.status && (
-                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    {b.status}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <Link
-            to={`/t/${token}/day/${idx}`}
-            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
-          >
-            Open day <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+      <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" aria-hidden />
+      <h3 className="min-w-0 flex-1 truncate font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
+        {section.title}
+      </h3>
+      {range && (
+        <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{range}</span>
       )}
-    </div>
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+    </Link>
   );
 }
 
 export function ItineraryPage() {
   const trip = useTrip();
+  const { token = "" } = useParams();
   const todayIso = tripTodayIso(trip);
+  const todayInRange = isTodayInRange(trip, todayIso);
+  const key = scrollKey(token);
 
-  // Scroll the today row into view on mount (center of viewport, accounting for sticky header)
+  // Restore the saved scroll position (returning from a day page). A fresh
+  // visit with no saved position settles on today when it's in range (#42).
+  useLayoutEffect(() => {
+    const saved = sessionStorage.getItem(key);
+    if (saved != null && !Number.isNaN(Number(saved))) {
+      window.scrollTo(0, Number(saved));
+    } else if (todayInRange) {
+      const el = document.querySelector<HTMLElement>('[data-today="true"]');
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  // Track scroll live (passive) so the unmount-save below reads the LAST real
+  // position: passive cleanups run after React swaps the DOM, when
+  // window.scrollY has already been reset to 0. The listener also covers
+  // exits via browser back/forward, which fire no click.
+  const lastY = useRef(0);
   useEffect(() => {
-    const el = document.querySelector<HTMLElement>('[data-today="true"]');
-    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [todayIso]);
+    const onScroll = () => {
+      lastY.current = window.scrollY;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
-  const sections: { section: TripSection | null; days: { day: Day; idx: number }[] }[] = trip.sections?.length
-    ? trip.sections.map((s) => ({
-        section: s,
-        days: expandSectionDays(s.days)
+  // Persist the scroll position whenever the itinerary unmounts (day page,
+  // section page, nav away) so the scan view resumes where it was.
+  useEffect(() => {
+    return () => sessionStorage.setItem(key, String(lastY.current));
+  }, [key]);
+
+  const sections = trip.sections?.length
+    ? trip.sections.map((section, si) => ({
+        section,
+        si,
+        days: expandSectionDays(section.days)
           .map((idx) => ({ day: trip.days[idx], idx }))
           .filter((d): d is { day: Day; idx: number } => Boolean(d.day)),
       }))
-    : [{ section: null, days: trip.days.map((day, idx) => ({ day, idx })) }];
+    : [];
 
-  if (!trip.days.length) {
+  const hasDays = trip.days.length > 0;
+  const hasSections = sections.length > 0;
+
+  if (!hasDays && !hasSections) {
     return (
       <p className="py-10 text-center text-sm italic text-muted-foreground">
         Still in the <strong>idea</strong> stage — no itinerary yet. The route skeleton lives in the overview.
@@ -121,23 +94,40 @@ export function ItineraryPage() {
 
   return (
     <div className="space-y-8">
-      {sections.map(({ section, days }, si) => (
-        <section key={si}>
-          {section && (
-            <div className="mb-3 flex items-center gap-3">
-              <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" />
-              <h3 className="font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
-                {section.title}
-              </h3>
-            </div>
-          )}
-          <div className="space-y-2.5">
-            {days.map(({ day, idx }) => (
-              <DayRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
-            ))}
-          </div>
-        </section>
-      ))}
+      {hasSections ? (
+        sections.map(({ section, si, days }) => (
+          <section key={si} className="scroll-mt-24">
+            <SectionHeader section={section} si={si} token={token} />
+            {days.length ? (
+              <div className="space-y-2.5 pt-3">
+                {days.map(({ day, idx }) => (
+                  <DaySummaryRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
+                ))}
+              </div>
+            ) : (
+              /* a section with no days yet — its unscheduled blocks ARE the
+                 content (idea-stage chapter). Link lives on the header. */
+              <div className="space-y-2.5 pt-3">
+                {(section.blocks ?? []).map((b, i) => (
+                  <BlockSummaryRow key={i} block={b} />
+                ))}
+                {!section.blocks?.length && (
+                  <p className="text-sm italic text-muted-foreground">
+                    Planning this chapter — nothing scheduled yet.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+        ))
+      ) : (
+        /* no sections — legacy flat day list */
+        <div className="space-y-2.5">
+          {trip.days.map((day, idx) => (
+            <DaySummaryRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

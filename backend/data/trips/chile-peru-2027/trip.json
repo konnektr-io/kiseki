@@ -86,28 +86,40 @@
   ],
   "sections": [
     {
-      "title": "Days 1–7 — Valle Nevado & the Andes",
+      "title": "Valle Nevado & the Andes",
       "days": [
         0,
         6
       ],
-      "id": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5"
+      "id": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
+      "locationRefs": [
+        "Santiago",
+        "Valle Nevado"
+      ]
     },
     {
-      "title": "Days 8–11 — Sacred Valley & Machu Picchu",
+      "title": "Sacred Valley & Machu Picchu",
       "days": [
         7,
         10
       ],
-      "id": "a25acd1d-cc53-41a2-872c-f29fde538a7a"
+      "id": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
+      "locationRefs": [
+        "Sacred Valley",
+        "Machu Picchu"
+      ]
     },
     {
-      "title": "Days 12–17 — Cusco, rainbow mountains & Lima",
+      "title": "Cusco, Rainbow Mountains & Lima",
       "days": [
         11,
         16
       ],
-      "id": "20ad7f21-a245-4989-b0e2-62482075963b"
+      "id": "20ad7f21-a245-4989-b0e2-62482075963b",
+      "locationRefs": [
+        "Cusco",
+        "Lima"
+      ]
     }
   ],
   "crew": [

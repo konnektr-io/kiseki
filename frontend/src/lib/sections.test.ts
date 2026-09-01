@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expandSectionDays } from "./sections";
+import { expandSectionDays, sectionRange } from "./sections";
 
 describe("expandSectionDays", () => {
   it("collapses a single-day [n, n] section to one entry", () => {
@@ -17,5 +17,26 @@ describe("expandSectionDays", () => {
   it("returns [] for empty input and undefined", () => {
     expect(expandSectionDays([])).toEqual([]);
     expect(expandSectionDays(undefined)).toEqual([]);
+  });
+});
+
+describe("sectionRange", () => {
+  it("renders a multi-day range from inclusive [first, last]", () => {
+    expect(sectionRange([2, 4])).toBe("Days 3–5");
+    expect(sectionRange([0, 1])).toBe("Days 1–2");
+  });
+
+  it("renders a single day without a range", () => {
+    expect(sectionRange([9, 9])).toBe("Day 10");
+    expect(sectionRange([0, 0])).toBe("Day 1");
+  });
+
+  it("returns null for empty sections (pure ideation pool)", () => {
+    expect(sectionRange([])).toBeNull();
+    expect(sectionRange(undefined)).toBeNull();
+  });
+
+  it("renders an explicit non-contiguous day list as a list, not a range", () => {
+    expect(sectionRange([0, 3, 7])).toBe("Days 1, 4, 8");
   });
 });

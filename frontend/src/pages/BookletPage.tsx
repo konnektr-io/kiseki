@@ -4,14 +4,17 @@ import { StaticMapImg } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
-import { expandSectionDays } from "../lib/sections";
+import { expandSectionDays, sectionRange } from "../lib/sections";
 import type { Day, Feature } from "../lib/types";
 
-function SectionHeading({ title, part }: { title: string; part?: string }) {
+function SectionHeading({ title, part, range }: { title: string; part?: string; range?: string | null }) {
   return (
     <div className="mb-4 mt-2 border-b-2 border-foreground pb-2">
       {part && <p className="kicker mb-1">Part {part}</p>}
-      <h2 className="font-heading text-2xl font-semibold uppercase tracking-wide text-foreground">{title}</h2>
+      <h2 className="font-heading text-2xl font-semibold uppercase tracking-wide text-foreground">
+        {title}
+        {range && <span className="ml-2 text-sm font-normal normal-case tracking-normal text-muted-foreground">{range}</span>}
+      </h2>
     </div>
   );
 }
@@ -133,11 +136,12 @@ export function BookletPage() {
     ? trip.sections.map((s, si) => ({
         title: s.title,
         part: String(si + 1).padStart(2, "0"),
+        range: sectionRange(s.days),
         days: expandSectionDays(s.days)
           .map((idx) => ({ day: trip.days[idx], no: idx + 1 }))
           .filter((d) => d.day),
       }))
-    : [{ title: "Itinerary", part: undefined, days: trip.days.map((day, i) => ({ day, no: i + 1 })) }];
+    : [{ title: "Itinerary", part: undefined, range: undefined, days: trip.days.map((day, i) => ({ day, no: i + 1 })) }];
 
   // bookings & status: booked/done blocks with codes + costs, then every open to-do
   const bookedBlocks = trip.days.flatMap((day, di) =>
@@ -182,7 +186,7 @@ export function BookletPage() {
       {/* itinerary by section */}
       {groups.map((g, gi) => (
         <div key={gi} className="booklet-section">
-          <SectionHeading title={g.title} part={g.part} />
+          <SectionHeading title={g.title} part={g.part} range={g.range} />
           {g.days.map(({ day, no }) => (
             <DayCard key={no} day={day} no={no} />
           ))}

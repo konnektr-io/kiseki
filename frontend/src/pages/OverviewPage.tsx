@@ -5,6 +5,7 @@ import { useTrip } from "../components/theme";
 import { Button, Card, Separator, StageBadge } from "../components/ui";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import { sectionRange } from "../lib/sections";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
 import type { Feature } from "../lib/types";
@@ -211,7 +212,7 @@ export function OverviewPage() {
         </Card>
       )}
 
-      {/* sections strip */}
+      {/* sections strip — each chapter is now a navigable surface */}
       {trip.sections?.length ? (
         <Card className="p-5">
           <p className="kicker mb-3">The loop</p>
@@ -221,12 +222,17 @@ export function OverviewPage() {
                 <span className="font-display text-2xl leading-none tabular-nums text-primary/70">
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <Link
-                  to={`/t/${token}/itinerary`}
-                  className="font-heading text-base font-medium text-foreground hover:text-primary"
-                >
-                  {s.title}
-                </Link>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/t/${token}/s/${i}`}
+                    className="font-heading text-base font-medium text-foreground hover:text-primary"
+                  >
+                    {s.title}
+                  </Link>
+                  {sectionRange(s.days) && (
+                    <span className="ml-2 text-xs tabular-nums text-muted-foreground">{sectionRange(s.days)}</span>
+                  )}
+                </div>
               </li>
             ))}
           </ol>
