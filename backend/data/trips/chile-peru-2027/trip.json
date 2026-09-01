@@ -225,7 +225,8 @@
           "kind": "transport",
           "title": "BRU → SCL",
           "description": "No direct flight. Overnight/evening arrival.",
-          "id": "87d4a112-01f7-4ae6-ba54-f750d75f80f6"
+          "id": "87d4a112-01f7-4ae6-ba54-f750d75f80f6",
+          "order": 0
         }
       ],
       "id": "0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf"
@@ -238,7 +239,8 @@
           "kind": "lodging",
           "title": "Stay: Las Condes / Providencia",
           "description": "Closer to the G-21 mountain road for Day 4. Light stroll, early night — jetlag + start of acclimatisation at ~500 m.",
-          "id": "0f40cd7a-ca42-4166-a17d-05df98f32134"
+          "id": "0f40cd7a-ca42-4166-a17d-05df98f32134",
+          "order": 0
         }
       ],
       "id": "e1aa6e48-80e1-4f72-83ec-abb5dd95add1"
@@ -262,7 +264,8 @@
             }
           ],
           "mapsQuery": "Cerro San Cristóbal Santiago teleférico",
-          "id": "7752e46a-4552-46fa-9a8f-54554d238c3d"
+          "id": "7752e46a-4552-46fa-9a8f-54554d238c3d",
+          "order": 0
         },
         {
           "kind": "meal",
@@ -276,7 +279,8 @@
             }
           ],
           "mapsQuery": "Mercado Central de Santiago Chile",
-          "id": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130"
+          "id": "89d31b8c-f1ed-46c5-a59f-c0c5d0ffa130",
+          "order": 1
         },
         {
           "kind": "activity",
@@ -290,7 +294,8 @@
             }
           ],
           "mapsQuery": "Sky Costanera Santiago",
-          "id": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c"
+          "id": "0ebb1e30-9766-485b-90b7-9f1402fe8b3c",
+          "order": 2
         }
       ],
       "id": "dfb5ea2c-c7d5-40c7-a188-b727ac6aeca1"
@@ -304,19 +309,22 @@
           "kind": "transport",
           "title": "Shuttle Santiago → Valle Nevado",
           "description": "90 min. Leave before 13:00 — the G-21 access road only allows uphill traffic in the morning window.",
-          "id": "cfb44a72-9f06-4db9-9730-9e289d2abef1"
+          "id": "cfb44a72-9f06-4db9-9730-9e289d2abef1",
+          "order": 0
         },
         {
           "kind": "lodging",
           "title": "Stay: self-catered studio, ski-in/out",
           "description": "~$330–420/nt (or Farellones for budget). 4-day ski pass: weekday ~$33/day, weekend ~$55.",
-          "id": "c3648abc-c976-40d0-add7-fe539eaa3c41"
+          "id": "c3648abc-c976-40d0-add7-fe539eaa3c41",
+          "order": 1
         },
         {
           "kind": "activity",
           "title": "Rental fitting + warm-up run",
           "status": "planned",
-          "id": "99b2a19f-9094-4ba1-829d-19f4bcdc74b6"
+          "id": "99b2a19f-9094-4ba1-829d-19f4bcdc74b6",
+          "order": 2
         }
       ],
       "id": "e7ef4b61-e001-4455-9346-cacc5857d4e0"
@@ -330,7 +338,8 @@
           "title": "Valle Nevado full day",
           "status": "planned",
           "description": "Renée: groomed blues/reds front side (25% intermediate terrain). Henri: advanced bowls. Niko: wide groomers. Hydrate, layers, sunscreen — altitude sun is brutal.",
-          "id": "1988088c-71a3-4d85-bb84-aaa1a21b1c2c"
+          "id": "1988088c-71a3-4d85-bb84-aaa1a21b1c2c",
+          "order": 0
         }
       ],
       "id": "a3a00531-6077-4766-a68d-8fbcd9336623"
@@ -344,7 +353,8 @@
           "title": "Valle Nevado + La Parva",
           "status": "planned",
           "description": "One pass covers the interconnected terrain — La Parva adds intermediate cruising + big views. Weather-chase: pick the side with best visibility.",
-          "id": "81db137a-597a-4de4-ade8-8114c556506a"
+          "id": "81db137a-597a-4de4-ade8-8114c556506a",
+          "order": 0
         }
       ],
       "id": "28b340f8-e07a-441e-ad73-a454bdcd4d56"
@@ -363,12 +373,14 @@
           ],
           "location": "Valle Nevado",
           "mapsQuery": "Valle Nevado Chile",
-          "id": "6f1b9723-c04a-47a9-9b66-e20af69bfdad"
+          "id": "6f1b9723-c04a-47a9-9b66-e20af69bfdad",
+          "order": 0
         },
         {
           "kind": "transport",
           "title": "Transfer to Santiago (~15:00)",
-          "id": "e93e366e-a9a4-4d80-8085-95e443924281"
+          "id": "e93e366e-a9a4-4d80-8085-95e443924281",
+          "order": 1
         }
       ],
       "id": "6e857c8e-6a42-4836-a726-de27a4177834"
@@ -383,13 +395,15 @@
           "title": "LATAM SCL → CUZ (direct)",
           "time": "morning",
           "description": "~2h30–3h30. The stitch that makes this trip work.",
-          "id": "591179e1-8155-49be-8ad4-67268b78c0a3"
+          "id": "591179e1-8155-49be-8ad4-67268b78c0a3",
+          "order": 0
         },
         {
           "kind": "lodging",
           "title": "Stay: Urubamba / Ollantaytambo — 3 nights",
           "description": "Sacred Valley at 2,800 m — the gentle altitude ramp.",
-          "id": "bbaf4b8b-f2d8-4744-82b9-739288417a94"
+          "id": "bbaf4b8b-f2d8-4744-82b9-739288417a94",
+          "order": 1
         }
       ],
       "id": "f799783c-6cb8-44cb-83c7-76ae1d576235"
@@ -412,7 +426,8 @@
             }
           ],
           "description": "The hillside citadel above the town — terraces, temples and the famous Sunday artisan market at the foot. The ruins are the morning's altitude-friendly warm-up (2,900 m).",
-          "id": "43c48d09-dd33-4365-b0ab-58d2c0da7b40"
+          "id": "43c48d09-dd33-4365-b0ab-58d2c0da7b40",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -428,7 +443,8 @@
               "url": "https://www.google.com/maps/search/?api=1&query=Salineras+de+Maras"
             }
           ],
-          "id": "46a3deaf-4172-4938-be96-5a91e0415345"
+          "id": "46a3deaf-4172-4938-be96-5a91e0415345",
+          "order": 1
         }
       ],
       "id": "da1ffb91-0cc0-4a79-b0c3-331103edd946"
@@ -441,19 +457,22 @@
           "kind": "activity",
           "title": "Ollantaytambo fortress",
           "time": "morning",
-          "id": "968d396c-b06b-4d26-9bea-e188d3a38038"
+          "id": "968d396c-b06b-4d26-9bea-e188d3a38038",
+          "order": 0
         },
         {
           "kind": "transport",
           "title": "Vistadome train (PeruRail) — 1h45",
           "description": "Ollantaytambo → Aguas Calientes.",
-          "id": "06ae3f35-9283-493e-845e-cc8ccdee1ba5"
+          "id": "06ae3f35-9283-493e-845e-cc8ccdee1ba5",
+          "order": 1
         },
         {
           "kind": "lodging",
           "title": "Stay: Aguas Calientes",
           "description": "Inkaterra / Casa del Sol / El Mapi.",
-          "id": "f379ba4c-5607-4a33-ac56-b6f474a29326"
+          "id": "f379ba4c-5607-4a33-ac56-b6f474a29326",
+          "order": 2
         }
       ],
       "id": "8f2f8297-ed83-48db-bdac-7bced9543568"
@@ -473,13 +492,15 @@
               "url": "https://www.machupicchu.gob.pe/"
             }
           ],
-          "id": "c4d071b4-e9ec-4924-9b42-e39f6d12f3df"
+          "id": "c4d071b4-e9ec-4924-9b42-e39f6d12f3df",
+          "order": 0
         },
         {
           "kind": "lodging",
           "title": "Stay: Cusco — 4 nights",
           "description": "3,400 m — the family is pre-acclimatised from Valle Nevado + Sacred Valley.",
-          "id": "631badbc-c465-48a4-ade9-1b6ba7ec1401"
+          "id": "631badbc-c465-48a4-ade9-1b6ba7ec1401",
+          "order": 1
         }
       ],
       "id": "3dbc864b-e992-4002-aa18-d943a2dddf92"
@@ -501,7 +522,8 @@
             }
           ],
           "mapsQuery": "Plaza de Armas Cusco",
-          "id": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a"
+          "id": "2fe8a5ca-cd13-43c1-b4e1-49ae192bf61a",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -515,7 +537,8 @@
           ],
           "description": "Bean-to-bar workshop — the kids make their own chocolate, parents taste the single-origin dark. A low-effort high-fun afternoon at 3,400 m.",
           "mapsQuery": "ChocoMuseo Cusco",
-          "id": "7816f1fc-1407-4624-9f09-b872e8a6ed73"
+          "id": "7816f1fc-1407-4624-9f09-b872e8a6ed73",
+          "order": 1
         }
       ],
       "id": "290e5f3d-3b82-452e-8d22-5b20b04e1df8"
@@ -533,7 +556,8 @@
             "/media/chile-peru-2027/rb1-close.jpg"
           ],
           "mapsQuery": "Palcoyo Rainbow Mountain Peru",
-          "id": "edbddc0f-e526-468a-ad83-9319c1aee834"
+          "id": "edbddc0f-e526-468a-ad83-9319c1aee834",
+          "order": 0
         }
       ],
       "id": "37ab5cfe-9c2b-491d-8e59-3d88a6d0e162"
@@ -546,7 +570,8 @@
           "kind": "note",
           "title": "Decide on the day",
           "description": "Legs good? **Humantay Lake** (4,200 m, turquoise glacial lake, horse option at trailhead). Need a rest? **Cusco cooking class + San Pedro Market** (ceviche + lucuma juice — teen-approved).",
-          "id": "a5db52f2-1a8b-4760-a4ab-3f7cce2238b2"
+          "id": "a5db52f2-1a8b-4760-a4ab-3f7cce2238b2",
+          "order": 0
         }
       ],
       "id": "6ae0502a-032e-4175-8158-e76e3c07a9a2"
@@ -559,19 +584,22 @@
           "kind": "transport",
           "title": "Fly Cusco → Lima (1h15)",
           "time": "morning",
-          "id": "fe7ab185-d07c-48d5-8e09-d4dbb27b9786"
+          "id": "fe7ab185-d07c-48d5-8e09-d4dbb27b9786",
+          "order": 0
         },
         {
           "kind": "activity",
           "title": "Museo Larco",
           "description": "Pre-Columbian gold, beautiful gardens.",
-          "id": "e94be3b7-9e1a-4dfd-9a5d-2972169ffff9"
+          "id": "e94be3b7-9e1a-4dfd-9a5d-2972169ffff9",
+          "order": 1
         },
         {
           "kind": "meal",
           "title": "La Mar — one last ceviche",
           "description": "Or Astrid y Gastón.",
-          "id": "2ee8488c-3a17-4dcd-8724-5fbb988b1df3"
+          "id": "2ee8488c-3a17-4dcd-8724-5fbb988b1df3",
+          "order": 2
         }
       ],
       "id": "05511c4f-f101-46ee-af63-7c48229afb5c"
@@ -591,7 +619,8 @@
               "url": "https://www.google.com/maps/search/?api=1&query=Malec%C3%B3n+de+Miraflores"
             }
           ],
-          "id": "661a420e-eb5b-4da9-9c0b-27e19eb61450"
+          "id": "661a420e-eb5b-4da9-9c0b-27e19eb61450",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -605,7 +634,8 @@
             }
           ],
           "mapsQuery": "Circuito Mágico del Agua Lima",
-          "id": "499e54b9-af57-4dad-adc4-f1ec03cd137e"
+          "id": "499e54b9-af57-4dad-adc4-f1ec03cd137e",
+          "order": 1
         }
       ],
       "id": "7e8d11d2-9896-438d-8ca7-054e5138da0b"
@@ -617,7 +647,8 @@
         {
           "kind": "transport",
           "title": "Fly home via Madrid/Paris/Amsterdam",
-          "id": "6706b30d-c239-478a-b969-e34fa50e0f23"
+          "id": "6706b30d-c239-478a-b969-e34fa50e0f23",
+          "order": 0
         }
       ],
       "id": "5ca04c27-6cd8-48cb-997a-4bcfe565c13f"

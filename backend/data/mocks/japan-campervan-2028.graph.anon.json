@@ -382,6 +382,7 @@
         }
       ],
       "status": "planned",
+      "order": 0,
       "items": [],
       "mode": "flight",
       "images": []
@@ -401,6 +402,7 @@
         }
       ],
       "status": "planned",
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -413,6 +415,7 @@
       "title": "First Hokkaido ramen",
       "description": "Sapporo miso ramen — the city invented it.",
       "links": [],
+      "order": 2,
       "items": [],
       "images": []
     },
@@ -445,6 +448,7 @@
           "url": "https://www.sapporo-teine.com/snow/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -462,6 +466,7 @@
           "url": "https://www.sapporo-kokusai.jp/"
         }
       ],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -498,6 +503,7 @@
           "url": "https://www.niseko-united.jp/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -510,6 +516,7 @@
       "title": "First onsen + kaisen-don",
       "description": "Kutchan or Hirafu — seafood bowl and a soak after day one.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -546,6 +553,7 @@
           "url": "https://www.rusutsu.co.jp/en/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -563,6 +571,7 @@
           "url": "https://www.kiroro.co.jp/en/"
         }
       ],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -594,6 +603,7 @@
       "title": "Things to decide",
       "description": "Yotei weather window (needs clear), whether Mt Racey breaks the drive north, and where the first central-spine day goes.",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -606,6 +616,7 @@
       "title": "Yotei scouting",
       "description": "Check the Annupuri-side approach and the snowpack. The mission day needs a window.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -638,6 +649,7 @@
           "url": "https://www.snow-forecast.com/resorts/Mount-Yotei"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -674,6 +686,7 @@
           "url": "https://www.racey.co.jp/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -691,6 +704,7 @@
           "url": "https://www.princehotels.com/en/ski/furano/"
         }
       ],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -727,6 +741,7 @@
           "url": "https://kamui.co.jp/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -739,6 +754,7 @@
       "title": "Asahikawa ramen",
       "description": "The shio-ramen capital — a different bowl than Sapporo's miso.",
       "links": [],
+      "order": 1,
       "items": [],
       "images": []
     },
@@ -775,6 +791,7 @@
           "url": "https://asahidake.hokkaido.jp/"
         }
       ],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -806,6 +823,7 @@
       "title": "Wrap up",
       "description": "Return the van clean-ish, dump gear, last onigiri at the konbini. Debrief on the plane: which storm day wins?",
       "links": [],
+      "order": 0,
       "items": [],
       "images": []
     },
@@ -818,6 +836,7 @@
       "title": "New Chitose → Brussels",
       "description": "Return flight. ~€1,000–1,200 total.",
       "links": [],
+      "order": 1,
       "items": [],
       "mode": "flight",
       "images": []

@@ -156,9 +156,11 @@ export function ItineraryPage() {
               /* a section with no days yet — its unscheduled blocks ARE the
                  chapter content (idea-stage trip). */
               <div className="space-y-2.5 pt-3">
-                {(section.blocks ?? []).map((b, i) => (
-                  <BlockSummaryRow key={i} block={b} />
-                ))}
+                {[...(section.blocks ?? [])]
+                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+                  .map((b, i) => (
+                    <BlockSummaryRow key={i} block={b} />
+                  ))}
                 {!section.blocks?.length && (
                   <p className="text-sm italic text-muted-foreground">
                     Planning this chapter — nothing scheduled yet.

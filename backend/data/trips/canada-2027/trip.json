@@ -490,7 +490,8 @@
             }
           ],
           "mode": "flight",
-          "id": "08c73e6e-586d-434f-8f6f-15210d509ec1"
+          "id": "08c73e6e-586d-434f-8f6f-15210d509ec1",
+          "order": 0
         },
         {
           "kind": "transport",
@@ -508,7 +509,8 @@
               "url": "https://www.google.com/maps/dir/?api=1&origin=Calgary+International+Airport&destination=Banff+Alberta&travelmode=driving"
             }
           ],
-          "id": "331895ae-7ddb-4cbb-bc33-0777ab91a6f5"
+          "id": "331895ae-7ddb-4cbb-bc33-0777ab91a6f5",
+          "order": 1
         },
         {
           "kind": "lodging",
@@ -530,7 +532,8 @@
             }
           ],
           "mapsQuery": "Banff Inn Banff Alberta",
-          "id": "60fae28f-0d87-4b25-b2df-65af23e6fa68"
+          "id": "60fae28f-0d87-4b25-b2df-65af23e6fa68",
+          "order": 2
         }
       ],
       "id": "0aa43fea-ac38-46c6-a44a-4947b9ef0da9"
@@ -564,7 +567,8 @@
               "url": "https://www.sunshinemountain.com/plan-your-visit/getting-here"
             }
           ],
-          "id": "90598e14-79fa-4cb8-a1ca-779e0702d20f"
+          "id": "90598e14-79fa-4cb8-a1ca-779e0702d20f",
+          "order": 0
         },
         {
           "kind": "lodging",
@@ -581,7 +585,8 @@
             }
           ],
           "mapsQuery": "Banff Inn Banff Alberta",
-          "id": "63f3f174-1e7a-4f55-b892-c70841cd36a3"
+          "id": "63f3f174-1e7a-4f55-b892-c70841cd36a3",
+          "order": 1
         }
       ],
       "id": "f3f4a9a5-7b9e-4e43-abd0-71a40de1fb58"
@@ -604,7 +609,8 @@
           "kind": "note",
           "title": "Decide on the hill",
           "description": "If Sunshine is riding well: another half-day there, then the ~3 h 05 drive to Revelstoke after lunch (over Kicking Horse & Rogers Pass). Otherwise: morning drive + afternoon leg-shakedown at RMR.",
-          "id": "d40c2589-a6f0-4d02-9668-c9dce0da5467"
+          "id": "d40c2589-a6f0-4d02-9668-c9dce0da5467",
+          "order": 0
         },
         {
           "kind": "transport",
@@ -625,13 +631,15 @@
               "url": "https://drivebc.ca/"
             }
           ],
-          "id": "91ccfcab-aff6-49d2-a24e-8560acf307e0"
+          "id": "91ccfcab-aff6-49d2-a24e-8560acf307e0",
+          "order": 1
         },
         {
           "kind": "activity",
           "title": "RMR afternoon leg-shakedown",
           "status": "planned",
-          "id": "a4884891-19e7-4958-87ee-a2353f9e8d2b"
+          "id": "a4884891-19e7-4958-87ee-a2353f9e8d2b",
+          "order": 2
         },
         {
           "kind": "lodging",
@@ -645,7 +653,8 @@
             }
           ],
           "mapsQuery": "Northwinds Revelstoke BC",
-          "id": "9b53579f-7439-49a3-bebb-e2c7ddcd9cb1"
+          "id": "9b53579f-7439-49a3-bebb-e2c7ddcd9cb1",
+          "order": 3
         }
       ],
       "id": "0979c7f0-dc5a-4232-ac9a-b6422ac49d3a"
@@ -675,7 +684,8 @@
               "url": "https://www.revelstokemountainresort.com/"
             }
           ],
-          "id": "4d505c2c-2fbb-4376-a6e5-2a97934193d4"
+          "id": "4d505c2c-2fbb-4376-a6e5-2a97934193d4",
+          "order": 0
         },
         {
           "kind": "lodging",
@@ -688,7 +698,8 @@
             }
           ],
           "mapsQuery": "Northwinds Revelstoke BC",
-          "id": "52662c28-79c2-46fe-8cc6-c1b8ed649f78"
+          "id": "52662c28-79c2-46fe-8cc6-c1b8ed649f78",
+          "order": 1
         }
       ],
       "id": "2ac1cfed-f723-40eb-b2e2-7f98dcc9edd9"
@@ -712,7 +723,8 @@
           "title": "RMR full day — or rest",
           "status": "planned",
           "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander.",
-          "id": "ef17307b-55f5-4c1b-81e9-53bb3e35b688"
+          "id": "ef17307b-55f5-4c1b-81e9-53bb3e35b688",
+          "order": 0
         },
         {
           "kind": "lodging",
@@ -725,7 +737,8 @@
             }
           ],
           "mapsQuery": "Northwinds Revelstoke BC",
-          "id": "dc67a3c8-486f-4933-970b-bcdfb6353258"
+          "id": "dc67a3c8-486f-4933-970b-bcdfb6353258",
+          "order": 1
         }
       ],
       "id": "4c726d26-6581-46c5-b668-9c783556aa7a"
@@ -753,7 +766,8 @@
               "url": "https://selkirk-tangiers.com/"
             }
           ],
-          "id": "26049217-848b-43c0-a94b-bcfc699c2a82"
+          "id": "26049217-848b-43c0-a94b-bcfc699c2a82",
+          "order": 0
         },
         {
           "kind": "lodging",
@@ -767,7 +781,8 @@
             }
           ],
           "mapsQuery": "Coast Hillcrest Hotel Revelstoke",
-          "id": "8f5c3150-932c-4087-a774-7700532f750b"
+          "id": "8f5c3150-932c-4087-a774-7700532f750b",
+          "order": 1
         }
       ],
       "id": "21bfb481-3863-4baf-9c7d-dabe3bc8bfb5"
@@ -791,21 +806,24 @@
           "cost": 5880,
           "currency": "EUR",
           "description": "Bell 212, unlimited vertical in the Selkirk & Monashees. Lunch in the alpine. €5,880 pp incl. tax; 9,000 m guaranteed. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds.",
-          "id": "86f1ac97-0476-4036-9c0f-c1329efd7757"
+          "id": "86f1ac97-0476-4036-9c0f-c1329efd7757",
+          "order": 0
         },
         {
           "kind": "activity",
           "title": "Heli day 2",
           "status": "booked",
           "description": "Weather window, terrain picked by the guides for the group.",
-          "id": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4"
+          "id": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4",
+          "order": 1
         },
         {
           "kind": "activity",
           "title": "Heli day 3",
           "status": "booked",
           "description": "Final day — chase the best snow of the week.",
-          "id": "e23ad3bb-4671-456b-a67c-015a82e6d744"
+          "id": "e23ad3bb-4671-456b-a67c-015a82e6d744",
+          "order": 2
         }
       ]
     },
@@ -842,7 +860,8 @@
               "url": "https://drivebc.ca/"
             }
           ],
-          "id": "fae90536-ed20-41d5-8287-3102787e42c6"
+          "id": "fae90536-ed20-41d5-8287-3102787e42c6",
+          "order": 0
         },
         {
           "kind": "activity",
@@ -855,7 +874,8 @@
               "url": "https://kickinghorseresort.com/"
             }
           ],
-          "id": "1bc42c27-2035-4c14-b2d9-59e469a563d6"
+          "id": "1bc42c27-2035-4c14-b2d9-59e469a563d6",
+          "order": 1
         },
         {
           "kind": "lodging",
@@ -869,7 +889,8 @@
             }
           ],
           "mapsQuery": "Glacier Mountaineer Lodge Golden BC",
-          "id": "2e36d874-6533-45b6-aa03-781cb0b6efc2"
+          "id": "2e36d874-6533-45b6-aa03-781cb0b6efc2",
+          "order": 2
         }
       ],
       "id": "44c3520b-aaf4-4b62-b50f-4c19aa1e49ac"
@@ -901,7 +922,8 @@
               "url": "https://kickinghorseresort.com/"
             }
           ],
-          "id": "f8f53aae-170f-4337-94b1-fc562747fe18"
+          "id": "f8f53aae-170f-4337-94b1-fc562747fe18",
+          "order": 0
         }
       ],
       "id": "e6a6e23b-dede-4731-99f7-c703cae8f06f"
@@ -933,7 +955,8 @@
               "url": "https://kickinghorseresort.com/"
             }
           ],
-          "id": "854f259f-b868-4ba3-b126-6f1201f0f817"
+          "id": "854f259f-b868-4ba3-b126-6f1201f0f817",
+          "order": 0
         }
       ],
       "id": "0609d569-689f-4378-88b2-817e89983f8a"
@@ -971,14 +994,16 @@
               "url": "https://www.skilouise.com/"
             }
           ],
-          "id": "4f6675c5-a947-4a2b-bcf4-fea0d4b7cdf7"
+          "id": "4f6675c5-a947-4a2b-bcf4-fea0d4b7cdf7",
+          "order": 0
         },
         {
           "kind": "activity",
           "title": "Lake Louise full day",
           "status": "planned",
           "description": "4,200 acres across four mountain faces — one of the great views in skiing.",
-          "id": "747e20f3-8045-4aa3-b5cd-8961ed61039a"
+          "id": "747e20f3-8045-4aa3-b5cd-8961ed61039a",
+          "order": 1
         },
         {
           "kind": "lodging",
@@ -992,7 +1017,8 @@
             }
           ],
           "mapsQuery": "Lake Louise Inn Alberta",
-          "id": "5ec29723-ee04-4683-a1c2-b5c1abd6e854"
+          "id": "5ec29723-ee04-4683-a1c2-b5c1abd6e854",
+          "order": 2
         }
       ],
       "id": "300958bf-f4b5-40b1-b82c-eb5b433d1c13"
@@ -1016,7 +1042,8 @@
           "title": "Lake Louise full day",
           "status": "planned",
           "description": "Final mountain day: back bowls via the Summit Platter hike, World Cup DH run, West Bowl trees. Soak in the view of Victoria Glacier.",
-          "id": "573a3685-a929-4bf6-943b-9f2be1246ace"
+          "id": "573a3685-a929-4bf6-943b-9f2be1246ace",
+          "order": 0
         }
       ],
       "id": "d790fff8-ac4e-4199-bff0-fc0deec1ffbb"
@@ -1043,7 +1070,8 @@
           "kind": "note",
           "title": "Flex: LL morning or relaxed drive",
           "description": "Optional LL morning (off the hill by ~11:30), or a relaxed drive with a Banff lunch stop. Aim to arrive YYC by 15:30 for the 18:05 flight.",
-          "id": "16be2ebe-5d15-4a02-a26c-5122131bd0f1"
+          "id": "16be2ebe-5d15-4a02-a26c-5122131bd0f1",
+          "order": 0
         },
         {
           "kind": "transport",
@@ -1064,7 +1092,8 @@
               "url": "https://drivebc.ca/"
             }
           ],
-          "id": "4868ac21-3e37-4d30-84be-3e79311e6c5d"
+          "id": "4868ac21-3e37-4d30-84be-3e79311e6c5d",
+          "order": 1
         },
         {
           "kind": "transport",
@@ -1083,7 +1112,8 @@
             }
           ],
           "mode": "flight",
-          "id": "92576f8b-d9f2-49e9-913e-f22aa19efd4f"
+          "id": "92576f8b-d9f2-49e9-913e-f22aa19efd4f",
+          "order": 2
         }
       ],
       "id": "e4f3e09a-f96e-4195-82ad-dbb0facea814"
@@ -1096,7 +1126,8 @@
           "kind": "note",
           "title": "Arrive BRU 13:35",
           "description": "The trail behind us. 🏔️",
-          "id": "6845b1a4-d447-4333-ae1e-8cab832e5dcf"
+          "id": "6845b1a4-d447-4333-ae1e-8cab832e5dcf",
+          "order": 0
         }
       ],
       "id": "db8e3acf-f13a-4889-b8c2-c12bd311936d"
