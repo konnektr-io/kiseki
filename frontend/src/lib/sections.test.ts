@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { expandSectionDays, sectionRange } from "./sections";
+import { expandSectionDays, sectionIndexForDay, sectionRange } from "./sections";
+import type { TripSection } from "./types";
 
 describe("expandSectionDays", () => {
   it("collapses a single-day [n, n] section to one entry", () => {
@@ -38,5 +39,33 @@ describe("sectionRange", () => {
 
   it("renders an explicit non-contiguous day list as a list, not a range", () => {
     expect(sectionRange([0, 3, 7])).toBe("Days 1, 4, 8");
+  });
+});
+
+describe("sectionIndexForDay", () => {
+  const sections: TripSection[] = [
+    { title: "Banff", days: [0, 1] },
+    { title: "Revelstoke", days: [2, 4] },
+    { title: "The Heli Block", days: [5, 8] },
+    { title: "Flex & Fly Home", days: [9, 9] },
+  ];
+
+  it("finds the section containing a day inside a range", () => {
+    expect(sectionIndexForDay(sections, 0)).toBe(0);
+    expect(sectionIndexForDay(sections, 3)).toBe(1);
+    expect(sectionIndexForDay(sections, 8)).toBe(2);
+  });
+
+  it("handles single-day sections", () => {
+    expect(sectionIndexForDay(sections, 9)).toBe(3);
+  });
+
+  it("returns undefined for a day outside every section", () => {
+    expect(sectionIndexForDay(sections, 11)).toBeUndefined();
+  });
+
+  it("returns undefined for empty or missing sections", () => {
+    expect(sectionIndexForDay([], 0)).toBeUndefined();
+    expect(sectionIndexForDay(undefined, 0)).toBeUndefined();
   });
 });

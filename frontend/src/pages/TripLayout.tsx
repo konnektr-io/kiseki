@@ -22,17 +22,14 @@ function navForTrip(trip: Trip | null) {
   return NAV_BASE;
 }
 
-/** Nav highlight rule (desktop + mobile): section pages (/s/<n>) and day pages
- *  belong to the Itinerary surface — the scan view is their parent. */
+/** Nav highlight rule (desktop + mobile): day pages belong to the Itinerary
+ *  surface — the scan view is their parent. Section links (/s/<n>) redirect
+ *  to /itinerary#s-<n> (replace), so they never render long enough to matter. */
 function isNavActive(pathname: string, base: string, to: string, end?: boolean): boolean {
   if (to === "today") return pathname === `${base}/today`;
   if (end) return pathname === base;
   if (to === "itinerary") {
-    return (
-      pathname === `${base}/itinerary` ||
-      pathname.startsWith(`${base}/day`) ||
-      pathname.startsWith(`${base}/s/`)
-    );
+    return pathname === `${base}/itinerary` || pathname.startsWith(`${base}/day`);
   }
   return pathname === `${base}/${to}`;
 }
