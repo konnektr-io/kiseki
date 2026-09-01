@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Badge, Button } from "../components/ui";
 import { BlockGlyph, MetaChips } from "../components/blocks";
-import { formatDay } from "../lib/dates";
+import { formatDay, tripTodayIso } from "../lib/dates";
 import { expandSectionDays } from "../lib/sections";
 import type { Block, Day, TripSection } from "../lib/types";
 
-function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
+function DayRow({ day, idx, dayNo, isToday }: { day: Day; idx: number; dayNo: number; isToday?: boolean }) {
   const { token } = useParams();
   const [open, setOpen] = useState(false);
   const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
@@ -18,7 +18,10 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
        clipped by this wrapper's `overflow-hidden` (an ancestor's overflow does
        clip a descendant's outline). Draw the ring on the wrapper instead — an
        element's own overflow never clips its own outline. */
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card has-[:focus-visible]:focus-ring">
+    <div
+      data-today={isToday ? "true" : undefined}
+      className={`overflow-hidden rounded-xl border bg-card shadow-card has-[:focus-visible]:focus-ring ${isToday ? "border-primary ring-1 ring-primary/30" : "border-border"}`}
+    >
       <Button
         variant="ghost"
         size="auto"
@@ -33,7 +36,14 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
           </span>
         </div>
         <div className="min-w-0 flex-1">
-          <h4 className="font-heading text-base font-semibold leading-snug">{day.title || formatDay(day.date)}</h4>
+          <h4 className="font-heading text-base font-semibold leading-snug flex items-center gap-2">
+            {day.title || formatDay(day.date)}
+            {isToday && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground" aria-hidden /> Today
+              </span>
+            )}
+          </h4>
           <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             <span>{day.blocks.length} items</span>
             <span className="inline-flex items-center gap-0.5">
@@ -84,6 +94,14 @@ function DayRow({ day, idx, dayNo }: { day: Day; idx: number; dayNo: number }) {
 
 export function ItineraryPage() {
   const trip = useTrip();
+  const todayIso = tripTodayIso(trip);
+
+  // Scroll the today row into view on mount (center of viewport, accounting for sticky header)
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>('[data-today="true"]');
+    if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [todayIso]);
+
   const sections: { section: TripSection | null; days: { day: Day; idx: number }[] }[] = trip.sections?.length
     ? trip.sections.map((s) => ({
         section: s,
@@ -115,7 +133,7 @@ export function ItineraryPage() {
           )}
           <div className="space-y-2.5">
             {days.map(({ day, idx }) => (
-              <DayRow key={idx} day={day} idx={idx} dayNo={idx + 1} />
+              <DayRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
             ))}
           </div>
         </section>

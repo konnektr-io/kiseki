@@ -166,6 +166,7 @@ export interface Trip {
   stage: Stage;
   startDate?: string;
   endDate?: string;
+  timezone?: string; // IANA, e.g. "Asia/Tokyo" — trip-local "today", fallback viewer-local
   token: string;
   myRole?: string;
   cover?: string;

@@ -670,6 +670,13 @@
       },
       {
         "@type": "Property",
+        "name": "timezone",
+        "schema": "string",
+        "writable": true,
+        "description": "IANA timezone, e.g. 'Asia/Tokyo' — resolves 'today' in the trip's local calendar date, not the viewer's. Optional; when absent, the viewer's local date is used."
+      },
+      {
+        "@type": "Property",
         "name": "token",
         "schema": "string",
         "writable": true,
