@@ -153,7 +153,10 @@ export function BookletPage() {
   const coverStats = trip.coverStats?.length ? trip.coverStats : [];
 
   return (
-    <div className="mx-auto max-w-3xl print:max-w-none">
+    <div
+      className="mx-auto max-w-3xl print:max-w-none"
+      data-testid="booklet-ready"
+    >
       {/* cover — full-bleed page in print */}
       <div className="booklet-cover relative overflow-hidden">
         {trip.cover && <img src={trip.cover} alt="" className="absolute inset-0 h-full w-full object-cover" />}

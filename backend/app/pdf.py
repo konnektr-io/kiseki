@@ -40,11 +40,20 @@ def _auth0_cache_seed(access_token: str) -> str:
     - the access-token entry (``@@auth0spajs@@::{clientId}::{audience}::{scope}``)
       — returned by ``getAccessTokenSilently()``, so the protected trip fetch
       carries the real caller token;
-    - the id-token entry (same key + ``@@user@@``) with its ``decodedToken`` —
-      ``isAuthenticated``/``user`` read the DECODED user from the cache (the
-      SDK re-verifies only at login, so a fabricated id token is fine here).
+    - the id-token entry at the **client-only** key (``@@auth0spajs@@::{clientId}::@@user@@``)
+      with its ``decodedToken`` — ``isAuthenticated``/``user`` read the DECODED
+      user from that key (the SDK re-verifies only at login, so a fabricated id
+      token is fine here).
+
+    Bug #58: previously the id-token was stored at ``base_key + '@@user@@'``
+    (the audience-scoped key), but auth0-spa-js v2's ``getIdTokenCacheKey``
+    produces the client-only key ``@@auth0spajs@@::{clientId}::@@user@@``.
+    The fallback on the access-token entry checks ``entryByScope.id_token``
+    which never exists, so ``getUser()``/``getIdToken()`` returned undefined
+    and ``isAuthenticated`` stayed false → the PDF captured the sign-in gate.
     """
     base_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::{AUTH0_AUDIENCE}::{_AUTH0_SCOPE}"
+    id_token_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::@@user@@"
     now = "Math.floor(Date.now() / 1000)"
     access_entry = {
         "body": {
@@ -58,17 +67,20 @@ def _auth0_cache_seed(access_token: str) -> str:
         "expiresAt": 0,  # replaced in-page
     }
     fake_id_token = (
-        "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
-        "eyJzdWIiOiJjcmV3IiwiYXVkIjoia2lzZWtpIn0."
+        "eyJhbG...VCJ9."
+        "eyJzdW...pIn0."
         "ZmFrZS1zaWduYXR1cmU"
     )
+    # aud must be the CLIENT_ID (mirrors real ID tokens); the API resolves
+    # the caller's identity from the *access* token, not this entry.
     id_entry = {
         "id_token": fake_id_token,
         "decodedToken": {
             "claims": {
                 "sub": "crew",
                 "name": "Crew member",
-                "aud": AUTH0_AUDIENCE,
+                "aud": AUTH0_CLIENT_ID,
+                "azp": AUTH0_CLIENT_ID,
                 "iss": "https://kiseki.invalid/",
                 "exp": 4_102_444_800,
             },
@@ -79,7 +91,7 @@ def _auth0_cache_seed(access_token: str) -> str:
         "const cache = JSON.parse(localStorage.getItem('auth0.spa.js') || '{}');"
         f"cache[{json.dumps(base_key)}] = {json.dumps(access_entry)};"
         f"cache[{json.dumps(base_key)}].expiresAt = {now} + 3600;"
-        f"cache[{json.dumps(base_key + '@@user@@')}] = {json.dumps(id_entry)};"
+        f"cache[{json.dumps(id_token_key)}] = {json.dumps(id_entry)};"
         "localStorage.setItem('auth0.spa.js', JSON.stringify(cache));"
     )
 
@@ -118,6 +130,24 @@ async def render_booklet_pdf(
                     # vector-tile traffic to hold `networkidle` open.
                     await page.emulate_media(media="print")
                     await page.goto(url, wait_until="networkidle", timeout=60_000)
+                    # Guard against capturing the transient "Sign in" screen
+                    # during the isAuthenticated === false → true flip. Wait
+                    # until auth0.spa.js is seeded AND the booklet cover is
+                    # mounted (data-testid=booklet-ready), falling back to the
+                    # auth-cache key that the seed script writes.
+                    if access_token:
+                        await page.wait_for_function(
+                            "localStorage.getItem('auth0.spa.js') !== null "
+                            "&& (document.querySelector('[data-testid=booklet-ready]') "
+                            "|| document.querySelector('.booklet-cover'))",
+                            timeout=30_000,
+                        )
+                    else:
+                        await page.wait_for_function(
+                            "document.querySelector('[data-testid=booklet-ready]') "
+                            "|| document.querySelector('.booklet-cover')",
+                            timeout=30_000,
+                        )
                     await page.pdf(path=str(out_path), prefer_css_page_size=True, print_background=True)
                 finally:
                     await browser.close()
