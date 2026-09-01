@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
@@ -22,18 +22,29 @@ function navForTrip(trip: Trip | null) {
   return NAV_BASE;
 }
 
+/** Nav highlight rule (desktop + mobile): section pages (/s/<n>) and day pages
+ *  belong to the Itinerary surface — the scan view is their parent. */
+function isNavActive(pathname: string, base: string, to: string, end?: boolean): boolean {
+  if (to === "today") return pathname === `${base}/today`;
+  if (end) return pathname === base;
+  if (to === "itinerary") {
+    return (
+      pathname === `${base}/itinerary` ||
+      pathname.startsWith(`${base}/day`) ||
+      pathname.startsWith(`${base}/s/`)
+    );
+  }
+  return pathname === `${base}/${to}`;
+}
+
 function NavLinks({ token, trip }: { token: string; trip: Trip | null }) {
   const { pathname } = useLocation();
   const base = `/t/${token}`;
   const NAV = navForTrip(trip);
-  const active = (to: string, end?: boolean) => {
-    if (to === "today") return pathname === `${base}/today`;
-    return end ? pathname === base : pathname === `${base}/${to}` || (to === "itinerary" && pathname.startsWith(`${base}/day`));
-  };
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => {
-        const isActive = active(to, end);
+        const isActive = isNavActive(pathname, base, to, end);
         return (
           <Link
             key={to}
@@ -63,6 +74,8 @@ export function TripLayout() {
   const [error, setError] = useState<LoadError | null>(null);
   const [joinCopied, setJoinCopied] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   // Latest pathname, read lazily inside the fetch effect — deliberately NOT a
   // dependency: child-route navigation (/t/<id>/itinerary → /day/3) would
   // otherwise re-run the effect and refetch the whole trip on every page
@@ -122,6 +135,20 @@ export function TripLayout() {
       cancelled = true;
     };
   }, [token, idMode, isAuthenticated, getAccessTokenSilently, navigate]);
+
+  // Expose the app header's live height as --kiseki-header-h so sticky
+  // section headers (itinerary) can dock exactly below it. Re-measured on
+  // trip change (title/dates row) and on any header resize.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const header = headerRef.current;
+    if (!root || !header) return;
+    const update = () => root.style.setProperty("--kiseki-header-h", `${header.offsetHeight}px`);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, [trip]);
 
   if (authLoading && idMode && !error) {
     return (
@@ -214,9 +241,9 @@ export function TripLayout() {
 
   return (
     <TripProvider trip={trip}>
-      <div style={tripStyle(trip)} className="min-h-full">
+      <div ref={rootRef} style={tripStyle(trip)} className="min-h-full">
         {/* Header — content focus: just a back button, no brand chrome */}
-        <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
+        <header ref={headerRef} className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
             <Link
               to="/"
@@ -287,12 +314,7 @@ export function TripLayout() {
           <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
             <div className="grid grid-cols-3">
               {NAV.map(({ to, label, icon: Icon, end }) => {
-                const isActive = to === "today"
-                  ? pathname === `/t/${token}/today`
-                  : end
-                    ? pathname === `/t/${token}`
-                    : pathname === `/t/${token}/${to}` ||
-                      (to === "itinerary" && pathname.startsWith(`/t/${token}/day`));
+                const isActive = isNavActive(pathname, `/t/${token}`, to, end);
                 return (
                   <Link
                     key={to}

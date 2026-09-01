@@ -92,7 +92,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 1–7 — Valle Nevado & the Andes",
+      "title": "Valle Nevado & the Andes",
       "days": [
         0,
         6
@@ -103,7 +103,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 8–11 — Sacred Valley & Machu Picchu",
+      "title": "Sacred Valley & Machu Picchu",
       "days": [
         7,
         10
@@ -114,7 +114,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 12–17 — Cusco, rainbow mountains & Lima",
+      "title": "Cusco, Rainbow Mountains & Lima",
       "days": [
         11,
         16
@@ -898,6 +898,18 @@
       "index": 0
     },
     {
+      "$relationshipId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5__atLocation__4b9245e5-5c68-41e1-ba07-a90d9c68e7e8",
+      "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
+      "$relationshipName": "atLocation",
+      "$targetId": "4b9245e5-5c68-41e1-ba07-a90d9c68e7e8"
+    },
+    {
+      "$relationshipId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5__atLocation__0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3",
+      "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
+      "$relationshipName": "atLocation",
+      "$targetId": "0de73c8d-7c7f-4c63-94ee-0fefc0cd23a3"
+    },
+    {
       "$relationshipId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5__hasDay__0e773d3e-0927-4fe0-bde3-2d0bbbc2ceaf",
       "$sourceId": "39f170ea-7c6b-410c-89a2-5dcbf7d774d5",
       "$relationshipName": "hasDay",
@@ -954,6 +966,18 @@
       "index": 1
     },
     {
+      "$relationshipId": "a25acd1d-cc53-41a2-872c-f29fde538a7a__atLocation__db0de9d3-1c26-44aa-a35e-20dc9880eec3",
+      "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
+      "$relationshipName": "atLocation",
+      "$targetId": "db0de9d3-1c26-44aa-a35e-20dc9880eec3"
+    },
+    {
+      "$relationshipId": "a25acd1d-cc53-41a2-872c-f29fde538a7a__atLocation__1ce04a29-316a-43d0-bf35-4df602853819",
+      "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
+      "$relationshipName": "atLocation",
+      "$targetId": "1ce04a29-316a-43d0-bf35-4df602853819"
+    },
+    {
       "$relationshipId": "a25acd1d-cc53-41a2-872c-f29fde538a7a__hasDay__f799783c-6cb8-44cb-83c7-76ae1d576235",
       "$sourceId": "a25acd1d-cc53-41a2-872c-f29fde538a7a",
       "$relationshipName": "hasDay",
@@ -987,6 +1011,18 @@
       "$relationshipName": "hasSection",
       "$targetId": "20ad7f21-a245-4989-b0e2-62482075963b",
       "index": 2
+    },
+    {
+      "$relationshipId": "20ad7f21-a245-4989-b0e2-62482075963b__atLocation__42513f72-99a3-4f23-b51f-7596e6c994a2",
+      "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
+      "$relationshipName": "atLocation",
+      "$targetId": "42513f72-99a3-4f23-b51f-7596e6c994a2"
+    },
+    {
+      "$relationshipId": "20ad7f21-a245-4989-b0e2-62482075963b__atLocation__754876d0-22ab-4641-b93c-013e5f41ad61",
+      "$sourceId": "20ad7f21-a245-4989-b0e2-62482075963b",
+      "$relationshipName": "atLocation",
+      "$targetId": "754876d0-22ab-4641-b93c-013e5f41ad61"
     },
     {
       "$relationshipId": "20ad7f21-a245-4989-b0e2-62482075963b__hasDay__290e5f3d-3b82-452e-8d22-5b20b04e1df8",

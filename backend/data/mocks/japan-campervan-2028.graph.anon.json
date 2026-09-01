@@ -317,7 +317,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 1–2 — arrive CTS, Sapporo warm-up",
+      "title": "Arrive CTS, Sapporo Warm-up",
       "days": [
         0,
         1
@@ -328,7 +328,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 3–5 — Niseko base: storm chasing",
+      "title": "Niseko Base: Storm Chasing",
       "days": [
         2,
         4
@@ -339,7 +339,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 6–7 — Yotei mission · up the spine",
+      "title": "Yotei Mission · Up the Spine",
       "days": [
         5,
         6
@@ -350,7 +350,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 8–9 — Kamui · Asahidake mission",
+      "title": "Kamui · Asahidake Mission",
       "days": [
         7,
         8
@@ -361,7 +361,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Day 10 — flex & fly home",
+      "title": "Flex & Fly Home",
       "days": [
         9,
         9
@@ -1080,6 +1080,24 @@
       "index": 0
     },
     {
+      "$relationshipId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3__atLocation__28da939e-4ad7-4851-af69-9562b908110d",
+      "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
+      "$relationshipName": "atLocation",
+      "$targetId": "28da939e-4ad7-4851-af69-9562b908110d"
+    },
+    {
+      "$relationshipId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3__atLocation__f84223d4-530a-47cf-9a21-4ecb1be172d8",
+      "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
+      "$relationshipName": "atLocation",
+      "$targetId": "f84223d4-530a-47cf-9a21-4ecb1be172d8"
+    },
+    {
+      "$relationshipId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3__atLocation__9b3b8a79-9a6d-4691-a037-9e9290e40805",
+      "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
+      "$relationshipName": "atLocation",
+      "$targetId": "9b3b8a79-9a6d-4691-a037-9e9290e40805"
+    },
+    {
       "$relationshipId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3__hasDay__a97db023-4878-4ed1-957b-fb9a04cedeca",
       "$sourceId": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
       "$relationshipName": "hasDay",
@@ -1099,6 +1117,24 @@
       "$relationshipName": "hasSection",
       "$targetId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
       "index": 1
+    },
+    {
+      "$relationshipId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be__atLocation__bcccb485-125b-497c-9bd8-5ba8e787fae4",
+      "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
+      "$relationshipName": "atLocation",
+      "$targetId": "bcccb485-125b-497c-9bd8-5ba8e787fae4"
+    },
+    {
+      "$relationshipId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be__atLocation__b5cd2f4f-c3f4-4b28-9285-6a043855889e",
+      "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
+      "$relationshipName": "atLocation",
+      "$targetId": "b5cd2f4f-c3f4-4b28-9285-6a043855889e"
+    },
+    {
+      "$relationshipId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be__atLocation__c085127f-5a7b-4dd9-aa8b-af21674d557e",
+      "$sourceId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
+      "$relationshipName": "atLocation",
+      "$targetId": "c085127f-5a7b-4dd9-aa8b-af21674d557e"
     },
     {
       "$relationshipId": "62800ae0-2d30-4a5c-bdd3-16006c60e8be__hasDay__9d891362-490f-462f-9bb2-124f3c570fc1",
@@ -1129,6 +1165,24 @@
       "index": 2
     },
     {
+      "$relationshipId": "f1b2dea4-113f-4c44-8364-a3f62db31a74__atLocation__8226c15a-9e51-4cab-be89-f49471ebb7e9",
+      "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
+      "$relationshipName": "atLocation",
+      "$targetId": "8226c15a-9e51-4cab-be89-f49471ebb7e9"
+    },
+    {
+      "$relationshipId": "f1b2dea4-113f-4c44-8364-a3f62db31a74__atLocation__0ee8a33d-2f33-425f-a87c-77447032ec6d",
+      "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
+      "$relationshipName": "atLocation",
+      "$targetId": "0ee8a33d-2f33-425f-a87c-77447032ec6d"
+    },
+    {
+      "$relationshipId": "f1b2dea4-113f-4c44-8364-a3f62db31a74__atLocation__c09cb1a9-24a6-4573-884c-c1bb83fa321f",
+      "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
+      "$relationshipName": "atLocation",
+      "$targetId": "c09cb1a9-24a6-4573-884c-c1bb83fa321f"
+    },
+    {
       "$relationshipId": "f1b2dea4-113f-4c44-8364-a3f62db31a74__hasDay__124f74dd-91e2-447f-adbc-03c7c431b25e",
       "$sourceId": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
       "$relationshipName": "hasDay",
@@ -1150,6 +1204,18 @@
       "index": 3
     },
     {
+      "$relationshipId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e__atLocation__165743ee-d002-4320-b2ef-6e762da97998",
+      "$sourceId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
+      "$relationshipName": "atLocation",
+      "$targetId": "165743ee-d002-4320-b2ef-6e762da97998"
+    },
+    {
+      "$relationshipId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e__atLocation__bfc15de0-030c-4190-a165-ab2f6d2d703a",
+      "$sourceId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
+      "$relationshipName": "atLocation",
+      "$targetId": "bfc15de0-030c-4190-a165-ab2f6d2d703a"
+    },
+    {
       "$relationshipId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e__hasDay__88c718a8-c199-41f1-bc09-0b6015037f7a",
       "$sourceId": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
       "$relationshipName": "hasDay",
@@ -1169,6 +1235,12 @@
       "$relationshipName": "hasSection",
       "$targetId": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
       "index": 4
+    },
+    {
+      "$relationshipId": "bbeaa86e-b684-49a1-977d-db51bc9fba68__atLocation__28da939e-4ad7-4851-af69-9562b908110d",
+      "$sourceId": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
+      "$relationshipName": "atLocation",
+      "$targetId": "28da939e-4ad7-4851-af69-9562b908110d"
     },
     {
       "$relationshipId": "bbeaa86e-b684-49a1-977d-db51bc9fba68__hasDay__7a0481f2-7feb-435f-a0ab-bc31b84e252f",

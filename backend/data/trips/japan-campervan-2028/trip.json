@@ -271,44 +271,66 @@
   ],
   "sections": [
     {
-      "title": "Days 1–2 — arrive CTS, Sapporo warm-up",
+      "title": "Arrive CTS, Sapporo Warm-up",
       "days": [
         0,
         1
       ],
-      "id": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3"
+      "id": "29dc9d1b-59eb-4585-b97a-da8d22d86bc3",
+      "locationRefs": [
+        "New Chitose",
+        "Teine",
+        "Sapporo Kokusai"
+      ]
     },
     {
-      "title": "Days 3–5 — Niseko base: storm chasing",
+      "title": "Niseko Base: Storm Chasing",
       "days": [
         2,
         4
       ],
-      "id": "62800ae0-2d30-4a5c-bdd3-16006c60e8be"
+      "id": "62800ae0-2d30-4a5c-bdd3-16006c60e8be",
+      "locationRefs": [
+        "Niseko",
+        "Rusutsu",
+        "Kiroro"
+      ]
     },
     {
-      "title": "Days 6–7 — Yotei mission · up the spine",
+      "title": "Yotei Mission · Up the Spine",
       "days": [
         5,
         6
       ],
-      "id": "f1b2dea4-113f-4c44-8364-a3f62db31a74"
+      "id": "f1b2dea4-113f-4c44-8364-a3f62db31a74",
+      "locationRefs": [
+        "Mt Yotei",
+        "Mt Racey",
+        "Furano"
+      ]
     },
     {
-      "title": "Days 8–9 — Kamui · Asahidake mission",
+      "title": "Kamui · Asahidake Mission",
       "days": [
         7,
         8
       ],
-      "id": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e"
+      "id": "8f5e2725-ae28-4b4c-b90e-38bb33c3717e",
+      "locationRefs": [
+        "Kamui Ski Links",
+        "Asahidake"
+      ]
     },
     {
-      "title": "Day 10 — flex & fly home",
+      "title": "Flex & Fly Home",
       "days": [
         9,
         9
       ],
-      "id": "bbeaa86e-b684-49a1-977d-db51bc9fba68"
+      "id": "bbeaa86e-b684-49a1-977d-db51bc9fba68",
+      "locationRefs": [
+        "New Chitose"
+      ]
     }
   ],
   "crew": [

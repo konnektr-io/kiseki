@@ -234,7 +234,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 1–2 — arrival & first turns",
+      "title": "Arrival & First Turns",
       "days": [
         0,
         1
@@ -245,7 +245,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 3–5 — Revelstoke",
+      "title": "Revelstoke",
       "days": [
         2,
         4
@@ -256,7 +256,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 6–9 — the heli block",
+      "title": "The Heli Block",
       "days": [
         5,
         8
@@ -267,7 +267,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 10–12 — Kicking Horse",
+      "title": "Kicking Horse",
       "days": [
         9,
         11
@@ -278,7 +278,7 @@
       "$metadata": {
         "$model": "dtmi:kiseki:travel:TripSection;1"
       },
-      "title": "Days 13–16 — Lake Louise & home",
+      "title": "Lake Louise",
       "days": [
         12,
         15
@@ -1413,6 +1413,12 @@
       "index": 0
     },
     {
+      "$relationshipId": "b819a028-93cd-4e25-b5e1-b59ffa034d0a__atLocation__45ccc6c4-41f9-410e-bba3-dfc520215faf",
+      "$sourceId": "b819a028-93cd-4e25-b5e1-b59ffa034d0a",
+      "$relationshipName": "atLocation",
+      "$targetId": "45ccc6c4-41f9-410e-bba3-dfc520215faf"
+    },
+    {
       "$relationshipId": "b819a028-93cd-4e25-b5e1-b59ffa034d0a__hasDay__0aa43fea-ac38-46c6-a44a-4947b9ef0da9",
       "$sourceId": "b819a028-93cd-4e25-b5e1-b59ffa034d0a",
       "$relationshipName": "hasDay",
@@ -1432,6 +1438,12 @@
       "$relationshipName": "hasSection",
       "$targetId": "233d6374-2b35-4fe2-bac8-dc6485c3de85",
       "index": 1
+    },
+    {
+      "$relationshipId": "233d6374-2b35-4fe2-bac8-dc6485c3de85__atLocation__383840f9-a938-48a6-baf0-de3d214ea973",
+      "$sourceId": "233d6374-2b35-4fe2-bac8-dc6485c3de85",
+      "$relationshipName": "atLocation",
+      "$targetId": "383840f9-a938-48a6-baf0-de3d214ea973"
     },
     {
       "$relationshipId": "233d6374-2b35-4fe2-bac8-dc6485c3de85__hasDay__0979c7f0-dc5a-4232-ac9a-b6422ac49d3a",
@@ -1460,6 +1472,12 @@
       "$relationshipName": "hasSection",
       "$targetId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
       "index": 2
+    },
+    {
+      "$relationshipId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a__atLocation__383840f9-a938-48a6-baf0-de3d214ea973",
+      "$sourceId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
+      "$relationshipName": "atLocation",
+      "$targetId": "383840f9-a938-48a6-baf0-de3d214ea973"
     },
     {
       "$relationshipId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a__hasDay__21bfb481-3863-4baf-9c7d-dabe3bc8bfb5",
@@ -1497,6 +1515,12 @@
       "index": 3
     },
     {
+      "$relationshipId": "9eac17c4-691c-4950-9a2d-b721907fe3d9__atLocation__5be02ae6-1fec-41d0-ac43-b97d33e4d189",
+      "$sourceId": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
+      "$relationshipName": "atLocation",
+      "$targetId": "5be02ae6-1fec-41d0-ac43-b97d33e4d189"
+    },
+    {
       "$relationshipId": "9eac17c4-691c-4950-9a2d-b721907fe3d9__hasDay__44c3520b-aaf4-4b62-b50f-4c19aa1e49ac",
       "$sourceId": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "$relationshipName": "hasDay",
@@ -1523,6 +1547,12 @@
       "$relationshipName": "hasSection",
       "$targetId": "d603234b-3182-4b65-9571-a9c97331234d",
       "index": 4
+    },
+    {
+      "$relationshipId": "d603234b-3182-4b65-9571-a9c97331234d__atLocation__3aee76f5-1adf-47c4-a3dd-dcd74838676a",
+      "$sourceId": "d603234b-3182-4b65-9571-a9c97331234d",
+      "$relationshipName": "atLocation",
+      "$targetId": "3aee76f5-1adf-47c4-a3dd-dcd74838676a"
     },
     {
       "$relationshipId": "d603234b-3182-4b65-9571-a9c97331234d__hasDay__300958bf-f4b5-40b1-b82c-eb5b433d1c13",

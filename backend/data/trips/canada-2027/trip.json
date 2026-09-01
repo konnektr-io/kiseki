@@ -219,44 +219,59 @@
   ],
   "sections": [
     {
-      "title": "Days 1–2 — arrival & first turns",
+      "title": "Arrival & First Turns",
       "days": [
         0,
         1
       ],
-      "id": "b819a028-93cd-4e25-b5e1-b59ffa034d0a"
+      "id": "b819a028-93cd-4e25-b5e1-b59ffa034d0a",
+      "locationRefs": [
+        "Banff"
+      ]
     },
     {
-      "title": "Days 3–5 — Revelstoke",
+      "title": "Revelstoke",
       "days": [
         2,
         4
       ],
-      "id": "233d6374-2b35-4fe2-bac8-dc6485c3de85"
+      "id": "233d6374-2b35-4fe2-bac8-dc6485c3de85",
+      "locationRefs": [
+        "Revelstoke"
+      ]
     },
     {
-      "title": "Days 6–9 — the heli block",
+      "title": "The Heli Block",
       "days": [
         5,
         8
       ],
-      "id": "1c518c96-4458-4345-8ce1-6d4537c9aa4a"
+      "id": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
+      "locationRefs": [
+        "Revelstoke"
+      ]
     },
     {
-      "title": "Days 10–12 — Kicking Horse",
+      "title": "Kicking Horse",
       "days": [
         9,
         11
       ],
-      "id": "9eac17c4-691c-4950-9a2d-b721907fe3d9"
+      "id": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
+      "locationRefs": [
+        "Golden"
+      ]
     },
     {
-      "title": "Days 13–16 — Lake Louise & home",
+      "title": "Lake Louise",
       "days": [
         12,
         15
       ],
-      "id": "d603234b-3182-4b65-9571-a9c97331234d"
+      "id": "d603234b-3182-4b65-9571-a9c97331234d",
+      "locationRefs": [
+        "Lake Louise"
+      ]
     }
   ],
   "crew": [
