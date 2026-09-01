@@ -39,6 +39,15 @@ function loadMapLibre() {
   return libPromise;
 }
 
+/**
+ * Keep-out for the map's own chrome (kiseki-map-ux: "the map's usable viewport
+ * is the part not covered by content — always pass padding matching the
+ * occlusion"). Extra on the left for the zoom chips, and on the bottom for the
+ * attribution, which wraps to two lines at phone width — so a marker never
+ * lands underneath either.
+ */
+const CHROME_PADDING = { top: 34, right: 32, bottom: 48, left: 64 };
+
 interface MapViewProps {
   places: string[];
   loop?: boolean;
@@ -124,11 +133,15 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           container: ref.current,
           style: MAP_STYLE_URL,
           bounds,
-          fitBoundsOptions: { padding: 32, maxZoom: 12 },
+          fitBoundsOptions: { padding: CHROME_PADDING, maxZoom: 12 },
           attributionControl: { compact: true },
         });
-        // Real <button>s with aria-labels, sized to the 44px floor in index.css.
-        map.addControl(new lib.NavigationControl({ showCompass: false }), "top-right");
+        // Real <button>s with aria-labels; 28px visible inside a 44px target
+        // (index.css). Top-LEFT: top-right is the drive-time chip, and the
+        // whole bottom strip is attribution — which wraps to two lines on a
+        // phone-width map and would sit straight on top of the zoom-out
+        // button. Attribution is a legal requirement, so the controls move.
+        map.addControl(new lib.NavigationControl({ showCompass: false }), "top-left");
 
         // Tiles or style unreachable → fall back to the static image rather
         // than leaving an empty grey box (DESIGN.md §8.5). Only failures before
@@ -230,7 +243,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         located.forEach((l) => full.extend([l.lng!, l.lat!]));
         legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
         const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        map.fitBounds(full, { padding: 32, maxZoom: 12, animate: !reduceMotion, duration: 500 });
+        map.fitBounds(full, { padding: CHROME_PADDING, maxZoom: 12, animate: !reduceMotion, duration: 500 });
 
         if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
       } catch {

@@ -225,18 +225,83 @@ h4 {
 }
 
 /* ---------- MapLibre chrome (DESIGN.md §8.5, §11) ----------
-   MapLibre's own controls are already real <button>s with aria-labels, but
-   they ship at 29px — below the 44px hit-target floor. Attribution is a legal
-   requirement AND a design element: styled to the trip's tokens, never hidden. */
-.maplibregl-ctrl-group button {
+   MapLibre's controls are already real <button>s with aria-labels, but they
+   ship at 29px — below the 44px hit-target floor.
+
+   Sizing the BUTTON to 44px is what the floor asks for; sizing the visible
+   chrome to 44px is not. A solid 44px stack ate a quarter of a 192px-tall map
+   and collided with the drive-time chip. So the same trick the markers use
+   (§8.3): a 28px visible chip centred in a 44px transparent target. Small on
+   screen, still reachable for anyone who cannot pinch — which is exactly who
+   the floor exists for, so the buttons stay rather than deferring to the
+   two-finger gesture.
+
+   Attribution is a legal requirement AND a design element: styled to the
+   trip's tokens, never hidden. */
+/* Selectors are prefixed `.maplibregl-ctrl.maplibregl-ctrl-group` (the element
+   carries both classes) purely to out-specify MapLibre's own
+   `.maplibregl-ctrl button .maplibregl-ctrl-icon { width: 100% }` — matching
+   its specificity and relying on bundle order is how this silently reverts. */
+.maplibregl-ctrl.maplibregl-ctrl-group {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+.maplibregl-ctrl.maplibregl-ctrl-group button {
   width: 44px;
   height: 44px;
+  display: grid;
+  place-items: center;
+  background: none;
 }
-.maplibregl-ctrl-group {
-  @apply border border-border/60 bg-surface/85 shadow-floating backdrop-blur-md;
+.maplibregl-ctrl.maplibregl-ctrl-group button + button {
+  border-top: 0;
 }
-.maplibregl-ctrl-group button + button {
-  @apply border-t border-border/60;
+/* The visible chip — the glyph's own element, so the button around it stays
+   transparent and the hit target stays 44px.
+
+   The chip is taller than it is wide on purpose: two 44px targets stack to
+   88px, so a small square in each leaves a 16px gap and + / - stop reading as
+   one control. Filling most of the target closes the gap to a seam without
+   growing the footprint. */
+.maplibregl-ctrl.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  @apply rounded-lg border border-border/60 bg-surface/85 shadow-floating backdrop-blur-md;
+  width: 26px;
+  height: 38px;
+  background-size: 16px;
+}
+
+/* Pointer-aware target size.
+   The base above is the touch case: 44px, per the a11y floor. That floor is
+   about people who CANNOT pinch — the gesture that makes these buttons look
+   redundant on a phone is exactly the one a motor impairment rules out — so
+   touch keeps the full target and only the paint shrinks.
+   With a mouse the relevant bar is WCAG 2.5.8 (24x24), not the 44px touch
+   guidance, and a mouse has no pinch — so on a fine pointer the target tightens
+   to 32px and the pair closes up to a 2px seam. */
+@media (pointer: fine) {
+  .maplibregl-ctrl.maplibregl-ctrl-group button {
+    width: 32px;
+    height: 32px;
+  }
+  .maplibregl-ctrl.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+    height: 30px;
+  }
+}
+.maplibregl-ctrl.maplibregl-ctrl-group button:not(:disabled):hover {
+  background: none;
+}
+.maplibregl-ctrl.maplibregl-ctrl-group button:not(:disabled):hover .maplibregl-ctrl-icon {
+  @apply bg-surface;
+}
+/* ring the chip, not the invisible 44px box it sits in */
+.maplibregl-ctrl.maplibregl-ctrl-group button:focus-visible {
+  outline: none;
+}
+.maplibregl-ctrl.maplibregl-ctrl-group button:focus-visible .maplibregl-ctrl-icon {
+  @apply focus-ring;
 }
 .maplibregl-ctrl-attrib {
   @apply bg-surface/80 text-[10px] text-muted-foreground backdrop-blur-sm;
