@@ -18,9 +18,19 @@ import jwt as pyjwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from app.graph import client as graph_client_mod
+
 TENANT = "dev-test.eu.auth0.com"
 CLIENT_ID = "test-client-123"
 KID = "test-kid-1"
+
+
+@pytest.fixture(autouse=True)
+def _clear_graph_cache():
+    """The graph client caches reads module-wide (TTL) — keep tests isolated."""
+    graph_client_mod._clear_graph_cache()
+    yield
+    graph_client_mod._clear_graph_cache()
 
 
 def _b64u_int(n: int) -> str:

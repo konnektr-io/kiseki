@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
@@ -48,6 +48,12 @@ export function TripLayout() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
   const [joinCopied, setJoinCopied] = useState(false);
+  // Latest pathname, read lazily inside the fetch effect — deliberately NOT a
+  // dependency: child-route navigation (/t/<id>/itinerary → /day/3) would
+  // otherwise re-run the effect and refetch the whole trip on every page
+  // change (slow + hammering the graph).
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   const idMode = isTripId(token);
   usePageTitle(trip?.title ?? null);
@@ -80,7 +86,7 @@ export function TripLayout() {
             const at = await getAccessTokenSilently();
             await fetchTrip(t.id, at);
             if (!cancelled) {
-              navigate(pathname.replace(`/t/${token}`, `/t/${t.id}`), { replace: true });
+              navigate(pathnameRef.current.replace(`/t/${token}`, `/t/${t.id}`), { replace: true });
             }
             return;
           } catch {
@@ -100,7 +106,7 @@ export function TripLayout() {
     return () => {
       cancelled = true;
     };
-  }, [token, idMode, isAuthenticated, getAccessTokenSilently, navigate, pathname]);
+  }, [token, idMode, isAuthenticated, getAccessTokenSilently, navigate]);
 
   if (authLoading && idMode && !error) {
     return (
@@ -159,7 +165,7 @@ export function TripLayout() {
   }
 
   const days = dayCount(trip.startDate, trip.endDate);
-  const onDayPage = pathname.includes(`/t/${trip.token}/day/`);
+  const onDayPage = pathname.includes(`/t/${token}/day/`);
   const isOwner = trip.myRole === "owner";
 
   const copyJoinLink = async () => {
@@ -222,7 +228,7 @@ export function TripLayout() {
           </div>
           {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
-            <NavLinks token={trip.token} />
+            <NavLinks token={token} />
           </div>
         </header>
 
@@ -237,9 +243,9 @@ export function TripLayout() {
             <div className="grid grid-cols-3">
               {NAV.map(({ to, label, icon: Icon, end }) => {
                 const isActive = end
-                  ? pathname === `/t/${trip.token}`
-                  : pathname === `/t/${trip.token}/${to}` ||
-                    (to === "itinerary" && pathname.startsWith(`/t/${trip.token}/day`));
+                  ? pathname === `/t/${token}`
+                  : pathname === `/t/${token}/${to}` ||
+                    (to === "itinerary" && pathname.startsWith(`/t/${token}/day`));
                 return (
                   <Link
                     key={to}

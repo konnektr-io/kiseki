@@ -45,9 +45,46 @@ surfaced as a 404, never masked by a stale file.
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
+import threading
+import time
+from functools import wraps
+from typing import Any, Callable, Optional
 
 from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
+
+# In-process TTL cache for the hot graph reads. Trip content changes rarely
+# (content updates re-seed or kubectl-cp), and every SPA page load otherwise
+# re-runs a role lookup + the subgraph fetch. With the graph rate limiter off,
+# this keeps page loads fast instead of hammering the API. Only TRUTHY results
+# are cached — a None (not found / transient failure) is re-queried next time.
+_GRAPH_CACHE: dict[tuple, tuple[float, Any]] = {}
+_GRAPH_CACHE_LOCK = threading.Lock()
+_GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
+              "list_trips_for_user": 30.0, "find_trip_dtid_by_token": 60.0,
+              "find_trip_dtid_by_claim_token": 60.0}
+
+
+def _cached_graph(method: Callable) -> Callable:
+    @wraps(method)
+    def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
+        key = (method.__name__, args, tuple(sorted(kwargs.items())))
+        with _GRAPH_CACHE_LOCK:
+            hit = _GRAPH_CACHE.get(key)
+            if hit and hit[0] > time.monotonic():
+                return hit[1]
+        result = method(self, *args, **kwargs)
+        if result:
+            with _GRAPH_CACHE_LOCK:
+                _GRAPH_CACHE[key] = (time.monotonic() + _GRAPH_TTL.get(method.__name__, 30.0), result)
+        return result
+
+    return wrapper
+
+
+def _clear_graph_cache() -> None:
+    """Drop the whole cache (tests)."""
+    with _GRAPH_CACHE_LOCK:
+        _GRAPH_CACHE.clear()
 
 # Every node in the graph is a ``:Twin``; the kind is carried by the
 # ``$metadata.$model`` property (dtmi:kiseki:travel:<Kind>;1).
@@ -68,11 +105,12 @@ _DTID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 _USER_RE = re.compile(r"^[^'\\\x00-\x1f]{1,256}$")
 
 # Bounded traversal depth for the subgraph walk. The Kiseki graph is shallow:
-# trip -> day -> block -> atLocation = 3 hops; we allow one hop of headroom so
-# a future edge can't silently miss. Unbounded [*0..] makes the AGE planner
-# explore the whole reachable graph and is dramatically slower. This MUST be a
-# compile-time literal in the range bound, so it is inlined (not a parameter).
-MAX_HOPS = 4
+# trip -> day/section -> block -> location = 3 hops; we bind exactly that. Do
+# NOT raise this casually: AGE enumerates every path up to the bound, and each
+# extra hop multiplies the row count (the Query-Units cost of the page-load
+# subgraph fetch). This MUST be a compile-time literal in the range bound, so
+# it is inlined (not a parameter).
+MAX_HOPS = 3
 
 # --- Cypher (parameterized) -----------------------------------------------
 # Locate the Trip twin by its secret share token. Scoped to one node; the model
@@ -96,10 +134,14 @@ LIMIT 1
 # All twins in the trip's connected component (trip itself + every node
 # reachable along outgoing edges). A single query, scoped to the trip — not the
 # whole store. `$dtid` is a bound parameter; MAX_HOPS is a literal range bound.
+# NOTE: the path is deliberately NOT bound (`MATCH path = ...`): AGE would
+# materialize every path object between every reachable pair, which dominates
+# the query cost. Binding only the end node lets the planner work with the
+# reachability closure instead.
 _Q_NODES = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
-MATCH path = (trip)-[*0..{max_hops}]->(n:Twin)
+MATCH (trip)-[*0..{max_hops}]->(n:Twin)
 RETURN collect(DISTINCT n) AS nodes
 """.format(max_hops=MAX_HOPS)
 
@@ -164,6 +206,7 @@ class GraphReadClient:
     def is_enabled(self) -> bool:
         return self._client is not None
 
+    @_cached_graph
     def find_trip_dtid_by_token(self, token: str) -> Optional[str]:
         """Return the Trip twin ``$dtId`` whose ``token`` property matches.
 
@@ -189,6 +232,7 @@ class GraphReadClient:
             return None
         return trip.get("$dtId")
 
+    @_cached_graph
     def find_trip_dtid_by_claim_token(self, claim_token: str) -> Optional[str]:
         """Return the Trip twin ``$dtId`` whose ``claimToken`` property matches.
 
@@ -213,6 +257,7 @@ class GraphReadClient:
             return None
         return trip.get("$dtId")
 
+    @_cached_graph
     def fetch_graph(self, trip_dtid: str) -> Optional[dict]:
         """Return the trip's connected component as a {twins, relationships} bundle.
 
@@ -245,6 +290,7 @@ class GraphReadClient:
         relationships = [self._rel_from_list(r) for r in raw_rels if r]
         return {"$dtId": trip_dtid, "twins": twins, "relationships": relationships}
 
+    @_cached_graph
     def list_trips_for_user(self, user_dtid: str) -> list[dict]:
         """Return every trip a user (by twin ``$dtId``) has access to.
 
@@ -280,6 +326,7 @@ class GraphReadClient:
                 out.append(summary)
         return out
 
+    @_cached_graph
     def role_for_user_on_trip(
         self,
         trip_dtid: str,
