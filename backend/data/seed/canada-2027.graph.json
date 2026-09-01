@@ -259,7 +259,7 @@
       "title": "The Heli Block",
       "days": [
         5,
-        8
+        6
       ]
     },
     {
@@ -269,8 +269,8 @@
       },
       "title": "Kicking Horse",
       "days": [
-        9,
-        11
+        7,
+        9
       ]
     },
     {
@@ -280,8 +280,8 @@
       },
       "title": "Lake Louise",
       "days": [
-        12,
-        15
+        10,
+        13
       ]
     },
     {
@@ -696,20 +696,6 @@
       "images": []
     },
     {
-      "$dtId": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
-      "$metadata": {
-        "$model": "dtmi:kiseki:travel:Day;1"
-      },
-      "date": "2027-02-21",
-      "title": "HELI DAY 1",
-      "meta": [
-        {
-          "label": "Stay",
-          "value": "Coast Hillcrest — included"
-        }
-      ]
-    },
-    {
       "$dtId": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Block;1"
@@ -721,20 +707,6 @@
       "status": "booked",
       "items": [],
       "images": []
-    },
-    {
-      "$dtId": "7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "$metadata": {
-        "$model": "dtmi:kiseki:travel:Day;1"
-      },
-      "date": "2027-02-22",
-      "title": "HELI DAY 2",
-      "meta": [
-        {
-          "label": "Stay",
-          "value": "Coast Hillcrest — included"
-        }
-      ]
     },
     {
       "$dtId": "e23ad3bb-4671-456b-a67c-015a82e6d744",
@@ -750,12 +722,13 @@
       "images": []
     },
     {
-      "$dtId": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
+      "$dtId": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
       "$metadata": {
         "$model": "dtmi:kiseki:travel:Day;1"
       },
-      "date": "2027-02-23",
-      "title": "HELI DAY 3",
+      "date": "2027-02-21",
+      "title": "Heli Days 1–3",
+      "notes": "Three heli days, back-to-back — Sun 21 → Tue 23 Feb.",
       "meta": [
         {
           "label": "Stay",
@@ -1154,7 +1127,7 @@
         "accent": "#0f766e"
       },
       "coverStats": [
-        "16 days · Feb 15 – Mar 2",
+        "14 days · Feb 15 – Mar 2",
         "3 heli days · Bell 212",
         "4 resorts on the loop",
         "NIKO · NICK · STEFAN"
@@ -1162,7 +1135,7 @@
       "stats": [
         {
           "label": "Days",
-          "value": "16"
+          "value": "14"
         },
         {
           "label": "Riders",
@@ -1494,20 +1467,6 @@
       "index": 6
     },
     {
-      "$relationshipId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a__hasDay__7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "$sourceId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
-      "$relationshipName": "hasDay",
-      "$targetId": "7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "index": 7
-    },
-    {
-      "$relationshipId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a__hasDay__ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
-      "$sourceId": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
-      "$relationshipName": "hasDay",
-      "$targetId": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
-      "index": 8
-    },
-    {
       "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__hasSection__9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasSection",
@@ -1525,21 +1484,21 @@
       "$sourceId": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "$relationshipName": "hasDay",
       "$targetId": "44c3520b-aaf4-4b62-b50f-4c19aa1e49ac",
-      "index": 9
+      "index": 7
     },
     {
       "$relationshipId": "9eac17c4-691c-4950-9a2d-b721907fe3d9__hasDay__e6a6e23b-dede-4731-99f7-c703cae8f06f",
       "$sourceId": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "$relationshipName": "hasDay",
       "$targetId": "e6a6e23b-dede-4731-99f7-c703cae8f06f",
-      "index": 10
+      "index": 8
     },
     {
       "$relationshipId": "9eac17c4-691c-4950-9a2d-b721907fe3d9__hasDay__0609d569-689f-4378-88b2-817e89983f8a",
       "$sourceId": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "$relationshipName": "hasDay",
       "$targetId": "0609d569-689f-4378-88b2-817e89983f8a",
-      "index": 11
+      "index": 9
     },
     {
       "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__hasSection__d603234b-3182-4b65-9571-a9c97331234d",
@@ -1559,28 +1518,28 @@
       "$sourceId": "d603234b-3182-4b65-9571-a9c97331234d",
       "$relationshipName": "hasDay",
       "$targetId": "300958bf-f4b5-40b1-b82c-eb5b433d1c13",
-      "index": 12
+      "index": 10
     },
     {
       "$relationshipId": "d603234b-3182-4b65-9571-a9c97331234d__hasDay__d790fff8-ac4e-4199-bff0-fc0deec1ffbb",
       "$sourceId": "d603234b-3182-4b65-9571-a9c97331234d",
       "$relationshipName": "hasDay",
       "$targetId": "d790fff8-ac4e-4199-bff0-fc0deec1ffbb",
-      "index": 13
+      "index": 11
     },
     {
       "$relationshipId": "d603234b-3182-4b65-9571-a9c97331234d__hasDay__e4f3e09a-f96e-4195-82ad-dbb0facea814",
       "$sourceId": "d603234b-3182-4b65-9571-a9c97331234d",
       "$relationshipName": "hasDay",
       "$targetId": "e4f3e09a-f96e-4195-82ad-dbb0facea814",
-      "index": 14
+      "index": 12
     },
     {
       "$relationshipId": "d603234b-3182-4b65-9571-a9c97331234d__hasDay__db8e3acf-f13a-4889-b8c2-c12bd311936d",
       "$sourceId": "d603234b-3182-4b65-9571-a9c97331234d",
       "$relationshipName": "hasDay",
       "$targetId": "db8e3acf-f13a-4889-b8c2-c12bd311936d",
-      "index": 15
+      "index": 13
     },
     {
       "$relationshipId": "0aa43fea-ac38-46c6-a44a-4947b9ef0da9__hasBlock__08c73e6e-586d-434f-8f6f-15210d509ec1",
@@ -1757,37 +1716,23 @@
       "$targetId": "86f1ac97-0476-4036-9c0f-c1329efd7757"
     },
     {
+      "$relationshipId": "3a12a896-1457-40ee-bed8-ada7806f6ee0__hasBlock__80dffbb8-29d1-4f77-96f4-dfb05d55a9b4",
+      "$sourceId": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
+      "$relationshipName": "hasBlock",
+      "$targetId": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4"
+    },
+    {
+      "$relationshipId": "3a12a896-1457-40ee-bed8-ada7806f6ee0__hasBlock__e23ad3bb-4671-456b-a67c-015a82e6d744",
+      "$sourceId": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
+      "$relationshipName": "hasBlock",
+      "$targetId": "e23ad3bb-4671-456b-a67c-015a82e6d744"
+    },
+    {
       "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__hasDay__3a12a896-1457-40ee-bed8-ada7806f6ee0",
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
       "index": 6
-    },
-    {
-      "$relationshipId": "7d50f61e-609a-4a93-8829-43c33c9f8adf__hasBlock__80dffbb8-29d1-4f77-96f4-dfb05d55a9b4",
-      "$sourceId": "7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "$relationshipName": "hasBlock",
-      "$targetId": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4"
-    },
-    {
-      "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__hasDay__7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
-      "$relationshipName": "hasDay",
-      "$targetId": "7d50f61e-609a-4a93-8829-43c33c9f8adf",
-      "index": 7
-    },
-    {
-      "$relationshipId": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548__hasBlock__e23ad3bb-4671-456b-a67c-015a82e6d744",
-      "$sourceId": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
-      "$relationshipName": "hasBlock",
-      "$targetId": "e23ad3bb-4671-456b-a67c-015a82e6d744"
-    },
-    {
-      "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__hasDay__ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
-      "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
-      "$relationshipName": "hasDay",
-      "$targetId": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548",
-      "index": 8
     },
     {
       "$relationshipId": "44c3520b-aaf4-4b62-b50f-4c19aa1e49ac__hasBlock__fae90536-ed20-41d5-8287-3102787e42c6",
@@ -1818,7 +1763,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "44c3520b-aaf4-4b62-b50f-4c19aa1e49ac",
-      "index": 9
+      "index": 7
     },
     {
       "$relationshipId": "e6a6e23b-dede-4731-99f7-c703cae8f06f__hasBlock__f8f53aae-170f-4337-94b1-fc562747fe18",
@@ -1831,7 +1776,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "e6a6e23b-dede-4731-99f7-c703cae8f06f",
-      "index": 10
+      "index": 8
     },
     {
       "$relationshipId": "0609d569-689f-4378-88b2-817e89983f8a__hasBlock__854f259f-b868-4ba3-b126-6f1201f0f817",
@@ -1844,7 +1789,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "0609d569-689f-4378-88b2-817e89983f8a",
-      "index": 11
+      "index": 9
     },
     {
       "$relationshipId": "300958bf-f4b5-40b1-b82c-eb5b433d1c13__hasBlock__4f6675c5-a947-4a2b-bcf4-fea0d4b7cdf7",
@@ -1875,7 +1820,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "300958bf-f4b5-40b1-b82c-eb5b433d1c13",
-      "index": 12
+      "index": 10
     },
     {
       "$relationshipId": "d790fff8-ac4e-4199-bff0-fc0deec1ffbb__hasBlock__573a3685-a929-4bf6-943b-9f2be1246ace",
@@ -1888,7 +1833,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "d790fff8-ac4e-4199-bff0-fc0deec1ffbb",
-      "index": 13
+      "index": 11
     },
     {
       "$relationshipId": "e4f3e09a-f96e-4195-82ad-dbb0facea814__hasBlock__16be2ebe-5d15-4a02-a26c-5122131bd0f1",
@@ -1913,7 +1858,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "e4f3e09a-f96e-4195-82ad-dbb0facea814",
-      "index": 14
+      "index": 12
     },
     {
       "$relationshipId": "db8e3acf-f13a-4889-b8c2-c12bd311936d__hasBlock__6845b1a4-d447-4333-ae1e-8cab832e5dcf",
@@ -1926,7 +1871,7 @@
       "$sourceId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237",
       "$relationshipName": "hasDay",
       "$targetId": "db8e3acf-f13a-4889-b8c2-c12bd311936d",
-      "index": 15
+      "index": 13
     },
     {
       "$relationshipId": "bf29a027-2ed2-46b3-b869-d9d81bbcf237__atLocation__201c2911-5e8b-40a3-9086-e2d668be3e2f",
