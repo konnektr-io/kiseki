@@ -14,7 +14,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -165,16 +165,32 @@ def get_trip(
     return _public_trip(trip, my_role=my_role)
 
 
-@app.get("/api/trips/{token}/booklet.pdf")
-async def booklet_pdf(token: str) -> FileResponse:
-    trip = get_trip_by_token(token)
+@app.get("/api/trips/{trip_param}/booklet.pdf")
+async def booklet_pdf(
+    trip_param: str,
+    _: str | None = Depends(authorize_trip_path),
+    authorization: str | None = Header(default=None),
+) -> FileResponse:
+    """Crew-only PDF booklet (issue #13).
+
+    The booklet is a CREW feature: the endpoint is id-based and protected
+    (JWT + crew role via ``authorize_trip_path`` — the param must be named
+    ``trip_param`` for FastAPI to bind the dependency's path param), so it
+    works for private trips too (no share token needed). The renderer's SPA
+    page loads the PROTECTED trip, so the caller's access token is forwarded
+    to the headless browser (it seeds the page's auth0 session cache).
+    """
+    trip = get_trip_by_id_store(trip_param.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
+    access_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        access_token = authorization.split(" ", 1)[1].strip() or None
     fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
     base_url = f"http://127.0.0.1:{LISTEN_PORT}"
     try:
-        await render_booklet_pdf(base_url, token, Path(path))
+        await render_booklet_pdf(base_url, trip_param.lower(), Path(path), access_token=access_token)
     except Exception as exc:
         Path(path).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"PDF rendering failed: {exc}") from exc

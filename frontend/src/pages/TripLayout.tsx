@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
-import { fetchTrip, bookletUrl, isTripId, fetchJoinLink, TripAccessError } from "../lib/api";
+import { fetchTrip, downloadBooklet, isTripId, fetchJoinLink, TripAccessError } from "../lib/api";
 import { formatDate, dayCount } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -48,6 +48,7 @@ export function TripLayout() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
   const [joinCopied, setJoinCopied] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
   // Latest pathname, read lazily inside the fetch effect — deliberately NOT a
   // dependency: child-route navigation (/t/<id>/itinerary → /day/3) would
   // otherwise re-run the effect and refetch the whole trip on every page
@@ -168,6 +169,19 @@ export function TripLayout() {
   const onDayPage = pathname.includes(`/t/${token}/day/`);
   const isOwner = trip.myRole === "owner";
 
+  const handleDownloadPdf = async () => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const at = await getAccessTokenSilently();
+      await downloadBooklet(trip.id, at, `${trip.slug}-booklet.pdf`);
+    } catch {
+      // ignore — the backend 401/403/500 path is rare; keep the UI quiet
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   const copyJoinLink = async () => {
     try {
       const at = await getAccessTokenSilently();
@@ -216,16 +230,16 @@ export function TripLayout() {
                 <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
               </button>
             )}
-            {idMode && trip.token && (
-              <a
-                href={bookletUrl(trip.token)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted"
+            {idMode && (
+              <button
+                onClick={handleDownloadPdf}
+                disabled={pdfBusy}
+                title="Download the booklet PDF (crew only)"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
               >
                 <FileDown className="h-4 w-4" />
-                <span className="hidden sm:inline">PDF</span>
-              </a>
+                <span className="hidden sm:inline">{pdfBusy ? "Preparing…" : "PDF"}</span>
+              </button>
             )}
           </div>
           {/* Desktop nav */}
