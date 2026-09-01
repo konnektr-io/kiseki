@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -24,13 +25,27 @@ from .acl import authorize_trip_path, is_trip_id, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, trip_by_claim_token
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
-from .maps import build_single_place_url, build_static_map_url, build_static_map_url_legs, directions_polyline, resolve_places, resolve_query
+from .maps import (
+    build_single_place_url,
+    build_static_map_url,
+    build_static_map_url_legs,
+    directions_polyline,
+    resolve_places,
+    resolve_query,
+    route_legs,
+)
 from .models import Trip
+from .ratelimit import allow
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_trip_by_token, list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
+
+# Directions results, keyed on (token, places, loop) -> (expiry, legs). Every
+# map view would otherwise be one Google call per leg, on every mount.
+_route_cache: dict[tuple, tuple[float, list[dict]]] = {}
+_ROUTE_TTL = 300.0
 
 
 def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
@@ -202,21 +217,103 @@ async def booklet_pdf(
     )
 
 
+# --- Map proxies (#18/#27) -----------------------------------------------
+#
+# The browser never talks to Google. It renders MapLibre over keyless tiles and
+# asks US for anything that needs the key. That makes /api/maps/* the thing
+# worth protecting: every endpoint below is scoped to a valid trip token and
+# rate-limited so a shared link cannot be turned into a free Google quota.
+
+# Loopback is our own headless PDF renderer (app/pdf.py) fetching a booklet's
+# worth of static maps in one burst from inside the pod — limiting it would
+# just break the booklet. Nothing else can reach the app on 127.0.0.1.
+_LOCAL = {"127.0.0.1", "::1", "localhost"}
+
+
+def _client_id(request: Request) -> str:
+    """Best-effort caller identity for rate limiting.
+
+    Behind the cluster ingress every request carries the ingress' own address,
+    so trust the first X-Forwarded-For hop — without it the whole internet
+    shares one bucket and the limit protects nothing. It is spoofable, which is
+    acceptable: this is an abuse bound, not an authorization control (the trip
+    token is the control).
+    """
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_limit(request: Request, bucket: str, limit: int) -> None:
+    client = _client_id(request)
+    if client in _LOCAL:
+        return
+    if not allow(bucket, client, limit=limit):
+        raise HTTPException(status_code=429, detail="Too many map requests")
+
+
 @app.get("/api/maps/key")
-def maps_key() -> dict:
-    """JS Maps API key for the private SPA (restrict by referrer in Cloud Console)."""
-    return {"key": MAPS_KEY}
+def maps_key() -> Response:
+    """Gone (#27) — the Google key is server-side only now.
+
+    Kept as an explicit 404 rather than deleted: without it the SPA catch-all
+    would answer this path with a 200 and the index shell, which reads like the
+    endpoint still exists.
+    """
+    raise HTTPException(status_code=404, detail="Removed — the Maps key is server-side only")
+
+
+@app.get("/api/maps/route/{token}")
+def maps_route(
+    request: Request,
+    token: str,
+    places: str = Query(..., description="comma-separated place names"),
+    loop: int = Query(0, description="1 = close the loop back to the start"),
+) -> dict:
+    """Real driving route as GeoJSON — what the MapLibre map draws (#18).
+
+    One leg per consecutive pair (the loop closes back to the start), exactly
+    the shape the Google JS map produced client-side. `duration` is the live
+    `duration_in_traffic` value behind the drive-time chip; a leg with no road
+    route comes back `road: false` with a straight line for the client to dash.
+    """
+    _rate_limit(request, "route", 60)
+    trip = get_trip_by_token(token)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if not MAPS_KEY:
+        raise HTTPException(status_code=404, detail="Maps not configured")
+    resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
+    if len(resolved) < 2:
+        raise HTTPException(status_code=404, detail="Need at least two resolvable places")
+    cache_key = (token, tuple(resolved), bool(loop))
+    hit = _route_cache.get(cache_key)
+    now = time.monotonic()
+    if hit and hit[0] > now:
+        return {"legs": hit[1]}
+    legs = route_legs(resolved, MAPS_KEY, loop=bool(loop))
+    if len(_route_cache) > 512:
+        _route_cache.clear()
+    # Short TTL: the geometry is stable but `duration` is live traffic, and a
+    # chip labelled "live" should not be quarter-hour-old.
+    _route_cache[cache_key] = (now + _ROUTE_TTL, legs)
+    return {"legs": legs}
 
 
 @app.get("/api/maps/static/{token}")
 def maps_static(
+    request: Request,
     token: str,
     places: str = Query(..., description="comma-separated place names"),
     loop: int = Query(0, description="1 = close the loop back to the start"),
     q: str | None = Query(None, description="geocode query — pins the map at the EXACT spot (hotel, not town)"),
 ) -> Response:
     """Static map proxy: real driving route (Directions API, key stays server-side)
-    rendered as an encoded polyline + numbered markers. Used by the booklet PDF."""
+    rendered as an encoded polyline + numbered markers. Used by the booklet PDF.
+
+    Still the print path after #18 — replacing it with a MapLibre render is #37."""
+    _rate_limit(request, "static", 240)
     trip = get_trip_by_token(token)
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")

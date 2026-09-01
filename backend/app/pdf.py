@@ -110,6 +110,13 @@ async def render_booklet_pdf(
                         # Crew render (id route): the booklet page loads the
                         # PROTECTED trip, so the page must appear signed in.
                         await page.add_init_script(_auth0_cache_seed(access_token))
+                    # Print media BEFORE navigation, not just at page.pdf():
+                    # the booklet's maps are `print:hidden` / `hidden
+                    # print:block`, so this is what makes the loaded DOM the
+                    # printed one. It keeps the dynamic MapLibre maps from ever
+                    # mounting during the render — no WebGL contexts, and no
+                    # vector-tile traffic to hold `networkidle` open.
+                    await page.emulate_media(media="print")
                     await page.goto(url, wait_until="networkidle", timeout=60_000)
                     await page.pdf(path=str(out_path), prefer_css_page_size=True, print_background=True)
                 finally:

@@ -102,8 +102,12 @@ writeup; in short:
 ## Maps (dynamic + print)
 
 - **Data**: `trip.locations` `[{name, marker?, alias[], lat?, lng?}]` is the single source for ALL maps — marker numbers (① ② …) derive from it (`useLocationMarkers`), and every map renders from its coordinates. No per-trip hardcoding.
-- **Web (JS map)**: `MapView` (Google Maps JS API, key via `GET /api/maps/key`, referrer-restricted to the site) renders numbered markers + polyline for a set of places. Used inside drive cards (`from`/`to` → the exact leg) and the route feature (`"map": true`).
-- **PDF/print**: the SAME places render via `StaticMapImg` → `GET /api/maps/static/<token>?places=A,B` — a server-side proxy that builds the Google Static Maps URL with the key in the backend (never leaks). `TripMap` switches automatically: JS on screen, static in print.
+- **Web (dynamic map)**: `MapView` — **MapLibre GL JS v6** (#18) over a keyless basemap, rendering numbered markers + the real driving route for a set of places. Used inside drive cards (`from`/`to` → the exact leg) and the route feature (`"map": true`). Route geometry comes from `GET /api/maps/route/<token>?places=A,B` (backend calls Google Directions; `duration` is the live `duration_in_traffic` behind the drive-time chip).
+- **Basemap tiles**: OpenFreeMap `positron` — no key, no proxy, desaturated ("quiet basemap, loud trip", DESIGN.md §8.5). One constant, `MAP_STYLE_URL` in `lib/maps.ts`, overridable via `VITE_MAP_STYLE_URL` — that is the seam for self-hosted PMTiles on Garage or per-trip styling (#40).
+- **No Google in the browser (#27)**: `GET /api/maps/key` is **gone** (explicit 404 — the SPA catch-all would otherwise answer 200 with the index shell). Directions, Geocoding and Static Maps all run server-side; the client only ever talks to `/api/maps/*`. **Never reintroduce a client-side key.** There is no traffic layer: `TrafficLayer` is exclusive to the Google JS API, and loading that API is what exposed the key.
+- **Rate limits**: `/api/maps/route` 60/min and `/api/maps/static` 240/min per client (`app/ratelimit.py`, in-process → per pod). Loopback is exempt because the headless PDF renderer pulls a booklet's worth of static maps in one burst from inside the pod.
+- **PDF/print**: the SAME places render via `StaticMapImg` → `GET /api/maps/static/<token>?places=A,B` — a server-side proxy that builds the Google Static Maps URL with the key in the backend (never leaks). `TripMap` switches automatically: MapLibre on screen, static in print. Retiring this path is #37.
+- **WebGL2 is mandatory** in MapLibre v6 (no WebGL1 fallback) — `MapView` detects it and degrades to `StaticMapImg`, as it does when the style/tiles fail to load. Never an empty grey box.
 - Key lives in the `kiseki-maps` k8s secret (`GOOGLE_MAPS_API_KEY`). Absent → maps simply don't render (no crash).
 
 ## Conventions / rules
