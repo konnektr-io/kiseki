@@ -15,7 +15,7 @@
     "accent": "#0f766e"
   },
   "coverStats": [
-    "14 days · Feb 15 – Mar 2",
+    "16 days · Feb 15 – Mar 2",
     "3 heli days · Bell 212",
     "4 resorts on the loop",
     "NIKO · NICK · STEFAN"
@@ -63,7 +63,7 @@
   "stats": [
     {
       "label": "Days",
-      "value": "14"
+      "value": "16"
     },
     {
       "label": "Riders",
@@ -244,18 +244,28 @@
       "title": "The Heli Block",
       "days": [
         5,
-        6
+        8
       ],
       "id": "1c518c96-4458-4345-8ce1-6d4537c9aa4a",
       "locationRefs": [
         "Revelstoke"
+      ],
+      "fold": [
+        {
+          "title": "Heli Days 1–3",
+          "days": [
+            6,
+            7,
+            8
+          ]
+        }
       ]
     },
     {
       "title": "Kicking Horse",
       "days": [
-        7,
-        9
+        9,
+        11
       ],
       "id": "9eac17c4-691c-4950-9a2d-b721907fe3d9",
       "locationRefs": [
@@ -265,8 +275,8 @@
     {
       "title": "Lake Louise",
       "days": [
-        10,
-        13
+        12,
+        15
       ],
       "id": "d603234b-3182-4b65-9571-a9c97331234d",
       "locationRefs": [
@@ -788,10 +798,8 @@
       "id": "21bfb481-3863-4baf-9c7d-dabe3bc8bfb5"
     },
     {
-      "id": "3a12a896-1457-40ee-bed8-ada7806f6ee0",
       "date": "2027-02-21",
-      "title": "Heli Days 1–3",
-      "notes": "Three heli days, back-to-back — Sun 21 → Tue 23 Feb.",
+      "title": "HELI DAY 1",
       "meta": [
         {
           "label": "Stay",
@@ -808,24 +816,51 @@
           "description": "Bell 212, unlimited vertical in the Selkirk & Monashees. Lunch in the alpine. €5,880 pp incl. tax; 9,000 m guaranteed. If grounded (STHS averages 2–3 down days/month): RMR fallback or refunds.",
           "id": "86f1ac97-0476-4036-9c0f-c1329efd7757",
           "order": 0
-        },
+        }
+      ],
+      "id": "3a12a896-1457-40ee-bed8-ada7806f6ee0"
+    },
+    {
+      "date": "2027-02-22",
+      "title": "HELI DAY 2",
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
+      "blocks": [
         {
           "kind": "activity",
           "title": "Heli day 2",
           "status": "booked",
           "description": "Weather window, terrain picked by the guides for the group.",
           "id": "80dffbb8-29d1-4f77-96f4-dfb05d55a9b4",
-          "order": 1
-        },
+          "order": 0
+        }
+      ],
+      "id": "7d50f61e-609a-4a93-8829-43c33c9f8adf"
+    },
+    {
+      "date": "2027-02-23",
+      "title": "HELI DAY 3",
+      "meta": [
+        {
+          "label": "Stay",
+          "value": "Coast Hillcrest — included"
+        }
+      ],
+      "blocks": [
         {
           "kind": "activity",
           "title": "Heli day 3",
           "status": "booked",
           "description": "Final day — chase the best snow of the week.",
           "id": "e23ad3bb-4671-456b-a67c-015a82e6d744",
-          "order": 2
+          "order": 0
         }
-      ]
+      ],
+      "id": "ca9ad5bf-9028-4a83-b0a5-d7133a63c548"
     },
     {
       "date": "2027-02-24",

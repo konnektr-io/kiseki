@@ -960,6 +960,31 @@
         "description": "Links this TripSection to its Block twin(s) (from `blocks`)."
       },
       {
+        "@type": "Property",
+        "name": "fold",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": {
+            "@type": "Object",
+            "fields": [
+              {
+                "name": "title",
+                "schema": "string"
+              },
+              {
+                "name": "days",
+                "schema": {
+                  "@type": "Array",
+                  "elementSchema": "integer"
+                }
+              }
+            ]
+          }
+        },
+        "writable": true,
+        "description": "Display-only: consecutive day groups rendered as a single card in the itinerary (day pages + booklet stay per-day). Empty = render every day."
+      },
+      {
         "@type": "Relationship",
         "name": "hasDay",
         "target": "dtmi:kiseki:travel:Day;1",
