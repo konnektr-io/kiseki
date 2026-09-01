@@ -253,6 +253,32 @@ def _rate_limit(request: Request, bucket: str, limit: int) -> None:
         raise HTTPException(status_code=429, detail="Too many map requests")
 
 
+def _trip_for_map(trip_param: str) -> Trip:
+    """Resolve a map request's trip by ``$dtId`` (preferred) or share token.
+
+    Same shape-branch as ``GET /api/trips/{trip_param}``: a dashed UUID is the
+    twin id, anything else is the secret share token. **Prefer the id** — it is
+    one graph read (``fetch_graph``), where the token costs two
+    (``find_trip_dtid_by_token`` → ``fetch_graph``), and the frontend already
+    holds it on the loaded trip. The token form stays accepted so nothing
+    in-flight breaks; it is also the only form a pre-#13 link has.
+
+    Keying on the id additionally makes maps work for **private** trips
+    (``token: ""``), which previously produced an unresolvable URL.
+
+    Neither form is authenticated, deliberately: a static map is an ``<img>``,
+    and an ``<img>`` cannot carry a bearer token. The bound is the rate limiter
+    above plus the fact that both params are unguessable and only identify a
+    trip whose places the caller has already been shown. Note the trade-off:
+    rotating a share ``token`` no longer revokes map-proxy access to someone
+    who kept the ``$dtId``.
+    """
+    trip = get_trip_by_id_store(trip_param.lower()) if is_trip_id(trip_param) else get_trip_by_token(trip_param)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return trip
+
+
 @app.get("/api/maps/key")
 def maps_key() -> Response:
     """Gone (#27) — the Google key is server-side only now.
@@ -264,10 +290,10 @@ def maps_key() -> Response:
     raise HTTPException(status_code=404, detail="Removed — the Maps key is server-side only")
 
 
-@app.get("/api/maps/route/{token}")
+@app.get("/api/maps/route/{trip_param}")
 def maps_route(
     request: Request,
-    token: str,
+    trip_param: str,
     places: str = Query(..., description="comma-separated place names"),
     loop: int = Query(0, description="1 = close the loop back to the start"),
 ) -> dict:
@@ -279,15 +305,14 @@ def maps_route(
     route comes back `road: false` with a straight line for the client to dash.
     """
     _rate_limit(request, "route", 60)
-    trip = get_trip_by_token(token)
-    if trip is None:
-        raise HTTPException(status_code=404, detail="Trip not found")
+    trip = _trip_for_map(trip_param)
     if not MAPS_KEY:
         raise HTTPException(status_code=404, detail="Maps not configured")
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    cache_key = (token, tuple(resolved), bool(loop))
+    # keyed on the trip id, so the id and token forms share one cache entry
+    cache_key = (trip.id, tuple(resolved), bool(loop))
     hit = _route_cache.get(cache_key)
     now = time.monotonic()
     if hit and hit[0] > now:
@@ -301,10 +326,10 @@ def maps_route(
     return {"legs": legs}
 
 
-@app.get("/api/maps/static/{token}")
+@app.get("/api/maps/static/{trip_param}")
 def maps_static(
     request: Request,
-    token: str,
+    trip_param: str,
     places: str = Query(..., description="comma-separated place names"),
     loop: int = Query(0, description="1 = close the loop back to the start"),
     q: str | None = Query(None, description="geocode query — pins the map at the EXACT spot (hotel, not town)"),
@@ -314,9 +339,7 @@ def maps_static(
 
     Still the print path after #18 — replacing it with a MapLibre render is #37."""
     _rate_limit(request, "static", 240)
-    trip = get_trip_by_token(token)
-    if trip is None:
-        raise HTTPException(status_code=404, detail="Trip not found")
+    trip = _trip_for_map(trip_param)
     if not MAPS_KEY:
         raise HTTPException(status_code=404, detail="Maps not configured")
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
