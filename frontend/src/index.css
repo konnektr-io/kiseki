@@ -259,6 +259,16 @@ h4 {
 .maplibregl-ctrl.maplibregl-ctrl-group button + button {
   border-top: 0;
 }
+/* The compass is a way back from a rotated or tilted map, not standing chrome:
+   hidden until the map is actually off north or pitched (MapView toggles
+   `.map-oriented` on the container). A third permanent chip on a 192px-tall
+   map is not worth the space it costs. */
+.maplibregl-ctrl.maplibregl-ctrl-group .maplibregl-ctrl-compass {
+  display: none;
+}
+.map-oriented .maplibregl-ctrl.maplibregl-ctrl-group .maplibregl-ctrl-compass {
+  display: grid;
+}
 /* The visible chip — the glyph's own element, so the button around it stays
    transparent and the hit target stays 44px.
 

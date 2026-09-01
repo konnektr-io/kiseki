@@ -543,9 +543,16 @@ give way when something has to.
   or host. `minzoom: 10`: at trip scale contours are noise competing with the route for the ink
   §8.5 reserves for the trip. Intervals stay coarser than 30 m data would allow, because GLO-30
   quantises hard over snowfields and fine contours draw the terracing rather than the terrain.
-- **3D terrain is off by default, everywhere.** It only reads as terrain once the camera is
-  pitched, and pitch costs legibility on a small map, drains battery and makes labels swim. The
-  per-trip switch belongs to the theme preset (#40); `TERRAIN_3D` is the seam.
+- **3D terrain attaches the first time the camera tilts**, not on load. Shipping it fully off was
+  worse than either extreme: rotate and pitch are enabled, so the map invited a tilt and stayed
+  flat, with nothing to say the elevation was only shading. At `pitch: 0` a mesh is invisible by
+  definition, so waiting for `pitchstart` costs the flat view — the one nearly everyone sees —
+  nothing at all, and it satisfies "no 3D by default on mobile" precisely rather than by dropping
+  the feature. Exaggeration 1.3: at trip scale a true 1.0 vertical barely reads, and past ~1.5 the
+  Rockies become a cardboard cutout. The per-trip switch belongs to the theme preset (#40).
+- **A tilted or rotated map needs a way back.** The compass appears only once the map is off north
+  or pitched, and `visualizePitch` makes one press reset both. Standing chrome on a 192px-tall map
+  has to earn its place; a way out of a state the user can reach does.
 - Elevation never breaks the map: `addTerrain` swallows its own failures, so a DEM that will not
   load costs the trip its hillshade, not its route.
 

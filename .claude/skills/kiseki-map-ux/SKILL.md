@@ -179,6 +179,16 @@ Each of these was paid for once. None of them raises an error.
   over snowfields and glaciers; fine contours draw the terracing rather than the terrain.
 - Terrain is atmosphere: `addTerrain` swallows its own failures and is never awaited. A DEM
   that will not load costs the trip its hillshade, not its route.
+- **3D terrain attaches on `pitchstart`, not on load.** Hillshade is 2D shading — it does not
+  extrude anything, so a map with beautiful relief still goes flat when you tilt it unless
+  `setTerrain` has been called. Shipping 3D fully off was the wrong call: rotate and pitch are
+  enabled by default, so the map invites a gesture and then ignores it. Attaching lazily costs
+  the flat view nothing (a mesh at `pitch: 0` is invisible) and keeps the "no 3D by default on
+  mobile" guardrail honest.
+- **If you enable rotation, ship the way back.** `NavigationControl` needs
+  `visualizePitch: true` for its compass to call `resetNorthPitch` instead of only
+  `resetNorth`. Ours is hidden by CSS until the map is off north or pitched, so it costs no
+  space on the view almost everyone sees.
 
 ### Google is server-side only
 
