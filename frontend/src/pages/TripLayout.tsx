@@ -216,7 +216,7 @@ export function TripLayout() {
                 <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
               </button>
             )}
-            {trip.token && (
+            {idMode && trip.token && (
               <a
                 href={bookletUrl(trip.token)}
                 target="_blank"
