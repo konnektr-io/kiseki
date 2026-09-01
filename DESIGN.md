@@ -522,6 +522,33 @@ idea.** Formalize it:
   accessible; the list is the accessible path, not a fallback.
 - Loading: show the static-map image or a themed skeleton, never an empty grey box.
 
+### 8.6 Elevation (#38)
+
+Terrain is why a heliski week in the Selkirks looks like *that* trip. It is also **atmosphere, not
+the subject** — it sits below the roads, the route and the markers, and it is the first thing to
+give way when something has to.
+
+- **DEM: Mapterhorn**, terrarium-encoded, free and keyless — the same "no vendor credential"
+  property as the basemap, so elevation adds nothing new to protect. `lib/terrain.ts`.
+- **`maxzoom: 12` is a floor we chose, not the server's limit.** Global coverage is Copernicus
+  GLO-30 and it genuinely stops at z12 — verified: the Sahara, the Australian outback and the
+  Peruvian Andes all 404 at z13, while British Columbia serves to z15 and Hokkaido to z13. Capping
+  globally makes MapLibre upscale past z12 (soft relief) instead of punching holes in the
+  hillshade over exactly the remote places a trip goes.
+- **`hillshade-method: igor`, not `multidirectional`.** Multidirectional renders dramatic relief and
+  buries the pale roads and place labels a quiet basemap draws on top of it. Igor is the method
+  built to minimise its effect on what sits beneath. Compare them at z8 over a mountain range
+  before touching this.
+- **Contours are derived at runtime** from the same DEM (`maplibre-contour`) — no tileset to build
+  or host. `minzoom: 10`: at trip scale contours are noise competing with the route for the ink
+  §8.5 reserves for the trip. Intervals stay coarser than 30 m data would allow, because GLO-30
+  quantises hard over snowfields and fine contours draw the terracing rather than the terrain.
+- **3D terrain is off by default, everywhere.** It only reads as terrain once the camera is
+  pitched, and pitch costs legibility on a small map, drains battery and makes labels swim. The
+  per-trip switch belongs to the theme preset (#40); `TERRAIN_3D` is the seam.
+- Elevation never breaks the map: `addTerrain` swallows its own failures, so a DEM that will not
+  load costs the trip its hillshade, not its route.
+
 ---
 
 ## 9. Photography

@@ -12,6 +12,7 @@ import {
   markerNumber,
   staticMapUrl,
 } from "../lib/maps";
+import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
 
@@ -174,6 +175,13 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         ]);
         if (cancelled || !map) return;
         setReady(true);
+
+        // Elevation first, so the route and markers added below land ON TOP of
+        // the hillshade rather than under it (#38). Deliberately not awaited
+        // for the route's sake — a slow DEM must not hold up the line the map
+        // exists to draw.
+        void addTerrain(map, lib);
+
         if (!legs?.length) return;
 
         map.addSource("route", {
