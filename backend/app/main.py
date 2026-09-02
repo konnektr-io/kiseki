@@ -2,7 +2,7 @@
 
 One process, one container:
   - /api/health, /api/trips/<token>, /api/trips/<token>/booklet.pdf
-  - /media/**        → trip images (backend/data/assets)
+  - /media/**        → trip images, proxied from the Garage S3 bucket (#47)
   - everything else  → the built React SPA (backend/app/static) with
                        history-mode fallback to index.html
 """
@@ -16,16 +16,16 @@ import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from .acl import authorize_trip_path, is_trip_id, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, trip_by_claim_token
-from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
+from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import resolve_places, route_legs
+from .media import get_media_store, is_valid_media_path, media_content_type, object_key_for
 from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
@@ -333,9 +333,36 @@ def maps_route(
     return {"legs": legs}
 
 
-# Trip media (covers, gallery images) — referenced as /media/<trip>/<file>
-if ASSETS_DIR.is_dir():
-    app.mount("/media", StaticFiles(directory=ASSETS_DIR), name="media")
+# Trip media (covers, gallery images) — referenced as /media/<trip>/<file>.
+# Issue #47: objects now live in the Garage S3 bucket (private) and are
+# streamed through this proxy; the route keeps the same public URL shape, so
+# trip.json / graph twins / frontend / PDF renderer are unchanged. When no
+# media store is configured (dev / CI without bucket AND no baked assets),
+# the route serves 404 as-is rather than mounting a non-existent directory.
+@app.get("/media/{trip}/{file_name}", include_in_schema=False)
+def media_file(trip: str, file_name: str) -> Response:
+    """Stream a trip media object from the configured store.
+
+    The path is structurally validated first (slug-shaped trip, simple file
+    name with no separators) — a ``..`` or encoded-slash traversal lands here as
+    a 404 with no filesystem/bucket lookup. When valid, the store is asked for
+    the bytes; a miss is a 404 (not a 500). This is the single seam where a
+    future crew-level media ACL (#64) will plug in.
+    """
+    if not is_valid_media_path(trip, file_name):
+        raise HTTPException(404, "Not Found")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(404, "Not Found")
+    chunks = store.get(object_key_for(trip, file_name))
+    if chunks is None:
+        raise HTTPException(404, "Not Found")
+    return StreamingResponse(
+        chunks,
+        media_type=media_content_type(file_name),
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
 
 # Built SPA with history-mode fallback
 if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():

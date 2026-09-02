@@ -6,6 +6,7 @@
 **/dist
 **/.pytest_cache
 backend/app/static
+backend/data/assets
 *.md
 docs
 k8s

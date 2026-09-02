@@ -14,7 +14,20 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 TRIPS_DIR = Path(os.environ.get("KISEKI_TRIPS_DIR", BACKEND_DIR / "data" / "trips"))
 
 # Trip media (covers, gallery images), served under /media/<trip>/<file>.
+# P0 legacy local assets dir (dev / old checkouts); repo assets removed (#47).
+# The local store only activates when this dir exists AND S3 env is unset.
 ASSETS_DIR = Path(os.environ.get("KISEKI_ASSETS_DIR", BACKEND_DIR / "data" / "assets"))
+
+# P1 media backend — S3-compatible Garage object storage (issue #47).
+# When all four are set, /media/<trip>/<file> streams from the bucket instead
+# of the (now-removed) local assets dir. Bucket is private; this proxy is the
+# only reader, so media inherits trip-level ACL (enforced here, expanded in #64).
+# Mirrored into the pod via a Kubernetes Secret named `kiseki-s3` (home-k8s).
+KISEKI_S3_ENDPOINT = os.environ.get("KISEKI_S3_ENDPOINT", "")
+KISEKI_S3_BUCKET = os.environ.get("KISEKI_S3_BUCKET", "")
+KISEKI_S3_ACCESS_KEY = os.environ.get("KISEKI_S3_ACCESS_KEY", "")
+KISEKI_S3_SECRET_KEY = os.environ.get("KISEKI_S3_SECRET_KEY", "")
+KISEKI_S3_REGION = os.environ.get("KISEKI_S3_REGION", "us-east-1")
 
 # Built SPA (frontend/dist copied here by the Dockerfile or manually).
 STATIC_DIR = Path(os.environ.get("KISEKI_STATIC_DIR", Path(__file__).resolve().parent / "static"))
