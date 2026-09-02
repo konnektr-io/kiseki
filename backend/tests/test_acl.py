@@ -18,6 +18,7 @@ from app import auth as auth_module
 from app.auth import Auth0JWTValidator
 from app.graph import client as graph_client_mod
 from app.main import app
+from app.ratelimit import reset as reset_rate_limits
 from app.store import load_trips
 
 from conftest import CLIENT_ID, TENANT, _claims, _sign
@@ -171,6 +172,16 @@ def client(rsa_keypair, jwks_url: str, monkeypatch: pytest.MonkeyPatch):
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """The booklet limiter is per-client and process-global; TestClient is
+    always the same client. Without this, one test's requests spend another
+    test's budget and the failure depends on collection order."""
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
+
+
 @pytest.fixture
 def role(monkeypatch: pytest.MonkeyPatch):
     """Set the ACL role the graph returns for the current user (None = no role)."""
@@ -224,6 +235,15 @@ def test_protected_ok_with_role(client: TestClient, rsa_keypair, role) -> None:
     assert "claimToken" not in body  # the claim secret never ships in documents
     assert body["visibility"] == "private"
     assert body["myRole"] == "viewer"  # caller's role reported on the protected path
+
+
+def test_private_readable_by_follower(client: TestClient, rsa_keypair, role) -> None:
+    """#65: follower is the LOWEST role that can read a private trip."""
+    role("follower")
+    token = _token_of(rsa_keypair)
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["myRole"] == "follower"
 
 
 def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> None:
@@ -338,6 +358,41 @@ def test_booklet_renders_with_role(
     assert r.content.startswith(b"%PDF-")
     assert captured["key"] == trip.id
     assert captured["token"] == token
+
+
+def test_booklet_public_trip_is_anonymous(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#64: a public trip's booklet needs no account — the id IS the link.
+
+    Pinned deliberately: this is the one path that reaches the 40s/2GiB
+    renderer with no credential, so a change here should break a test.
+    """
+    async def fake_render(base_url, key, out_path, access_token=None):
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    trip = _public_trip()
+    r = client.get(f"/api/trips/{trip.id}/booklet.pdf")
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF-")
+
+
+def test_booklet_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A render is the most expensive request the pod serves and the public
+    path is unauthenticated, so one client cannot loop it."""
+    renders = {"n": 0}
+
+    async def fake_render(base_url, key, out_path, access_token=None):
+        renders["n"] += 1
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    url = f"/api/trips/{_public_trip().id}/booklet.pdf"
+    for _ in range(5):
+        assert client.get(url).status_code == 200
+    assert client.get(url).status_code == 429
+    assert renders["n"] == 5  # the 429 never reached the renderer
 
 
 # ------------------------------------------------------------- #58 pdf render bypass

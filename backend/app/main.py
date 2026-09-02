@@ -44,6 +44,13 @@ app = FastAPI(title="Kiseki", version="0.1.0")
 # the SwiftShader/WebGL memory and the loser comes out with grey maps.
 _PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
 
+# The per-trip lock above collapses double-clicks on ONE trip; it does nothing
+# about two DIFFERENT trips rendering at once, which is the case that OOMs the
+# pod (~2GiB each). Since #64 a public trip's booklet is reachable anonymously,
+# so that case is now reachable without an account: cap concurrent renders
+# globally at one and let the rest queue behind it.
+_PDF_RENDER_SLOT = asyncio.Semaphore(1)
+
 # Directions results, keyed on (trip_id, places, loop) -> (expiry, legs). Every
 # map view would otherwise be one Google call per leg, on every mount.
 _route_cache: dict[tuple, tuple[float, list[dict]]] = {}
@@ -207,7 +214,7 @@ def get_trip(
     - visibility == "public"  → anyone (no auth), myRole returned if the
       caller happens to be authenticated and on the crew.
     - visibility == "private" → requires valid Auth0 token + crew role
-      (viewer+). The ACL is enforced by ``authorize_trip_path``.
+      (follower+, #65). The ACL is enforced by ``authorize_trip_path``.
 
     ``claimToken`` is always stripped from the response.
     """
@@ -219,6 +226,7 @@ def get_trip(
 
 @app.get("/api/trips/{trip_id}/booklet.pdf")
 async def booklet_pdf(
+    request: Request,
     trip_id: str,
     _: str | None = Depends(authorize_trip_path),
     authorization: str | None = Header(default=None),
@@ -230,11 +238,22 @@ async def booklet_pdf(
     loads the trip, so the caller's access token (if any) is forwarded to
     the headless browser (injected as a page global by pdf.py).
 
-    A render takes ~40s of SwiftShader + up to 2GiB (15 live WebGL contexts),
-    so renders are single-flighted per trip: a second click while one render
-    is in flight waits for that render instead of racing it (two concurrent
-    renders OOM the pod, and the loser's maps come out grey).
+    A render takes ~40s of SwiftShader + up to 2GiB (15 live WebGL contexts) —
+    by far the most expensive thing the pod does, and since #64 the public-trip
+    path reaches it with no account. Two bounds, because they stop different
+    things:
+
+    - **Rate limit** (per client, like the map proxies): a handful of renders a
+      minute is well above real use — nobody clicks PDF five times a minute —
+      and it stops one caller looping the endpoint.
+    - **Global single-flight** (``_PDF_RENDER_SLOT``): the per-trip lock only
+      collapses repeat clicks on the SAME trip; concurrent renders of two
+      different trips are what OOMs the pod, so renders serialize pod-wide.
+
+    The per-trip lock stays on top of both: every waiter on one trip reuses the
+    SAME finished file, so a double-click still costs one render, not two.
     """
+    _rate_limit(request, "booklet", 5)
     trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
@@ -250,7 +269,9 @@ async def booklet_pdf(
         os.close(fd)
         base_url = f"http://127.0.0.1:{LISTEN_PORT}"
         try:
-            await render_booklet_pdf(base_url, render_key, Path(path), access_token=access_token)
+            # Pod-wide: one render at a time, whatever the trip.
+            async with _PDF_RENDER_SLOT:
+                await render_booklet_pdf(base_url, render_key, Path(path), access_token=access_token)
         except Exception as exc:
             Path(path).unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail=f"PDF rendering failed: {exc}") from exc

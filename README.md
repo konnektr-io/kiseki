@@ -6,7 +6,7 @@ Kiseki turns a trip plan into a responsive web experience with a printable PDF b
 
 - **Living documents** — plans change; the trip updates in place. No more stale PDFs.
 - **Access that matches the trip** — share a secret link for anonymous reading (*public-by-link*), or sign in (Auth0) and join a trip's crew: each crew member claims their own identity via a join link and gets a role (owner / editor / viewer / follower) that drives what the app lets them do.
-- **PDF booklet export** — crew-only, one click, print-ready, matches the on-screen design.
+- **PDF booklet export** — one click, print-ready, matches the on-screen design; gated by the trip's visibility.
 - **Maps that mean something** — real driving routes (Directions API), live traffic colors and drive times in the web app, static route maps in the PDF. All generated from trip data — no per-trip hardcoding.
 
 ## Stack
@@ -65,7 +65,7 @@ Trips are reachable two ways, and the model is deliberately simple:
 - **Crew identity = claiming, never matching** (issue #6): names/emails are self-asserted, so they grant nothing. The trip owner shares a **join link** (`/join/<claimToken>` — a second secret per trip); the invitee signs in and taps *"This is me"* on their crew entry. The server creates the user's twin (`$dtId` = auth `sub`), transfers the `hasCrew` edge (role + order) from the placeholder, and deletes the placeholder. A placeholder is claimable once.
 - **Roles** live on the `hasCrew` edge: `owner` > `editor` > `viewer` > `follower`. Today `owner` also gates the join-link endpoint; the ladder exists for the write-path.
 - **Signed-in landing** (issue #7): `/` becomes *My trips* (cards with cover, stage, dates, your role); anonymous visitors get the hero.
-- **PDF booklet is crew-only** (issue #13): served by the protected `GET /api/trips/{id}/booklet.pdf` — it works for private trips too. The anonymous token-based PDF endpoint is gone.
+- **PDF booklet follows the trip's visibility** (#13, #64): `GET /api/trips/{id}/booklet.pdf` — public trips download anonymously, private trips need a JWT + `follower+` crew role. A render costs ~40s and ~2GiB, so it is rate-limited per client and single-flighted pod-wide.
 - `claimToken` is **never** included in trip responses (any route); the owner-only `GET /api/trips/{id}/join-link` is the only way to obtain a join link.
 - Secrets are public SPA values: `AUTH0_DOMAIN` / `AUTH0_CLIENT_ID` / `AUTH0_AUDIENCE` ride as plain env; the frontend defaults mirror them via `VITE_AUTH0_*`.
 
@@ -82,7 +82,7 @@ cd backend && uv run pytest
 ## Roadmap
 
 - **P0/P1 (done)** — booklet-faithful web + PDF; content-as-data pipeline; trips live in the Konnektr Graph (DTDL v4 models, no file fallback).
-- **P2 (done — auth & roles)** — Auth0 login, crew identity via join-link claiming, role-based access, logged-in landing, crew-only PDF. Issues #5, #6, #7, #13 closed.
+- **P2 (done — auth & roles)** — Auth0 login, crew identity via join-link claiming, role-based access, logged-in landing, visibility-gated PDF. Issues #5, #6, #7, #13 closed.
 - **Design foundation (done)** — [`DESIGN.md`](DESIGN.md) is the visual and interaction law; token layer + accessibility floor shipped (#36, #41).
 - **Information architecture (done)** — continuous itinerary with sections as a first-class unit (#43); the Today surface reaches today's plan in one tap (#42).
 - **Map stack (done)** — MapLibre GL JS replaces the Google Maps JS API with no key in the client (#18, #27); the booklet PDF renders the same MapLibre maps via Playwright, so screen and paper agree (#37); hillshade and runtime contours from a keyless Mapterhorn DEM (#38).
