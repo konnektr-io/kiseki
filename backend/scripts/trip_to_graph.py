@@ -122,9 +122,12 @@ def _anonymize(trip: M.Trip) -> M.Trip:
     data["cover"] = "/media/REDACTED" if data.get("cover") else None
     data["map"] = "/media/REDACTED" if data.get("cover") else None
     data["coverCredit"] = "REDACTED" if data.get("coverCredit") else None
-    # 3) replace known names inside free text + media urls
+    # 3) replace known names inside free text + media urls. Media fields now
+    # hold BARE filenames in the data (#47 follow-up) — redact those too, not
+    # just the legacy /media/<slug>/… path shape.
     repl: dict[str, str] = {n: f"Person {i + 1}" for i, n in enumerate(names)}
     repl[r"/(media|assets)/[^\"'\s]+"] = "/media/REDACTED"
+    repl[r"(?<![A-Za-z0-9])[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp|gif|avif|svg)"] = "/media/REDACTED"
 
     def scrub(v):
         if isinstance(v, str):

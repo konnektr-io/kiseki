@@ -6,7 +6,7 @@
   "startDate": "2027-07-17",
   "endDate": "2027-08-02",
   "token": "a70e86ef1c1ba28cb196421186f2b6ab",
-  "cover": "/media/chile-peru-2027/26a4f2b4a46bc37fd9af63a7686a145b.jpg",
+  "cover": "26a4f2b4a46bc37fd9af63a7686a145b.jpg",
   "coverCredit": "Machu Picchu",
   "summary": "Family trip (Niko + **Henri** 17 + **Renée** 15) combining **3–4 ski days at Valle Nevado** (Chile) with the Peru spine: **Lima → Sacred Valley → Machu Picchu → Cusco**. July is the only month where both countries are simultaneously at their seasonal best — Chilean winter ski peak AND Peruvian dry-season hiking peak.\n\nThe linchpin: **LATAM flies Santiago → Cusco non-stop** (daily, ~2h30–3h30), so the two halves stitch together without backtracking through Lima. Bonus: 3–4 days above 3,000 m at Valle Nevado pre-acclimatises everyone for Cusco (3,400 m).\n\n**Stage: planned** — dates set (Sat Jul 17 → Mon Aug 2), nothing booked yet. Booking windows: international flights by Jan 2027, Valle Nevado by Mar 2027, Machu Picchu permits Jan–Feb 2027.",
   "theme": {
@@ -254,7 +254,7 @@
           "title": "Cerro San Cristóbal",
           "description": "The city from above: teleférico up to the 880 m summit, the Andes on one side and Gran Torre on the other. Morning light is best — the cordillera glows.",
           "images": [
-            "/media/chile-peru-2027/8a2e651701d60f412d3ac84cebccc426.jpg"
+            "8a2e651701d60f412d3ac84cebccc426.jpg"
           ],
           "location": "Santiago",
           "links": [
@@ -369,7 +369,7 @@
           "title": "Ski morning",
           "status": "planned",
           "images": [
-            "/media/chile-peru-2027/4a741698bb9be35fb17f04e51c559508.jpg"
+            "4a741698bb9be35fb17f04e51c559508.jpg"
           ],
           "location": "Valle Nevado",
           "mapsQuery": "Valle Nevado Chile",
@@ -416,7 +416,7 @@
           "kind": "activity",
           "title": "Pisac ruins + artisan market",
           "images": [
-            "/media/chile-peru-2027/4cddad8f640b101907c448f0da20cd9a.jpg"
+            "4cddad8f640b101907c448f0da20cd9a.jpg"
           ],
           "location": "Pisac",
           "links": [
@@ -434,7 +434,7 @@
           "title": "Maras salt mines + Moray terraces",
           "description": "Thousands of salt ponds terraced into the canyon, worked by hand since pre-Inca times. One of the most photogenic half-hours in Peru.",
           "images": [
-            "/media/chile-peru-2027/d63e8f70ae7cc3a4491bb1e49db5bac8.jpg"
+            "d63e8f70ae7cc3a4491bb1e49db5bac8.jpg"
           ],
           "location": "Maras",
           "links": [
@@ -552,8 +552,8 @@
           "title": "Palcoyo full-day trip (5am–4pm)",
           "description": "3 colourful mountains, gentle 2 km walk at ~4,900 m — fine after 5+ days of altitude. Far fewer crowds than Vinicunca; llama/alpaca scenery.\n\nThe quieter rainbow mountain: a rolling **1.5–2 h loop** across three striped ridges — red, ochre, turquoise and violet strata — with the glacier-capped peak of Ausangate (6,384 m) as the backdrop. Palcoyo sits **~3 h from Cusco** (better road than Vinicunca), so it's a full-day outing: 5am pick-up, lunch back in the valley, early evening in Cusco. 4,800 m means slow steps, coca tea, and no rush — the kids manage it fine, and the llama herd that patrols the ridge is the family photo of the trip.",
           "images": [
-            "/media/chile-peru-2027/226188a326ccc812dc2c284a7e07f37b.jpg",
-            "/media/chile-peru-2027/ee2b12eb1752ea1718e12953b948f393.jpg"
+            "226188a326ccc812dc2c284a7e07f37b.jpg",
+            "ee2b12eb1752ea1718e12953b948f393.jpg"
           ],
           "mapsQuery": "Palcoyo Rainbow Mountain Peru",
           "id": "edbddc0f-e526-468a-ad83-9319c1aee834",

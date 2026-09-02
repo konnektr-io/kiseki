@@ -25,7 +25,13 @@ from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, trip_by_claim_token
 from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import resolve_places, route_legs
-from .media import get_media_store, is_valid_media_path, media_content_type, object_key_for
+from .media import (
+    get_media_store,
+    is_valid_media_path,
+    media_content_type,
+    object_key_for,
+    resolve_media_urls,
+)
 from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
@@ -51,9 +57,15 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     document response, including anonymous/public ones. The join link is only
     obtainable via the owner-only ``/join-link`` endpoint. ``my_role`` (the
     caller's crew role on this trip) is attached for authenticated responses.
+
+    Media fields are stored as BARE filenames in the data (trip.json / graph);
+    the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
+    only ever see full URLs, namespaced by the trip's durable id — never the
+    repo-folder slug (#47 follow-up).
     """
     data = trip.model_dump(by_alias=True)
     data.pop("claimToken", None)
+    resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
     return data
@@ -88,8 +100,14 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
     Requires a valid Auth0 token; returns the trips the user has a crew role
     on (via ``hasCrew``), with that role. Registered before the
     ``{trip_param}`` route so the bare path is never captured by it.
+    Summary covers are stored as bare filenames in the graph; canonicalize
+    them to ``/media/<trip.$dtId>/<file>`` like full trip documents.
     """
-    return {"trips": list_trips_for_user(user["sub"])}
+    trips = list_trips_for_user(user["sub"])
+    for row in trips:
+        if isinstance(row, dict) and row.get("dtId"):
+            resolve_media_urls(row, row["dtId"])
+    return {"trips": trips}
 
 
 @app.get("/api/trips/by-claim/{claim_token}")
@@ -333,28 +351,31 @@ def maps_route(
     return {"legs": legs}
 
 
-# Trip media (covers, gallery images) — referenced as /media/<trip>/<file>.
-# Issue #47: objects now live in the Garage S3 bucket (private) and are
-# streamed through this proxy; the route keeps the same public URL shape, so
-# trip.json / graph twins / frontend / PDF renderer are unchanged. When no
+# Trip media (covers, gallery images) — referenced as /media/<trip_id>/<file>.
+# Issue #47: objects live in the Garage S3 bucket (private) and are streamed
+# through this proxy. The trip segment is the trip's $dtId (dashed UUID) — the
+# durable identity, NOT the repo-folder slug (which is organizational and can
+# collide). Data stores bare filenames; the serializer (_public_trip) prefixes
+# them into this URL shape, so frontend / PDF / graph are unchanged. When no
 # media store is configured (dev / CI without bucket AND no baked assets),
 # the route serves 404 as-is rather than mounting a non-existent directory.
-@app.get("/media/{trip}/{file_name}", include_in_schema=False)
-def media_file(trip: str, file_name: str) -> Response:
+@app.get("/media/{trip_id}/{file_name}", include_in_schema=False)
+def media_file(trip_id: str, file_name: str) -> Response:
     """Stream a trip media object from the configured store.
 
-    The path is structurally validated first (slug-shaped trip, simple file
-    name with no separators) — a ``..`` or encoded-slash traversal lands here as
-    a 404 with no filesystem/bucket lookup. When valid, the store is asked for
-    the bytes; a miss is a 404 (not a 500). This is the single seam where a
-    future crew-level media ACL (#64) will plug in.
+    The first path segment is the trip's ``$dtId`` (dashed UUID) — the durable
+    identity — never the repo-folder slug. It is structurally validated first
+    (as is the flat file name): a ``..`` or encoded-slash traversal lands here
+    as a 404 with no filesystem/bucket lookup. When valid, the store is asked
+    for the bytes; a miss is a 404 (not a 500). This is the single seam where
+    a future crew-level media ACL (#64) will plug in.
     """
-    if not is_valid_media_path(trip, file_name):
+    if not is_valid_media_path(trip_id, file_name):
         raise HTTPException(404, "Not Found")
     store = get_media_store()
     if store is None:
         raise HTTPException(404, "Not Found")
-    chunks = store.get(object_key_for(trip, file_name))
+    chunks = store.get(object_key_for(trip_id, file_name))
     if chunks is None:
         raise HTTPException(404, "Not Found")
     return StreamingResponse(

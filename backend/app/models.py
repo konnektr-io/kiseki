@@ -54,7 +54,7 @@ class Link(BaseModel):
     """An external hyperlink (label + url) used across blocks / features / contacts."""
 
     label: str = Field(..., description="Display text for the link.")
-    url: str = Field(..., description="Target URL — absolute or /media/... relative.")
+    url: str = Field(..., description="Target URL — absolute (https://…). Media is never referenced via links: use the dedicated image/cover/map fields (bare filenames).")
 
 
 class TodoItem(BaseModel):
@@ -91,7 +91,7 @@ class Block(BaseModel):
     bookingCode: Optional[str] = Field(default=None, description="Confirmation / booking reference.")
     order: Optional[int] = Field(default=None, description="Sort order within the day (0-based).")
     # todo: [{label, done}] · gallery: [image urls] · custom: raw html
-    items: list[Any] = Field(default_factory=list, description="todo → [{label,done}] · gallery → [image URLs] · custom → raw (sanitized) html.")
+    items: list[Any] = Field(default_factory=list, description="todo → [{label,done}] · gallery → [bare media filenames] · custom → raw (sanitized) html.")
     html: Optional[str] = Field(default=None, description="Raw HTML for `custom` blocks (client-sanitized).")
     # drive/route info (transport blocks) — renders as the booklet's drive card
     distance: Optional[str] = Field(default=None, description="Drive distance, e.g. '143 km' (transport blocks).")
@@ -103,7 +103,7 @@ class Block(BaseModel):
     mode: Optional[str] = Field(default=None, description="Explicit transport mode: flight | drive | train | ferry (beats the heuristic).")
     location: Optional[str] = Field(default=None, description="Place name/alias → auto Google Maps link + map thumbnail.")
     mapsQuery: Optional[str] = Field(default=None, description="Precise query for the ACTUAL place (hotel/restaurant) — overrides `location` for the link + thumbnail pin.")
-    images: list[str] = Field(default_factory=list, description="Card media strip (asset URLs).")
+    images: list[str] = Field(default_factory=list, description="Card media strip — bare media filenames, served by the API at /media/<trip_id>/<file>.")
 
 
 class Day(BaseModel):
@@ -116,7 +116,7 @@ class Day(BaseModel):
     date: str = Field(..., description="ISO YYYY-MM-DD.")
     title: str = Field(default="", description="Day heading.")
     notes: Optional[str] = Field(default=None, description="Markdown day-level notes.")
-    map: Optional[str] = Field(default=None, description="Optional map image for this day.")
+    map: Optional[str] = Field(default=None, description="Optional map image for this day — bare media filename, served at /media/<trip_id>/<file>.")
     meta: list[MetaItem] = Field(default_factory=list, description="Stay/Lift/Flight chips (label/value).")
     blocks: list[Block] = Field(default_factory=list, description="Ordered blocks scheduled on this day (hasBlock edges in the graph).")
 
@@ -159,7 +159,7 @@ class FeatureCard(BaseModel):
     title: str = Field(..., description="Card title.")
     value: Optional[str] = Field(default=None, description="Optional headline metric, e.g. '1,070 m vertical'.")
     description: Optional[str] = Field(default=None, description="Card body (markdown).")
-    image: Optional[str] = Field(default=None, description="Card image URL.")
+    image: Optional[str] = Field(default=None, description="Card image — bare media filename, served at /media/<trip_id>/<file>.")
     links: list[Link] = Field(default_factory=list, description="Links attached to the card.")
 
 
@@ -170,8 +170,8 @@ class Feature(BaseModel):
     kicker: str = Field(default="", description="Small overline above the title.")
     title: str = Field(..., description="Feature title.")
     description: Optional[str] = Field(default=None, description="Feature body (markdown).")
-    image: Optional[str] = Field(default=None, description="Hero image URL.")
-    images: list[str] = Field(default_factory=list, description="2-column image layout (centerpiece).")
+    image: Optional[str] = Field(default=None, description="Hero image — bare media filename, served at /media/<trip_id>/<file>.")
+    images: list[str] = Field(default_factory=list, description="2-column image layout (centerpiece) — bare media filenames, served at /media/<trip_id>/<file>.")
     chips: list[str] = Field(default_factory=list, description="Highlight chips (centerpiece).")
     cards: list[FeatureCard] = Field(default_factory=list, description="Resort/route card grid.")
     map: Optional[bool] = Field(default=None, description="Render the trip's dynamic map here (JS web / static print).")
@@ -254,9 +254,9 @@ class Trip(BaseModel):
     timezone: Optional[str] = Field(default=None, description="IANA timezone, e.g. 'Asia/Tokyo' — resolves 'today' in the trip's local calendar date, not the viewer's. Optional; when absent, the viewer's local date is used.")
     token: str = Field(..., description="Secret share key — appears in share URLs; editable (rotate without re-wiring the graph).")
     claimToken: str = Field(..., description="Secret CLAIM key (issue #6) — authorizes claiming a crew identity on this trip ('join link'). Separate from `token`: the read link grants view-only, the claim token grants identity. Editable (rotate without re-wiring the graph).")
-    cover: Optional[str] = Field(default=None, description="Cover image URL (absolute or /media/...).")
+    cover: Optional[str] = Field(default=None, description="Cover image — bare media filename (content-addressed sha256[:32].ext), served at /media/<trip_id>/<file>.")
     coverCredit: Optional[str] = Field(default=None, description="Cover image credit line.")
-    map: Optional[str] = Field(default=None, description="Overview route-map image.")
+    map: Optional[str] = Field(default=None, description="Overview route-map image — bare media filename, served at /media/<trip_id>/<file>.")
     summary: Optional[str] = Field(default=None, description="Trip summary (markdown).")
     theme: Theme = Field(default_factory=Theme, description="UI theme (colors + font).")
     coverStats: list[str] = Field(default_factory=list, description="Cover strip lines, e.g. '16 DAYS · FEB 15 – MAR 2'.")

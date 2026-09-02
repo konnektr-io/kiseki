@@ -98,20 +98,30 @@ writeup; in short:
 
 - **Media (shipped, #47 — Garage, not git)**: images live in the S3-compatible
   **Garage** bucket (private, bucket `kiseki`, key prefix `media/`), **never in
-  the repo**. The FastAPI app proxies them at `/media/<trip>/<file>` — the same
-  public URL shape as the old local mount, so `trip.json`, graph twins, the
-  frontend and the PDF renderer don't care where the bytes live. Object keys
-  are **content-addressed and unguessable**: `media/<trip>/<sha256[:32]><ext>`,
-  so a leaked slug-based URL 404s. Reference media in `trip.json` with
-  **relative URLs** (`/media/canada-2027/<32hex>.jpg`), never base64.
-  - To add media: drop files in `backend/data/assets/<trip>/` (gitignored),
-    run `uv run python scripts/migrate_assets_to_s3.py` (uploads to Garage AND
-    rewrites the trip.json URLs), then commit the trip.json only.
+  the repo**. The FastAPI app serves them at `/media/<trip_id>/<file>` where
+  `trip_id` is the trip's `$dtId` (the `id` field) — the durable identity,
+  **never the repo-folder slug** (organizational; can collide). Object keys are
+  **content-addressed and unguessable**: `media/<trip_id>/<sha256[:32]><ext>`,
+  so a leaked slug-based URL 404s.
+  - **The data stores bare filenames**: media fields in `trip.json` / graph
+    (`cover`, `map`, `image`, `images`, gallery `items`) hold just
+    `c383ce57….jpg` — NO path, NO slug. The API canonicalizes them to
+    `/media/<trip_id>/<file>` at serialization time (`resolve_media_urls` in
+    `app/media.py`), so the frontend / booklet PDF only ever see full URLs and
+    never care where bytes live.
+  - To add/update media: set the media field to the file's name (e.g.
+    `sths-hero-full.jpg`), drop the file in `backend/data/assets/<trip>/`
+    (gitignored; slug is just the local scratch folder), run
+    `uv run python scripts/migrate_assets_to_s3.py` (uploads to Garage under
+    `media/<trip_id>/…` AND rewrites the field to its content-addressed key),
+    then commit the trip.json only.
+  - One-time layout migrations (2026-09, #47 follow-up): `--rekey-to-id`
+    copied `media/<slug>/…` → `media/<trip_id>/…` (slug keys purged with
+    `--purge-slug-keys` after switchover).
   - Config: `KISEKI_S3_ENDPOINT/_BUCKET/_ACCESS_KEY/_SECRET_KEY` (k8s Secret
     `kiseki-s3`). Without S3 config the route falls back to a local
-    `backend/data/assets/<trip>/` tree only when one exists (dev scratch /
-    legacy checkout); the repo ships none, so prod serves 404 without the
-    bucket.
+    `backend/data/assets/` tree only when one exists (dev scratch / legacy
+    checkout); the repo ships none, so prod serves 404 without the bucket.
 
 ## Maps (dynamic + print)
 

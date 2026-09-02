@@ -159,7 +159,7 @@
           }
         },
         "writable": true,
-        "description": "todo → [{label,done}] · gallery → [image URLs] · custom → raw (sanitized) html."
+        "description": "todo → [{label,done}] · gallery → [bare media filenames] · custom → raw (sanitized) html."
       },
       {
         "@type": "Property",
@@ -239,7 +239,7 @@
           "elementSchema": "string"
         },
         "writable": true,
-        "description": "Card media strip (asset URLs)."
+        "description": "Card media strip — bare media filenames, served by the API at /media/<trip_id>/<file>."
       },
       {
         "@type": "Relationship",
@@ -282,7 +282,7 @@
         "name": "map",
         "schema": "string",
         "writable": true,
-        "description": "Optional map image for this day."
+        "description": "Optional map image for this day — bare media filename, served at /media/<trip_id>/<file>."
       },
       {
         "@type": "Property",
@@ -347,7 +347,7 @@
         "name": "image",
         "schema": "string",
         "writable": true,
-        "description": "Hero image URL."
+        "description": "Hero image — bare media filename, served at /media/<trip_id>/<file>."
       },
       {
         "@type": "Property",
@@ -357,7 +357,7 @@
           "elementSchema": "string"
         },
         "writable": true,
-        "description": "2-column image layout (centerpiece)."
+        "description": "2-column image layout (centerpiece) — bare media filenames, served at /media/<trip_id>/<file>."
       },
       {
         "@type": "Property",
@@ -694,7 +694,7 @@
         "name": "cover",
         "schema": "string",
         "writable": true,
-        "description": "Cover image URL (absolute or /media/...)."
+        "description": "Cover image — bare media filename (content-addressed sha256[:32].ext), served at /media/<trip_id>/<file>."
       },
       {
         "@type": "Property",
@@ -708,7 +708,7 @@
         "name": "map",
         "schema": "string",
         "writable": true,
-        "description": "Overview route-map image."
+        "description": "Overview route-map image — bare media filename, served at /media/<trip_id>/<file>."
       },
       {
         "@type": "Property",
