@@ -117,8 +117,9 @@ def _anonymize(trip: M.Trip) -> M.Trip:
         p["name"] = f"Person {i + 1}"
         p.pop("contact", None)
         p.pop("note", None)
-    # 2) token + media
-    data["token"] = "SECRET_TOKEN"
+    # 2) secrets + media — claimToken is the only URL secret after #64 (#65 uses it for follower invite)
+    if data.get("claimToken"):
+        data["claimToken"] = "REDACTED"
     data["cover"] = "/media/REDACTED" if data.get("cover") else None
     data["map"] = "/media/REDACTED" if data.get("cover") else None
     data["coverCredit"] = "REDACTED" if data.get("coverCredit") else None

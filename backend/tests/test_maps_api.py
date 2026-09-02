@@ -30,7 +30,7 @@ def _clean_limits():
 def trip_token() -> str:
     trips = load_trips()
     assert trips, "no trip data found under backend/data/trips/"
-    return trips[0].token
+    return trips[0].id
 
 
 @pytest.fixture
@@ -147,7 +147,7 @@ def test_route_accepts_the_trip_dtid(monkeypatch, trip_id: str) -> None:
     assert len(r.json()["legs"]) == 1
 
 
-def test_id_and_token_forms_share_one_route_cache_entry(monkeypatch, trip_id: str, trip_token: str) -> None:
+def test_id_forms_cache_entry(monkeypatch, trip_id: str, trip_token: str) -> None:
     """The cache is keyed on the resolved trip, not on the path param, so the
     two spellings of the same trip do not each pay for a Directions call."""
     names = _two_places()

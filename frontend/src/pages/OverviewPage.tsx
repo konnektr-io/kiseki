@@ -141,7 +141,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 
 export function OverviewPage() {
   const trip = useTrip();
-  const { token } = useParams();
+  const { tripId } = useParams();
   const doneTodos = (trip.practical.todos ?? []).filter((t) => t.done).length;
   const totalTodos = (trip.practical.todos ?? []).length;
 
@@ -224,7 +224,7 @@ export function OverviewPage() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <Link
-                    to={`/t/${token}/itinerary#s-${i}`}
+                    to={`/t/${tripId}/itinerary#s-${i}`}
                     className="font-heading text-base font-medium text-foreground hover:text-primary"
                   >
                     {s.title}
@@ -245,7 +245,7 @@ export function OverviewPage() {
           <div className="mb-3 flex items-center justify-between">
             <p className="kicker">The crew</p>
             <Link
-              to={`/t/${token}/crew`}
+              to={`/t/${tripId}/crew`}
               className="no-print inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
             >
               View all <ArrowRight className="h-3.5 w-3.5" />
@@ -275,7 +275,7 @@ export function OverviewPage() {
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <p className="kicker">Practical</p>
-            <Link to={`/t/${token}/practical`} className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
+            <Link to={`/t/${tripId}/practical`} className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
               Full list <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>

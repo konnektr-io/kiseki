@@ -1,4 +1,4 @@
-"""Crew identity claiming (issue #6 — placeholder → real user).
+"""Crew identity claiming (#6) + follower via claimToken (#65).
 
 A user claims a placeholder Person on a trip by presenting the trip's CLAIM
 token — a secret separate from the read token, i.e. the 'join link'. The
@@ -14,6 +14,10 @@ server:
 No name/email matching is involved: the user picks the person explicitly, so
 self-asserted profile values never grant access — possession of the claim
 token (the invite) is the authorization.
+
+#65 adds a second path: a non-crew user can **follow** a trip via the same
+claimToken (invite-only on private trips, optional on public). This creates a
+hasCrew edge with role=follower (no placeholder involved).
 """
 
 from __future__ import annotations
@@ -62,6 +66,12 @@ def trip_by_claim_token(claim_token: str) -> Trip | None:
     """Resolve a trip from its claim token (join-link read, anonymous)."""
     client = get_graph_client()
     if client is None:
+        # Local-dev fallback: scan trip.json files when graph not wired
+        from .store import load_trips
+
+        for t in load_trips():
+            if t.claimToken and t.claimToken == claim_token:
+                return t
         return None
     trip_dtid = client.find_trip_dtid_by_claim_token(claim_token)
     if not trip_dtid:
@@ -116,4 +126,43 @@ def claim_identity(
     rebuilt = client.fetch_graph(trip_dtid)
     if not rebuilt:
         raise ClaimError(503, "Trip could not be re-read after claim")
+    return graph_to_trip(rebuilt)
+
+
+def follow_via_claim(
+    claim_token: str,
+    user_dtid: str,
+    profile: dict[str, Any],
+) -> Trip:
+    """Follow a trip via its claimToken (#65).
+
+    Creates a hasCrew edge with role=follower for a non-crew user.
+    Private trips require this invite; public trips can be followed
+    optionally. Idempotent: if already on the crew, returns the trip
+    without creating a duplicate edge.
+    """
+    client = get_graph_client()
+    # Local-dev fallback: no graph — mutate via store not possible (no writes);
+    # just return the trip if claimToken matches (read-only dev mode).
+    if client is None:
+        trip = trip_by_claim_token(claim_token)
+        if trip is None:
+            raise ClaimError(404, "Unknown join link")
+        # In local-dev we can't persist the follow, but we can pretend success
+        # so the UI flow is testable without a graph.
+        return trip
+    trip_dtid = client.find_trip_dtid_by_claim_token(claim_token)
+    if not trip_dtid:
+        raise ClaimError(404, "Unknown join link")
+    # Already on crew → idempotent success
+    if client.role_for_user_on_trip(trip_dtid, user_dtid) is not None:
+        graph = client.fetch_graph(trip_dtid)
+        if not graph:
+            raise ClaimError(404, "Trip not found")
+        return graph_to_trip(graph)
+    if not client.follow_trip(trip_dtid, user_dtid, profile):
+        raise ClaimError(503, "Could not follow trip")
+    rebuilt = client.fetch_graph(trip_dtid)
+    if not rebuilt:
+        raise ClaimError(503, "Trip could not be re-read after follow")
     return graph_to_trip(rebuilt)

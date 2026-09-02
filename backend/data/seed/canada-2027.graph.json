@@ -1237,7 +1237,7 @@
       "stage": "booked",
       "startDate": "2027-02-15",
       "endDate": "2027-03-02",
-      "token": "c059b7f53c5a922be63b5dfd703faba9",
+      "visibility": "public",
       "claimToken": "2ba8db3168b3cde5b0babb891a497c50",
       "cover": "c383ce57efd5352cdca819c8dfdc99de.jpg",
       "coverCredit": "Selkirk Tangiers Heli Skiing",

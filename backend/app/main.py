@@ -1,7 +1,7 @@
 """Kiseki API + SPA server.
 
 One process, one container:
-  - /api/health, /api/trips/<token>, /api/trips/<token>/booklet.pdf
+  - /api/health, /api/trips/<id>, /api/trips/<id>/booklet.pdf (visibility-gated, #64)
   - /media/**        → trip images, proxied from the Garage S3 bucket (#47)
   - everything else  → the built React SPA (backend/app/static) with
                        history-mode fallback to index.html
@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from .acl import authorize_trip_path, is_trip_id, require_trip_role
+from .acl import authorize_trip_path, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, trip_by_claim_token
 from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
@@ -36,7 +36,7 @@ from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
 from .store import get_trip_by_id as get_trip_by_id_store
-from .store import get_trip_by_token, list_trips_for_user
+from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
 
@@ -44,7 +44,7 @@ app = FastAPI(title="Kiseki", version="0.1.0")
 # the SwiftShader/WebGL memory and the loser comes out with grey maps.
 _PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
 
-# Directions results, keyed on (token, places, loop) -> (expiry, legs). Every
+# Directions results, keyed on (trip_id, places, loop) -> (expiry, legs). Every
 # map view would otherwise be one Google call per leg, on every mount.
 _route_cache: dict[tuple, tuple[float, list[dict]]] = {}
 _ROUTE_TTL = 300.0
@@ -99,7 +99,7 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
 
     Requires a valid Auth0 token; returns the trips the user has a crew role
     on (via ``hasCrew``), with that role. Registered before the
-    ``{trip_param}`` route so the bare path is never captured by it.
+    ``{trip_id}`` route so the bare path is never captured by it.
     Summary covers are stored as bare filenames in the graph; canonicalize
     them to ``/media/<trip.$dtId>/<file>`` like full trip documents.
     """
@@ -116,7 +116,7 @@ def trip_by_claim(claim_token: str) -> dict:
 
     Authorized by possession of the claim token (the invite) — same trust
     model as the share link. Serves the trip + crew so the join page can
-    offer 'This is me' claiming. Registered BEFORE /api/trips/{trip_param}
+    offer 'This is me' claiming. Registered BEFORE /api/trips/{trip_id}
     so 'by-claim' is never swallowed by the generic route.
     """
     trip = trip_by_claim_token(claim_token)
@@ -128,6 +128,10 @@ def trip_by_claim(claim_token: str) -> dict:
 class ClaimRequest(BaseModel):
     claimToken: str
     personId: str
+
+
+class FollowRequest(BaseModel):
+    claimToken: str
 
 
 @app.post("/api/claims")
@@ -153,6 +157,27 @@ def create_claim(
     return _public_trip(trip)
 
 
+@app.post("/api/claims/follow")
+def follow_claim(
+    body: FollowRequest,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Follow a trip via its claimToken (#65).
+
+    Non-crew followers get a `hasCrew` edge with `role=follower`.
+    Private trips require the invite; public trips can be followed
+    optionally (read already works anonymously). Idempotent if already
+    on the crew — returns the trip without error.
+    """
+    from .claims import follow_via_claim
+
+    try:
+        trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
+    except ClaimError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return _public_trip(trip)
+
+
 @app.get("/api/trips/{trip_id}/join-link")
 def trip_join_link(
     trip_id: str,
@@ -167,60 +192,56 @@ def trip_join_link(
     trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
+    if not trip.claimToken:
+        raise HTTPException(status_code=404, detail="No invite link for this trip")
     return {"joinUrl": f"/join/{trip.claimToken}"}
 
 
-@app.get("/api/trips/{trip_param}")
+@app.get("/api/trips/{trip_id}")
 def get_trip(
-    trip_param: str,
+    trip_id: str,
     my_role: str | None = Depends(authorize_trip_path),
 ) -> dict:
-    """Read a trip — two paths in one route, distinguished by param SHAPE:
+    """Read a trip — single id route, gated by visibility (#64).
 
-    - ``/api/trips/<dashed-uuid>`` → the trip ``$dtId``: PROTECTED (Auth0
-      token + crew role, see ``app/acl.py``) — issue #5.
-    - ``/api/trips/<token>``       → the secret share link: public-by-link,
-      no auth (stays the anonymous share flow).
+    - visibility == "public"  → anyone (no auth), myRole returned if the
+      caller happens to be authenticated and on the crew.
+    - visibility == "private" → requires valid Auth0 token + crew role
+      (viewer+). The ACL is enforced by ``authorize_trip_path``.
 
-    Both return the same trip document shape (``claimToken`` always stripped).
-    The protected path additionally reports the caller's ``myRole``.
+    ``claimToken`` is always stripped from the response.
     """
-    if is_trip_id(trip_param):
-        trip = get_trip_by_id_store(trip_param.lower())
-    else:
-        trip = get_trip_by_token(trip_param)
+    trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return _public_trip(trip, my_role=my_role)
 
 
-@app.get("/api/trips/{trip_param}/booklet.pdf")
+@app.get("/api/trips/{trip_id}/booklet.pdf")
 async def booklet_pdf(
-    trip_param: str,
+    trip_id: str,
     _: str | None = Depends(authorize_trip_path),
     authorization: str | None = Header(default=None),
 ) -> FileResponse:
-    """Crew-only PDF booklet (issue #13).
+    """Trip booklet PDF (#13) — same visibility gate as the trip itself.
 
-    The booklet is a CREW feature: the endpoint is id-based and protected
-    (JWT + crew role via ``authorize_trip_path`` — the param must be named
-    ``trip_param`` for FastAPI to bind the dependency's path param), so it
-    works for private trips too (no share token needed). The renderer's SPA
-    page loads the PROTECTED trip, so the caller's access token is forwarded
-    to the headless browser (injected as a page global by pdf.py).
+    Public trips: anyone may download (no auth needed). Private trips: JWT +
+    crew role required (via ``authorize_trip_path``). The renderer's SPA page
+    loads the trip, so the caller's access token (if any) is forwarded to
+    the headless browser (injected as a page global by pdf.py).
 
     A render takes ~40s of SwiftShader + up to 2GiB (15 live WebGL contexts),
     so renders are single-flighted per trip: a second click while one render
     is in flight waits for that render instead of racing it (two concurrent
     renders OOM the pod, and the loser's maps come out grey).
     """
-    trip = get_trip_by_id_store(trip_param.lower())
+    trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     access_token = None
     if authorization and authorization.lower().startswith("bearer "):
         access_token = authorization.split(" ", 1)[1].strip() or None
-    render_key = trip_param.lower()
+    render_key = trip_id.lower()
     lock = _PDF_RENDER_LOCKS.setdefault(render_key, asyncio.Lock())
     # Serialize: every waiter reuses the SAME finished file, so a double-click
     # costs one render, not two — and never serves a half-written PDF.
@@ -261,8 +282,9 @@ def _client_id(request: Request) -> str:
     Behind the cluster ingress every request carries the ingress' own address,
     so trust the first X-Forwarded-For hop — without it the whole internet
     shares one bucket and the limit protects nothing. It is spoofable, which is
-    acceptable: this is an abuse bound, not an authorization control (the trip
-    token is the control).
+    acceptable: this is an abuse bound, not an authorization control (a leaked
+    visibility:private id is an unguessable UUID, not a secret derived from
+    content; rate limiting is the abuse bound).
     """
     fwd = request.headers.get("x-forwarded-for")
     if fwd:
@@ -278,27 +300,13 @@ def _rate_limit(request: Request, bucket: str, limit: int) -> None:
         raise HTTPException(status_code=429, detail="Too many map requests")
 
 
-def _trip_for_map(trip_param: str) -> Trip:
-    """Resolve a map request's trip by ``$dtId`` (preferred) or share token.
+def _trip_for_map(trip_id: str) -> Trip:
+    """Resolve a map request's trip by $dtId.
 
-    Same shape-branch as ``GET /api/trips/{trip_param}``: a dashed UUID is the
-    twin id, anything else is the secret share token. **Prefer the id** — it is
-    one graph read (``fetch_graph``), where the token costs two
-    (``find_trip_dtid_by_token`` → ``fetch_graph``), and the frontend already
-    holds it on the loaded trip. The token form stays accepted so nothing
-    in-flight breaks; it is also the only form a pre-#13 link has.
-
-    Keying on the id additionally makes maps work for **private** trips
-    (``token: ""``), which previously produced an unresolvable URL.
-
-    Neither form is authenticated, deliberately: a static map is an ``<img>``,
-    and an ``<img>`` cannot carry a bearer token. The bound is the rate limiter
-    above plus the fact that both params are unguessable and only identify a
-    trip whose places the caller has already been shown. Note the trade-off:
-    rotating a share ``token`` no longer revokes map-proxy access to someone
-    who kept the ``$dtId``.
+    Since #64 the map proxy is id-only (the trip link is the id, gated by
+    visibility). No token form remains. Callers get 404 on an unknown id.
     """
-    trip = get_trip_by_id_store(trip_param.lower()) if is_trip_id(trip_param) else get_trip_by_token(trip_param)
+    trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return trip
@@ -315,10 +323,10 @@ def maps_key() -> Response:
     raise HTTPException(status_code=404, detail="Removed — the Maps key is server-side only")
 
 
-@app.get("/api/maps/route/{trip_param}")
+@app.get("/api/maps/route/{trip_id}")
 def maps_route(
     request: Request,
-    trip_param: str,
+    trip_id: str,
     places: str = Query(..., description="comma-separated place names"),
     loop: int = Query(0, description="1 = close the loop back to the start"),
 ) -> dict:
@@ -330,13 +338,12 @@ def maps_route(
     route comes back `road: false` with a straight line for the client to dash.
     """
     _rate_limit(request, "route", 60)
-    trip = _trip_for_map(trip_param)
+    trip = _trip_for_map(trip_id)
     if not MAPS_KEY:
         raise HTTPException(status_code=404, detail="Maps not configured")
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    # keyed on the trip id, so the id and token forms share one cache entry
     cache_key = (trip.id, tuple(resolved), bool(loop))
     hit = _route_cache.get(cache_key)
     now = time.monotonic()
@@ -438,9 +445,9 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         headers = {}
         if is_trip:
             headers["X-Robots-Tag"] = "noindex, nofollow, noai, noimageai"
-        # PDF render (#58): the booklet.pdf endpoint already enforced JWT + crew
-        # role, so it forwards the caller's Bearer token on the loopback GET to
-        # this /t/<key>/booklet route. Strip it into a window global so the SPA
+        # PDF render (#58): the booklet.pdf endpoint already enforced visibility +
+        # crew role, so it forwards the caller's Bearer token on the loopback GET to
+        # this /t/<id>/booklet route. Strip it into a window global so the SPA
         # can attach it to its own /api/* fetches — no Auth0 login required.
         html = _TRIP_HTML if is_trip else _index_html
         auth = request.headers.get("Authorization", "")

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, UserCheck } from "lucide-react";
-import { claimIdentity, fetchTripByClaim, TripAccessError } from "../lib/api";
+import { claimIdentity, fetchTripByClaim, followTrip, TripAccessError } from "../lib/api";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
@@ -22,6 +22,7 @@ export function JoinPage() {
   const [error, setError] = useState<string | null>(null);
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [following, setFollowing] = useState(false);
 
   usePageTitle(trip ? `${trip.title} — join` : null);
 
@@ -85,6 +86,19 @@ export function JoinPage() {
     }
   };
 
+  const handleFollow = async () => {
+    setFollowing(true);
+    setClaimError(null);
+    try {
+      const at = await getAccessTokenSilently();
+      const followed = await followTrip(claimToken, at);
+      navigate(`/t/${followed.id}`, { replace: true });
+    } catch (e) {
+      setClaimError(e instanceof Error ? e.message : "Follow failed");
+      setFollowing(false);
+    }
+  };
+
   return (
     <TripProvider trip={trip}>
       <div style={tripStyle(trip)} className="min-h-full">
@@ -132,32 +146,47 @@ export function JoinPage() {
                 Sign in to claim your identity
               </Button>
             ) : (
-              <ul className="flex flex-col gap-2">
-                {crew.map((person) => (
-                  <li
-                    key={person.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{person.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {person.role}
-                        {person.note ? ` — ${person.note}` : ""}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleClaim(person.id)}
-                      disabled={claiming !== null}
-                      aria-label={`Claim the crew identity ${person.name}`}
-                      className="shrink-0 bg-transparent"
+              <>
+                <ul className="flex flex-col gap-2">
+                  {crew.map((person) => (
+                    <li
+                      key={person.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-3"
                     >
-                      {claiming === person.id ? "Claiming…" : "This is me"}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{person.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {person.role}
+                          {person.note ? ` — ${person.note}` : ""}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleClaim(person.id)}
+                        disabled={claiming !== null || following}
+                        aria-label={`Claim the crew identity ${person.name}`}
+                        className="shrink-0 bg-transparent"
+                      >
+                        {claiming === person.id ? "Claiming…" : "This is me"}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-6 border-t border-border pt-6">
+                  <p className="mb-3 text-sm text-muted-foreground">
+                    Not on the crew list? Follow this trip instead — you'll get
+                    read access as a follower.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={handleFollow}
+                    disabled={claiming !== null || following}
+                  >
+                    {following ? "Following…" : "Follow this trip"}
+                  </Button>
+                </div>
+              </>
             )}
             {claimError && (
               <p

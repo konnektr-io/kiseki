@@ -12,7 +12,7 @@ type Dir = "prev" | "next" | null;
 
 export function DayPage() {
   const trip = useTrip();
-  const { token, idx } = useParams();
+  const { tripId, idx } = useParams();
   const i = Math.min(Math.max(parseInt(idx ?? "0", 10) || 0, 0), trip.days.length - 1);
   const day = trip.days[i];
   const navigate = useNavigate();
@@ -29,14 +29,14 @@ export function DayPage() {
   // plain itinerary when the day belongs to no section.
   const sectionIdx = sectionIndexForDay(trip.sections, i);
   const upSection = sectionIdx != null ? trip.sections?.[sectionIdx] : undefined;
-  const upTarget = upSection ? `/t/${token}/itinerary#s-${sectionIdx}` : `/t/${token}/itinerary`;
+  const upTarget = upSection ? `/t/${tripId}/itinerary#s-${sectionIdx}` : `/t/${tripId}/itinerary`;
   const upLabel = upSection?.title ?? "Itinerary";
 
   const go = (target: number | null, d: Dir) => {
     if (target == null || target === i) return;
     setDir(d);
     setAnimKey(target);
-    navigate(`/t/${token}/day/${target}`);
+    navigate(`/t/${tripId}/day/${target}`);
     window.scrollTo(0, 0);
   };
 

@@ -1,9 +1,9 @@
 import type { Trip, TripSummary } from "./types";
 
 /**
- * Trip $dtIds are opaque UUIDs (dashed); share tokens are NOT. The SPA routes
- * both through /t/<param>: a UUID goes to the PROTECTED endpoint (JWT + ACL),
- * anything else is a secret share link → the public endpoint.
+ * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
+ * Trip $dtIds are opaque dashed UUIDs. Public trips are readable
+ * anonymously; private trips require a valid token + follower+ crew role (#65).
  */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -41,8 +41,8 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
   }
   const trip = (await res.json()) as Trip;
   // Keep the trip in memory for the rest of the session: navigating between
-  // the token route and the id route (and back from the landing) must not
-  // re-fetch the same document. A full page load clears it naturally.
+  // trip pages (and back from the landing) must not re-fetch the same
+  // document. A full page load clears it naturally.
   tripCache.set(param, trip);
   tripCache.set(trip.id, trip);
   return trip;
@@ -96,16 +96,18 @@ export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> 
   return body.trips;
 }
 
-/** Download the crew-only PDF booklet (issue #13): the endpoint is the
- *  protected id route, so the access token rides in the Authorization header
- *  and the file is saved via a blob (a plain <a href> can't send headers). */
+/** Download the trip PDF booklet (#13): visibility-gated — public trips allow
+ *  anonymous download, private trips require a bearer token. Uses a blob so
+ *  the Authorization header can be sent (plain &lt;a href&gt; cannot). */
 export async function downloadBooklet(
   tripId: string,
-  accessToken: string,
+  accessToken: string | undefined,
   filename: string,
 ): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/booklet.pdf`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers,
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -133,4 +135,20 @@ export async function fetchJoinLink(tripId: string, accessToken: string): Promis
   return body.joinUrl;
 }
 
-export const bookletUrl = (token: string) => `/api/trips/${encodeURIComponent(token)}/booklet.pdf`;
+/** Follow a trip via its claimToken (#65) — creates a follower role. */
+export async function followTrip(claimToken: string, accessToken: string): Promise<Trip> {
+  const res = await fetch("/api/claims/follow", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ claimToken }),
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  return (await res.json()) as Trip;
+}
+
+export const bookletUrl = (tripId: string) => `/api/trips/${encodeURIComponent(tripId)}/booklet.pdf`;

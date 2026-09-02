@@ -2,7 +2,7 @@
 
 When ``KISEKI_GRAPH_URL`` + ``KISEKI_GRAPH_TOKEN`` are set, the graph is the
 ONLY source trips are served from. There is deliberately NO file fallback: if
-the graph read fails (token unknown, twin missing, API error) the request
+the graph read fails (twin missing, API error) the request
 returns 404/500 as it should, rather than silently serving a stale
 ``trip.json``. That silent fallback previously masked a production outage, so
 it is gone by design.
@@ -12,10 +12,9 @@ reads ``trip.json`` files directly as the local source of truth. This is the
 configured primary path in that mode — not a fallback — so it stays useful for
 development and tests.
 
-Read flow for a token (graph enabled):
-  1. ``find_trip_dtid_by_token`` → Trip ``$dtId`` (None if unknown)
-  2. ``fetch_graph`` → ADT twin/relationship bundle (source-agnostic shape)
-  3. ``graph_to_trip`` rebuilds the ``Trip`` model
+Read flow (graph enabled):
+  1. ``fetch_graph`` → ADT twin/relationship bundle (source-agnostic shape)
+  2. ``graph_to_trip`` rebuilds the ``Trip`` model
 """
 
 from __future__ import annotations
@@ -69,31 +68,6 @@ def load_trips() -> list[Trip]:
     return trips
 
 
-def get_trip_by_token(token: str) -> Trip | None:
-    """Resolve a share token to a Trip.
-
-    Graph is the source of truth when configured; on any graph failure the
-    token simply isn't served (no file fallback). When the graph is not
-    configured, the local ``trip.json`` files are the source.
-    """
-    client = _graph_client()
-    if client is not None:
-        dtid = client.find_trip_dtid_by_token(token)
-        if not dtid:
-            return None
-        graph = client.fetch_graph(dtid)
-        if not graph:
-            return None
-        from .graph.convert import graph_to_trip
-
-        return graph_to_trip(graph)
-    # Graph not configured → local trip.json is the source of truth.
-    for t in load_trips():
-        if t.token == token:
-            return t
-    return None
-
-
 def get_trip_by_slug(slug: str) -> Trip | None:
     for t in load_trips():
         if t.slug == slug:
@@ -102,11 +76,10 @@ def get_trip_by_slug(slug: str) -> Trip | None:
 
 
 def get_trip_by_id(trip_dtid: str) -> Trip | None:
-    """Resolve a trip by its twin ``$dtId`` (the protected, ACL'd read path).
+    """Resolve a trip by its twin ``$dtId``.
 
-    Mirrors ``get_trip_by_token`` but keyed on the opaque GUID — used by
-    ``GET /api/trips/{trip_id}`` after the ACL dependency has authorized the
-    caller. In local-dev mode (graph not configured) trips are matched by the
+    The single read path since #64 (visibility gates access, not a token).
+    In local-dev mode (graph not configured) trips are matched by the
     ``id`` field of the trip.json files.
     """
     client = _graph_client()
@@ -137,7 +110,7 @@ def list_trips_for_user(user_dtid: str) -> list[dict]:
     return [
         {
             "dtId": t.id,
-            "token": t.token,
+            "visibility": t.visibility,
             "title": t.title,
             "subtitle": t.subtitle,
             "stage": t.stage,

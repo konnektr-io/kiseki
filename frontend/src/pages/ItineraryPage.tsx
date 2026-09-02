@@ -9,7 +9,7 @@ import { tripTodayIso, isTodayInRange } from "../lib/dates";
 import { itineraryItems, sectionRange } from "../lib/sections";
 import type { Day, TripSection } from "../lib/types";
 
-const scrollKey = (token: string) => `kiseki:itinerary-scroll:${token}`;
+const scrollKey = (tripId: string) => `kiseki:itinerary-scroll:${tripId}`;
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -60,11 +60,11 @@ function SectionLocations({ section }: { section: TripSection }) {
 
 export function ItineraryPage() {
   const trip = useTrip();
-  const { token = "" } = useParams();
+  const { tripId = "" } = useParams();
   const { hash } = useLocation();
   const todayIso = tripTodayIso(trip);
   const todayInRange = isTodayInRange(trip, todayIso);
-  const key = scrollKey(token);
+  const key = scrollKey(tripId);
 
   // Restore position with strict precedence: an incoming #s-<n> anchor (from a
   // shared /s/<n> link, the Overview TOC, or a day page's up button) wins;

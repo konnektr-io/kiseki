@@ -29,6 +29,20 @@ def _uuid() -> str:
     return trip.id
 
 
+def _private_uuid() -> str:
+    for tr in load_trips():
+        if tr.visibility == "private":
+            return tr.id
+    raise AssertionError("no private trip in fixtures")
+
+
+def _public_trip():
+    for tr in load_trips():
+        if tr.visibility == "public":
+            return tr
+    raise AssertionError("no public trip")
+
+
 def _token_of(rsa_keypair, **claims_overrides: object) -> str:
     return _sign(rsa_keypair, _claims(**claims_overrides))
 
@@ -172,43 +186,44 @@ def role(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_protected_requires_token(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}")
+    r = client.get(f"/api/trips/{_private_uuid()}")
     assert r.status_code == 401
 
 
 def test_protected_rejects_invalid_token(client: TestClient, rsa_keypair) -> None:
     bad = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {bad}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {bad}"})
     assert r.status_code == 401
 
 
 def test_protected_forbidden_without_role(client: TestClient, rsa_keypair, role) -> None:
     role(None)
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_protected_forbidden_below_min_role(client: TestClient, rsa_keypair, role) -> None:
-    # viewer is below the editor threshold used here — but the endpoint uses
-    # the default (viewer), so this exercises the rank comparison at 403.
-    role("follower")
+    # follower is below viewer, but follower+ can now read private (#65) — so this should 200.
+    # To exercise 403 we need no role at all.
+    role(None)
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_protected_ok_with_role(client: TestClient, rsa_keypair, role) -> None:
     role("viewer")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    pid = _private_uuid()
+    r = client.get(f"/api/trips/{pid}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
-    assert body["id"] == _uuid()
-    assert body["slug"]  # same shape as the token route
-    assert body["token"]  # secret link still rides along (share feature)
-    assert body["myRole"] == "viewer"  # caller's role reported on the protected path
+    assert body["id"] == pid
+    assert body["slug"]
     assert "claimToken" not in body  # the claim secret never ships in documents
+    assert body["visibility"] == "private"
+    assert body["myRole"] == "viewer"  # caller's role reported on the protected path
 
 
 def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> None:
@@ -220,19 +235,20 @@ def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> No
 
 
 def test_public_token_route_still_anonymous(client: TestClient) -> None:
-    trip = load_trips()[0]
-    r = client.get(f"/api/trips/{trip.token}")
+    trip = _public_trip()
+    r = client.get(f"/api/trips/{trip.id}")
     assert r.status_code == 200
     body = r.json()
     assert body["slug"] == trip.slug
+    assert body["visibility"] == "public"
     assert "claimToken" not in body  # never leaked on the anonymous route
 
 
 def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
-    trip = load_trips()[0]
+    trip = _public_trip()
     bad = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
     r = client.get(
-        f"/api/trips/{trip.token}",
+        f"/api/trips/{trip.id}",
         headers={"Authorization": f"Bearer {bad}"},
     )
     assert r.status_code == 200  # anonymous-by-link: auth header is irrelevant
@@ -256,7 +272,7 @@ def test_my_trips_local_mode_lists_all(client: TestClient, rsa_keypair) -> None:
     first = trips[0]
     assert first["dtId"]
     assert first["title"]
-    assert "token" in first  # the share token rides along for links/booklet
+    assert "visibility" in first
 
 
 def test_my_trips_role_from_graph(
@@ -291,14 +307,14 @@ def test_my_trips_role_from_graph(
 
 
 def test_booklet_requires_auth(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf")
+    r = client.get(f"/api/trips/{_private_uuid()}/booklet.pdf")
     assert r.status_code == 401
 
 
 def test_booklet_forbidden_without_role(client: TestClient, rsa_keypair, role) -> None:
     role(None)  # no hasCrew edge
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/booklet.pdf", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
@@ -368,21 +384,21 @@ def test_spa_route_injects_access_token(client: TestClient) -> None:
 
 
 def test_join_link_requires_token(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}/join-link")
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link")
     assert r.status_code == 401
 
 
 def test_join_link_forbidden_for_viewer(client: TestClient, rsa_keypair, role) -> None:
     role("viewer")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_join_link_ok_for_owner(client: TestClient, rsa_keypair, role) -> None:
     role("owner")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
     assert body["joinUrl"].startswith("/join/")

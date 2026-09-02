@@ -12,12 +12,12 @@ import { formatDay, humanizeDays, resolveToday } from "../lib/dates";
  */
 export function TodayPage() {
   const trip = useTrip();
-  const { token } = useParams();
+  const { tripId } = useParams();
 
   const r = resolveToday(trip);
 
   if (r.kind === "no-dates") {
-    return <Navigate to={`/t/${token}`} replace />;
+    return <Navigate to={`/t/${tripId}`} replace />;
   }
 
   if (r.kind === "before") {
@@ -36,13 +36,13 @@ export function TodayPage() {
         </div>
         {trip.days[0] ? (
           <Link
-            to={`/t/${token}/day/0`}
+            to={`/t/${tripId}/day/0`}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
             Day 1 · {trip.days[0].title || formatDay(trip.days[0].date)} →
           </Link>
         ) : (
-          <Link to={`/t/${token}`} className="text-sm font-medium text-accent hover:underline">
+          <Link to={`/t/${tripId}`} className="text-sm font-medium text-accent hover:underline">
             Back to overview →
           </Link>
         )}
@@ -64,14 +64,14 @@ export function TodayPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            to={`/t/${token}`}
+            to={`/t/${tripId}`}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
             Back to overview
           </Link>
           {trip.days.length ? (
             <Link
-              to={`/t/${token}/day/${trip.days.length - 1}`}
+              to={`/t/${tripId}/day/${trip.days.length - 1}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium"
             >
               Last day →
@@ -101,7 +101,7 @@ export function TodayPage() {
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">No exact day for today — showing the closest:</p>
             <Link
-              to={`/t/${token}/day/${r.nearestDayIdx}`}
+              to={`/t/${tripId}/day/${r.nearestDayIdx}`}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
               Day {r.nearestDayIdx + 1} · {nearestDay.title || formatDay(nearestDay.date)} →
@@ -154,12 +154,12 @@ export function TodayPage() {
 
       <div className="flex flex-wrap gap-2 pt-2">
         <Link
-          to={`/t/${token}/day/${dayIdx}`}
+          to={`/t/${tripId}/day/${dayIdx}`}
           className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted"
         >
           <CalendarDays className="h-4 w-4" /> Open as day page
         </Link>
-        <Link to={`/t/${token}/itinerary`} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
+        <Link to={`/t/${tripId}/itinerary`} className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
           Itinerary →
         </Link>
       </div>
