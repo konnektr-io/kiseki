@@ -58,6 +58,15 @@
       "lat": 51.4254,
       "lng": -116.1773,
       "id": "3aee76f5-1adf-47c4-a3dd-dcd74838676a"
+    },
+    {
+      "name": "Rogers Pass",
+      "alias": [
+        "Glacier National Park"
+      ],
+      "lat": 51.3019,
+      "lng": -117.5167,
+      "id": "78a77d86-1ac5-4786-a1a1-7e6e1e5817c1"
     }
   ],
   "stats": [
@@ -412,6 +421,28 @@
             "url": "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta.html"
           }
         ]
+      },
+      {
+        "label": "Ski touring — book ACMG guide for Rogers Pass (1 day, Feb 19, 3 pers., ski + splitboard)",
+        "done": false,
+        "when": "before Dec (guides book early)",
+        "links": [
+          {
+            "label": "ACMG Find a Guide",
+            "url": "https://acmg.ca/"
+          }
+        ]
+      },
+      {
+        "label": "Ski touring — Winter Permit (Glacier NP) + Parks Pass (daily or annual)",
+        "done": false,
+        "when": "Feb 19",
+        "links": [
+          {
+            "label": "Parks Canada winter permit",
+            "url": "https://parks.canada.ca/pn-np/bc/glacier/visit/hiver-winter/ski"
+          }
+        ]
       }
     ],
     "links": [
@@ -450,6 +481,10 @@
       {
         "label": "Avalanche Canada",
         "url": "https://www.avalanche.ca/"
+      },
+      {
+        "label": "Rogers Pass winter permit",
+        "url": "https://parks.canada.ca/pn-np/bc/glacier/visit/hiver-winter/ski"
       }
     ],
     "contacts": [
@@ -716,7 +751,7 @@
     },
     {
       "date": "2027-02-19",
-      "title": "RMR full day (or rest)",
+      "title": "RMR full day — or touring / rest",
       "meta": [
         {
           "label": "Stay",
@@ -732,9 +767,42 @@
           "kind": "activity",
           "title": "RMR full day — or rest",
           "status": "planned",
-          "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander.",
+          "description": "Third resort day before the heli block. If legs or weather say otherwise: town day — Revelstoke is worth a wander. *See next block for the guided touring OPTION on the same day.*",
           "id": "ef17307b-55f5-4c1b-81e9-53bb3e35b688",
           "order": 0
+        },
+        {
+          "id": "b7be3303-eb84-4e43-b90b-3e417803dd00",
+          "kind": "activity",
+          "title": "OPTION — Ski touring at Rogers Pass (guided)",
+          "status": "planned",
+          "order": 1,
+          "location": "Rogers Pass",
+          "mapsQuery": "Rogers Pass Discovery Centre, Glacier National Park, BC",
+          "description": "Spontaneous idea from the Rogers Pass guide — **45 min from Revelstoke**, right on our Banff→Revelstoke / Revelstoke→Golden loop. A perfect flex-day use before the heli block.\n\n**What:** guided intro day at Rogers Pass (Glacier National Park) — ancient forests, alpine bowls & couloirs. Terrain is *advanced/expert* with big climbs, so we go with an **ACMG-certified guide** (mixed ski/splitboard OK — Niko on splitboard).\n\n**Logistics:** ~65 km from Revelstoke via Trans-Canada (Hwy 1). Park at Rogers Pass Discovery Centre / dedicated winter lots. Same road that carries the avalanche artillery — respect closures.\n\n**Be ready for:**\n- **Winter Permit mandatory** (all zones since 2026, even \"unrestricted\") — daily permit only at Summit Station or annual online\n- **Parks Canada pass** required\n- **Avalanche bulletin** (avalanche.ca) + **Rogers Pass interactive map** status (updated ~07:00, lots closed until then) — check before driving\n- Full touring kit: splitboard + skins / skis + skins, beacon/probe/shovel (+ airbag as for heli)\n\nDecide with the guide the morning-of based on avy hazard & what's open. *Alternative:* keep the RMR lift day — this block is the \"decide-on-the-hill\" option.",
+          "links": [
+            {
+              "label": "Winter Permit (Parks Canada)",
+              "url": "https://parks.canada.ca/pn-np/bc/glacier/visit/hiver-winter/ski"
+            },
+            {
+              "label": "Where Can I Ski Today? (interactive map)",
+              "url": "https://www.pc.gc.ca/apps/Rogers-Pass"
+            },
+            {
+              "label": "Avalanche Canada bulletin",
+              "url": "https://avalanche.ca/map"
+            },
+            {
+              "label": "ACMG — Find a Guide",
+              "url": "https://acmg.ca/"
+            },
+            {
+              "label": "Guide: Ski Touring at Rogers Pass",
+              "url": "https://share.google/dJOCtqswVLIqtogZf"
+            }
+          ],
+          "images": []
         },
         {
           "kind": "lodging",
@@ -748,7 +816,7 @@
           ],
           "mapsQuery": "Northwinds Revelstoke BC",
           "id": "dc67a3c8-486f-4933-970b-bcdfb6353258",
-          "order": 1
+          "order": 2
         }
       ],
       "id": "4c726d26-6581-46c5-b668-9c783556aa7a"
