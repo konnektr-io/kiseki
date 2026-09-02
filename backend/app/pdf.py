@@ -49,21 +49,29 @@ async def render_booklet_pdf(
     base_url: str, key: str, out_path: Path, access_token: str | None = None
 ) -> None:
     url = f"{base_url}/t/{key}/booklet"
-    # access_token is forwarded by booklet.pdf's Authorization header → the SPA
-    # catch-all injects it as window.__KISEKI_ACCESS_TOKEN__ in the HTML. The
-    # renderer just needs to flag the page so the SPA skips Auth0.
+    # access_token is forwarded as Authorization header on the loopback
+    # navigation so the SPA catch-all can inject it as
+    # window.__KISEKI_ACCESS_TOKEN__ in the HTML. The renderer also sets
+    # the PDF-render flag so the SPA skips Auth0.
     last_error: Exception | None = None
 
     for candidates_dir in _browser_path_candidates():
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(candidates_dir)
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(args=["--no-sandbox"])
+                try:
+                    browser = await p.chromium.launch(args=["--no-sandbox"])
+                except Exception as exc:
+                    # Browser launch failure (wrong revision / missing binary)
+                    # → try next candidate path.
+                    last_error = exc
+                    continue
                 try:
                     page = await browser.new_page()
                     if access_token:
-                        # The SPA catches this Bearer token from the HTML that
-                        # the /t/<key> catch-all injects; no auth0 login here.
+                        await page.set_extra_http_headers(
+                            {"Authorization": f"Bearer {access_token}"}
+                        )
                         await page.add_init_script(_PDF_RENDER_FLAG)
                     # Print media BEFORE navigation, not just at page.pdf():
                     # the booklet's maps are `print:hidden` / `hidden print:block`,
@@ -88,7 +96,10 @@ async def render_booklet_pdf(
                 finally:
                     await browser.close()
             return
-        except Exception as exc:  # wrong revision / missing browser → try next
-            last_error = exc
+        except Exception:
+            # Render error after successful browser launch (TimeoutError,
+            # navigation failure, etc.) — propagate as-is instead of masking
+            # it with the fallback path's "Executable doesn't exist".
+            raise
 
     raise last_error or RuntimeError("No usable Playwright browser found")
