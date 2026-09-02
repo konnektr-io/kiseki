@@ -62,6 +62,16 @@ function NavLinks({ token, trip }: { token: string; trip: Trip | null }) {
 
 type LoadError = "auth-required" | "no-access" | string;
 
+/**
+ * PDF-render mode: the backend's Playwright booklet renderer sets this flag
+ * before the SPA loads (#58). The `/api/trips/{id}/booklet.pdf` endpoint has
+ * ALREADY enforced JWT + crew role, so the SPA skips its `isAuthenticated`
+ * UI gate here and fetches the trip with the seeded access token. Without
+ * this, a subtle auth0 cache-shape mismatch makes `isAuthenticated` stay
+ * false in the headless browser and the PDF captures the sign-in screen.
+ */
+const PDF_RENDER = typeof window !== "undefined" && window.__KISEKI_PDF_RENDER__ === true;
+
 export function TripLayout() {
   const { token = "" } = useParams();
   const { pathname } = useLocation();
@@ -91,8 +101,10 @@ export function TripLayout() {
     (async () => {
       try {
         if (idMode) {
-          // Protected route: valid token + ACL role required.
-          if (!isAuthenticated) {
+          // Protected route: valid token + ACL role required — EXCEPT in
+          // PDF-render mode, where the backend already enforced the ACL
+          // before launching the headless browser (#58).
+          if (!isAuthenticated && !PDF_RENDER) {
             if (!cancelled) setError("auth-required");
             return;
           }
@@ -147,7 +159,7 @@ export function TripLayout() {
     return () => ro.disconnect();
   }, [trip]);
 
-  if (authLoading && idMode && !error) {
+  if (authLoading && idMode && !PDF_RENDER && !error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="animate-pulse text-muted-foreground" role="status">
