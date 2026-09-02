@@ -109,7 +109,23 @@ async def render_booklet_pdf(
                     last_error = exc
                     continue
                 try:
-                    page = await browser.new_page()
+                    # A4 portrait at 96 CSS dpi (210×297mm) minus the @page
+                    # margins (12mm sides). The print content column measures
+                    # 531pt = 708px in the generated PDF, so the viewport is set
+                    # to exactly that width BEFORE navigation: the SPA mounts
+                    # its MapLibre maps eagerly during goto, and each map fits
+                    # its camera (fitBounds) to the container size it measures
+                    # at mount. If the viewport is wider than the print content
+                    # box (e.g. the Playwright default 1280px, or a full A4
+                    # 794px viewport), maps fit a container that page.pdf()
+                    # later shrinks to the content column — the canvas does not
+                    # follow the re-layout and the wider map gets clipped,
+                    # cropping route ends and edge markers off-frame (#37; seen
+                    # on the road-trip loop map, where markers ①/② sat outside
+                    # the visible area).
+                    page = await browser.new_page(
+                        viewport={"width": 708, "height": 1123}
+                    )
                     # Flag + token must be set before the SPA loads so it skips
                     # Auth0 entirely and mounts MapLibre eagerly (observer bypass).
                     await page.add_init_script(_PDF_RENDER_FLAG)
