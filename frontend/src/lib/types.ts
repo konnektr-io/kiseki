@@ -21,6 +21,7 @@ export type BlockKind =
 
 export type BlockStatus = "planned" | "booked" | "done";
 export type Role = "owner" | "editor" | "viewer" | "follower";
+export type Visibility = "public" | "private";
 
 export interface Link {
   label: string;
@@ -143,7 +144,7 @@ export interface Person {
 
 export interface TripSummary {
   dtId: string;
-  token: string;
+  visibility: Visibility;
   title: string;
   subtitle?: string;
   stage: Stage;
@@ -175,7 +176,7 @@ export interface Trip {
   startDate?: string;
   endDate?: string;
   timezone?: string; // IANA, e.g. "Asia/Tokyo" — trip-local "today", fallback viewer-local
-  token: string;
+  visibility: Visibility;
   myRole?: string;
   cover?: string;
   coverCredit?: string;

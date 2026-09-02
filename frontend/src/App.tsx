@@ -18,12 +18,12 @@ import { useTrip } from "./components/theme";
  *  The index is clamped against the trip's sections so a stale link still
  *  lands on a real chapter. */
 function SectionRedirect() {
-  const { token = "", n = "0" } = useParams();
+  const { tripId = "", n = "0" } = useParams();
   const trip = useTrip();
   const count = trip.sections?.length ?? 0;
   const si = count > 0 ? Math.min(Math.max(parseInt(n, 10) || 0, 0), count - 1) : -1;
   const hash = si >= 0 ? `#s-${si}` : "";
-  return <Navigate to={`/t/${token}/itinerary${hash}`} replace />;
+  return <Navigate to={`/t/${tripId}/itinerary${hash}`} replace />;
 }
 
 export default function App() {
@@ -31,7 +31,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/join/:claimToken" element={<JoinPage />} />
-      <Route path="/t/:token" element={<TripLayout />}>
+      <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
         <Route path="today" element={<TodayPage />} />
         <Route path="itinerary" element={<ItineraryPage />} />

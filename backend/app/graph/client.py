@@ -5,7 +5,6 @@ small, source-agnostic contract so the rest of the backend never depends on the
 SDK directly:
 
     is_enabled()                    -> bool  (graph wired; else local trip.json source)
-    find_trip_dtid_by_token(token)  -> dtid | None
     find_trip_dtid_by_claim_token(t)-> dtid | None   (issue #6 join link)
     fetch_graph(dtid)               -> {"$dtId", "twins", "relationships"}
     list_trips_for_user(user_dtid)  -> [trip summary dict, ...]  (hasCrew access)
@@ -25,8 +24,8 @@ scoped to a single trip's *connected component* (trip + everything reachable
 along outgoing edges), so we never walk the SDK node-by-node and never scan the
 whole graph.
 
-**Parameterized Cypher (SDK >= 0.3.8).** The token / dtId / uid arrive from the
-URL, so they are passed as Cypher query parameters (``$token`` / ``$dtid`` /
+**Parameterized Cypher (SDK >= 0.3.8).** The dtId / uid arrive from the
+URL, so they are passed as Cypher query parameters (``$dtid`` /
 ``$uid``) — never interpolated into the query string. ``query_twins`` forwards
 ``query_parameters`` to the server's ``/query`` endpoint, where the Cypher
 engine binds them safely. (A defensive regex still validates each value; it is
@@ -60,7 +59,7 @@ from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
 _GRAPH_CACHE: dict[tuple, tuple[float, Any]] = {}
 _GRAPH_CACHE_LOCK = threading.Lock()
 _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
-              "list_trips_for_user": 30.0, "find_trip_dtid_by_token": 60.0,
+              "list_trips_for_user": 30.0,
               "find_trip_dtid_by_claim_token": 60.0}
 
 
@@ -86,14 +85,44 @@ def _clear_graph_cache() -> None:
     with _GRAPH_CACHE_LOCK:
         _GRAPH_CACHE.clear()
 
+
+# The cached reads a crew write (claim #6 / follow #65) makes stale. Keyed on
+# ids, so retiring them is a subset match on the memoized args.
+_CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user"}
+
+
+def _invalidate_graph_cache(*, trip_dtid: str | None = None, user_dtid: str | None = None) -> None:
+    """Retire the cache entries a crew write changed — not the whole cache.
+
+    Needed because a write is immediately followed by a re-read: the caller
+    rebuilds the Trip to return it, and ``role_for_user_on_trip`` was usually
+    consulted (and its miss memoized) on the way in. Without this the re-read
+    is served the PRE-write graph for up to the TTL — the claim flow has been
+    returning a trip whose placeholder is still unclaimed for that reason.
+
+    Clearing everything instead would work and is what the follow path did, but
+    the TTL cache is the thing that keeps reads off the graph, so one person
+    joining a trip should not cost every other trip its cached document.
+    """
+    ids = {v for v in (trip_dtid, user_dtid) if v}
+    if not ids:
+        return
+    with _GRAPH_CACHE_LOCK:
+        stale = [
+            k for k in _GRAPH_CACHE
+            if k[0] in _CREW_CACHED_READS and ids & set(k[1])
+        ]
+        for k in stale:
+            del _GRAPH_CACHE[k]
+
 # Every node in the graph is a ``:Twin``; the kind is carried by the
 # ``$metadata.$model`` property (dtmi:kiseki:travel:<Kind>;1).
 TRIP_MODEL = "dtmi:kiseki:travel:Trip;1"
 USER_MODEL = "dtmi:kiseki:travel:User;1"
 PERSON_MODEL = "dtmi:kiseki:travel:Person;1"
 
-# A trip token is a secret-share id from the URL path. Validated as defense in
-# depth — the value is passed as a Cypher parameter, never interpolated.
+# A claim token is a secret invite id. Validated as defense in depth —
+# the value is passed as a Cypher parameter, never interpolated.
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 # Our twin ids are opaque UUIDs (see issue #8 restructure).
 _DTID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -113,17 +142,9 @@ _USER_RE = re.compile(r"^[^'\\\x00-\x1f]{1,256}$")
 MAX_HOPS = 3
 
 # --- Cypher (parameterized) -----------------------------------------------
-# Locate the Trip twin by its secret share token. Scoped to one node; the model
-# kind is re-checked in Python. `$token` is a bound parameter.
-_Q_FIND_TRIP = """
-MATCH (trip:Twin)
-WHERE trip.token = $token
-RETURN trip
-LIMIT 1
-"""
-
-# Same, but keyed on the CLAIM token (issue #6 join link) — a separate secret
-# that authorizes claiming a crew identity on this trip.
+# Locate the Trip twin by its CLAIM token (issue #6 join link) — the only
+# secret that remains after #64 (visibility gates the id route; claimToken
+# authorizes the join). `$claimToken` is a bound parameter.
 _Q_FIND_TRIP_BY_CLAIM = """
 MATCH (trip:Twin)
 WHERE trip.claimToken = $claimToken
@@ -158,13 +179,13 @@ RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.role, r.index]) AS rel
 """.format(max_hops=MAX_HOPS)
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
-# Returns a flat LIST per trip [dtId, token, title, subtitle, stage, startDate,
+# Returns a flat LIST per trip [dtId, visibility, title, subtitle, stage, startDate,
 # endDate, slug, cover, role] (map keys with `$` are rejected by AGE, so we
 # assemble the summary dict in Python). `$uid` is a bound parameter.
 _Q_TRIPS_FOR_USER = """
 MATCH (t:Twin)-[crew:hasCrew]->(u:Twin)
 WHERE u.`$dtId` = $uid
-RETURN collect(DISTINCT [t.`$dtId`, t.token, t.title, t.subtitle, t.stage,
+RETURN collect(DISTINCT [t.`$dtId`, t.visibility, t.title, t.subtitle, t.stage,
                          t.startDate, t.endDate, t.slug, t.cover, crew.role]) AS trips
 """
 
@@ -205,32 +226,6 @@ class GraphReadClient:
 
     def is_enabled(self) -> bool:
         return self._client is not None
-
-    @_cached_graph
-    def find_trip_dtid_by_token(self, token: str) -> Optional[str]:
-        """Return the Trip twin ``$dtId`` whose ``token`` property matches.
-
-        A single scoped, parameterized Cypher query (``$token`` bound server-side).
-        Returns None if the graph is disabled, the token is malformed, or it is
-        unknown.
-        """
-        if not self.is_enabled() or not _TOKEN_RE.match(token or ""):
-            return None
-        try:
-            rows = list(
-                self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_FIND_TRIP, query_parameters={"token": token}
-                )
-            )
-        except Exception as exc:
-            print(f"[kiseki] graph trip lookup failed: {exc}")
-            return None
-        if not rows:
-            return None
-        trip = self._norm_node((rows[0] or {}).get("trip") or {})
-        if trip.get("$metadata", {}).get("$model") != TRIP_MODEL:
-            return None
-        return trip.get("$dtId")
 
     @_cached_graph
     def find_trip_dtid_by_claim_token(self, claim_token: str) -> Optional[str]:
@@ -359,7 +354,7 @@ class GraphReadClient:
         role = (rows[0] or {}).get("role")
         return role if isinstance(role, str) else None
 
-    # ------------------------------------------------------------- claim (#6)
+    # ------------------------------------------------------------- claim (#6) + follow (#65)
 
     def create_user_twin(self, user_dtid: str, profile: dict[str, Any]) -> bool:
         """Upsert the User twin for an authenticated user (claim flow, #6).
@@ -437,9 +432,67 @@ class GraphReadClient:
                 trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
             )
             self._client.delete_digital_twin(person_dtid)  # type: ignore[union-attr]
+            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
             return True
         except Exception as exc:
             print(f"[kiseki] graph claim transfer({person_dtid}) failed: {exc}")
+            return False
+
+    def follow_trip(self, trip_dtid: str, user_dtid: str, profile: dict[str, Any]) -> bool:
+        """Create a `hasCrew` edge with `role=follower` for a non-crew user (#65).
+
+        Used when a logged-in user follows a trip via its `claimToken` invite
+        (private trips require the invite; public trips can be followed
+        optionally). Creates the User twin if missing, then upserts
+        trip->User hasCrew(follower). No placeholder is involved, so nothing
+        is deleted. The edge index appends after the existing crew.
+        """
+        if not (self.is_enabled() and _DTID_RE.match(trip_dtid or "")
+                and _USER_RE.match(user_dtid or "")):
+            return False
+        # Ensure user twin exists (idempotent)
+        if not self.create_user_twin(user_dtid, profile):
+            return False
+        # Don't double-follow
+        if self.role_for_user_on_trip(trip_dtid, user_dtid) is not None:
+            return True
+        # Next crew index (display order). Read it FRESH — the TTL cache would
+        # hand back a pre-write crew list — and take max+1 rather than a count:
+        # a claim deletes a placeholder edge, so a count can collide with an
+        # index still in use. Two follows in the same instant can still pick the
+        # same slot; there is no transaction to hold here, and a shared display
+        # position is a cosmetic tie, not a correctness bug.
+        try:
+            _invalidate_graph_cache(trip_dtid=trip_dtid)
+            graph = self.fetch_graph(trip_dtid)
+            used = [
+                rel.get("index")
+                for rel in (graph or {}).get("relationships", [])
+                if rel.get("$sourceId") == trip_dtid
+                and rel.get("$relationshipName") == "hasCrew"
+                and isinstance(rel.get("index"), int)
+            ]
+            index = max(used) + 1 if used else 0
+            from konnektr_graph import BasicRelationship
+
+            rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
+            rel = BasicRelationship.from_dict(
+                {
+                    "$relationshipId": rel_id,
+                    "$sourceId": trip_dtid,
+                    "$relationshipName": "hasCrew",
+                    "$targetId": user_dtid,
+                    "role": "follower",
+                    "index": index,
+                }
+            )
+            self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
+            # The miss memoized by the double-follow check above, plus this
+            # trip's document and the user's trip list, are all stale now.
+            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph follow({trip_dtid},{user_dtid}) failed: {exc}")
             return False
 
     @staticmethod
@@ -468,7 +521,7 @@ class GraphReadClient:
 
     @staticmethod
     def _trip_summary_from_list(row: Any) -> dict:
-        """Map a [dtId, token, title, subtitle, stage, start, end, slug,
+        """Map a [dtId, visibility, title, subtitle, stage, start, end, slug,
         cover, role] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
 
         AGE rejects `$`-prefixed map keys, so the query returns a plain list and
@@ -478,14 +531,14 @@ class GraphReadClient:
         if not isinstance(row, (list, tuple)):
             return {}
         (
-            dt_id, token, title, subtitle, stage,
+            dt_id, visibility, title, subtitle, stage,
             start, end, slug, cover, role,
         ) = (list(row) + [None] * 10)[:10]
         return {
             "$dtId": dt_id,
             "$model": TRIP_MODEL,
             "dtId": dt_id,
-            "token": token,
+            "visibility": visibility,
             "title": title,
             "subtitle": subtitle,
             "stage": stage,

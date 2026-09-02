@@ -677,17 +677,30 @@
       },
       {
         "@type": "Property",
-        "name": "token",
-        "schema": "string",
+        "name": "visibility",
+        "schema": {
+          "@type": "Enum",
+          "valueSchema": "string",
+          "enumValues": [
+            {
+              "name": "Public",
+              "enumValue": "public"
+            },
+            {
+              "name": "Private",
+              "enumValue": "private"
+            }
+          ]
+        },
         "writable": true,
-        "description": "Secret share key — appears in share URLs; editable (rotate without re-wiring the graph)."
+        "description": "Who may read the trip: 'public' = anyone with the id link (no auth); 'private' = crew only (JWT + hasCrew edge, follower+). Default private (issue #64 — replaces the old token-as-switch)."
       },
       {
         "@type": "Property",
         "name": "claimToken",
         "schema": "string",
         "writable": true,
-        "description": "Secret CLAIM key (issue #6) — authorizes claiming a crew identity on this trip ('join link'). Separate from `token`: the read link grants view-only, the claim token grants identity. Editable (rotate without re-wiring the graph)."
+        "description": "Secret CLAIM key (issue #6 + #65) — authorizes claiming a crew identity or following this trip ('join link'). Separate from the read path: the read link is the trip id itself (gated by visibility). Editable (rotate without re-wiring the graph). None = no invite links issued."
       },
       {
         "@type": "Property",

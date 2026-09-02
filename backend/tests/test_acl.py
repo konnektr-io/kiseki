@@ -2,8 +2,8 @@
 
 Covers the graph role query (``role_for_user_on_trip``), the userinfo profile
 fetch, and the protected endpoint ``GET /api/trips/{trip_id}`` end to end:
-401 unauthenticated → 403 no role → 200 with role, with the public token route
-untouched.
+401 unauthenticated → 403 no role → 200 with role, alongside the anonymous
+public-visibility route.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from app import auth as auth_module
 from app.auth import Auth0JWTValidator
 from app.graph import client as graph_client_mod
 from app.main import app
+from app.ratelimit import reset as reset_rate_limits
 from app.store import load_trips
 
 from conftest import CLIENT_ID, TENANT, _claims, _sign
@@ -27,6 +28,20 @@ def _uuid() -> str:
     trip = load_trips()[0]
     assert trip.id, "trip data has no id field"
     return trip.id
+
+
+def _private_uuid() -> str:
+    for tr in load_trips():
+        if tr.visibility == "private":
+            return tr.id
+    raise AssertionError("no private trip in fixtures")
+
+
+def _public_trip():
+    for tr in load_trips():
+        if tr.visibility == "public":
+            return tr
+    raise AssertionError("no public trip")
 
 
 def _token_of(rsa_keypair, **claims_overrides: object) -> str:
@@ -157,6 +172,16 @@ def client(rsa_keypair, jwks_url: str, monkeypatch: pytest.MonkeyPatch):
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """The booklet limiter is per-client and process-global; TestClient is
+    always the same client. Without this, one test's requests spend another
+    test's budget and the failure depends on collection order."""
+    reset_rate_limits()
+    yield
+    reset_rate_limits()
+
+
 @pytest.fixture
 def role(monkeypatch: pytest.MonkeyPatch):
     """Set the ACL role the graph returns for the current user (None = no role)."""
@@ -172,43 +197,54 @@ def role(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_protected_requires_token(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}")
+    r = client.get(f"/api/trips/{_private_uuid()}")
     assert r.status_code == 401
 
 
 def test_protected_rejects_invalid_token(client: TestClient, rsa_keypair) -> None:
     bad = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {bad}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {bad}"})
     assert r.status_code == 401
 
 
 def test_protected_forbidden_without_role(client: TestClient, rsa_keypair, role) -> None:
     role(None)
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
-def test_protected_forbidden_below_min_role(client: TestClient, rsa_keypair, role) -> None:
-    # viewer is below the editor threshold used here — but the endpoint uses
-    # the default (viewer), so this exercises the rank comparison at 403.
-    role("follower")
+def test_protected_forbidden_for_unknown_role(client: TestClient, rsa_keypair, role) -> None:
+    """Every role now reads a private trip (follower is the floor, #65), so the
+    interesting 403 is a role the ladder doesn't know: it must rank as no
+    access, not fall through as truthy."""
+    role("spectator")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_protected_ok_with_role(client: TestClient, rsa_keypair, role) -> None:
     role("viewer")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    pid = _private_uuid()
+    r = client.get(f"/api/trips/{pid}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
-    assert body["id"] == _uuid()
-    assert body["slug"]  # same shape as the token route
-    assert body["token"]  # secret link still rides along (share feature)
-    assert body["myRole"] == "viewer"  # caller's role reported on the protected path
+    assert body["id"] == pid
+    assert body["slug"]
     assert "claimToken" not in body  # the claim secret never ships in documents
+    assert body["visibility"] == "private"
+    assert body["myRole"] == "viewer"  # caller's role reported on the protected path
+
+
+def test_private_readable_by_follower(client: TestClient, rsa_keypair, role) -> None:
+    """#65: follower is the LOWEST role that can read a private trip."""
+    role("follower")
+    token = _token_of(rsa_keypair)
+    r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json()["myRole"] == "follower"
 
 
 def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> None:
@@ -219,20 +255,21 @@ def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> No
     assert r.status_code == 404
 
 
-def test_public_token_route_still_anonymous(client: TestClient) -> None:
-    trip = load_trips()[0]
-    r = client.get(f"/api/trips/{trip.token}")
+def test_public_trip_is_anonymous(client: TestClient) -> None:
+    trip = _public_trip()
+    r = client.get(f"/api/trips/{trip.id}")
     assert r.status_code == 200
     body = r.json()
     assert body["slug"] == trip.slug
+    assert body["visibility"] == "public"
     assert "claimToken" not in body  # never leaked on the anonymous route
 
 
-def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
-    trip = load_trips()[0]
+def test_public_trip_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
+    trip = _public_trip()
     bad = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
     r = client.get(
-        f"/api/trips/{trip.token}",
+        f"/api/trips/{trip.id}",
         headers={"Authorization": f"Bearer {bad}"},
     )
     assert r.status_code == 200  # anonymous-by-link: auth header is irrelevant
@@ -256,7 +293,7 @@ def test_my_trips_local_mode_lists_all(client: TestClient, rsa_keypair) -> None:
     first = trips[0]
     assert first["dtId"]
     assert first["title"]
-    assert "token" in first  # the share token rides along for links/booklet
+    assert "visibility" in first
 
 
 def test_my_trips_role_from_graph(
@@ -291,14 +328,14 @@ def test_my_trips_role_from_graph(
 
 
 def test_booklet_requires_auth(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf")
+    r = client.get(f"/api/trips/{_private_uuid()}/booklet.pdf")
     assert r.status_code == 401
 
 
 def test_booklet_forbidden_without_role(client: TestClient, rsa_keypair, role) -> None:
     role(None)  # no hasCrew edge
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/booklet.pdf", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/booklet.pdf", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
@@ -322,6 +359,41 @@ def test_booklet_renders_with_role(
     assert r.content.startswith(b"%PDF-")
     assert captured["key"] == trip.id
     assert captured["token"] == token
+
+
+def test_booklet_public_trip_is_anonymous(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#64: a public trip's booklet needs no account — the id IS the link.
+
+    Pinned deliberately: this is the one path that reaches the 40s/2GiB
+    renderer with no credential, so a change here should break a test.
+    """
+    async def fake_render(base_url, key, out_path, access_token=None):
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    trip = _public_trip()
+    r = client.get(f"/api/trips/{trip.id}/booklet.pdf")
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF-")
+
+
+def test_booklet_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A render is the most expensive request the pod serves and the public
+    path is unauthenticated, so one client cannot loop it."""
+    renders = {"n": 0}
+
+    async def fake_render(base_url, key, out_path, access_token=None):
+        renders["n"] += 1
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    url = f"/api/trips/{_public_trip().id}/booklet.pdf"
+    for _ in range(5):
+        assert client.get(url).status_code == 200
+    assert client.get(url).status_code == 429
+    assert renders["n"] == 5  # the 429 never reached the renderer
 
 
 # ------------------------------------------------------------- #58 pdf render bypass
@@ -368,21 +440,21 @@ def test_spa_route_injects_access_token(client: TestClient) -> None:
 
 
 def test_join_link_requires_token(client: TestClient) -> None:
-    r = client.get(f"/api/trips/{_uuid()}/join-link")
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link")
     assert r.status_code == 401
 
 
 def test_join_link_forbidden_for_viewer(client: TestClient, rsa_keypair, role) -> None:
     role("viewer")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_join_link_ok_for_owner(client: TestClient, rsa_keypair, role) -> None:
     role("owner")
     token = _token_of(rsa_keypair)
-    r = client.get(f"/api/trips/{_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
+    r = client.get(f"/api/trips/{_private_uuid()}/join-link", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
     assert body["joinUrl"].startswith("/join/")

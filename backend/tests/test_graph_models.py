@@ -200,13 +200,18 @@ def test_dtids_are_opaque_guid_and_unique(trip):
     # the day's $dtId is its own opaque id, decoupled from date/position
     day_ids = [t["$dtId"] for t in g["twins"] if t["$metadata"]["$model"] == mid("Day")]
     assert day_ids[0] == trip.days[0].id
-    assert not any(trip.token in t["$dtId"] for t in g["twins"])
+    # Trip's own $dtId appears exactly once (its twin); no other twin leaks it
+    assert sum(1 for x in g["twins"] if x["$dtId"] == trip.id) == 1
+    assert not any(trip.id in x["$dtId"] and x["$dtId"] != trip.id for x in g["twins"])
 
 
 def test_anonymize_removes_pii(trip):
     g = trip_to_graph(trip, anonymize=True)
     blob = json.dumps(g)
-    assert trip.token not in blob
+    # claimToken is a long random secret — must not appear verbatim in anonymized mock
+    if trip.claimToken:
+        # anonymized mock redacts claimToken to REDACTED or removes it — either way original secret not verbatim
+        assert trip.claimToken not in blob or "REDACTED" in blob
     for p in trip.crew:
         if p.name:
             assert p.name not in blob

@@ -3,7 +3,7 @@
 These prove the acceptance criteria without needing a live Konnektr Graph:
   * ``graph_to_trip`` faithfully inverts the seeded graph fixtures
     (source-agnostic — identical shape whether from the live SDK or a seed file).
-  * ``store.get_trip_by_token`` serves the graph as the sole source of truth
+  * ``store.get_trip_by_id`` serves the graph as the sole source of truth
     when ``KISEKI_GRAPH_URL`` is configured; a graph read failure surfaces as a
     missing trip (404) rather than a stale file. When the graph is NOT
     configured (local dev / CI) the local ``trip.json`` files are the source.
@@ -78,7 +78,7 @@ class _FakeGraph:
         self._graph = graph
         self.calls = 0
 
-    def find_trip_dtid_by_token(self, token: str):
+    def find_trip_dtid_by_claim_token(self, token: str):
         self.calls += 1
         return self._graph["$dtId"]
 
@@ -88,7 +88,7 @@ class _FakeGraph:
 
 def test_store_serves_from_graph_when_enabled(monkeypatch) -> None:
     """With the graph enabled, the store returns the graph-rebuilt trip and the
-    P0 contract (token/slug/stage/structure) is intact."""
+    P0 contract (visibility/slug/stage/structure) is intact."""
     import app.store as store_mod
 
     slug = "canada-2027"
@@ -97,9 +97,9 @@ def test_store_serves_from_graph_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr(store_mod, "_GRAPH_CLIENT", fake)
     monkeypatch.setattr(store_mod, "_GRAPH_CLIENT_READY", True)
 
-    got = store_mod.get_trip_by_token(trip.token)
+    got = store_mod.get_trip_by_id(trip.id)
     assert got is not None
-    assert got.token == trip.token
+    assert got.id == trip.id
     assert got.slug == trip.slug
     assert got.stage == trip.stage
     assert got.model_dump(by_alias=True) == trip.model_dump(by_alias=True)
@@ -113,7 +113,7 @@ def test_store_returns_none_when_graph_read_fails(monkeypatch) -> None:
     # A fake client that is "enabled" but can't resolve the token. In graph
     # mode the store must return None here; it must NOT fall back to files.
     class _EnabledButMiss:
-        def find_trip_dtid_by_token(self, token):
+        def find_trip_dtid_by_claim_token(self, token):
             return None  # known to the graph as "no such trip"
 
         def fetch_graph(self, trip_dtid):
@@ -126,7 +126,7 @@ def test_store_returns_none_when_graph_read_fails(monkeypatch) -> None:
     # the graph path does not silently serve it when the graph is the source.
     slug = "japan-campervan-2028"
     trip = _load_trip(slug)
-    got = store_mod.get_trip_by_token(trip.token)
+    got = store_mod.get_trip_by_id(trip.id)
     assert got is None
 
 
@@ -139,12 +139,12 @@ def test_client_uses_parameterized_queries(monkeypatch) -> None:
 
     # The module-level query constants must use parameter placeholders, not
     # str.format() interpolation residues.
-    assert "$token" in client_mod._Q_FIND_TRIP
+    assert "$claimToken" in client_mod._Q_FIND_TRIP_BY_CLAIM
     assert "$dtid" in client_mod._Q_NODES
     assert "$dtid" in client_mod._Q_RELS
     assert "$uid" in client_mod._Q_TRIPS_FOR_USER
     # No leftover `{token}` / `{dtid}` / `{uid}` str.format placeholders.
-    assert "{token}" not in client_mod._Q_FIND_TRIP
+    assert "{token}" not in client_mod._Q_FIND_TRIP_BY_CLAIM
     assert "{dtid}" not in client_mod._Q_NODES
     assert "{uid}" not in client_mod._Q_TRIPS_FOR_USER
 
@@ -163,7 +163,7 @@ def test_client_uses_parameterized_queries(monkeypatch) -> None:
     c._client = _FakeClient()
     monkeypatch.setattr(client_mod.GraphReadClient, "is_enabled", lambda self: True)
 
-    c.find_trip_dtid_by_token("abc123")
+    c.find_trip_dtid_by_claim_token("abc123")
     c.fetch_graph("bf29a027-2ed2-46b3-b869-d9d81bbcf237")
     c.list_trips_for_user("user:auth0|niko")
 
@@ -173,4 +173,4 @@ def test_client_uses_parameterized_queries(monkeypatch) -> None:
         assert isinstance(params, dict)
     # Token value must travel in the parameter binding, not the string.
     find_params = captured["calls"][0][1]
-    assert find_params.get("token") == "abc123"
+    assert find_params.get("claimToken") == "abc123"

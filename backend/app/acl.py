@@ -1,42 +1,32 @@
-"""Per-trip access control (issue #5 — ACL enforcement).
+"""Per-trip access control (issue #64 + #65 — visibility + crew/follower ACL).
 
-The API has two read paths that share one URL space, distinguished by the
-path parameter's SHAPE (a dashed UUID is a trip ``$dtId``; anything else is a
-secret share token — tokens are 32-hex, never dashed):
+Single read path since #64:
 
-    GET /api/trips/<dashed-uuid>   → PROTECTED: valid Auth0 token + crew role
-    GET /api/trips/<token>         → public-by-link (the share link), no auth
+    GET /api/trips/{trip_id}   where trip_id is the trip $dtId (dashed UUID)
 
-(The ``:uuid`` Starlette path converter can't be used to separate the routes —
-it accepts compact dashless UUIDs, which are indistinguishable from share
-tokens — so one route branches in ``authorize_trip_path``.)
+Access is gated by Trip.visibility:
 
-Role ladder (trip-relative, carried on the ``hasCrew`` edge):
+- visibility == "public"  → anyone (no auth). If an Authorization header is
+  present and valid, the caller's crew role (if any) is returned as myRole;
+  an invalid token on a public trip is ignored (public means public).
+- visibility == "private" → requires valid Auth0 token (401) + crew role at
+  or above follower (403). Follower is the lowest read role (issue #65);
+  viewer/editor/owner also pass. Role is the User twin whose $dtId is the auth sub
+  (established by claiming or following, never by name/email).
+
+Role ladder (trip-relative, on the hasCrew edge):
     follower(1) < viewer(2) < editor(3) < owner(4)
-Read access = viewer+; write endpoints (future) = editor+; invites = owner.
+Read access = follower+; write endpoints (future) = editor+; invites = owner.
 """
 
 from __future__ import annotations
 
-import re
-
 from fastapi import Header, HTTPException
 
 from .auth import get_current_user
-from .store import get_trip_role_for_user
+from .store import get_trip_by_id, get_trip_role_for_user
 
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
-
-# Trip $dtIds are opaque dashed UUIDs; share tokens are NOT dashed (32-hex).
-_DASHED_UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
-
-
-def is_trip_id(param: str) -> bool:
-    """True when the path param is a trip ``$dtId`` (dashed UUID) — i.e. the
-    protected path — rather than a secret share token."""
-    return bool(_DASHED_UUID_RE.match(param))
 
 
 def _role_ok(role: str | None, min_role: str) -> bool:
@@ -44,22 +34,33 @@ def _role_ok(role: str | None, min_role: str) -> bool:
 
 
 def authorize_trip_path(
-    trip_param: str,
+    trip_id: str,
     authorization: str | None = Header(default=None),
 ) -> str | None:
-    """FastAPI dependency for ``GET /api/trips/{trip_param}``.
+    """FastAPI dependency for GET /api/trips/{trip_id} (and booklet.pdf).
 
-    - share token (non-dashed) → anonymous allowed (public-by-link); the
-      Authorization header is ignored entirely (the endpoint is public);
-      returns None.
-    - dashed UUID ($dtId)      → require a valid token (401) AND a crew role
-      at or above ``viewer`` (403 otherwise); returns the caller's role.
-      Role = the User twin whose ``$dtId`` is the auth ``sub`` — established
-      by claiming the crew identity (issue #6), never by name/email matching.
+    Returns the caller's crew role (or None for anonymous on a public trip).
+    Raises 401/403 for private trips without sufficient access, 404 if the
+    trip does not exist (so callers don't have to re-check).
     """
+    trip = get_trip_by_id(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
 
-    if not is_trip_id(trip_param):
-        return None  # secret share link — public by design
+    # Public: anyone may read. If a token is present, try to resolve the
+    # caller's role for myRole; invalid tokens are ignored (public access
+    # does not require auth, so a stale header shouldn't break it).
+    if trip.visibility == "public":
+        if authorization and authorization.lower().startswith("bearer "):
+            try:
+                user = get_current_user(authorization)
+                role = get_trip_role_for_user(trip_id.lower(), user["sub"])
+                return role
+            except HTTPException:
+                return None
+        return None
+
+    # Private: valid token + follower+ required (follower is the lowest read role, #65).
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(
             status_code=401,
@@ -67,8 +68,8 @@ def authorize_trip_path(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = get_current_user(authorization)  # validates; 401 on invalid
-    role = get_trip_role_for_user(trip_param.lower(), user["sub"])
-    if not _role_ok(role, "viewer"):
+    role = get_trip_role_for_user(trip_id.lower(), user["sub"])
+    if not _role_ok(role, "follower"):
         raise HTTPException(
             status_code=403,
             detail="You don't have access to this trip",

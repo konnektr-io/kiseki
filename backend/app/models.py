@@ -48,6 +48,8 @@ BlockStatus = Literal["planned", "booked", "done"]
 Stage = Literal["idea", "options", "shortlist", "planned", "booked", "live", "archive"]
 # Crew relationship role (carried as a `hasCrew` edge property, NOT on Person).
 Role = Literal["owner", "editor", "viewer", "follower"]
+# Trip visibility: who may read the trip via GET /api/trips/{id}.
+Visibility = Literal["public", "private"]
 
 
 class Link(BaseModel):
@@ -252,8 +254,8 @@ class Trip(BaseModel):
     startDate: Optional[str] = Field(default=None, description="ISO start date.")
     endDate: Optional[str] = Field(default=None, description="ISO end date.")
     timezone: Optional[str] = Field(default=None, description="IANA timezone, e.g. 'Asia/Tokyo' — resolves 'today' in the trip's local calendar date, not the viewer's. Optional; when absent, the viewer's local date is used.")
-    token: str = Field(..., description="Secret share key — appears in share URLs; editable (rotate without re-wiring the graph).")
-    claimToken: str = Field(..., description="Secret CLAIM key (issue #6) — authorizes claiming a crew identity on this trip ('join link'). Separate from `token`: the read link grants view-only, the claim token grants identity. Editable (rotate without re-wiring the graph).")
+    visibility: Visibility = Field(default="private", description="Who may read the trip: 'public' = anyone with the id link (no auth); 'private' = crew only (JWT + hasCrew edge, follower+). Default private (issue #64 — replaces the old token-as-switch).")
+    claimToken: Optional[str] = Field(default=None, description="Secret CLAIM key (issue #6 + #65) — authorizes claiming a crew identity or following this trip ('join link'). Separate from the read path: the read link is the trip id itself (gated by visibility). Editable (rotate without re-wiring the graph). None = no invite links issued.")
     cover: Optional[str] = Field(default=None, description="Cover image — bare media filename (content-addressed sha256[:32].ext), served at /media/<trip_id>/<file>.")
     coverCredit: Optional[str] = Field(default=None, description="Cover image credit line.")
     map: Optional[str] = Field(default=None, description="Overview route-map image — bare media filename, served at /media/<trip_id>/<file>.")

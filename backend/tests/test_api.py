@@ -19,8 +19,9 @@ def test_health() -> None:
 def test_trip_by_token() -> None:
     trips = load_trips()
     assert trips, "no trip data found under backend/data/trips/"
-    t = trips[0]
-    r = client.get(f"/api/trips/{t.token}")
+    # public trip is readable anonymously via id (#64)
+    t = next(tr for tr in trips if tr.visibility == "public")
+    r = client.get(f"/api/trips/{t.id}")
     assert r.status_code == 200
     body = r.json()
     assert body["slug"] == t.slug
@@ -33,13 +34,13 @@ def test_trip_by_token() -> None:
 
 
 def test_unknown_token_404() -> None:
-    r = client.get("/api/trips/definitely-not-a-real-token")
+    r = client.get("/api/trips/00000000-0000-4000-8000-000000000000")
     assert r.status_code == 404
 
 
 def test_spa_fallback() -> None:
     if not (STATIC_DIR / "index.html").is_file():
         pytest.skip("frontend not built (copy frontend/dist → backend/app/static)")
-    r = client.get("/t/some-token/itinerary")
+    r = client.get("/t/some-id/itinerary")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]

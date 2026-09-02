@@ -84,6 +84,7 @@ ENUMS = {
     "Stage": "string",
     "BlockStatus": "string",
     "Role": "string",
+    "Visibility": "string",
 }
 
 # Relationship name to use for a parent->child entity collection field.

@@ -41,7 +41,7 @@ export function DaySummaryRow({
   dayNo: number;
   isToday?: boolean;
 }) {
-  const { token } = useParams();
+  const { tripId } = useParams();
   const thumbs = dayThumbnails(day);
   const hasBooked = day.blocks.some((b) => b.status === "booked" || b.status === "done");
   const hasPlanned = day.blocks.some((b) => b.status === "planned");
@@ -55,7 +55,7 @@ export function DaySummaryRow({
       }`}
     >
       <Link
-        to={`/t/${token}/day/${idx}`}
+        to={`/t/${tripId}/day/${idx}`}
         aria-label={`Day ${dayNo}: ${title}`}
         className="block p-3 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >

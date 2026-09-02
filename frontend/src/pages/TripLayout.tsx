@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
-import { fetchTrip, downloadBooklet, isTripId, fetchJoinLink, TripAccessError } from "../lib/api";
+import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
+import { isAuthConfigured } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -34,9 +35,9 @@ function isNavActive(pathname: string, base: string, to: string, end?: boolean):
   return pathname === `${base}/${to}`;
 }
 
-function NavLinks({ token, trip }: { token: string; trip: Trip | null }) {
+function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
   const { pathname } = useLocation();
-  const base = `/t/${token}`;
+  const base = `/t/${tripId}`;
   const NAV = navForTrip(trip);
   return (
     <nav className="flex items-center gap-1">
@@ -60,7 +61,7 @@ function NavLinks({ token, trip }: { token: string; trip: Trip | null }) {
   );
 }
 
-type LoadError = "auth-required" | "no-access" | string;
+type LoadError = "auth-required" | "no-access" | "not-found" | string;
 
 /**
  * PDF-render mode: the backend's Playwright booklet renderer sets this flag
@@ -73,7 +74,7 @@ type LoadError = "auth-required" | "no-access" | string;
 const PDF_RENDER = typeof window !== "undefined" && window.__KISEKI_PDF_RENDER__ === true;
 
 export function TripLayout() {
-  const { token = "" } = useParams();
+  const { tripId = "" } = useParams();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
@@ -90,66 +91,72 @@ export function TripLayout() {
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
-  const idMode = isTripId(token);
   usePageTitle(trip?.title ?? null);
+
+  // Auth0 reports isLoading=true until it has restored the session — and when
+  // auth is NOT configured `useAuth0` has no provider, so it returns the
+  // library's default context, where isLoading is true FOREVER. Both states
+  // have to be distinguished from "signed out", or a private trip decides the
+  // viewer has no access before Auth0 has answered, and an unconfigured
+  // deployment never leaves the loading screen at all.
+  const authReady = !isAuthConfigured() || !authLoading;
 
   useEffect(() => {
     let cancelled = false;
     setTrip(null);
     setError(null);
+    // Wait for auth: fetching now would 403 a private trip and render the
+    // access-denied screen for crew who are about to be signed in.
+    if (!authReady && !PDF_RENDER) return;
 
     (async () => {
       try {
-        if (idMode) {
-          // Protected route: valid token + ACL role required — EXCEPT in
-          // PDF-render mode, where the backend already enforced the ACL
-          // before launching the headless browser (#58).
-          if (!isAuthenticated && !PDF_RENDER) {
-            if (!cancelled) setError("auth-required");
+        // PDF-render mode: the backend's booklet.pdf endpoint already enforced
+        // the visibility/ACL gate before launching the headless browser (#58).
+        // The injected token is the ONLY path — never fall through to
+        // getAccessTokenSilently(): its Auth0 iframe flow cannot complete in
+        // the headless browser, and the render would hang until the backend's
+        // booklet-content timeout (seen live after #37: first click broken,
+        // second click mapless).
+        if (PDF_RENDER) {
+          if (!window.__KISEKI_ACCESS_TOKEN__) {
+            if (!cancelled) setError("no-access");
             return;
           }
-          // In PDF-render mode the injected token is the ONLY path. Never
-          // fall through to getAccessTokenSilently() here: its Auth0 iframe
-          // flow cannot complete in the headless browser, and the render
-          // would hang until the backend's booklet-content timeout (seen
-          // live after #37: first click broken, second click mapless).
-          if (PDF_RENDER) {
-            if (!window.__KISEKI_ACCESS_TOKEN__) {
-              if (!cancelled) setError("no-access");
-              return;
-            }
-            const t = await fetchTrip(token, window.__KISEKI_ACCESS_TOKEN__);
-            if (!cancelled) setTrip(t);
-            return;
-          }
-          const at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
-          const t = await fetchTrip(token, at);
+          const t = await fetchTrip(tripId, window.__KISEKI_ACCESS_TOKEN__);
           if (!cancelled) setTrip(t);
           return;
         }
-        // Public share-link route — works for anyone with the link.
-        const t = await fetchTrip(token);
-        if (isAuthenticated) {
-          // Signed in (in the background): canonicalize to the id route when
-          // the user also has id-access; otherwise stay on the share link
-          // (link access only — the id route would 403).
-          try {
-            const at = await getAccessTokenSilently();
-            await fetchTrip(t.id, at);
-            if (!cancelled) {
-              navigate(pathnameRef.current.replace(`/t/${token}`, `/t/${t.id}`), { replace: true });
-            }
-            return;
-          } catch {
-            // no id access → fall through to the share-link render
-          }
-        }
+        // Public trips are readable without auth (#64). Fetch anonymously
+        // first — the server returns 401/403 for private trips without
+        // sufficient access, and 404 for an unknown id.
+        const t = await fetchTrip(tripId);
         if (!cancelled) setTrip(t);
       } catch (e) {
-        if (!cancelled) {
-          if (e instanceof TripAccessError && e.status === 401) setError("auth-required");
-          else if (e instanceof TripAccessError && e.status === 403) setError("no-access");
-          else setError(e instanceof Error ? e.message : "Failed to load trip");
+        if (cancelled) return;
+        if (!(e instanceof TripAccessError)) {
+          setError(e instanceof Error ? e.message : "Failed to load trip");
+          return;
+        }
+        if (e.status === 404) {
+          setError("not-found");
+          return;
+        }
+        // Private trip (or insufficient role): retry authenticated. Anonymous
+        // viewers land on the sign-in gate; signed-in crew get their role.
+        if (!isAuthenticated) {
+          setError(e.status === 403 ? "no-access" : "auth-required");
+          return;
+        }
+        try {
+          const at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
+          const t = await fetchTrip(tripId, at);
+          if (!cancelled) setTrip(t);
+        } catch (e2) {
+          if (cancelled) return;
+          if (e2 instanceof TripAccessError && e2.status === 403) setError("no-access");
+          else if (e2 instanceof TripAccessError && e2.status === 404) setError("not-found");
+          else setError("auth-required");
         }
       }
     })();
@@ -157,7 +164,7 @@ export function TripLayout() {
     return () => {
       cancelled = true;
     };
-  }, [token, idMode, isAuthenticated, getAccessTokenSilently, navigate]);
+  }, [tripId, authReady, isAuthenticated, getAccessTokenSilently, navigate]);
 
   // Expose the app header's live height as --kiseki-header-h so sticky
   // section headers (itinerary) can dock exactly below it. Re-measured on
@@ -173,7 +180,7 @@ export function TripLayout() {
     return () => ro.disconnect();
   }, [trip]);
 
-  if (authLoading && idMode && !PDF_RENDER && !error) {
+  if (!authReady && !PDF_RENDER && !error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="animate-pulse text-muted-foreground" role="status">
@@ -205,8 +212,13 @@ export function TripLayout() {
           <>
             <p className="text-muted-foreground">You don't have access to this trip.</p>
             <p className="text-sm text-muted-foreground">
-              If you were given a share link, use that instead.
+              If you were given a join link for this trip, sign in and follow it
+              to request access.
             </p>
+          </>
+        ) : error === "not-found" ? (
+          <>
+            <p className="text-muted-foreground">This trip doesn't exist or is no longer shared.</p>
           </>
         ) : (
           <>
@@ -234,14 +246,17 @@ export function TripLayout() {
   }
 
   const days = dayCount(trip.startDate, trip.endDate);
-  const onDayPage = pathname.includes(`/t/${token}/day/`);
+  const onDayPage = pathname.includes(`/t/${tripId}/day/`);
   const isOwner = trip.myRole === "owner";
 
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
     setPdfBusy(true);
     try {
-      const at = await getAccessTokenSilently();
+      // Public trips allow anonymous PDF download (#64); crew/followers send
+      // their token for private trips. getAccessTokenSilently only when signed
+      // in — an anonymous public viewer must not trip the Auth0 iframe flow.
+      const at = isAuthenticated ? await getAccessTokenSilently() : undefined;
       await downloadBooklet(trip.id, at, `${trip.slug}-booklet.pdf`);
     } catch {
       // ignore — the backend 401/403/500 path is rare; keep the UI quiet
@@ -302,26 +317,24 @@ export function TripLayout() {
                 <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
               </Button>
             )}
-            {idMode && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDownloadPdf}
-                disabled={pdfBusy}
-                title="Download the booklet PDF (crew only)"
-                aria-label={pdfBusy ? "Preparing the booklet PDF" : "Download the booklet PDF"}
-                className="disabled:opacity-60"
-              >
-                <FileDown className="h-4 w-4" />
-                <span className="hidden sm:inline" aria-live="polite">
-                  {pdfBusy ? "Preparing…" : "PDF"}
-                </span>
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadPdf}
+              disabled={pdfBusy}
+              title="Download the booklet PDF"
+              aria-label={pdfBusy ? "Preparing the booklet PDF" : "Download the booklet PDF"}
+              className="disabled:opacity-60"
+            >
+              <FileDown className="h-4 w-4" />
+              <span className="hidden sm:inline" aria-live="polite">
+                {pdfBusy ? "Preparing…" : "PDF"}
+              </span>
+            </Button>
           </div>
           {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
-            <NavLinks token={token} trip={trip} />
+            <NavLinks tripId={tripId} trip={trip} />
           </div>
         </header>
 
@@ -337,7 +350,7 @@ export function TripLayout() {
           <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
             <div className="grid grid-cols-3">
               {NAV.map(({ to, label, icon: Icon, end }) => {
-                const isActive = isNavActive(pathname, `/t/${token}`, to, end);
+                const isActive = isNavActive(pathname, `/t/${tripId}`, to, end);
                 return (
                   <Link
                     key={to}
