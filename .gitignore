@@ -35,6 +35,12 @@ playwright-report/
 # Graph mocks — keep anonymized fixtures, never commit real (token-bearing) ones
 backend/data/mocks/*.graph.json
 !backend/data/mocks/*.graph.anon.json
+# Media migration audit maps (issue #47) — derivable from trip.json git history
+backend/data/mocks/*.media-map.json
+
+# Trip media lives in Garage (issue #47) — the local assets dir is a working
+# scratch space for the migrate_assets_to_s3.py pipeline, never committed.
+backend/data/assets/
 
 # Vendored agent skills (`npx skills add maplibre/maplibre-agent-skills`, #18).
 # skills-lock.json pins them, so the content is restorable and not worth

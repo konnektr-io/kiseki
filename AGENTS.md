@@ -96,8 +96,22 @@ writeup; in short:
   data/trips/<slug>/trip.json [--anonymize]`) → `backend/data/mocks/<slug>.graph{,.anon}.json`
   (the latter is the P1 seed/anonymized fixture). See issue #4 + #8.
 
-- **P0**: images live in `backend/data/assets/<trip>/` — next to the trip data, served by the FastAPI app at `/media/<trip>/<file>`. Reference them in `trip.json` with **relative URLs** (`/media/canada-2027/sths-hero-full.jpg`), never base64. The repo is private, so shipping images in git is fine at this stage.
-- **P1 (graph backend)**: when trip content moves into Konnektr Graph, media moves **out of the repo** into object storage (MinIO on the home cluster, S3-compatible) and the graph stores the **URL as a string field**. Keep every image reference a plain URL in the data model — swapping the media backend then only changes the URL prefix, nothing else. (The `/media` mount disappears; the backend serves or redirects from the bucket.)
+- **Media (shipped, #47 — Garage, not git)**: images live in the S3-compatible
+  **Garage** bucket (private, bucket `kiseki`, key prefix `media/`), **never in
+  the repo**. The FastAPI app proxies them at `/media/<trip>/<file>` — the same
+  public URL shape as the old local mount, so `trip.json`, graph twins, the
+  frontend and the PDF renderer don't care where the bytes live. Object keys
+  are **content-addressed and unguessable**: `media/<trip>/<sha256[:32]><ext>`,
+  so a leaked slug-based URL 404s. Reference media in `trip.json` with
+  **relative URLs** (`/media/canada-2027/<32hex>.jpg`), never base64.
+  - To add media: drop files in `backend/data/assets/<trip>/` (gitignored),
+    run `uv run python scripts/migrate_assets_to_s3.py` (uploads to Garage AND
+    rewrites the trip.json URLs), then commit the trip.json only.
+  - Config: `KISEKI_S3_ENDPOINT/_BUCKET/_ACCESS_KEY/_SECRET_KEY` (k8s Secret
+    `kiseki-s3`). Without S3 config the route falls back to a local
+    `backend/data/assets/<trip>/` tree only when one exists (dev scratch /
+    legacy checkout); the repo ships none, so prod serves 404 without the
+    bucket.
 
 ## Maps (dynamic + print)
 

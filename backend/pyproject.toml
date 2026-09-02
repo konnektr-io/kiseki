@@ -10,6 +10,9 @@ dependencies = [
     "playwright>=1.49.0",
     "konnektr-graph==0.3.8",
     "PyJWT[crypto]>=2.10.0",
+    # S3-compatible Garage media backend (issue #47). Lazy-imported at store
+    # init so dev/tests without the package still work.
+    "minio>=7.2.0,<8",
 ]
 
 [build-system]

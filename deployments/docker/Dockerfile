@@ -24,7 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
-COPY backend/data ./data
+# Trip data only — media lives in Garage (#47); assets/mocks never enter the image.
+COPY backend/data/trips ./data/trips
 RUN pip install --no-cache-dir . \
     && python -m playwright install --with-deps chromium \
     && rm -rf /root/.cache/pip
