@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import tempfile
 import time
-import urllib.request
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -25,15 +24,7 @@ from .acl import authorize_trip_path, is_trip_id, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, trip_by_claim_token
 from .config import ASSETS_DIR, LISTEN_PORT, MAPS_KEY, STATIC_DIR
-from .maps import (
-    build_single_place_url,
-    build_static_map_url,
-    build_static_map_url_legs,
-    directions_polyline,
-    resolve_places,
-    resolve_query,
-    route_legs,
-)
+from .maps import resolve_places, route_legs
 from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
@@ -217,16 +208,17 @@ async def booklet_pdf(
     )
 
 
-# --- Map proxies (#18/#27) -----------------------------------------------
+# --- Map proxy (#18/#27/#37) ------------------------------------------------
 #
-# The browser never talks to Google. It renders MapLibre over keyless tiles and
-# asks US for anything that needs the key. That makes /api/maps/* the thing
-# worth protecting: every endpoint below is scoped to a valid trip token and
-# rate-limited so a shared link cannot be turned into a free Google quota.
-
-# Loopback is our own headless PDF renderer (app/pdf.py) fetching a booklet's
-# worth of static maps in one burst from inside the pod — limiting it would
-# just break the booklet. Nothing else can reach the app on 127.0.0.1.
+# The browser renders MapLibre over keyless tiles; only the driving route still
+# needs Google (Directions), served server-side so the key never leaves the
+# backend. Static Maps proxy is GONE (#37): the booklet renders the SAME
+# MapLibre map live via Playwright (Chromium + SwiftShader), so screen and
+# paper share basemap / marker numbering / route colours. #27 removed the
+# client-side key; #37 removed the last server-side static-map surface.
+#
+# Loopback is our own headless PDF renderer (app/pdf.py). Nothing else can
+# reach the app on 127.0.0.1.
 _LOCAL = {"127.0.0.1", "::1", "localhost"}
 
 
@@ -324,59 +316,6 @@ def maps_route(
     # chip labelled "live" should not be quarter-hour-old.
     _route_cache[cache_key] = (now + _ROUTE_TTL, legs)
     return {"legs": legs}
-
-
-@app.get("/api/maps/static/{trip_param}")
-def maps_static(
-    request: Request,
-    trip_param: str,
-    places: str = Query(..., description="comma-separated place names"),
-    loop: int = Query(0, description="1 = close the loop back to the start"),
-    q: str | None = Query(None, description="geocode query — pins the map at the EXACT spot (hotel, not town)"),
-) -> Response:
-    """Static map proxy: real driving route (Directions API, key stays server-side)
-    rendered as an encoded polyline + numbered markers. Used by the booklet PDF.
-
-    Still the print path after #18 — replacing it with a MapLibre render is #37."""
-    _rate_limit(request, "static", 240)
-    trip = _trip_for_map(trip_param)
-    if not MAPS_KEY:
-        raise HTTPException(status_code=404, detail="Maps not configured")
-    resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
-    if len(resolved) < 1:
-        raise HTTPException(status_code=404, detail="No resolvable places")
-    # route color = trip theme (theme.primary is a hex like #1e3a8a → 0x1e3a8a)
-    path_color = "0x" + (trip.theme.primary or "1e3a8a").lstrip("#")
-    if len(resolved) == 1:
-        # single place (hotel / restaurant card thumbnail): centered pin map —
-        # geocoded to the EXACT spot when `q` is given, else the town centre
-        place = resolved[0]
-        if q:
-            hit = resolve_query(q, MAPS_KEY)
-            if hit:
-                name, _, _ = place
-                place = (name, hit[0], hit[1])
-        url = build_single_place_url(place, MAPS_KEY)
-    else:
-        # Primary: one combined route (origin→waypoints→dest; loop = origin==dest) —
-        # compact URL, renders fully with RAW pipes + enc LAST (verified). Fallback:
-        # per-leg paths (short calls, straight lines for non-drive legs) — also the
-        # future mixed-transport shape.
-        polyline = directions_polyline(resolved, MAPS_KEY, loop=bool(loop))
-        if polyline:
-            url = build_static_map_url(resolved, MAPS_KEY, polyline=polyline, loop=bool(loop), path_color=path_color)
-        else:
-            url = build_static_map_url_legs(resolved, MAPS_KEY, loop=bool(loop), path_color=path_color)
-    try:
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            body = resp.read()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Static map fetch failed: {exc}") from exc
-    return Response(
-        content=body,
-        media_type="image/png",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
 
 
 # Trip media (covers, gallery images) — referenced as /media/<trip>/<file>

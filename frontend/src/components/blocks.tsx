@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import { useTrip } from "./theme";
-import { TripMap, StaticMapImg } from "./MapView";
+import { MapView, TripMap } from "./MapView";
 import { findLocation } from "../lib/maps";
 import {
   BedDouble,
@@ -115,8 +115,7 @@ function mapsLink(b: Block) {
   };
 }
 
-/** Card media strip: an image, or a mini static map centered on `location`
- *  (pinned at the exact spot when `mapsQuery` is set). */
+/** Card media strip: an image, or a mini MapLibre map centered on `location`. */
 function CardMedia({ b }: { b: Block }) {
   const trip = useTrip();
   if (b.images?.length) {
@@ -134,7 +133,7 @@ function CardMedia({ b }: { b: Block }) {
     if (loc?.lat != null && loc.lng != null) {
       return (
         <div className="mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
-          <StaticMapImg places={[b.location]} query={b.mapsQuery} className="h-full w-full rounded-none border-0 object-cover" />
+          <MapView places={[b.location]} compact className="h-full w-full rounded-none border-0" />
         </div>
       );
     }
