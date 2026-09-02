@@ -45,8 +45,14 @@ function loadMapLibre() {
  * occlusion"). Extra on the left for the zoom chips, and on the bottom for the
  * attribution, which wraps to two lines at phone width — so a marker never
  * lands underneath either.
+ *
+ * Right/bottom also clear the marker's own extent: pins are 28px in a 44px hit
+ * target anchored at the coordinate, so a marker center needs >= ~24px from
+ * the container edge to render whole (44/2 + rounding) — 32px right was enough
+ * in theory and clipped in practice under rounded corners, so the padding is
+ * padded.
  */
-const CHROME_PADDING = { top: 34, right: 32, bottom: 48, left: 64 };
+const CHROME_PADDING = { top: 36, right: 44, bottom: 52, left: 64 };
 
 interface MapViewProps {
   places: string[];
@@ -231,6 +237,31 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         }
         if (cancelled || !map) return;
 
+        // Re-fit the camera AFTER load on the map's real, settled container.
+        // A fitBounds baked into the constructor options runs against whatever
+        // size the container had at construction — in the booklet PDF all maps
+        // mount eagerly and MapLibre may have measured a fallback 640×300
+        // before layout/fonts settled, leaving edge markers parked half under
+        // the chrome padding once the real width lands (#37).
+        const refit = (includeRoute: boolean) => {
+          const full = new lib.LngLatBounds();
+          located.forEach((l) => full.extend([l.lng!, l.lat!]));
+          if (includeRoute && legs) {
+            legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
+          }
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          // PDF (#37): never animate the camera — the renderer snapshots on
+          // `idle` shortly after, and a mid-flight fitBounds parks edge markers
+          // half-clipped at the container borders (seen on booklet pages 10/14:
+          // marker ③/⑤ cut by the right edge, route running off-frame).
+          map!.fitBounds(full, {
+            padding: CHROME_PADDING,
+            maxZoom: 12,
+            animate: !reduceMotion && !isPdfRender,
+            duration: 500,
+          });
+        };
+
         if (legs?.length) {
           map.addSource("route", {
             type: "geojson",
@@ -295,13 +326,14 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
           // Re-frame on the real geometry: a road route swings well outside the
           // straight line between two pins.
-          const full = new lib.LngLatBounds();
-          located.forEach((l) => full.extend([l.lng!, l.lat!]));
-          legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
-          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-          map.fitBounds(full, { padding: CHROME_PADDING, maxZoom: 12, animate: !reduceMotion, duration: 500 });
+          refit(true);
 
           if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
+        } else if (!single) {
+          // Multi-pin with no route geometry (route fetch failed or map source
+          // unconfigured): still re-fit on the settled container so markers
+          // stay clear of the chrome padding.
+          refit(false);
         }
 
         // Signal ready/idle for the PDF renderer (#37): the booklet waits for
@@ -315,10 +347,13 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           // Already idle (e.g. single-pin with no route fetch)
           // give raster tiles a frame to paint
           map.once("idle", markReady);
-          // Fallback: if already idle, MapLibre may not fire idle again
+          // Fallback: if already idle, MapLibre may not fire idle again. In PDF
+          // mode this must be generous — a route fitBounds above may still be
+          // settling and a 300ms shortcut snapshots a mid-flight camera
+          // (clipped edge markers, #37). Give the fit its full settle budget.
           setTimeout(() => {
             if (ref.current?.dataset.mapReady !== "true") markReady();
-          }, 300);
+          }, isPdfRender ? 1500 : 300);
         } else {
           map.once("idle", markReady);
           // Safety: never block the PDF forever on a stalled tile/DEM source
@@ -326,7 +361,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
             if (ref.current?.dataset.mapReady !== "true" && ref.current?.dataset.mapFailed !== "true") {
               markReady();
             }
-          }, 6000);
+          }, isPdfRender ? 9000 : 6000);
         }
       } catch {
         if (!cancelled) {
