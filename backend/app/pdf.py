@@ -10,6 +10,15 @@ caller's Auth0 access token into the page (localStorage, the exact
 protected trip and renders normally. Anonymous share-link visitors no longer
 get a PDF button at all.
 
+Auth bypass (#58): reproducing a full auth0-spa-js session in the headless
+browser (id-token entry, decoded user, is-authenticated cookie, refresh-token
+rotation…) is fragile — one subtle cache-shape mismatch makes ``isAuthenticated``
+stay false and the PDF captures the "Sign in to view this trip" gate. The
+endpoint is ALREADY protected (JWT + crew role), so the renderer sets
+``window.__KISEKI_PDF_RENDER__ = true`` before the app loads and the SPA skips
+its UI auth gate in that mode; the trip fetch still carries the caller's real
+access token (seeded in localStorage) and the backend still enforces the ACL.
+
 Browser resolution: try the configured PLAYWRIGHT_BROWSERS_PATH first, then
 the standard ~/.cache/ms-playwright location. Each candidate is verified by
 actually launching chromium with it, so a path pointing at a different
@@ -32,28 +41,21 @@ from app.config import AUTH0_AUDIENCE, AUTH0_CLIENT_ID
 # `@@auth0spajs@@::{clientId}::{audience}::{scope}` → {body, expiresAt}.
 _AUTH0_SCOPE = "openid profile email offline_access"
 
+# Set in the page before the SPA loads; TripLayout skips its isAuthenticated
+# gate when present (the backend has already enforced JWT + crew role).
+_PDF_RENDER_FLAG = "window.__KISEKI_PDF_RENDER__ = true;"
+
 
 def _auth0_cache_seed(access_token: str) -> str:
-    """Init script that seeds the SPA's auth0 session cache with a token.
+    """Init script that seeds the SPA's auth0 access-token cache entry.
 
-    The SDK needs BOTH entries to consider the session valid:
-    - the access-token entry (``@@auth0spajs@@::{clientId}::{audience}::{scope}``)
-      — returned by ``getAccessTokenSilently()``, so the protected trip fetch
-      carries the real caller token;
-    - the id-token entry at the **client-only** key (``@@auth0spajs@@::{clientId}::@@user@@``)
-      with its ``decodedToken`` — ``isAuthenticated``/``user`` read the DECODED
-      user from that key (the SDK re-verifies only at login, so a fabricated id
-      token is fine here).
-
-    Bug #58: previously the id-token was stored at ``base_key + '@@user@@'``
-    (the audience-scoped key), but auth0-spa-js v2's ``getIdTokenCacheKey``
-    produces the client-only key ``@@auth0spajs@@::{clientId}::@@user@@``.
-    The fallback on the access-token entry checks ``entryByScope.id_token``
-    which never exists, so ``getUser()``/``getIdToken()`` returned undefined
-    and ``isAuthenticated`` stayed false → the PDF captured the sign-in gate.
+    The access-token entry (``@@auth0spajs@@::{clientId}::{audience}::{scope}``)
+    is what ``getAccessTokenSilently()`` reads, so the protected trip fetch
+    carries the real caller token. Combined with ``__KISEKI_PDF_RENDER__`` the
+    SPA skips the ``isAuthenticated`` UI gate entirely (#58) — no fabricated
+    id-token entry needed.
     """
     base_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::{AUTH0_AUDIENCE}::{_AUTH0_SCOPE}"
-    id_token_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::@@user@@"
     now = "Math.floor(Date.now() / 1000)"
     access_entry = {
         "body": {
@@ -66,32 +68,10 @@ def _auth0_cache_seed(access_token: str) -> str:
         },
         "expiresAt": 0,  # replaced in-page
     }
-    fake_id_token = (
-        "eyJhbG...VCJ9."
-        "eyJzdW...pIn0."
-        "ZmFrZS1zaWduYXR1cmU"
-    )
-    # aud must be the CLIENT_ID (mirrors real ID tokens); the API resolves
-    # the caller's identity from the *access* token, not this entry.
-    id_entry = {
-        "id_token": fake_id_token,
-        "decodedToken": {
-            "claims": {
-                "sub": "crew",
-                "name": "Crew member",
-                "aud": AUTH0_CLIENT_ID,
-                "azp": AUTH0_CLIENT_ID,
-                "iss": "https://kiseki.invalid/",
-                "exp": 4_102_444_800,
-            },
-            "user": {"sub": "crew", "name": "Crew member"},
-        },
-    }
     return (
         "const cache = JSON.parse(localStorage.getItem('auth0.spa.js') || '{}');"
         f"cache[{json.dumps(base_key)}] = {json.dumps(access_entry)};"
         f"cache[{json.dumps(base_key)}].expiresAt = {now} + 3600;"
-        f"cache[{json.dumps(id_token_key)}] = {json.dumps(id_entry)};"
         "localStorage.setItem('auth0.spa.js', JSON.stringify(cache));"
     )
 
@@ -121,6 +101,11 @@ async def render_booklet_pdf(
                     if access_token:
                         # Crew render (id route): the booklet page loads the
                         # PROTECTED trip, so the page must appear signed in.
+                        # The endpoint has already enforced JWT + crew role,
+                        # so flag the render and let the SPA skip its UI auth
+                        # gate (#58); the trip fetch still uses the seeded
+                        # access token.
+                        await page.add_init_script(_PDF_RENDER_FLAG)
                         await page.add_init_script(_auth0_cache_seed(access_token))
                     # Print media BEFORE navigation, not just at page.pdf():
                     # the booklet's maps are `print:hidden` / `hidden
@@ -130,24 +115,13 @@ async def render_booklet_pdf(
                     # vector-tile traffic to hold `networkidle` open.
                     await page.emulate_media(media="print")
                     await page.goto(url, wait_until="networkidle", timeout=60_000)
-                    # Guard against capturing the transient "Sign in" screen
-                    # during the isAuthenticated === false → true flip. Wait
-                    # until auth0.spa.js is seeded AND the booklet cover is
-                    # mounted (data-testid=booklet-ready), falling back to the
-                    # auth-cache key that the seed script writes.
-                    if access_token:
-                        await page.wait_for_function(
-                            "localStorage.getItem('auth0.spa.js') !== null "
-                            "&& (document.querySelector('[data-testid=booklet-ready]') "
-                            "|| document.querySelector('.booklet-cover'))",
-                            timeout=30_000,
-                        )
-                    else:
-                        await page.wait_for_function(
-                            "document.querySelector('[data-testid=booklet-ready]') "
-                            "|| document.querySelector('.booklet-cover')",
-                            timeout=30_000,
-                        )
+                    # Wait for the actual booklet content instead of capturing
+                    # the transient loading/auth state.
+                    await page.wait_for_function(
+                        "document.querySelector('[data-testid=booklet-ready]') "
+                        "|| document.querySelector('.booklet-cover')",
+                        timeout=30_000,
+                    )
                     await page.pdf(path=str(out_path), prefer_css_page_size=True, print_background=True)
                 finally:
                     await browser.close()
