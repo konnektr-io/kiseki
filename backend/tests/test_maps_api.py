@@ -1,8 +1,9 @@
-"""Map proxy endpoints (#18/#27).
+"""Map proxy endpoints (#18/#27/#37).
 
-The point of these: after the MapLibre migration the browser never talks to
-Google, so `/api/maps/*` IS the API key. They pin the two properties that
-matter — the key endpoint is gone, and the proxies are bounded and scoped.
+After #37 the static-map proxy is gone — the booklet renders the SAME
+MapLibre map live via Playwright, so basemap/markers/routes are identical
+on screen and on paper. Only /api/maps/route (Directions → GeoJSON)
+remains; the key endpoint is gone and the proxies are bounded and scoped.
 """
 
 import pytest
@@ -49,6 +50,12 @@ def test_maps_key_endpoint_is_gone(trip_token: str) -> None:
     r = client.get("/api/maps/key")
     assert r.status_code == 404
     assert "AIza" not in r.text
+
+
+def test_static_endpoint_is_gone(trip_token: str) -> None:
+    """#37: the Google Static Maps proxy is deleted — booklet now renders MapLibre live."""
+    r = client.get(f"/api/maps/static/{trip_token}", params={"places": "A,B"})
+    assert r.status_code == 404
 
 
 def test_route_requires_a_valid_trip_token() -> None:
@@ -112,42 +119,6 @@ def test_route_is_rate_limited(monkeypatch, trip_token: str) -> None:
     assert r.status_code == 429
 
 
-def test_static_map_proxy_still_serves_the_booklet(monkeypatch, trip_token: str) -> None:
-    """The PDF path is untouched by #18 — replacing it is #37."""
-    trip = load_trips()[0]
-    names = [loc.name for loc in trip.locations if loc.lat is not None][:2]
-    if len(names) < 2:
-        pytest.skip("first trip has fewer than two located places")
-
-    seen: list[str] = []
-
-    class _Resp:
-        def read(self) -> bytes:
-            return b"\x89PNG\r\n\x1a\n"
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    def fake_urlopen(url, timeout=10):
-        seen.append(url)
-        return _Resp()
-
-    monkeypatch.setattr(main_mod, "MAPS_KEY", "secret-key-123")
-    monkeypatch.setattr(main_mod.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(main_mod, "directions_polyline", lambda *a, **k: None)
-
-    r = client.get(f"/api/maps/static/{trip_token}", params={"places": ",".join(names)})
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/png"
-    assert r.content.startswith(b"\x89PNG")
-    # the key goes to Google, never to the client
-    assert "key=secret-key-123" in seen[0]
-    assert b"secret-key-123" not in r.content
-
-
 # --- Addressing by $dtId (one graph read instead of two) ------------------
 
 
@@ -174,29 +145,6 @@ def test_route_accepts_the_trip_dtid(monkeypatch, trip_id: str) -> None:
     r = client.get(f"/api/maps/route/{trip_id}", params={"places": ",".join(names)})
     assert r.status_code == 200
     assert len(r.json()["legs"]) == 1
-
-
-def test_static_accepts_the_trip_dtid(monkeypatch, trip_id: str) -> None:
-    names = _two_places()
-    if len(names) < 2:
-        pytest.skip("first trip has fewer than two located places")
-
-    class _Resp:
-        def read(self) -> bytes:
-            return b"\x89PNG\r\n\x1a\n"
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-    monkeypatch.setattr(main_mod, "MAPS_KEY", "k")
-    monkeypatch.setattr(main_mod.urllib.request, "urlopen", lambda url, timeout=10: _Resp())
-    monkeypatch.setattr(main_mod, "directions_polyline", lambda *a, **k: None)
-    r = client.get(f"/api/maps/static/{trip_id}", params={"places": ",".join(names)})
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/png"
 
 
 def test_id_and_token_forms_share_one_route_cache_entry(monkeypatch, trip_id: str, trip_token: str) -> None:

@@ -452,9 +452,10 @@ content that exists nowhere else. If a candidate page is a filtered view of its 
 
 ## 8. Maps as a design surface
 
-**MapLibre GL JS v6** (`MapView`, #18) + a server-side Static Maps proxy for print. Moving off
-Google Maps JS was a design decision as much as a technical one: it's the only way the map gets the
-trip's identity — and it's what removed the API key from the browser (#27).
+**MapLibre GL JS v6** (`MapView`, #18) renders the same map on screen and on
+paper (#37). The Google Maps JS API is gone (#18) and the server-side Static
+Maps proxy is gone (#37) — the booklet PDF renders the live MapLibre map via
+Playwright+SwiftShader, so basemap / markers / route colours are identical.
 
 ### 8.1 What MapLibre buys us
 
@@ -520,7 +521,7 @@ idea.** Formalize it:
 - Attribution is a legal requirement and a design element — style it, don't hide it.
 - Every map surface has a **list equivalent** reachable by keyboard (§11). A WebGL canvas is not
   accessible; the list is the accessible path, not a fallback.
-- Loading: show the static-map image or a themed skeleton, never an empty grey box.
+- Loading: show a themed skeleton or a styled placeholder, never an empty grey box.
 
 ### 8.6 Elevation (#38)
 
@@ -631,7 +632,7 @@ The PDF is a product, not an export. It constrains the design system upstream.
 | Class | Print behaviour |
 |---|---|
 | Document | Renders in the booklet. Must be A4-safe: no `100vh`, no `position: fixed`, no horizontal scroll, `break-inside: avoid` on cards. |
-| Map | Replaced by a **static raster image** of the same view. Never ship an interactive map into print. |
+| Map | Renders live via the same MapLibre map as on screen (#37) — same basemap, marker numbering and route colours. The booklet is a faithful rendering of the app. |
 | Chrome | `no-print`. |
 
 Additional rules:

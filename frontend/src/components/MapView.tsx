@@ -10,7 +10,6 @@ import {
   hasWebGL2,
   locatedPlaces,
   markerNumber,
-  staticMapUrl,
 } from "../lib/maps";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -54,6 +53,8 @@ interface MapViewProps {
   loop?: boolean;
   className?: string;
   showLiveTime?: boolean;
+  /** Compact thumbnail (h-24) for block card media — single pin, minimal chrome. */
+  compact?: boolean;
 }
 
 /**
@@ -66,9 +67,11 @@ interface MapViewProps {
  * exclusive to the Google JS API, and keeping that API loaded is precisely what
  * kept the key visible in devtools.
  *
- * Hidden in print — the booklet uses StaticMapImg instead (see TripMap).
+ * One renderer for screen and print (#37): TripMap is now a thin wrapper
+ * around this component. The booklet PDF renders the SAME map live via
+ * Playwright+SwiftShader, so screen and paper share basemap/markers/routes.
  */
-export function MapView({ places, loop = false, className = "", showLiveTime = true }: MapViewProps) {
+export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false }: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
@@ -77,19 +80,27 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
   const [liveTime, setLiveTime] = useState<string | null>(null);
+  const [mapLoadFailed, setMapLoadFailed] = useState(false);
   // Every MapLibre map is a WebGL context and browsers cap those around 16, so
   // a map may not exist until it is actually on screen. A continuous itinerary
   // has one drive card per leg and the booklet renders EVERY day at once —
-  // mounting eagerly would exhaust the cap on both. It also keeps the print
-  // path clean: a `display:none` element never intersects, so the PDF creates
-  // no contexts and pulls no tiles (DESIGN.md §8.2).
-  const [onScreen, setOnScreen] = useState(typeof IntersectionObserver === "undefined");
+  // mounting eagerly would exhaust the cap on both.
+  // For the booklet PDF the render must be eager (#37): every map on the page
+  // has to mount even though most are below the fold, and `display:none` is no
+  // longer used. `window.__KISEKI_PDF_RENDER__` is set before the app loads
+  // (backend/app/pdf.py) so the observer is bypassed in that mode.
+  const isPdfRender =
+    typeof window !== "undefined" &&
+    (window as unknown as Record<string, unknown>).__KISEKI_PDF_RENDER__ === true;
+  const [onScreen, setOnScreen] = useState(
+    isPdfRender || typeof IntersectionObserver === "undefined"
+  );
   // `places` is built inline by callers, so its identity changes every render —
   // key the effect on the contents instead of the array.
   const placesKey = places.join("|");
 
   useEffect(() => {
-    if (onScreen || typeof IntersectionObserver === "undefined") return;
+    if (onScreen || isPdfRender || typeof IntersectionObserver === "undefined") return;
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver(
@@ -104,7 +115,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [onScreen]);
+  }, [onScreen, isPdfRender]);
 
   useEffect(() => {
     if (!webgl2 || !onScreen) return;
@@ -115,7 +126,11 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
     const located = places
       .map((p) => findLocation(trip, p))
       .filter((l): l is NonNullable<typeof l> => !!l && l.lat != null && l.lng != null);
-    if (located.length < 2) return;
+    if (located.length < 1) {
+      // No resolvable place — mark as failed so the PDF does not wait forever
+      if (ref.current) ref.current.dataset.mapFailed = "true";
+      return;
+    }
 
     (async () => {
       try {
@@ -127,47 +142,54 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // here is how every trip ended up drawing Canada-blue routes.
         const colors = mapColors(ref.current);
 
+        // Single-pin thumbnail (hotel/restaurant card) — centered, zoom 13 like
+        // the old Static Maps single-place proxy; multi-pin uses fitBounds.
+        const single = located.length === 1;
         const bounds = new lib.LngLatBounds();
         located.forEach((l) => bounds.extend([l.lng!, l.lat!]));
 
-        map = new lib.Map({
+        const mapOpts: ConstructorParameters<typeof lib.Map>[0] = {
           container: ref.current,
           style: MAP_STYLE_URL,
-          bounds,
-          fitBoundsOptions: { padding: CHROME_PADDING, maxZoom: 12 },
           attributionControl: { compact: true },
-        });
-        // Real <button>s with aria-labels; 28px visible inside a 44px target
-        // (index.css). Top-LEFT: top-right is the drive-time chip, and the
-        // whole bottom strip is attribution — which wraps to two lines on a
-        // phone-width map and would sit straight on top of the zoom-out
-        // button. Attribution is a legal requirement, so the controls move.
-        //
-        // The compass is the way BACK. Rotate and pitch are on by default, and
-        // now that a tilt actually extrudes terrain (#38) people will use them
-        // — leaving them stuck askew with no reset is not acceptable.
-        // `visualizePitch` is what makes clicking it call `resetNorthPitch`
-        // rather than only `resetNorth`, so one press undoes both.
-        map.addControl(
-          new lib.NavigationControl({ showCompass: true, visualizePitch: true }),
-          "top-left",
-        );
-
-        // ...but a third permanent chip on a 192px map is chrome nobody asked
-        // for, so the compass only appears once the map is off north or tilted
-        // (index.css keys off this class).
-        const syncOriented = () => {
-          if (!map || !ref.current) return;
-          ref.current.classList.toggle("map-oriented", map.getBearing() !== 0 || map.getPitch() !== 0);
         };
-        map.on("rotate", syncOriented);
-        map.on("pitch", syncOriented);
+        if (single) {
+          (mapOpts as Record<string, unknown>).center = [located[0].lng!, located[0].lat!];
+          (mapOpts as Record<string, unknown>).zoom = 13;
+        } else {
+          (mapOpts as Record<string, unknown>).bounds = bounds;
+          (mapOpts as Record<string, unknown>).fitBoundsOptions = { padding: CHROME_PADDING, maxZoom: 12 };
+        }
 
-        // Tiles or style unreachable → fall back to the static image rather
-        // than leaving an empty grey box (DESIGN.md §8.5). Only failures before
-        // first paint count; a single dropped tile later is not a dead map.
+        map = new lib.Map(mapOpts);
+        // Compact thumbnails don't need the full nav chrome — keep it for
+        // regular route maps.
+        if (!compact) {
+          map.addControl(
+            new lib.NavigationControl({ showCompass: true, visualizePitch: true }),
+            "top-left",
+          );
+
+          // ...but a third permanent chip on a 192px map is chrome nobody asked
+          // for, so the compass only appears once the map is off north or tilted
+          // (index.css keys off this class).
+          const syncOriented = () => {
+            if (!map || !ref.current) return;
+            ref.current.classList.toggle("map-oriented", map.getBearing() !== 0 || map.getPitch() !== 0);
+          };
+          map.on("rotate", syncOriented);
+          map.on("pitch", syncOriented);
+        }
+
+        // Tiles or style unreachable → show placeholder (DESIGN.md §8.5). For the
+        // booklet PDF the placeholder still exposes data-map-failed so pdf.py
+        // does not block forever waiting for idle.
         map.on("error", () => {
-          if (!cancelled && !map?.loaded()) setFailed(true);
+          if (!cancelled && !map?.loaded()) {
+            if (ref.current) ref.current.dataset.mapFailed = "true";
+            setMapLoadFailed(true);
+            setFailed(true);
+          }
         });
 
         located.forEach((l) => {
@@ -176,6 +198,8 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           // 44px hit target around a ~28px pin (DESIGN.md §8.3). Colours are
           // Tailwind utilities off --color-marker / --color-marker-fg, so the
           // pin is per-trip for free and no colour is written in JS at all.
+          // Compact thumbnails keep the same pin but the container is shorter —
+          // the hit target still applies for touch.
           el.className = "grid h-11 w-11 place-items-center";
           el.setAttribute("aria-hidden", "true");
           el.title = l.name;
@@ -187,13 +211,12 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           new lib.Marker({ element: el }).setLngLat([l.lng!, l.lat!]).addTo(map!);
         });
 
-        const loaded = new Promise<void>((resolve) => map!.once("load", () => resolve()));
-        const [, legs] = await Promise.all([
-          loaded,
-          fetchRouteLegs(trip, places, loop, abort.signal),
-        ]);
+        // Wait for style to load before adding sources/layers
+        await new Promise<void>((resolve) => {
+          if (map!.loaded()) resolve();
+          else map!.once("load", () => resolve());
+        });
         if (cancelled || !map) return;
-        setReady(true);
 
         // Elevation first, so the route and markers added below land ON TOP of
         // the hillshade rather than under it (#38). Deliberately not awaited
@@ -201,80 +224,115 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // exists to draw.
         void addTerrain(map, lib);
 
-        if (!legs?.length) return;
+        // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
+        let legs: Awaited<ReturnType<typeof fetchRouteLegs>> = null;
+        if (!single) {
+          legs = await fetchRouteLegs(trip, places, loop, abort.signal);
+        }
+        if (cancelled || !map) return;
 
-        map.addSource("route", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: legs.map((leg) => ({
-              type: "Feature" as const,
-              properties: { road: leg.road },
-              geometry: leg.geometry,
-            })),
-          },
-        });
-
-        // Draw the route UNDER the basemap's labels, so place names stay
-        // readable across it (DESIGN.md §8.5).
-        const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
-        const road: import("maplibre-gl").FilterSpecification = ["==", ["get", "road"], true];
-
-        // Every line twice: a wide casing under a narrower body, or the route
-        // vanishes over roads of a similar colour (DESIGN.md §8.4). This is the
-        // single highest-value cartographic trick available.
-        map.addLayer(
-          {
-            id: "route-casing",
-            type: "line",
-            source: "route",
-            filter: road,
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
-          },
-          firstSymbol,
-        );
-        map.addLayer(
-          {
-            id: "route-body",
-            type: "line",
-            source: "route",
-            filter: road,
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": colors.route, "line-width": 4 },
-          },
-          firstSymbol,
-        );
-        // A leg with no road route (a flight/ferry) keeps the route colour but
-        // goes dashed and dimmer — the trip's vocabulary for "not a road leg".
-        map.addLayer(
-          {
-            id: "route-nonroad",
-            type: "line",
-            source: "route",
-            filter: ["!", road],
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: {
-              "line-color": colors.route,
-              "line-width": 2.5,
-              "line-opacity": 0.5,
-              "line-dasharray": [2, 2.5],
+        if (legs?.length) {
+          map.addSource("route", {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: legs.map((leg) => ({
+                type: "Feature" as const,
+                properties: { road: leg.road },
+                geometry: leg.geometry,
+              })),
             },
-          },
-          firstSymbol,
-        );
+          });
 
-        // Re-frame on the real geometry: a road route swings well outside the
-        // straight line between two pins.
-        const full = new lib.LngLatBounds();
-        located.forEach((l) => full.extend([l.lng!, l.lat!]));
-        legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
-        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        map.fitBounds(full, { padding: CHROME_PADDING, maxZoom: 12, animate: !reduceMotion, duration: 500 });
+          // Draw the route UNDER the basemap's labels, so place names stay
+          // readable across it (DESIGN.md §8.5).
+          const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+          const road: import("maplibre-gl").FilterSpecification = ["==", ["get", "road"], true];
 
-        if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
+          // Every line twice: a wide casing under a narrower body, or the route
+          // vanishes over roads of a similar colour (DESIGN.md §8.4). This is the
+          // single highest-value cartographic trick available.
+          map.addLayer(
+            {
+              id: "route-casing",
+              type: "line",
+              source: "route",
+              filter: road,
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+            },
+            firstSymbol,
+          );
+          map.addLayer(
+            {
+              id: "route-body",
+              type: "line",
+              source: "route",
+              filter: road,
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: { "line-color": colors.route, "line-width": 4 },
+            },
+            firstSymbol,
+          );
+          // A leg with no road route (a flight/ferry) keeps the route colour but
+          // goes dashed and dimmer — the trip's vocabulary for "not a road leg".
+          map.addLayer(
+            {
+              id: "route-nonroad",
+              type: "line",
+              source: "route",
+              filter: ["!", road],
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: {
+                "line-color": colors.route,
+                "line-width": 2.5,
+                "line-opacity": 0.5,
+                "line-dasharray": [2, 2.5],
+              },
+            },
+            firstSymbol,
+          );
+
+          // Re-frame on the real geometry: a road route swings well outside the
+          // straight line between two pins.
+          const full = new lib.LngLatBounds();
+          located.forEach((l) => full.extend([l.lng!, l.lat!]));
+          legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          map.fitBounds(full, { padding: CHROME_PADDING, maxZoom: 12, animate: !reduceMotion, duration: 500 });
+
+          if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
+        }
+
+        // Signal ready/idle for the PDF renderer (#37): the booklet waits for
+        // every [data-maplibre] element to be ready or failed before printing.
+        // `load` is not enough — tiles are still in flight — so wait for `idle`.
+        const markReady = () => {
+          if (ref.current) ref.current.dataset.mapReady = "true";
+          setReady(true);
+        };
+        if (map.loaded() && map.areTilesLoaded() && map.isStyleLoaded()) {
+          // Already idle (e.g. single-pin with no route fetch)
+          // give raster tiles a frame to paint
+          map.once("idle", markReady);
+          // Fallback: if already idle, MapLibre may not fire idle again
+          setTimeout(() => {
+            if (ref.current?.dataset.mapReady !== "true") markReady();
+          }, 300);
+        } else {
+          map.once("idle", markReady);
+          // Safety: never block the PDF forever on a stalled tile/DEM source
+          setTimeout(() => {
+            if (ref.current?.dataset.mapReady !== "true" && ref.current?.dataset.mapFailed !== "true") {
+              markReady();
+            }
+          }, 6000);
+        }
       } catch {
-        if (!cancelled) setFailed(true);
+        if (!cancelled) {
+          if (ref.current) ref.current.dataset.mapFailed = "true";
+          setFailed(true);
+        }
       }
     })();
 
@@ -283,23 +341,34 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
       abort.abort();
       map?.remove();
     };
-  }, [trip, placesKey, loop, showLiveTime, webgl2, onScreen]);
+  }, [trip, placesKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
 
-  // No WebGL2, or the style/tiles never arrived: show the same view as a
-  // server-rendered image. Never a crash, never an empty grey box.
+  // No WebGL2 or tile/style load failure: placeholder so the page never has an
+  // empty grey box and the PDF waiter can resolve via data-map-failed.
   if (!webgl2 || failed) {
-    // Same box as the live map, so the page does not reflow into a different
-    // shape depending on whether WebGL and the tiles were available.
-    return <StaticMapImg places={places} loop={loop} className={`h-48 object-cover md:h-56 ${className}`} />;
+    return (
+      <div
+        data-maplibre
+        data-map-failed="true"
+        role="img"
+        aria-label={mapLoadFailed ? "Map failed to load" : "Map requires WebGL2"}
+        className={`grid h-48 w-full place-items-center rounded-lg border border-border bg-muted text-xs text-muted-foreground md:h-56 ${className}`}
+      >
+        {mapLoadFailed ? "Map unavailable" : "Map requires WebGL2"}
+      </div>
+    );
   }
 
+  // Single-pin thumbnails are shorter (h-24) and live inside a card's overflow-hidden wrapper
+  const heightClass = compact ? "h-24 w-full" : "h-48 w-full md:h-56";
   return (
     <div className={`relative ${className}`}>
       <div
         ref={ref}
+        data-maplibre
         role="img"
         aria-label={`Map of the route: ${places.join(" to ")}`}
-        className="h-48 w-full overflow-hidden rounded-lg border border-border md:h-56"
+        className={`${heightClass} overflow-hidden rounded-lg border border-border`}
       />
       {!ready && (
         // Themed skeleton while the style loads (DESIGN.md §8.5).
@@ -319,31 +388,22 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
   );
 }
 
-/** Static map image (server-proxied: real route + key-safe) — used in the booklet/print. */
-export function StaticMapImg({ places, loop = false, query, className = "" }: { places: string[]; loop?: boolean; query?: string; className?: string }) {
-  const trip = useTrip();
-  const url = staticMapUrl(trip, places, loop, query);
-  if (!url) return null;
-  return <img src={url} alt="Route map" className={`w-full rounded-lg border border-border ${className}`} />;
-}
-
 /**
- * One map, both worlds: MapLibre on screen (live drive time), static image in
- * print (real route). This split is the contract — any map component provides
- * both halves or it isn't done. Retiring the static half is #37.
+ * One map for every context — screen and booklet (#37).
+ *
+ * Before #37 this switched between MapLibre on screen and a Google Static
+ * Maps proxy in print (`print:hidden` / `hidden print:block`). That split is
+ * gone: the booklet now renders the SAME MapLibre map live via
+ * Playwright+SwiftShader, so basemap / markers / route colours are identical.
+ * This component is intentionally thin — it just validates there is something
+ * to show and forwards to MapView.
  */
 export function TripMap({ places, loop = false }: { places: string[]; loop?: boolean }) {
   const trip = useTrip();
   const all = locatedPlaces(trip);
-  if (all.length < 2) return null;
-  return (
-    <>
-      <div className="hidden print:block">
-        <StaticMapImg places={places} loop={loop} />
-      </div>
-      <div className="print:hidden">
-        <MapView places={places} loop={loop} />
-      </div>
-    </>
-  );
+  if (all.length < 1) return null;
+  // Route maps need at least one resolvable place in `places`; TripMap callers
+  // already pass the relevant subset (e.g. [from,to] for a leg, all for overview).
+  // We don't second-guess that here — MapView itself handles 1 vs 2+ places.
+  return <MapView places={places} loop={loop} />;
 }
