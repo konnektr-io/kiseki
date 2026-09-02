@@ -20,15 +20,24 @@ from app.graph.convert import _collapse_day_range, graph_to_trip
 
 SEED_DIR = Path(__file__).resolve().parent.parent / "data" / "seed"
 TRIPS_DIR = Path(__file__).resolve().parent.parent / "data" / "trips"
+MOCK_DIR = Path(__file__).resolve().parent.parent / "data" / "mocks"
 SLUGS = ["canada-2027", "chile-peru-2027", "japan-campervan-2028"]
 
 
 def _load_trip(slug: str) -> M.Trip:
-    return M.Trip.model_validate_json((TRIPS_DIR / slug / "trip.json").read_text(encoding="utf-8"))
+    p = TRIPS_DIR / slug / "trip.json"
+    if p.is_file():
+        return M.Trip.model_validate_json(p.read_text(encoding="utf-8"))
+    anon = MOCK_DIR / f"{slug}.graph.anon.json"
+    from app.graph.convert import graph_to_trip
+    return graph_to_trip(json.loads(anon.read_text(encoding="utf-8")))
 
 
 def _load_graph(slug: str) -> dict:
-    return json.loads((SEED_DIR / f"{slug}.graph.json").read_text(encoding="utf-8"))
+    p = SEED_DIR / f"{slug}.graph.json"
+    if p.is_file():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return json.loads((MOCK_DIR / f"{slug}.graph.anon.json").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("slug", SLUGS)

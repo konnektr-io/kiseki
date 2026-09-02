@@ -28,7 +28,8 @@ def test_trip_by_token() -> None:
     assert body["stage"] in {"idea", "options", "shortlist", "planned", "booked", "live", "archive"}
     # Media fields are stored as bare filenames but serialized as full
     # /media/<trip.$dtId>/<file> URLs — never slug-namespaced (#47 follow-up).
-    if t.cover:
+    # Anonymized fixtures redact media to /media/REDACTED — skip bare-name check there.
+    if t.cover and "REDACTED" not in t.cover:
         assert body["cover"] == f"/media/{t.id}/{t.cover}"
         assert "canada-2027" not in body["cover"]
 

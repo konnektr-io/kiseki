@@ -21,7 +21,7 @@ A private web app that renders "trip documents" — the travel booklets Niko and
 | Path | What |
 |---|---|
 | `backend/` | FastAPI (Python 3.13, uv). Serves the built React app from `app/static`, trip JSON from `data/trips/`, PDF via Playwright. **Single container.** |
-| `backend/data/trips/<slug>/trip.json` | **The content.** One file per trip. Edit these to update a trip. |
+| Konnektr Graph twins | **The content.** Trip/Day/Block/Person… twins + relationships. Live source of truth. |
 | `frontend/` | React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components via `class-variance-authority`). Read-only SPA. |
 | `deployments/docker/Dockerfile` | Multi-stage: node build → python runtime (+ Playwright chromium). |
 | `.github/workflows/build-image.yml` | Builds + pushes `ghcr.io/konnektr-io/kiseki` on main / tags / release. |
@@ -51,7 +51,7 @@ cd backend && uv run uvicorn app.main:app --port 8000
 
 ## Content update (deployed — no rebuild, no redeploy)
 
-1. Edit `backend/data/trips/<slug>/trip.json` in this repo, commit + push (the repo is the versioned source of truth).
+1. Patch the twin via the SDK/API (JSON Patch, #46) — `backend/data/trips/*/trip.json` is local scratch only (see `backend/data/trips/README.md`).
 2. Copy to the cluster PVC (per-file — `kubectl cp <dir>` nests like `cp -r`):
 
    ```bash
@@ -137,7 +137,7 @@ writeup; in short:
 
 ## Conventions / rules
 
-- **Content-first**: prefer editing `trip.json` over touching code. Code changes → image rebuild (tag → release → CI → home-k8s manifest bump). Content changes → PVC copy only.
+- **Content-first**: trip content lives in the graph (SDK PATCH, #46). The image contains only app code; a content change never rebuilds or redeploys. Local `trip.json` scratch is for authoring only.
 - **Tokens are secrets-in-effect**: private repo + private link. Never commit a token to a public place. Rotate by editing the field.
 - Dates ISO (`YYYY-MM-DD`); costs = number + currency code; links always `{label, url}`.
 - Markdown (GFM) allowed in `summary`, day `notes`, block `description`.
@@ -154,7 +154,7 @@ writeup; in short:
 - Auth0 tenant `dev-zv5urb33g0msy7bc.eu.auth0.com`, app client `jbMyX3scNHkECOF1lNJTOovXe8fOBmiq` (SPA; Refresh Token Rotation on).
 - Backend identity layer (issue #5): `backend/app/auth.py` — stateless RS256 JWT validation against the tenant JWKS (PyJWT; keys cached, re-fetched on rotation). `GET /api/auth/me` returns `sub` (+ profile claims if the token carries them); `get_current_user` / `get_current_user_optional` FastAPI dependencies for future endpoints. Trip endpoints stay anonymous (public-by-link). `AUTH0_AUDIENCE` env optional — without a custom API, tokens are issued for the client itself (aud = client id); with a tenant API, set it and `VITE_AUTH0_AUDIENCE` to match.
 - ACL enforcement (issue #5, `app/acl.py`): `GET /api/trips/<dashed-uuid>` is PROTECTED — valid Auth0 token + crew role (`hasCrew` edge, viewer+). `GET /api/trips/<token>` stays public-by-link. One route branches on the param SHAPE (Starlette's `:uuid` converter accepts compact dashless UUIDs, indistinguishable from share tokens — do NOT reintroduce it). Role matches ONLY the User twin whose `$dtId` IS the auth `sub` — **never name/email** (self-asserted claims are not credentials). Until a user claims their identity (issue #6), protected routes are 403.
-- **Public vs private trips (issue #13)** — no flag, the `token` IS the switch: a trip **with** a `token` is *public-by-link* (anyone with the URL can read it anonymously); a trip **without** one (`token: ""` in trip.json) is *private* — no share URL exists, so only crew can reach it (login + `hasCrew` role via the protected `/t/<id>` route; crew joins via the claim-token join link). `get_trip_by_token` can never match an empty token, and the anonymous route needs a non-empty path segment, so an empty token is a hard closure — no code needed. The booklet PDF is a **crew feature**: served via the protected `GET /api/trips/{id}/booklet.pdf` (works for private trips; the renderer seeds the caller's access token into the headless browser's auth0 session cache). To make a trip public/private later (write-path), set/clear `token` (and re-seed or `kubectl cp` the trip.json).
+- **Public vs private trips (#64)** — `visibility` on the Trip twin: `public` serves anonymously at `GET /api/trips/{id}`, `private` requires a crew `hasCrew` edge. Join links carry `claimToken` (copy of the trip's `claimToken`) to let a new user `follow` as `follower` or claim a `Person` placeholder. The graph is the only store; there is no `token` flag and no file fallback.
 - Placeholder→real-user migration (#6, `app/claims.py`): a **claim token** (separate secret, sibling of `token`) authorizes claiming a crew identity. `GET /join/<claimToken>` shows the trip + crew; `POST /api/claims {claimToken, personId}` creates the User twin (`$dtId` = auth sub) + transfers the `hasCrew` edge (same role/index) + **deletes the placeholder**. No name/email matching — the user picks the person explicitly.
   - **`claimToken` is NEVER included in trip documents** (any route) — it is only obtainable via the owner-only `GET /api/trips/{id}/join-link` (role `owner` required). The read link can never claim.
   - The protected id route reports the caller's `myRole`; the frontend shows an owner-only "Join link" button (copies the join URL).

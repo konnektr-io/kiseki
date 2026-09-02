@@ -42,6 +42,17 @@ backend/data/mocks/*.media-map.json
 # scratch space for the migrate_assets_to_s3.py pipeline, never committed.
 backend/data/assets/
 
+# Trip source of truth is the Konnektr Graph (P1). Committed trip.json +
+# seed fixtures are gone — the graph is the only store. Local authoring
+# uses git-ignored scratch files (see backend/data/trips/README.md);
+# production updates are PATCHes via the SDK/API (#46), not file reseeds.
+backend/data/trips/*/trip.json
+backend/data/seed/*.graph.json
+!backend/data/seed/.gitkeep
+!backend/data/trips/.gitkeep
+# keep the scratch dirs discoverable locally
+!backend/data/trips/*/  # allow the per-trip dirs to exist (for the .gitkeep pattern below is not needed)
+
 # Vendored agent skills (`npx skills add maplibre/maplibre-agent-skills`, #18).
 # skills-lock.json pins them, so the content is restorable and not worth
 # carrying in the repo; the kiseki-* skills under .claude/skills ARE ours.

@@ -66,12 +66,6 @@ def trip_by_claim_token(claim_token: str) -> Trip | None:
     """Resolve a trip from its claim token (join-link read, anonymous)."""
     client = get_graph_client()
     if client is None:
-        # Local-dev fallback: scan trip.json files when graph not wired
-        from .store import load_trips
-
-        for t in load_trips():
-            if t.claimToken and t.claimToken == claim_token:
-                return t
         return None
     trip_dtid = client.find_trip_dtid_by_claim_token(claim_token)
     if not trip_dtid:
@@ -142,15 +136,8 @@ def follow_via_claim(
     without creating a duplicate edge.
     """
     client = get_graph_client()
-    # Local-dev fallback: no graph — mutate via store not possible (no writes);
-    # just return the trip if claimToken matches (read-only dev mode).
     if client is None:
-        trip = trip_by_claim_token(claim_token)
-        if trip is None:
-            raise ClaimError(404, "Unknown join link")
-        # In local-dev we can't persist the follow, but we can pretend success
-        # so the UI flow is testable without a graph.
-        return trip
+        raise ClaimError(503, "Graph not configured")
     trip_dtid = client.find_trip_dtid_by_claim_token(claim_token)
     if not trip_dtid:
         raise ClaimError(404, "Unknown join link")
