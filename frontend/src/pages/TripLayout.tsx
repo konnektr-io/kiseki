@@ -108,7 +108,7 @@ export function TripLayout() {
             if (!cancelled) setError("auth-required");
             return;
           }
-          const at = await getAccessTokenSilently();
+          const at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
           const t = await fetchTrip(token, at);
           if (!cancelled) setTrip(t);
           return;
