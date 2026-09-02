@@ -24,8 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY backend/pyproject.toml ./
 COPY backend/app ./app
-# Trip data only — media lives in Garage (#47); assets/mocks never enter the image.
-COPY backend/data/trips ./data/trips
 RUN pip install --no-cache-dir . \
     && python -m playwright install --with-deps chromium \
     && rm -rf /root/.cache/pip
@@ -34,11 +32,9 @@ RUN pip install --no-cache-dir . \
 COPY --from=frontend /build/dist /app/app/static
 
 # Non-root user — numeric UID must match the k8s securityContext (runAsUser: 1001)
-RUN mkdir -p /data && adduser --disabled-password --uid 1001 --gecos "" appuser \
-    && chown -R appuser /app /data
+RUN adduser --disabled-password --uid 1001 --gecos "" appuser \
+    && chown -R appuser /app
 USER appuser
 
-# Trip data lives on a PVC; the baked-in copy seeds it on first boot only.
-ENV KISEKI_TRIPS_DIR=/data/trips
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

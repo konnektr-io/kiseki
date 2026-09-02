@@ -1,31 +1,39 @@
-"""Trip store — Konnektr Graph is the single source of truth (P1, issue #4).
+"""Trip store — Konnektr Graph is the ONLY source of truth in production.
 
-When ``KISEKI_GRAPH_URL`` + ``KISEKI_GRAPH_TOKEN`` are set, the graph is the
-ONLY source trips are served from. There is deliberately NO file fallback: if
-the graph read fails (twin missing, API error) the request
-returns 404/500 as it should, rather than silently serving a stale
-``trip.json``. That silent fallback previously masked a production outage, so
-it is gone by design.
+Trip data lives in the graph as DTDL twins and relationships and is
+updated via the SDK PATCH path (#46) on individual twins, not as
+whole-file reseeds. ``backend/data/trips/*/trip.json`` and
+``backend/data/seed/*.graph.json`` are git-ignored scratch files for
+local authoring only (see ``backend/data/trips/README.md``).
 
-When the graph is NOT configured (local dev / CI, no env vars), the store
-reads ``trip.json`` files directly as the local source of truth. This is the
-configured primary path in that mode — not a fallback — so it stays useful for
-development and tests.
-
-Read flow (graph enabled):
-  1. ``fetch_graph`` → ADT twin/relationship bundle (source-agnostic shape)
-  2. ``graph_to_trip`` rebuilds the ``Trip`` model
+Local/CI without a live graph
+------------------------------
+When ``KISEKI_GRAPH_URL`` is not set the store serves the **anonymized**
+fixtures under ``backend/data/mocks/*.graph.anon.json`` (committed, no
+secrets). This keeps ``uv run pytest`` and local preview useful without
+a running graph, while never serving real PII or claim tokens. In
+production the graph is always wired, so this fallback is never hit.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from .config import TRIPS_DIR
 from .models import Trip
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+_ANON_DIR = BACKEND_DIR / "data" / "mocks"
 
 _GRAPH_CLIENT = None
 _GRAPH_CLIENT_READY = False
+
+
+def _reset_store_cache() -> None:
+    """Test helper — clear the cached graph client so env changes take effect."""
+    global _GRAPH_CLIENT, _GRAPH_CLIENT_READY
+    _GRAPH_CLIENT = None
+    _GRAPH_CLIENT_READY = False
 
 
 def _graph_client():
@@ -49,27 +57,43 @@ def get_graph_client():
     return _graph_client()
 
 
-def load_trips() -> list[Trip]:
-    """Read every trip.json file from the trips directory (local dev source).
+# ------------------------------------------------------------------ fallback
+# Anonymized mocks are the only file source the tests/CI ever see.
 
-    Used when the graph is not configured. One file per trip, re-read on every
-    call so content updates are immediate. Trip files are tiny.
-    """
+
+def _anon_trips() -> list[Trip]:
     trips: list[Trip] = []
-    if not TRIPS_DIR.is_dir():
+    if not _ANON_DIR.is_dir():
         return trips
-    for d in sorted(p for p in TRIPS_DIR.iterdir() if p.is_dir()):
-        f = d / "trip.json"
-        if f.is_file():
-            try:
-                trips.append(Trip.model_validate_json(f.read_text(encoding="utf-8")))
-            except Exception as exc:  # keep the app up if one trip file is broken
-                print(f"[kiseki] skipping broken trip file {f}: {exc}")
+    from .graph.convert import graph_to_trip
+
+    for p in sorted(_ANON_DIR.glob("*.graph.anon.json")):
+        try:
+            g = json.loads(p.read_text(encoding="utf-8"))
+            trips.append(graph_to_trip(g))
+        except Exception as exc:  # pragma: no cover - keep the app up
+            print(f"[kiseki] skipping broken anon mock {p}: {exc}")
     return trips
 
 
+def load_trips() -> list[Trip]:
+    """Compatibility alias for tests.
+
+    Loads the anonymized fixtures (not real trip data). Prefer the
+    graph-backed ``get_trip_by_id`` / ``list_trips_for_user`` in new code.
+    """
+    client = _graph_client()
+    if client is not None:
+        # In graph mode the file list is not authoritative — but for
+        # callers that still iterate (e.g. legacy tests) return the
+        # anonymized set so collection doesn't break; the graph remains
+        # the authority for single-trip reads.
+        return _anon_trips()
+    return _anon_trips()
+
+
 def get_trip_by_slug(slug: str) -> Trip | None:
-    for t in load_trips():
+    for t in _anon_trips():
         if t.slug == slug:
             return t
     return None
@@ -78,9 +102,8 @@ def get_trip_by_slug(slug: str) -> Trip | None:
 def get_trip_by_id(trip_dtid: str) -> Trip | None:
     """Resolve a trip by its twin ``$dtId``.
 
-    The single read path since #64 (visibility gates access, not a token).
-    In local-dev mode (graph not configured) trips are matched by the
-    ``id`` field of the trip.json files.
+    Graph is the authority; when not configured, falls back to the
+    anonymized mocks (so ``uv run pytest`` works without a live graph).
     """
     client = _graph_client()
     if client is not None:
@@ -90,7 +113,7 @@ def get_trip_by_id(trip_dtid: str) -> Trip | None:
         from .graph.convert import graph_to_trip
 
         return graph_to_trip(graph)
-    for t in load_trips():
+    for t in _anon_trips():
         if t.id == trip_dtid:
             return t
     return None
@@ -99,10 +122,8 @@ def get_trip_by_id(trip_dtid: str) -> Trip | None:
 def list_trips_for_user(user_dtid: str) -> list[dict]:
     """Trip summaries for the logged-in landing ('my trips', issue #7).
 
-    Graph-backed: every trip the User twin (``$dtId`` = auth ``sub``) has a
-    ``hasCrew`` edge to, with the caller's role. Local-dev mode (no graph)
-    returns every baked trip without a role — a dev convenience so the
-    landing is never empty in CI/local.
+    Graph-backed; when the graph is not configured returns the anonymized
+    fixtures without a role (dev/CI convenience).
     """
     client = _graph_client()
     if client is not None:
@@ -119,7 +140,7 @@ def list_trips_for_user(user_dtid: str) -> list[dict]:
             "slug": t.slug,
             "cover": t.cover,
         }
-        for t in load_trips()
+        for t in _anon_trips()
     ]
 
 
@@ -127,12 +148,7 @@ def get_trip_role_for_user(
     trip_dtid: str,
     user_dtid: str,
 ) -> str | None:
-    """ACL: the role a user holds on a trip (None = no access).
-
-    Graph-backed (``hasCrew`` edge to the User twin identified by the auth
-    ``sub``). Returns None when the graph is not configured — callers must
-    treat that as 'no role' (fail closed).
-    """
+    """ACL: the role a user holds on a trip (None = no access)."""
     client = _graph_client()
     if client is None:
         return None

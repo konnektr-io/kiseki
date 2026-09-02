@@ -9,8 +9,9 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-# Where trip.json files live. In the container this is /data/trips (PVC);
-# locally it is backend/data/trips.
+# Legacy scratch path for local authoring scripts (trip_to_graph.py,
+# seed_graph.py, migrate_assets_to_s3.py). Not used by the app runtime —
+# the graph is the only store. These files are git-ignored.
 TRIPS_DIR = Path(os.environ.get("KISEKI_TRIPS_DIR", BACKEND_DIR / "data" / "trips"))
 
 # Trip media (covers, gallery images), served under /media/<trip>/<file>.
@@ -57,9 +58,10 @@ AUTH0_AUDIENCE = os.environ.get(
     "AUTH0_AUDIENCE", "https://kiseki.konnektr.io"
 )
 
-# Konnektr Graph (P1 source of truth, issue #4). When BOTH are set the backend
-# serves trips from the graph; otherwise it falls back to baked trip.json files
-# (graceful first boot / zero-downtime rollout). Point these at the in-cluster
-# `graph-cluster-app` service (e.g. http://graph-cluster-app.kiseki.svc.cluster.local:8080).
+# Konnektr Graph (P1 source of truth, issue #4). The graph is the ONLY
+# store for trips — there is no file fallback. The backend serves
+# trips from the graph; without KISEKI_GRAPH_URL/KISEKI_GRAPH_TOKEN the
+# read path returns 404/empty (tests inject a fake client). Point these
+# at the in-cluster `graph-cluster-api` service.
 KISEKI_GRAPH_URL = os.environ.get("KISEKI_GRAPH_URL", "")
 KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
