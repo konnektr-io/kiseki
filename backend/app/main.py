@@ -9,6 +9,7 @@ One process, one container:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import time
@@ -32,6 +33,10 @@ from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_trip_by_token, list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
+
+# One render at a time per trip (booklet.pdf). Two concurrent renders double
+# the SwiftShader/WebGL memory and the loser comes out with grey maps.
+_PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
 
 # Directions results, keyed on (token, places, loop) -> (expiry, legs). Every
 # map view would otherwise be one Google call per leg, on every mount.
@@ -184,7 +189,12 @@ async def booklet_pdf(
     ``trip_param`` for FastAPI to bind the dependency's path param), so it
     works for private trips too (no share token needed). The renderer's SPA
     page loads the PROTECTED trip, so the caller's access token is forwarded
-    to the headless browser (it seeds the page's auth0 session cache).
+    to the headless browser (injected as a page global by pdf.py).
+
+    A render takes ~40s of SwiftShader + up to 2GiB (15 live WebGL contexts),
+    so renders are single-flighted per trip: a second click while one render
+    is in flight waits for that render instead of racing it (two concurrent
+    renders OOM the pod, and the loser's maps come out grey).
     """
     trip = get_trip_by_id_store(trip_param.lower())
     if trip is None:
@@ -192,20 +202,25 @@ async def booklet_pdf(
     access_token = None
     if authorization and authorization.lower().startswith("bearer "):
         access_token = authorization.split(" ", 1)[1].strip() or None
-    fd, path = tempfile.mkstemp(suffix=".pdf")
-    os.close(fd)
-    base_url = f"http://127.0.0.1:{LISTEN_PORT}"
-    try:
-        await render_booklet_pdf(base_url, trip_param.lower(), Path(path), access_token=access_token)
-    except Exception as exc:
-        Path(path).unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"PDF rendering failed: {exc}") from exc
-    return FileResponse(
-        path,
-        media_type="application/pdf",
-        filename=f"{trip.slug}-booklet.pdf",
-        background=BackgroundTask(lambda: Path(path).unlink(missing_ok=True)),
-    )
+    render_key = trip_param.lower()
+    lock = _PDF_RENDER_LOCKS.setdefault(render_key, asyncio.Lock())
+    # Serialize: every waiter reuses the SAME finished file, so a double-click
+    # costs one render, not two — and never serves a half-written PDF.
+    async with lock:
+        fd, path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        base_url = f"http://127.0.0.1:{LISTEN_PORT}"
+        try:
+            await render_booklet_pdf(base_url, render_key, Path(path), access_token=access_token)
+        except Exception as exc:
+            Path(path).unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail=f"PDF rendering failed: {exc}") from exc
+        return FileResponse(
+            path,
+            media_type="application/pdf",
+            filename=f"{trip.slug}-booklet.pdf",
+            background=BackgroundTask(lambda: Path(path).unlink(missing_ok=True)),
+        )
 
 
 # --- Map proxy (#18/#27/#37) ------------------------------------------------

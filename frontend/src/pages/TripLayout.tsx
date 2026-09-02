@@ -108,6 +108,20 @@ export function TripLayout() {
             if (!cancelled) setError("auth-required");
             return;
           }
+          // In PDF-render mode the injected token is the ONLY path. Never
+          // fall through to getAccessTokenSilently() here: its Auth0 iframe
+          // flow cannot complete in the headless browser, and the render
+          // would hang until the backend's booklet-content timeout (seen
+          // live after #37: first click broken, second click mapless).
+          if (PDF_RENDER) {
+            if (!window.__KISEKI_ACCESS_TOKEN__) {
+              if (!cancelled) setError("no-access");
+              return;
+            }
+            const t = await fetchTrip(token, window.__KISEKI_ACCESS_TOKEN__);
+            if (!cancelled) setTrip(t);
+            return;
+          }
           const at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
           const t = await fetchTrip(token, at);
           if (!cancelled) setTrip(t);
