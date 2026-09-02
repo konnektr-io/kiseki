@@ -127,10 +127,23 @@ export function TripLayout() {
           if (!cancelled) setTrip(t);
           return;
         }
-        // Public trips are readable without auth (#64). Fetch anonymously
-        // first — the server returns 401/403 for private trips without
-        // sufficient access, and 404 for an unknown id.
-        const t = await fetchTrip(tripId);
+        // Signed in → send the token on the FIRST request. Trying anonymously
+        // first costs a 401 on every private-trip load before the retry, and
+        // on a PUBLIC trip it is worse than cosmetic: the anonymous read
+        // succeeds without `myRole`, so the owner-only affordances (the join
+        // link) never appear. A public trip ignores an unusable token, so
+        // there is no downside to always sending one we have.
+        let at: string | undefined;
+        if (isAuthenticated) {
+          try {
+            at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
+          } catch {
+            // Session expired or renewal blocked (third-party cookies). A
+            // public trip still reads anonymously; a private one falls through
+            // to the sign-in gate below, which is the right answer anyway.
+          }
+        }
+        const t = await fetchTrip(tripId, at);
         if (!cancelled) setTrip(t);
       } catch (e) {
         if (cancelled) return;
@@ -138,26 +151,11 @@ export function TripLayout() {
           setError(e instanceof Error ? e.message : "Failed to load trip");
           return;
         }
-        if (e.status === 404) {
-          setError("not-found");
-          return;
-        }
-        // Private trip (or insufficient role): retry authenticated. Anonymous
-        // viewers land on the sign-in gate; signed-in crew get their role.
-        if (!isAuthenticated) {
-          setError(e.status === 403 ? "no-access" : "auth-required");
-          return;
-        }
-        try {
-          const at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
-          const t = await fetchTrip(tripId, at);
-          if (!cancelled) setTrip(t);
-        } catch (e2) {
-          if (cancelled) return;
-          if (e2 instanceof TripAccessError && e2.status === 403) setError("no-access");
-          else if (e2 instanceof TripAccessError && e2.status === 404) setError("not-found");
-          else setError("auth-required");
-        }
+        // 401: no usable token (signed out, or renewal failed) → sign-in gate.
+        // 403: authenticated but not on this private trip's crew.
+        if (e.status === 404) setError("not-found");
+        else if (e.status === 403) setError("no-access");
+        else setError("auth-required");
       }
     })();
 
