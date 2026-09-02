@@ -47,15 +47,27 @@ _PDF_RENDER_FLAG = "window.__KISEKI_PDF_RENDER__ = true;"
 
 
 def _auth0_cache_seed(access_token: str) -> str:
-    """Init script that seeds the SPA's auth0 access-token cache entry.
+    """Init script that seeds the SPA's auth0 cache entries.
 
-    The access-token entry (``@@auth0spajs@@::{clientId}::{audience}::{scope}``)
-    is what ``getAccessTokenSilently()`` reads, so the protected trip fetch
-    carries the real caller token. Combined with ``__KISEKI_PDF_RENDER__`` the
-    SPA skips the ``isAuthenticated`` UI gate entirely (#58) — no fabricated
-    id-token entry needed.
+    Two entries are required for ``getAccessTokenSilently()`` to return the
+    seeded access token from cache (auth0-spa-js v2.24):
+
+    1. The access entry at ``@@auth0spajs@@::{clientId}::{audience}::{scope}``
+       — the ``CacheKey`` that ``cacheManager.get()`` reads.
+    2. A minimal id-token entry at the client-only key
+       ``@@auth0spajs@@::{clientId}::@@user@@``. ``_getEntryFromCache()`` calls
+       ``_getIdTokenFromCache()`` (which reads that key) and returns
+       ``cache && {…}`` — if the id-token lookup is empty the access entry is
+       rejected outright and the SDK falls through to the refresh-token path,
+       throwing "Missing Refresh Token". The value only needs a truthy
+       ``id_token``; nothing verifies it. (#58)
+
+    Combined with ``__KISEKI_PDF_RENDER__`` the SPA skips the
+    ``isAuthenticated`` UI gate entirely; the trip fetch still carries the
+    caller's real access token and the backend still enforces the ACL.
     """
     base_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::{AUTH0_AUDIENCE}::{_AUTH0_SCOPE}"
+    id_token_key = f"@@auth0spajs@@::{AUTH0_CLIENT_ID}::@@user@@"
     now = "Math.floor(Date.now() / 1000)"
     access_entry = {
         "body": {
@@ -68,10 +80,25 @@ def _auth0_cache_seed(access_token: str) -> str:
         },
         "expiresAt": 0,  # replaced in-page
     }
+    # Shape matches what auth0-spa-js stores for the id token: raw
+    # {id_token, decodedToken} at the client-only key (see user's real
+    # localStorage in #58). decodedToken must be an object (claims is read
+    # via optional chaining in _isSessionCeilingReached); the claims are
+    # intentionally minimal.
+    id_entry = {
+        "id_token": "kiseki-pdf-render",
+        "decodedToken": {
+            "claims": {
+                "sub": "kiseki-pdf-render",
+                "name": "Kiseki PDF render",
+            },
+        },
+    }
     return (
         "const cache = JSON.parse(localStorage.getItem('auth0.spa.js') || '{}');"
         f"cache[{json.dumps(base_key)}] = {json.dumps(access_entry)};"
         f"cache[{json.dumps(base_key)}].expiresAt = {now} + 3600;"
+        f"cache[{json.dumps(id_token_key)}] = {json.dumps(id_entry)};"
         "localStorage.setItem('auth0.spa.js', JSON.stringify(cache));"
     )
 
