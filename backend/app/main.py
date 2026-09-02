@@ -427,7 +427,7 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         )
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    def spa(full_path: str) -> Response:
+    def spa(full_path: str, request: Request) -> Response:
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
@@ -436,8 +436,22 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         headers = {}
         if is_trip:
             headers["X-Robots-Tag"] = "noindex, nofollow, noai, noimageai"
+        # PDF render (#58): the booklet.pdf endpoint already enforced JWT + crew
+        # role, so it forwards the caller's Bearer token on the loopback GET to
+        # this /t/<key>/booklet route. Strip it into a window global so the SPA
+        # can attach it to its own /api/* fetches — no Auth0 login required.
+        html = _TRIP_HTML if is_trip else _index_html
+        auth = request.headers.get("Authorization", "")
+        if is_trip and auth.lower().startswith("bearer "):
+            token = auth.split(" ", 1)[1].strip()
+            if token:
+                html = html.replace(
+                    "<title>",
+                    f'<script>window.__KISEKI_ACCESS_TOKEN__="{token}";</script><title>',
+                    1,
+                )
         return Response(
-            content=_TRIP_HTML if is_trip else _index_html,
+            content=html,
             media_type="text/html",
             headers=headers,
         )

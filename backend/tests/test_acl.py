@@ -324,43 +324,7 @@ def test_booklet_renders_with_role(
     assert captured["token"] == token
 
 
-# ------------------------------------------------------------- #58 auth cache seed
-
-
-def test_auth0_cache_seed_both_entries(monkeypatch) -> None:
-    """Bug #58: the seed must write TWO entries for getAccessTokenSilently().
-
-    1. The access entry at `@@auth0spajs@@::{clientId}::{audience}::{scope}`
-       — what cacheManager.get() reads.
-    2. A minimal id-token entry at the client-only key
-       `@@auth0spajs@@::{clientId}::@@user@@`. _getEntryFromCache() calls
-       _getIdTokenFromCache() (which reads that key) and returns
-       `cache && {...}` — if it's empty the access entry is rejected and the
-       SDK falls through to the refresh-token path, throwing
-       "Missing Refresh Token" (useRefreshTokens: true in the SPA).
-    """
-    import app.config as cfg
-    import app.pdf as pdf
-
-    monkeypatch.setattr(cfg, "AUTH0_CLIENT_ID", "test-client-123")
-    monkeypatch.setattr(cfg, "AUTH0_AUDIENCE", "https://kiseki.konnektr.io")
-    monkeypatch.setattr(pdf, "AUTH0_CLIENT_ID", "test-client-123")
-    monkeypatch.setattr(pdf, "AUTH0_AUDIENCE", "https://kiseki.konnektr.io")
-
-    script = pdf._auth0_cache_seed("fake-access-token")
-
-    expected_access_key = "@@auth0spajs@@::test-client-123::https://kiseki.konnektr.io::openid profile email offline_access"
-    expected_id_token_key = "@@auth0spajs@@::test-client-123::@@user@@"
-
-    # Access entry at the audience-scoped key, with the real token + 3600s expiry.
-    assert expected_access_key in script
-    assert '"access_token": "fake-access-token"' in script
-    assert "Math.floor(Date.now() / 1000) + 3600" in script
-
-    # Minimal id-token entry at the client-only key (truthy id_token suffices).
-    assert expected_id_token_key in script
-    assert '"id_token": "kiseki-pdf-render"' in script
-    assert '"decodedToken"' in script
+# ------------------------------------------------------------- #58 pdf render bypass
 
 
 def test_pdf_render_flag_constant() -> None:
@@ -369,6 +333,35 @@ def test_pdf_render_flag_constant() -> None:
 
     assert pdf._PDF_RENDER_FLAG == "window.__KISEKI_PDF_RENDER__ = true;"
     assert "__KISEKI_PDF_RENDER__" in pdf._PDF_RENDER_FLAG
+
+
+def test_pdf_module_has_no_auth0_seed(monkeypatch) -> None:
+    """Bug #58: the auth0 cache-seed approach was removed; the renderer no longer
+    imports AUTH0_CLIENT_ID/AUTH0_AUDIENCE or defines _auth0_cache_seed."""
+    import app.pdf as pdf
+
+    assert not hasattr(pdf, "_auth0_cache_seed")
+    assert not hasattr(pdf, "AUTH0_CLIENT_ID")
+    assert not hasattr(pdf, "AUTH0_AUDIENCE")
+    assert not hasattr(pdf, "_AUTH0_SCOPE")
+
+
+def test_spa_route_injects_access_token(client: TestClient) -> None:
+    """Bug #58: the /t/<key> catch-all injects the Bearer token from the
+    Authorization header as window.__KISEKI_ACCESS_TOKEN__ in the HTML shell,
+    so the SPA can attach it to API fetches without Auth0 login."""
+    # Requires the built SPA to be present (STATIC_DIR/index.html).
+    from app.config import STATIC_DIR
+    if not (STATIC_DIR / "index.html").is_file():
+        pytest.skip("built SPA not present (CI without frontend build)")
+
+    r = client.get("/t/test-123/booklet", headers={"Authorization": "Bearer eyJhbGciOi.eyJzdWIiOiJhYmMifQ.fake-sig"})
+    # 200 (HTML shell) — the trip route catch-all always serves the shell.
+    assert r.status_code == 200
+    assert "window.__KISEKI_ACCESS_TOKEN__" in r.text
+    assert "eyJhbGciOi" in r.text
+    # The token must be inside a <script>, not dangling in <title> plain text.
+    assert "<title>eyJ" not in r.text
 
 
 # ---------------------------------------------------------------- join link
