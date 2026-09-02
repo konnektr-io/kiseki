@@ -1,28 +1,31 @@
 """Trip media storage (issue #47) — Garage object storage with a local fallback.
 
 Media moved OUT of the repo into the S3-compatible Garage bucket (private,
-never exposed). The app keeps serving it under the same public path it always
-had — ``GET /media/<trip>/<file>`` — so ``trip.json``, the graph twins, the
-frontend and the PDF renderer never care where the bytes live. This module is
-the seam that hides the backend:
+never exposed). The app serves it at ``GET /media/<trip_id>/<file>``, where
+``trip_id`` is the trip's ``$dtId`` (the opaque GUID from ``trip.json``'s ``id``
+field) — NOT the repo-folder slug, which is organizational and can collide.
+The bucket layout mirrors the URL: ``media/<trip_id>/<file>``.
+
+The data model never stores a media *path*: media-bearing fields in
+``trip.json`` (and the graph twins seeded from it) hold **bare filenames**
+(e.g. ``c383ce57….jpg``). The URL prefix is a rendering concern — this module
+canonicalizes bare filenames (and any legacy ``/media/<slug>/…`` strings) into
+``/media/<trip_id>/<file>`` at API serialization time, so the frontend, the
+booklet PDF renderer and every other consumer only ever see full URLs and
+never care about the storage backend.
 
 * **S3MediaStore** (production): streams objects from the Garage bucket.
-  Bucket layout: ``media/<trip>/<file>`` (a ``media/`` prefix keeps the bucket
-  unambiguous next to future non-trip uses such as CNPG backups). Enabled when
-  every ``KISEKI_S3_*`` env var is set (see config.py).
-* **LocalMediaStore** (dev / tests / legacy checkouts): serves from
-  ``backend/data/assets/<trip>/<file>`` when the S3 env is absent and the
-  directory exists. Repo assets are gone; this only exists so an old checkout
-  or a tmp test fixture can still exercise the route without a bucket.
+  Enabled when every ``KISEKI_S3_*`` env var is set (see config.py).
+* **LocalMediaStore** (dev / tests): serves from ``backend/data/assets/`` when
+  the S3 env is absent and the directory exists — repo ships no assets, so this
+  only lights up for tmp test fixtures / legacy checkouts.
 
-Privacy (decision recorded on #47): object keys are UNGUESSABLE — each file is
+Privacy (decisions recorded on #47): object keys are UNGUESSABLE — each file is
 stored under ``<32 hex chars of its sha256>.<ext>``, NOT its original filename
-— and the bucket itself is private (only this proxy holds credentials), so a
-leaked slug-based URL 404s after migration. The proxy is the only reader; a
-future crew-level media ACL (#64) enforces at this same seam.
-
-Keys are content-addressed (sha256 prefix), which makes migration idempotent:
-re-running the upload for the same bytes writes the same key.
+— and the bucket itself is private (only this proxy holds credentials). The
+proxy is the only reader; a future crew-level media ACL (#64) enforces at this
+same seam. Keys are content-addressed (sha256 prefix), which makes migration
+idempotent: re-running the upload for the same bytes writes the same key.
 """
 
 from __future__ import annotations
@@ -49,13 +52,26 @@ MEDIA_TYPES = {
     ".svg": "image/svg+xml",
 }
 
-# Trip slugs (repo folder names): lowercase words/digits joined by dashes.
-_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+# Trip ids in media URLs are the trip's opaque $dtId (dashed UUID from
+# trip.json `id`) — the durable identity. The repo-folder slug is NOT a valid
+# media namespace (organizational; can collide).
+_TRIP_ID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 # Object file part: conservative ASCII whitelist. Covers both the migrated
 # 32-hex.<ext> keys and legacy dev filenames. Path separators never match, so
 # traversal is rejected structurally (Starlette decodes %2F into the param).
 _FILE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _FILE_MAX_LEN = 255
+
+# A bare media filename as stored in trip.json / graph twins (no path, no
+# scheme): name + a media extension. Content-addressed keys are 32-hex.<ext>;
+# human names (e.g. during an image edit before the migrator runs) also match.
+_BARE_FILE_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp|gif|avif|svg)$",
+    re.IGNORECASE,
+)
 
 # How many bytes per chunk when proxying an object (local or S3).
 _CHUNK = 64 * 1024
@@ -69,18 +85,76 @@ def media_content_type(file_name: str) -> str:
 def is_valid_media_path(trip: str, file_name: str) -> bool:
     """True when (trip, file) may address a stored object.
 
-    Both parts are whitelisted: ``trip`` is a slug shape, ``file_name`` is a
+    ``trip`` must be a dashed-UUID trip ``$dtId`` (not a slug), ``file_name`` a
     plain name with no separators. Anything else (``..``, encoded slashes,
     control chars, …) is rejected — the route answers 404 for it, never a
     filesystem or bucket lookup outside the trip's namespace.
     """
-    if not _SLUG_RE.match(trip):
+    if not _TRIP_ID_RE.match(trip):
         return False
     if not (1 <= len(file_name) <= _FILE_MAX_LEN):
         return False
     if file_name in (".", ".."):
         return False
     return bool(_FILE_RE.match(file_name))
+
+
+def canonicalize_media(value: str, trip_id: str) -> str:
+    """Turn one media-field value into the canonical public URL.
+
+    Accepts a bare filename (the data model), a legacy ``/media/<slug>/<file>``
+    path, or the canonical path itself; returns ``/media/<trip_id>/<file>``.
+    Non-media values (external http(s) URLs, plain strings) pass through
+    untouched, so the walker is safe to run over whole documents.
+    """
+    if not value or "://" in value:
+        return value
+    file_part: Optional[str] = None
+    if value.startswith("/media/"):
+        rest = value[len("/media/") :]
+        if "/" in rest:
+            _, file_part = rest.split("/", 1)
+    elif _BARE_FILE_RE.match(value):
+        file_part = value
+    if file_part is None or "/" in file_part or file_part in (".", ".."):
+        return value  # not a recognizable media reference — leave alone
+    return f"/media/{trip_id}/{file_part}"
+
+
+def resolve_media_urls(doc: dict | list, trip_id: str) -> dict | list:
+    """Canonicalize every media reference inside a serialized trip document.
+
+    Mutates and returns ``doc``. Walks the schema's media-bearing locations:
+    ``cover`` / ``map`` / ``image`` / ``images`` fields wherever they appear
+    (trip, day, feature, feature card, block), plus the ``items`` of a
+    ``gallery`` block. Only string values that look like media (bare filename
+    or an old ``/media/…`` path) are rewritten — external URLs and content
+    strings are left alone. ``trip_id`` is the trip's ``$dtId`` that namespaces
+    the URLs.
+    """
+    if isinstance(doc, dict):
+        is_gallery = doc.get("kind") == "gallery"
+        for key, value in list(doc.items()):
+            if key in ("cover", "map", "image"):
+                if isinstance(value, str):
+                    doc[key] = canonicalize_media(value, trip_id)
+            elif key == "images" and isinstance(value, list):
+                doc[key] = [
+                    canonicalize_media(v, trip_id) if isinstance(v, str) else v
+                    for v in value
+                ]
+            elif key == "items" and is_gallery and isinstance(value, list):
+                doc[key] = [
+                    canonicalize_media(v, trip_id) if isinstance(v, str) else v
+                    for v in value
+                ]
+            elif isinstance(value, (dict, list)):
+                resolve_media_urls(value, trip_id)
+    elif isinstance(doc, list):
+        for item in doc:
+            if isinstance(item, (dict, list)):
+                resolve_media_urls(item, trip_id)
+    return doc
 
 
 class MediaStore(Protocol):

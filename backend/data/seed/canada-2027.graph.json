@@ -102,8 +102,8 @@
       "title": "Selkirk Tangiers — 3-Day Classic · Bell 212",
       "description": "The package that makes the trip: three days of unlimited vertical in the Selkirk & Monashee mountains, out of town since 1978, with everything handled.\n\n**9,000 m guaranteed**, unlimited metres included — the Bell 212 takes up to 10 guests (2–3 groups per aircraft), so our group of 3 fits easily with room to spread out.\n\nSki days Sun–Tue (Feb 21–23), check-in Saturday Feb 20, **4 nights at the Coast Hillcrest Hotel, all meals included**. ACMG/IFMGA guides, powder ski & snowboard fleet, avalanche airbags + safety gear, Acera emergency medical cover.\n\n**Price: $8,469 CAD + 5% tax ≈ €5,880 pp** in the Feb window (Jan 31 – Mar 6 rate). Availability confirmed for our dates — 35% deposit secures.",
       "images": [
-        "/media/canada-2027/2fc0cb9a7ad32e6d24ff5fe7d6232924.jpg",
-        "/media/canada-2027/433a3d0408bea4e7a0af78cf2501dbdf.jpg"
+        "2fc0cb9a7ad32e6d24ff5fe7d6232924.jpg",
+        "433a3d0408bea4e7a0af78cf2501dbdf.jpg"
       ],
       "chips": [
         "Unlimited vertical",
@@ -136,7 +136,7 @@
           "title": "Banff Sunshine",
           "value": "1,070 m vertical",
           "description": "Highest ski area in western Canada — best early-season snow odds. First turns of the trip. Best runs: Delirium Dive (usually open by early Jan), Wild West bowls, Standish.",
-          "image": "/media/canada-2027/750fb8b81b25107fa3f00bf72e0aeb19.jpg",
+          "image": "750fb8b81b25107fa3f00bf72e0aeb19.jpg",
           "links": [
             {
               "label": "sunshinevillage.com →",
@@ -148,7 +148,7 @@
           "title": "Revelstoke",
           "value": "1,713 m vertical",
           "description": "Biggest lift-served vertical in North America. In town = instant access around the heli block. Best runs: North Bowl glades, Ripper chair steeps, Killer Bees.",
-          "image": "/media/canada-2027/4727f28c1e43529b24bea22cddc33e16.jpg",
+          "image": "4727f28c1e43529b24bea22cddc33e16.jpg",
           "links": [
             {
               "label": "revelstokemountainresort.com →",
@@ -160,7 +160,7 @@
           "title": "Kicking Horse",
           "value": "1,315 m vertical · #4 NA",
           "description": "Champagne powder, 120+ runs, 45% advanced / 15% expert.",
-          "image": "/media/canada-2027/84257423698b41e4f2458bb9fa485309.jpg",
+          "image": "84257423698b41e4f2458bb9fa485309.jpg",
           "links": [
             {
               "label": "kickinghorseresort.com →",
@@ -172,7 +172,7 @@
           "title": "Lake Louise",
           "value": "4,200 acres",
           "description": "Four mountain faces — one of the great views in skiing.",
-          "image": "/media/canada-2027/60687bb41838ed94d84ccd45743241a6.jpg",
+          "image": "60687bb41838ed94d84ccd45743241a6.jpg",
           "links": [
             {
               "label": "skilouise.com →",
@@ -191,7 +191,7 @@
       "kicker": "The road trip",
       "title": "One loop, ~847 km",
       "description": "Fly into Calgary, drive straight to Banff for first turns at Sunshine, then over Rogers Pass to Revelstoke for the heli block. On the way home: Kicking Horse → Lake Louise → Calgary. **One round-trip car rental, no backtracking.**",
-      "image": "/media/canada-2027/bc7dbbb86ad7a11bb62d8c1d00ce4a75.png",
+      "image": "bc7dbbb86ad7a11bb62d8c1d00ce4a75.png",
       "images": [],
       "chips": [
         "Total driving: ~847 km · ~9 h 15",
@@ -1239,9 +1239,9 @@
       "endDate": "2027-03-02",
       "token": "c059b7f53c5a922be63b5dfd703faba9",
       "claimToken": "2ba8db3168b3cde5b0babb891a497c50",
-      "cover": "/media/canada-2027/c383ce57efd5352cdca819c8dfdc99de.jpg",
+      "cover": "c383ce57efd5352cdca819c8dfdc99de.jpg",
       "coverCredit": "Selkirk Tangiers Heli Skiing",
-      "map": "/media/canada-2027/bc7dbbb86ad7a11bb62d8c1d00ce4a75.png",
+      "map": "bc7dbbb86ad7a11bb62d8c1d00ce4a75.png",
       "summary": "16 days, 3 riders (**Niko** — snowboard, **Nick Geelen**, **Stefan De Pauw** — skis), ~10.5–11 ski days across four big resorts **plus 3 heli days with Selkirk Tangiers**. The heli block (Feb 20–24, Coast Hillcrest) is the fixed anchor; everything else is a condition-chasing loop: Sunshine first (arrival-day resort, 2h from Calgary), then Revelstoke (biggest lift-served vertical in North America), the STHS heli, then Kicking Horse and Lake Louise.\n\n**Booked**: flights BRU↔YYC (€1,005.81 pp, booking 9GMOL3) · STHS 3-Day Classic deposit paid ($2,964.15 CAD, 35%) · group locked at 3 · family room confirmed.\n\n**Flex by design**: Day 3 is a *decide-on-the-hill* day, Day 10's KH afternoon is a skippable buffer, and Mar 1 flexes between a Lake Louise morning and a relaxed drive home. Heli down days (STHS averages 2–3/month) fall back to Revelstoke Mountain Resort.",
       "theme": {
         "primary": "#1e3a8a",

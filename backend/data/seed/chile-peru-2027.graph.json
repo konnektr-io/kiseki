@@ -190,7 +190,7 @@
       "location": "Santiago",
       "mapsQuery": "Cerro San Cristóbal Santiago teleférico",
       "images": [
-        "/media/chile-peru-2027/8a2e651701d60f412d3ac84cebccc426.jpg"
+        "8a2e651701d60f412d3ac84cebccc426.jpg"
       ]
     },
     {
@@ -351,7 +351,7 @@
       "location": "Valle Nevado",
       "mapsQuery": "Valle Nevado Chile",
       "images": [
-        "/media/chile-peru-2027/4a741698bb9be35fb17f04e51c559508.jpg"
+        "4a741698bb9be35fb17f04e51c559508.jpg"
       ]
     },
     {
@@ -431,7 +431,7 @@
       "items": [],
       "location": "Pisac",
       "images": [
-        "/media/chile-peru-2027/4cddad8f640b101907c448f0da20cd9a.jpg"
+        "4cddad8f640b101907c448f0da20cd9a.jpg"
       ]
     },
     {
@@ -452,7 +452,7 @@
       "items": [],
       "location": "Maras",
       "images": [
-        "/media/chile-peru-2027/d63e8f70ae7cc3a4491bb1e49db5bac8.jpg"
+        "d63e8f70ae7cc3a4491bb1e49db5bac8.jpg"
       ]
     },
     {
@@ -616,8 +616,8 @@
       "items": [],
       "mapsQuery": "Palcoyo Rainbow Mountain Peru",
       "images": [
-        "/media/chile-peru-2027/226188a326ccc812dc2c284a7e07f37b.jpg",
-        "/media/chile-peru-2027/ee2b12eb1752ea1718e12953b948f393.jpg"
+        "226188a326ccc812dc2c284a7e07f37b.jpg",
+        "ee2b12eb1752ea1718e12953b948f393.jpg"
       ]
     },
     {
@@ -781,7 +781,7 @@
       "endDate": "2027-08-02",
       "token": "a70e86ef1c1ba28cb196421186f2b6ab",
       "claimToken": "45711f531b9b1fbecd32c92c719931ed",
-      "cover": "/media/chile-peru-2027/26a4f2b4a46bc37fd9af63a7686a145b.jpg",
+      "cover": "26a4f2b4a46bc37fd9af63a7686a145b.jpg",
       "coverCredit": "Machu Picchu",
       "summary": "Family trip (Niko + **Henri** 17 + **Renée** 15) combining **3–4 ski days at Valle Nevado** (Chile) with the Peru spine: **Lima → Sacred Valley → Machu Picchu → Cusco**. July is the only month where both countries are simultaneously at their seasonal best — Chilean winter ski peak AND Peruvian dry-season hiking peak.\n\nThe linchpin: **LATAM flies Santiago → Cusco non-stop** (daily, ~2h30–3h30), so the two halves stitch together without backtracking through Lima. Bonus: 3–4 days above 3,000 m at Valle Nevado pre-acclimatises everyone for Cusco (3,400 m).\n\n**Stage: planned** — dates set (Sat Jul 17 → Mon Aug 2), nothing booked yet. Booking windows: international flights by Jan 2027, Valle Nevado by Mar 2027, Machu Picchu permits Jan–Feb 2027.",
       "theme": {

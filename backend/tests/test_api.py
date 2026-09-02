@@ -25,6 +25,11 @@ def test_trip_by_token() -> None:
     body = r.json()
     assert body["slug"] == t.slug
     assert body["stage"] in {"idea", "options", "shortlist", "planned", "booked", "live", "archive"}
+    # Media fields are stored as bare filenames but serialized as full
+    # /media/<trip.$dtId>/<file> URLs — never slug-namespaced (#47 follow-up).
+    if t.cover:
+        assert body["cover"] == f"/media/{t.id}/{t.cover}"
+        assert "canada-2027" not in body["cover"]
 
 
 def test_unknown_token_404() -> None:
