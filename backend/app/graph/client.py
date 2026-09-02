@@ -85,6 +85,36 @@ def _clear_graph_cache() -> None:
     with _GRAPH_CACHE_LOCK:
         _GRAPH_CACHE.clear()
 
+
+# The cached reads a crew write (claim #6 / follow #65) makes stale. Keyed on
+# ids, so retiring them is a subset match on the memoized args.
+_CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user"}
+
+
+def _invalidate_graph_cache(*, trip_dtid: str | None = None, user_dtid: str | None = None) -> None:
+    """Retire the cache entries a crew write changed — not the whole cache.
+
+    Needed because a write is immediately followed by a re-read: the caller
+    rebuilds the Trip to return it, and ``role_for_user_on_trip`` was usually
+    consulted (and its miss memoized) on the way in. Without this the re-read
+    is served the PRE-write graph for up to the TTL — the claim flow has been
+    returning a trip whose placeholder is still unclaimed for that reason.
+
+    Clearing everything instead would work and is what the follow path did, but
+    the TTL cache is the thing that keeps reads off the graph, so one person
+    joining a trip should not cost every other trip its cached document.
+    """
+    ids = {v for v in (trip_dtid, user_dtid) if v}
+    if not ids:
+        return
+    with _GRAPH_CACHE_LOCK:
+        stale = [
+            k for k in _GRAPH_CACHE
+            if k[0] in _CREW_CACHED_READS and ids & set(k[1])
+        ]
+        for k in stale:
+            del _GRAPH_CACHE[k]
+
 # Every node in the graph is a ``:Twin``; the kind is carried by the
 # ``$metadata.$model`` property (dtmi:kiseki:travel:<Kind>;1).
 TRIP_MODEL = "dtmi:kiseki:travel:Trip;1"
@@ -402,6 +432,7 @@ class GraphReadClient:
                 trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
             )
             self._client.delete_digital_twin(person_dtid)  # type: ignore[union-attr]
+            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
             return True
         except Exception as exc:
             print(f"[kiseki] graph claim transfer({person_dtid}) failed: {exc}")
@@ -425,15 +456,23 @@ class GraphReadClient:
         # Don't double-follow
         if self.role_for_user_on_trip(trip_dtid, user_dtid) is not None:
             return True
-        # Determine next crew index (append)
+        # Next crew index (display order). Read it FRESH — the TTL cache would
+        # hand back a pre-write crew list — and take max+1 rather than a count:
+        # a claim deletes a placeholder edge, so a count can collide with an
+        # index still in use. Two follows in the same instant can still pick the
+        # same slot; there is no transaction to hold here, and a shared display
+        # position is a cosmetic tie, not a correctness bug.
         try:
+            _invalidate_graph_cache(trip_dtid=trip_dtid)
             graph = self.fetch_graph(trip_dtid)
-            crew_count = 0
-            if graph:
-                for rel in graph.get("relationships", []):
-                    if rel.get("$sourceId") == trip_dtid and rel.get("$relationshipName") == "hasCrew":
-                        crew_count += 1
-            index = crew_count
+            used = [
+                rel.get("index")
+                for rel in (graph or {}).get("relationships", [])
+                if rel.get("$sourceId") == trip_dtid
+                and rel.get("$relationshipName") == "hasCrew"
+                and isinstance(rel.get("index"), int)
+            ]
+            index = max(used) + 1 if used else 0
             from konnektr_graph import BasicRelationship
 
             rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
@@ -448,9 +487,9 @@ class GraphReadClient:
                 }
             )
             self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
-            # Invalidate role cache for this user/trip (TTL cache would otherwise hold None)
-            with _GRAPH_CACHE_LOCK:
-                _GRAPH_CACHE.clear()
+            # The miss memoized by the double-follow check above, plus this
+            # trip's document and the user's trip list, are all stale now.
+            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
             return True
         except Exception as exc:
             print(f"[kiseki] graph follow({trip_dtid},{user_dtid}) failed: {exc}")

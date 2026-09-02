@@ -21,27 +21,12 @@ Read access = follower+; write endpoints (future) = editor+; invites = owner.
 
 from __future__ import annotations
 
-import re
-
 from fastapi import Header, HTTPException
 
 from .auth import get_current_user
 from .store import get_trip_by_id, get_trip_role_for_user
 
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
-
-_DASHED_UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
-
-
-def is_trip_id(param: str) -> bool:
-    """True when the path param looks like a trip $dtId (dashed UUID).
-
-    Kept for compatibility / validation: all trip routes now take a $dtId.
-    A non-UUID param is treated as "not a trip id" (caller gets 404).
-    """
-    return bool(_DASHED_UUID_RE.match(param or ""))
 
 
 def _role_ok(role: str | None, min_role: str) -> bool:

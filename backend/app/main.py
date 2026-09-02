@@ -22,7 +22,7 @@ from starlette.background import BackgroundTask
 
 from .acl import authorize_trip_path, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
-from .claims import ClaimError, claim_identity, trip_by_claim_token
+from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
 from .maps import resolve_places, route_legs
 from .media import (
@@ -176,8 +176,6 @@ def follow_claim(
     optionally (read already works anonymously). Idempotent if already
     on the crew — returns the trip without error.
     """
-    from .claims import follow_via_claim
-
     try:
         trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
     except ClaimError as exc:

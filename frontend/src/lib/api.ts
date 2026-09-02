@@ -5,10 +5,6 @@ import type { Trip, TripSummary } from "./types";
  * Trip $dtIds are opaque dashed UUIDs. Public trips are readable
  * anonymously; private trips require a valid token + follower+ crew role (#65).
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const isTripId = (param: string) => UUID_RE.test(param);
-
 export class TripAccessError extends Error {
   constructor(
     public status: number,

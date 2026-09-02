@@ -181,7 +181,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "endDate": base.get("endDate"),
             "timezone": base.get("timezone"),
             "visibility": base.get("visibility", "private"),
-            "claimToken": base.get("claimToken", ""),
+            "claimToken": base.get("claimToken") or None,
             "cover": base.get("cover"),
             "coverCredit": base.get("coverCredit"),
             "map": base.get("map"),

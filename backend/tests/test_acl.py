@@ -2,8 +2,8 @@
 
 Covers the graph role query (``role_for_user_on_trip``), the userinfo profile
 fetch, and the protected endpoint ``GET /api/trips/{trip_id}`` end to end:
-401 unauthenticated → 403 no role → 200 with role, with the public token route
-untouched.
+401 unauthenticated → 403 no role → 200 with role, alongside the anonymous
+public-visibility route.
 """
 
 from __future__ import annotations
@@ -214,10 +214,11 @@ def test_protected_forbidden_without_role(client: TestClient, rsa_keypair, role)
     assert r.status_code == 403
 
 
-def test_protected_forbidden_below_min_role(client: TestClient, rsa_keypair, role) -> None:
-    # follower is below viewer, but follower+ can now read private (#65) — so this should 200.
-    # To exercise 403 we need no role at all.
-    role(None)
+def test_protected_forbidden_for_unknown_role(client: TestClient, rsa_keypair, role) -> None:
+    """Every role now reads a private trip (follower is the floor, #65), so the
+    interesting 403 is a role the ladder doesn't know: it must rank as no
+    access, not fall through as truthy."""
+    role("spectator")
     token = _token_of(rsa_keypair)
     r = client.get(f"/api/trips/{_private_uuid()}", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
@@ -254,7 +255,7 @@ def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> No
     assert r.status_code == 404
 
 
-def test_public_token_route_still_anonymous(client: TestClient) -> None:
+def test_public_trip_is_anonymous(client: TestClient) -> None:
     trip = _public_trip()
     r = client.get(f"/api/trips/{trip.id}")
     assert r.status_code == 200
@@ -264,7 +265,7 @@ def test_public_token_route_still_anonymous(client: TestClient) -> None:
     assert "claimToken" not in body  # never leaked on the anonymous route
 
 
-def test_public_token_route_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
+def test_public_trip_ignores_bad_auth(client: TestClient, rsa_keypair) -> None:
     trip = _public_trip()
     bad = _sign(rsa_keypair, _claims(exp=int(time.time()) - 60))
     r = client.get(
