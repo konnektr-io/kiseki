@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
+import { isAuthConfigured } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -92,10 +93,21 @@ export function TripLayout() {
 
   usePageTitle(trip?.title ?? null);
 
+  // Auth0 reports isLoading=true until it has restored the session — and when
+  // auth is NOT configured `useAuth0` has no provider, so it returns the
+  // library's default context, where isLoading is true FOREVER. Both states
+  // have to be distinguished from "signed out", or a private trip decides the
+  // viewer has no access before Auth0 has answered, and an unconfigured
+  // deployment never leaves the loading screen at all.
+  const authReady = !isAuthConfigured() || !authLoading;
+
   useEffect(() => {
     let cancelled = false;
     setTrip(null);
     setError(null);
+    // Wait for auth: fetching now would 403 a private trip and render the
+    // access-denied screen for crew who are about to be signed in.
+    if (!authReady && !PDF_RENDER) return;
 
     (async () => {
       try {
@@ -152,7 +164,7 @@ export function TripLayout() {
     return () => {
       cancelled = true;
     };
-  }, [tripId, isAuthenticated, getAccessTokenSilently, navigate]);
+  }, [tripId, authReady, isAuthenticated, getAccessTokenSilently, navigate]);
 
   // Expose the app header's live height as --kiseki-header-h so sticky
   // section headers (itinerary) can dock exactly below it. Re-measured on
@@ -168,7 +180,7 @@ export function TripLayout() {
     return () => ro.disconnect();
   }, [trip]);
 
-  if (authLoading && !PDF_RENDER && !error) {
+  if (!authReady && !PDF_RENDER && !error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <p className="animate-pulse text-muted-foreground" role="status">
