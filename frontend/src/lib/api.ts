@@ -27,7 +27,12 @@ async function apiErrorMessage(res: Response): Promise<string> {
 }
 
 export async function fetchTrip(param: string, accessToken?: string): Promise<Trip> {
-  const cached = tripCache.get(param);
+  // The cache key carries whether the document was read with credentials: a
+  // public trip fetched anonymously comes back WITHOUT `myRole`, and serving
+  // that to a later authenticated read would strip the caller's role for the
+  // rest of the session (the owner-only join link keys off it).
+  const key = (id: string) => `${id}|${accessToken ? "auth" : "anon"}`;
+  const cached = tripCache.get(key(param));
   if (cached) return cached;
   const headers: Record<string, string> = {};
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -39,8 +44,8 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
   // Keep the trip in memory for the rest of the session: navigating between
   // trip pages (and back from the landing) must not re-fetch the same
   // document. A full page load clears it naturally.
-  tripCache.set(param, trip);
-  tripCache.set(trip.id, trip);
+  tripCache.set(key(param), trip);
+  tripCache.set(key(trip.id), trip);
   return trip;
 }
 
