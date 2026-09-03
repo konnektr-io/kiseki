@@ -3,7 +3,7 @@ import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
-import { isAuthConfigured } from "../lib/auth";
+import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -119,11 +119,12 @@ export function TripLayout() {
         // booklet-content timeout (seen live after #37: first click broken,
         // second click mapless).
         if (PDF_RENDER) {
-          if (!window.__KISEKI_ACCESS_TOKEN__) {
-            if (!cancelled) setError("no-access");
-            return;
-          }
-          const t = await fetchTrip(tripId, window.__KISEKI_ACCESS_TOKEN__);
+          // An EMPTY injected token is not "no access" — it means the caller
+          // was anonymous, which the backend only allows for PUBLIC trips
+          // (#64). Fetch anonymously so the booklet renders; erroring to the
+          // no-access screen made the renderer's booklet-content wait time
+          // out and the endpoint 500 for every anonymous public download.
+          const t = await fetchTrip(tripId, window.__KISEKI_ACCESS_TOKEN__ || undefined);
           if (!cancelled) setTrip(t);
           return;
         }
@@ -254,10 +255,27 @@ export function TripLayout() {
       // Public trips allow anonymous PDF download (#64); crew/followers send
       // their token for private trips. getAccessTokenSilently only when signed
       // in — an anonymous public viewer must not trip the Auth0 iframe flow.
-      const at = isAuthenticated ? await getAccessTokenSilently() : undefined;
+      // Token acquisition is best-effort: when the session renewal fails
+      // (expired refresh token — the #77 dead end), fall through to the
+      // anonymous path instead of a silent dead click; a public trip ignores
+      // an unusable token anyway.
+      let at: string | undefined;
+      if (isAuthenticated) {
+        try {
+          at = await getAccessTokenSilently();
+        } catch {
+          // renewal failed — try the anonymous path below
+        }
+      }
       await downloadBooklet(trip.id, at, `${trip.slug}-booklet.pdf`);
-    } catch {
-      // ignore — the backend 401/403/500 path is rare; keep the UI quiet
+    } catch (e) {
+      // A 401 on a trip that is ON SCREEN means the session died mid-visit
+      // (private trip — the anonymous fallback above cannot succeed): send
+      // the user to sign in rather than failing silently. 403/5xx stay quiet
+      // (rare; signing in again would not change them).
+      if (e instanceof TripAccessError && e.status === 401) {
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+      }
     } finally {
       setPdfBusy(false);
     }
@@ -271,6 +289,12 @@ export function TripLayout() {
       setJoinCopied(true);
       setTimeout(() => setJoinCopied(false), 2000);
     } catch (e) {
+      // Owner-only action: a session that can no longer be renewed must not
+      // fail silently — the button is the only way to reach the join link.
+      if (isSessionExpiredError(e)) {
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
       if (e instanceof TripAccessError && e.status === 403) setJoinCopied(false);
     }
   };
