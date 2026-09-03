@@ -6,7 +6,7 @@ import { AuthButton } from "../components/AuthButton";
 import { Button, StageBadge } from "../components/ui";
 import { fetchMyTrips } from "../lib/api";
 import { formatDate } from "../lib/dates";
-import { isAuthConfigured } from "../lib/auth";
+import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { usePageTitle } from "../lib/seo";
 import type { TripSummary } from "../lib/types";
 
@@ -120,10 +120,27 @@ function TripGridSkeleton() {
   );
 }
 
+/**
+ * A trip-list load failure. `expired` = the Auth0 session can't be resumed
+ * silently (refresh token expired/revoked and no SSO session behind it) — a
+ * dead end that no Retry fixes; the user must sign in again. `load` = any
+ * other (usually transient) failure, worth a manual retry.
+ */
+type TripsError = { kind: "expired" } | { kind: "load"; message: string };
+
 function AuthenticatedLanding() {
-  const { isLoading: authLoading, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const {
+    isLoading: authLoading,
+    isAuthenticated,
+    getAccessTokenSilently,
+    loginWithRedirect,
+  } = useAuth0();
   const [trips, setTrips] = useState<TripSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TripsError | null>(null);
+  // Bumped by the Retry button — the fetch effect depends on it, so a retry
+  // genuinely re-runs the load (previously Retry only cleared the error and
+  // the grid fell back to a skeleton that never resolved).
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,12 +157,21 @@ function AuthenticatedLanding() {
         if (!cancelled) setTrips(rows);
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load trips");
+        if (cancelled) return;
+        // A stored session that can no longer be renewed is not a load
+        // failure — showing "Missing Refresh Token (audience: …)" with a
+        // Retry that can never succeed is the bug. Route it to the sign-in
+        // CTA (sign-out + sign-in is what "fixed" it manually before).
+        setError(
+          isSessionExpiredError(e)
+            ? { kind: "expired" }
+            : { kind: "load", message: e instanceof Error ? e.message : "Failed to load trips" },
+        );
       });
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, getAccessTokenSilently]);
+  }, [isAuthenticated, getAccessTokenSilently, attempt]);
 
   if (authLoading) {
     return (
@@ -182,15 +208,49 @@ function AuthenticatedLanding() {
         </div>
 
         {error ? (
-          <div
-            role="alert"
-            className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
-          >
-            <p className="text-sm font-medium text-destructive">{error}</p>
-            <Button variant="outline" size="sm" onClick={() => setError(null)} className="mt-3 text-xs">
-              Retry
-            </Button>
-          </div>
+          error.kind === "expired" ? (
+            <div
+              role="alert"
+              className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
+            >
+              <p className="text-sm font-medium text-destructive">
+                Your session expired.
+              </p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+                Sign in again to reload your trips — this usually takes one
+                click.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  loginWithRedirect({
+                    appState: { returnTo: window.location.pathname },
+                  })
+                }
+                className="mt-3 text-xs"
+              >
+                Sign in again
+              </Button>
+            </div>
+          ) : (
+            <div
+              role="alert"
+              className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
+            >
+              <p className="text-sm font-medium text-destructive">
+                {error.message}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setAttempt((n) => n + 1)}
+                className="mt-3 text-xs"
+              >
+                Retry
+              </Button>
+            </div>
+          )
         ) : trips === null ? (
           <TripGridSkeleton />
         ) : trips.length === 0 ? (

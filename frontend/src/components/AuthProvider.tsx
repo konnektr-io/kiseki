@@ -18,6 +18,13 @@ interface AuthProviderProps {
  * - Configured: wraps the app in `Auth0Provider` (Authorization Code + PKCE,
  *   refresh-token rotation, session persisted in localStorage so reloads
  *   keep the session without silent-iframe renewal).
+ * - `useRefreshTokensFallback`: when the cached refresh token is missing or
+ *   has been rejected (expired / rotation chain revoked — a returning user
+ *   after an idle gap), the SDK first tries the silent `prompt=none` iframe
+ *   against the Auth0 session before failing. If that session is also gone
+ *   the SDK clears the dead local session and reports `login_required`, so
+ *   the app degrades to the signed-out state instead of dead-ending on
+ *   "Missing Refresh Token" (callers still route that to a sign-in CTA).
  * - Not configured: renders children as-is — the anonymous, secret-link
  *   experience keeps working with zero auth surface.
  */
@@ -45,6 +52,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         audience: AUTH0_AUDIENCE,
       }}
       useRefreshTokens
+      useRefreshTokensFallback
       cacheLocation="localstorage"
       onRedirectCallback={onRedirectCallback}
     >
