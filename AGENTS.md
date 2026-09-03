@@ -148,6 +148,7 @@ writeup; in short:
 ## Auth (Auth0 SPA — issue #5 groundwork)
 
 - `@auth0/auth0-react` — `Auth0Provider` wrapper lives in `frontend/src/components/AuthProvider.tsx`; config (domain + client ID) in `frontend/src/lib/auth.ts` with `VITE_AUTH0_*` env overrides. Domain/client ID are **public** (SPA, PKCE) — no secrets.
+- Provider options: `useRefreshTokens` (rotation) + `cacheLocation="localstorage"` + **`useRefreshTokensFallback`** — when a returning user's cached refresh token is missing/dead (expired or rotation chain revoked), the SDK first retries silently via the `prompt=none` iframe against the Auth0 SSO session, and clears the dead local session (→ signed-out hero) if that's gone too. Without the fallback the SDK dead-ends on `Missing Refresh Token (audience: …)`. Callers of `getAccessTokenSilently` that gate UI on success must route the unrecoverable codes (`missing_refresh_token`, `login_required`, `consent_required`, `interaction_required`, `invalid_grant` — see `isSessionExpiredError` in `lib/auth.ts`) to a "Sign in again" CTA, not a Retry.
 - Anonymous visitors keep the full secret-link experience: when unconfigured, the provider is a passthrough and `AuthButton` renders nothing.
 - Login/logout UI: `frontend/src/components/AuthButton.tsx` (on the landing page top-right).
 - **Dev port is pinned** (`strictPort: 5173`) — Auth0 callback URLs are origin-exact; a drifting Vite port breaks login with a callback mismatch. `http://localhost:5173` must be in the Auth0 app's Allowed Callback/Logout URLs + Web Origins.

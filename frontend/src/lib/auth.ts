@@ -25,3 +25,39 @@ export const AUTH0_AUDIENCE =
 
 /** True when both values are set — the app can actually authenticate. */
 export const isAuthConfigured = () => Boolean(AUTH0_DOMAIN && AUTH0_CLIENT_ID);
+
+/**
+ * OAuth error codes (auth0-spa-js throws these as `GenericError` subclasses,
+ * with the code on the `.error` property) that mean the STORED session can no
+ * longer be resumed silently — the user must sign in again interactively:
+ *
+ * - `missing_refresh_token` — no usable refresh token in the cache (expired
+ *   tokens are pruned from the localstorage cache; rotation chains can also be
+ *   revoked server-side after reuse detection).
+ * - `login_required` / `consent_required` / `interaction_required` — the
+ *   silent `prompt=none` iframe found no Auth0 session to resume.
+ * - `invalid_grant` — the token endpoint rejected the presented refresh token
+ *   (expired, or revoked by rotation reuse detection).
+ *
+ * Anything else (network failures, timeouts, 5xx) is transient and worth a
+ * manual retry; these are not — retrying loops forever until the user
+ * re-authenticates. Distinguished here so pages can route them to a
+ * "sign in again" CTA instead of showing the raw SDK message.
+ */
+const SESSION_EXPIRED_CODES = new Set([
+  "missing_refresh_token",
+  "login_required",
+  "consent_required",
+  "interaction_required",
+  "invalid_grant",
+]);
+
+interface AuthErrorLike {
+  error?: string;
+}
+
+export function isSessionExpiredError(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const { error } = e as AuthErrorLike;
+  return typeof error === "string" && SESSION_EXPIRED_CODES.has(error);
+}

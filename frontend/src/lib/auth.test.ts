@@ -1,0 +1,44 @@
+/**
+ * Session-expired error classification (#session-expiry).
+ *
+ * The Auth0 SDK rejects token renewal with `GenericError` subclasses whose
+ * code lives on `.error` (`missing_refresh_token`, `login_required`,
+ * `invalid_grant`, …). Those mean the stored session can never be resumed
+ * silently — no Retry will fix them, the user must sign in again. Everything
+ * else (network errors, timeouts, API failures) is transient. The landing
+ * page routes the former to its "Sign in again" CTA and the latter to a real
+ * Retry, so the classifier has to get the boundary right.
+ */
+
+import { describe, expect, it } from "vitest";
+
+import { isSessionExpiredError } from "./auth";
+
+describe("isSessionExpiredError", () => {
+  it("classifies missing_refresh_token (expired refresh token)", () => {
+    const err = new Error(
+      "Missing Refresh Token (audience: 'https://kiseki.konnektr.io', scope: 'openid profile email offline_access')",
+    ) as Error & { error?: string };
+    err.error = "missing_refresh_token";
+    expect(isSessionExpiredError(err)).toBe(true);
+  });
+
+  it("classifies login_required (silent iframe found no SSO session)", () => {
+    expect(isSessionExpiredError({ error: "login_required", error_description: "Login required" })).toBe(true);
+  });
+
+  it("classifies invalid_grant (refresh token rejected by the token endpoint)", () => {
+    expect(isSessionExpiredError({ error: "invalid_grant", error_description: "The refresh token is expired" })).toBe(true);
+  });
+
+  it("leaves transient failures alone", () => {
+    // Plain network error: no `.error` code at all.
+    expect(isSessionExpiredError(new TypeError("Failed to fetch"))).toBe(false);
+    // SDK timeout carries a non-session code.
+    expect(isSessionExpiredError({ error: "timeout", error_description: "Timeout" })).toBe(false);
+    // Server-side API failures surfaced by fetchTrip are not auth errors.
+    expect(isSessionExpiredError(null)).toBe(false);
+    expect(isSessionExpiredError("login_required")).toBe(false);
+    expect(isSessionExpiredError(undefined)).toBe(false);
+  });
+});
