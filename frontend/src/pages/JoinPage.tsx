@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, UserCheck } from "lucide-react";
 import { claimIdentity, fetchTripByClaim, followTrip, TripAccessError } from "../lib/api";
+import { isSessionExpiredError } from "../lib/auth";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
@@ -77,6 +78,15 @@ export function JoinPage() {
       // The protected id route now resolves (the User twin holds the role).
       navigate(`/t/${claimed.id}`, { replace: true });
     } catch (e) {
+      // A session that can no longer be renewed (expired/revoked refresh
+      // token — the #77 dead end) must not surface as raw SDK text: claiming
+      // needs a live token, so send the user to sign in. returnTo puts them
+      // back on this exact join link after the round trip.
+      if (isSessionExpiredError(e)) {
+        setClaiming(null);
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
       if (e instanceof TripAccessError && e.status === 409) {
         setClaimError("That crew identity is already linked to another account.");
       } else {
@@ -94,6 +104,12 @@ export function JoinPage() {
       const followed = await followTrip(claimToken, at);
       navigate(`/t/${followed.id}`, { replace: true });
     } catch (e) {
+      // Same dead-session rule as claiming: sign in again, land back here.
+      if (isSessionExpiredError(e)) {
+        setFollowing(false);
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
       setClaimError(e instanceof Error ? e.message : "Follow failed");
       setFollowing(false);
     }
