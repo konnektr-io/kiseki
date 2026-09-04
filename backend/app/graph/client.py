@@ -11,6 +11,7 @@ SDK directly:
     role_for_user_on_trip(...)      -> role | None                 (ACL, #5)
     create_user_twin(...)           -> bool   (claim flow, #6)
     claim_crew_person(...)          -> bool   (edge transfer + placeholder delete, #6)
+    update_twin_props(...)          -> None   (content writes, #46 — see below)
 
 ``fetch_graph`` always returns the SAME normalized shape as the committed
 ``data/seed/*.graph.json`` fixtures (produced by ``scripts/trip_to_graph.py``):
@@ -499,6 +500,7 @@ class GraphReadClient:
             print(f"[kiseki] graph follow({trip_dtid},{user_dtid}) failed: {exc}")
             return False
 
+
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
         """Map a [src, name, tgt, role, index, note] row into an ADT relationship.
@@ -572,3 +574,169 @@ class GraphReadClient:
                 merged["$metadata"] = node["$metadata"]
             return merged
         return node
+
+# ---------------------------------------------------------- content writes (#46)
+# The write-path service (``app/write.py``) mutates trip content through these
+# thin SDK ops. Every op:
+#   - validates ids defensively before touching the SDK,
+#   - forwards the caller's auth ``sub`` as ``x-user-id`` so the graph stamps
+#     ``$lastUpdatedBy`` server-side (chart has x-user-id enabled, #3) — the
+#     SDK accepts per-call ``headers``, so concurrent callers never bleed into
+#     each other's attribution,
+#   - retires this trip's cached reads on success (a write is immediately
+#     followed by a re-read of the document).
+# Errors raise ``GraphWriteError`` with an HTTP-ish status so the service can
+# map them precisely (404 unknown twin, 409 conflict, 503 graph failure) —
+# unlike the claim bool-returning ops above, content writes must not fail soft.
+
+
+class GraphWriteError(Exception):
+    """Raised when a graph content write fails; carries an HTTP status."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+class GraphWriteClient(GraphReadClient):
+    """Thin JSON-Patch/upsert surface for trip content writes (#46).
+
+    Reuses the read client's SDK wiring (same endpoint, same token, same
+    module-level cache — writes retire the entries they stale). Constructed
+    exactly like ``GraphReadClient``; ``is_enabled()`` is inherited.
+    """
+
+    _REL_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,128}__[A-Za-z0-9]{1,64}__[A-Za-z0-9|@._:-]{1,256}$")
+
+    # ------------------------------------------------------------- twin ops
+    def update_twin_props(
+        self,
+        trip_dtid: str,
+        dtid: str,
+        patch_ops: list[dict[str, Any]],
+        x_user_id: str | None = None,
+    ) -> None:
+        """Apply a JSON Patch to one twin's properties (content fields only).
+
+        ``patch_ops`` is the RFC 6902 list sent verbatim to the graph's
+        PATCH /digitaltwins/<id>. The service builds ops against the CURRENT
+        twin props (``add`` for missing properties, ``replace`` for existing,
+        ``remove`` for explicit clears), so this method never guesses.
+        """
+        self._guard_content(trip_dtid, dtid, x_user_id)
+        self._run(
+            lambda: self._client.update_digital_twin(  # type: ignore[union-attr]
+                dtid, patch_ops, headers={"x-user-id": x_user_id or ""}
+            ),
+            trip_dtid, f"twin patch {dtid}",
+        )
+
+    def upsert_twin(
+        self,
+        trip_dtid: str,
+        twin: dict[str, Any],
+        x_user_id: str | None = None,
+    ) -> None:
+        """PUT an ADT-shaped twin (create or full replace by ``$dtId``)."""
+        self._guard_content(trip_dtid, str(twin.get("$dtId") or ""), x_user_id)
+        self._run(
+            lambda: self._client.upsert_digital_twin(  # type: ignore[union-attr]
+                twin["$dtId"], self._as_basic_twin(twin),
+                headers={"x-user-id": x_user_id or ""},
+            ),
+            trip_dtid, f"twin upsert {twin.get('$dtId')}",
+        )
+
+    def delete_twin(self, trip_dtid: str, dtid: str, x_user_id: str | None = None) -> None:
+        """Delete a twin (and, server-side, its incident edges)."""
+        self._guard_content(trip_dtid, dtid, x_user_id)
+        self._run(
+            lambda: self._client.delete_digital_twin(  # type: ignore[union-attr]
+                dtid, headers={"x-user-id": x_user_id or ""}
+            ),
+            trip_dtid, f"twin delete {dtid}",
+        )
+
+    # -------------------------------------------------------- relationship ops
+    def upsert_relationship(
+        self,
+        trip_dtid: str,
+        rel: dict[str, Any],
+        x_user_id: str | None = None,
+    ) -> None:
+        """PUT an ADT relationship (``$relationshipId`` = ``<src>__<name>__<tgt>``)."""
+        self._guard_content(trip_dtid, str(rel.get("$sourceId") or ""), x_user_id)
+        self._run(
+            lambda: self._client.upsert_relationship(  # type: ignore[union-attr]
+                rel["$sourceId"], rel["$relationshipId"],
+                self._as_basic_relationship(rel),
+                headers={"x-user-id": x_user_id or ""},
+            ),
+            trip_dtid, f"relationship upsert {rel.get('$relationshipId')}",
+        )
+
+    def update_relationship_props(
+        self,
+        trip_dtid: str,
+        rel_id: str,
+        patch_ops: list[dict[str, Any]],
+        x_user_id: str | None = None,
+    ) -> None:
+        """Apply a JSON Patch to one relationship's properties (e.g. crew role/note)."""
+        self._guard_content(trip_dtid, trip_dtid, x_user_id)  # rel lives off trip
+        self._run(
+            lambda: self._client.update_relationship(  # type: ignore[union-attr]
+                trip_dtid, rel_id, patch_ops, headers={"x-user-id": x_user_id or ""}
+            ),
+            trip_dtid, f"relationship patch {rel_id}",
+        )
+
+    def delete_relationship(self, trip_dtid: str, rel_id: str, x_user_id: str | None = None) -> None:
+        """Delete a relationship by its ``<src>__<name>__<tgt>`` id."""
+        self._guard_content(trip_dtid, trip_dtid, x_user_id)
+        self._run(
+            lambda: self._client.delete_relationship(  # type: ignore[union-attr]
+                trip_dtid, rel_id, headers={"x-user-id": x_user_id or ""}
+            ),
+            trip_dtid, f"relationship delete {rel_id}",
+        )
+
+    # ---------------------------------------------------------------- helpers
+    def _guard_content(self, trip_dtid: str, dtid: str, x_user_id: str | None) -> None:
+        if not self.is_enabled():
+            raise GraphWriteError(503, "Graph not configured")
+        if not _DTID_RE.match(trip_dtid or "") or not _DTID_RE.match(dtid or ""):
+            raise GraphWriteError(422, f"Malformed twin id: {dtid!r}")
+        if x_user_id is not None and not _USER_RE.match(x_user_id):
+            raise GraphWriteError(422, "Malformed actor id")
+
+    def _run(self, fn: Callable, trip_dtid: str, what: str) -> None:
+        try:
+            fn()
+        except Exception as exc:
+            # SDK maps HTTP statuses to typed exceptions carrying status_code
+            # (404 ResourceNotFound, 409 ResourceExists, 401/403 auth, else
+            # HttpResponseError). A graph-auth failure is our problem, not the
+            # caller's: surface it as 503, never as a client 401/403.
+            status = getattr(exc, "status_code", None)
+            if status == 404:
+                raise GraphWriteError(404, f"Graph entity not found ({what})") from exc
+            if status == 409:
+                raise GraphWriteError(409, f"Graph conflict ({what})") from exc
+            print(f"[kiseki] graph write {what} failed: {exc}")
+            raise GraphWriteError(503, f"Graph write failed ({what})") from exc
+        _invalidate_graph_cache(trip_dtid=trip_dtid)
+
+    @staticmethod
+    def _as_basic_twin(twin: dict[str, Any]):
+        from konnektr_graph import BasicDigitalTwin
+
+        return BasicDigitalTwin.from_dict(twin)
+
+    @staticmethod
+    def _as_basic_relationship(rel: dict[str, Any]):
+        from konnektr_graph import BasicRelationship
+
+        return BasicRelationship.from_dict(rel)
+
