@@ -5,6 +5,7 @@ import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
 import { TodayPage } from "./pages/TodayPage";
 import { ItineraryPage } from "./pages/ItineraryPage";
+import { RouteMapPage } from "./pages/RouteMapPage";
 import { DayPage } from "./pages/DayPage";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
@@ -35,6 +36,9 @@ export default function App() {
         <Route index element={<TripHome />} />
         <Route path="today" element={<TodayPage />} />
         <Route path="itinerary" element={<ItineraryPage />} />
+        {/* The first MAP surface (#39) — a sibling of the document pages, not a
+            replacement for any of them. */}
+        <Route path="map" element={<RouteMapPage />} />
         <Route path="s/:n" element={<SectionRedirect />} />
         <Route path="day/:idx" element={<DayPage />} />
         <Route path="practical" element={<PracticalsPage />} />

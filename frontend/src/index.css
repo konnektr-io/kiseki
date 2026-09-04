@@ -320,6 +320,76 @@ h4 {
   @apply text-muted-foreground underline decoration-border underline-offset-2;
 }
 
+/* ---------- route surface (#39) ----------
+   The map pins are DOM elements, so selection is a class change and no colour
+   is ever written in JS. Dimmed, never hidden (DESIGN.md §8.3): a place that
+   is not the current focus still tells you the shape of the trip. */
+.route-pin-dot {
+  transition-property: transform, opacity;
+}
+.route-pin.is-selected .route-pin-dot {
+  transform: scale(1.15);
+  @apply outline-2 outline-offset-2 outline-accent;
+}
+.route-map-focused .route-pin:not(.is-selected) .route-pin-dot {
+  opacity: 0.45;
+}
+
+/* MapLibre's corner chrome vs. the surface's content (#39).
+
+   Attribution is a legal requirement and a design element — style it, never
+   hide it — and the zoom chips exist precisely for people who cannot pinch.
+   Both live in the map container's corners, which on a map surface is where
+   the sheet and the side panel are, so the corner rows are translated clear
+   of them (SplitView sets the two offsets).
+
+   Transform, not `bottom`/`left`: §10 allows transform and opacity only.
+
+   Hooked on a CLASS, not `[data-map-surface]`: Tailwind v4 reads a leading
+   attribute selector as one of its own candidates and drops the rule from the
+   output entirely — silently, with the source file still looking correct. */
+.map-surface .maplibregl-ctrl-top-left {
+  transform: translateX(var(--map-chrome-x, 0px));
+  transition: transform 200ms ease-out;
+}
+.map-surface .maplibregl-ctrl-bottom-left {
+  transform: translate(var(--map-chrome-x, 0px), calc(-1 * var(--map-chrome-y, 0px)));
+  transition: transform 200ms ease-out;
+}
+.map-surface .maplibregl-ctrl-bottom-right {
+  transform: translateY(calc(-1 * var(--map-chrome-y, 0px)));
+  transition: transform 200ms ease-out;
+}
+
+/* The sheet's drag handle is a full-width bar, so the default focus ring
+   draws a 390px rectangle across the top of the sheet. Ring the grab bar
+   itself instead — the same "chip inside the hit target" idea as the markers. */
+.sheet-handle:focus-visible {
+  outline: none;
+}
+.sheet-handle:focus-visible .sheet-grip {
+  @apply focus-ring;
+}
+
+/* At `full` the map is a ~60px strip: the zoom chips and the frame button have
+   nothing left to act on, and they collide with the attribution that just rode
+   up above the sheet. `visibility` rather than `opacity` so they leave the tab
+   order too — the handle and Escape are the way back. */
+.map-surface[data-sheet-detent="full"] .maplibregl-ctrl-top-left,
+.map-surface[data-sheet-detent="full"] .map-chip-btn {
+  visibility: hidden;
+}
+
+/* A small visible chip inside a transparent 44px hit target — the same trick
+   the markers and the MapLibre zoom controls use (§8.3, §11). The ring belongs
+   on the chip; on the invisible box it looks like a stray rectangle. */
+.map-chip-btn:focus-visible {
+  outline: none;
+}
+.map-chip-btn:focus-visible > :first-child {
+  @apply focus-ring;
+}
+
 /* ---------- booklet print (PDF) ---------- */
 .booklet-section {
   break-before: page;

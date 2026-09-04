@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
-import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTrip } from "./theme";
 import {
+  CHROME_PADDING,
   MAP_STYLE_URL,
   fetchRouteLegs,
   findLocation,
@@ -11,48 +11,10 @@ import {
   locatedPlaces,
   markerNumber,
 } from "../lib/maps";
+import { loadMapLibre } from "../lib/maplibre";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
-
-/**
- * MapLibre is loaded on demand, once per session.
- *
- * It is ~800 kB of WebGL renderer and most pages have no map on them, so it
- * stays out of the entry bundle — the same reason the Google JS API used to be
- * injected lazily. Vite code-splits the dynamic import automatically.
- *
- * `setWorkerUrl` is mandatory for bundled builds in v6 (the worker can no
- * longer find itself via `import.meta.url` inside a bundler's module graph),
- * and Vite needs `?worker&url` rather than plain `?url` — plain `?url` emits
- * the worker without its sibling `maplibre-gl-shared.mjs` and no tile ever
- * loads in production.
- */
-let libPromise: Promise<typeof import("maplibre-gl")> | null = null;
-function loadMapLibre() {
-  if (!libPromise) {
-    libPromise = import("maplibre-gl").then((lib) => {
-      lib.setWorkerUrl(workerUrl);
-      return lib;
-    });
-  }
-  return libPromise;
-}
-
-/**
- * Keep-out for the map's own chrome (kiseki-map-ux: "the map's usable viewport
- * is the part not covered by content — always pass padding matching the
- * occlusion"). Extra on the left for the zoom chips, and on the bottom for the
- * attribution, which wraps to two lines at phone width — so a marker never
- * lands underneath either.
- *
- * Right/bottom also clear the marker's own extent: pins are 28px in a 44px hit
- * target anchored at the coordinate, so a marker center needs >= ~24px from
- * the container edge to render whole (44/2 + rounding) — 32px right was enough
- * in theory and clipped in practice under rounded corners, so the padding is
- * padded.
- */
-const CHROME_PADDING = { top: 36, right: 44, bottom: 52, left: 64 };
 
 interface MapViewProps {
   places: string[];
