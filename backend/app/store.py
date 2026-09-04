@@ -43,9 +43,9 @@ def _graph_client():
         return _GRAPH_CLIENT
     _GRAPH_CLIENT_READY = True
     try:
-        from .graph.client import GraphReadClient
+        from .graph.client import GraphWriteClient
 
-        c = GraphReadClient()
+        c = GraphWriteClient()
         _GRAPH_CLIENT = c if c.is_enabled() else None
     except Exception:  # pragma: no cover - defensive
         _GRAPH_CLIENT = None
