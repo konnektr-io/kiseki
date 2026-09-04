@@ -210,7 +210,7 @@ class Person(BaseModel):
     id: str = Field(..., description="Opaque unique id (GUID), stored in trip.json. Used verbatim as the twin $dtId. (A logged-in User gets its own opaque $dtId = the global auth id; login transfers the hasCrew edges onto it.)")
     name: str = Field(..., description="Person's name (placeholder crew or real).")
     role: Role = Field(default="viewer", description="TRIP-RELATIVE crew role (owner|editor|viewer|follower). Carried on the hasCrew edge, not on this node.")
-    note: Optional[str] = Field(default=None, description="Free-text note about this person on this trip.")
+    note: Optional[str] = Field(default=None, description="TRIP-RELATIVE free-text note about this person on this trip (e.g. gear). Carried on the hasCrew edge, not on this node — the node is shared across trips after claim.")
     contact: Optional[str] = Field(default=None, description="Phone/email when available.")
 
 

@@ -572,13 +572,6 @@
       },
       {
         "@type": "Property",
-        "name": "note",
-        "schema": "string",
-        "writable": true,
-        "description": "Free-text note about this person on this trip."
-      },
-      {
-        "@type": "Property",
         "name": "contact",
         "schema": "string",
         "writable": true,
@@ -815,6 +808,13 @@
             "schema": "string",
             "writable": true,
             "description": "Trip-relative role of the crew member (e.g. owner | planner | guest). Carried on the edge, not on the person."
+          },
+          {
+            "@type": "Property",
+            "name": "note",
+            "schema": "string",
+            "writable": true,
+            "description": "Trip-relative note about the crew member on this trip (e.g. gear). Carried on the edge, not on the person — the Person/User node is shared across trips after claim."
           }
         ]
       },

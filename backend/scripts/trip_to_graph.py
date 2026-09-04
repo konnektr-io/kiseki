@@ -100,11 +100,13 @@ def _strip_rel_fields(model_name: str, data: dict) -> dict:
     for f in REL_FIELDS.get(model_name, set()):
         data.pop(f, None)
     data.pop("id", None)  # `id` maps to $dtId, not a graph property
-    # `role` is trip-relative and rides the `hasCrew` *edge* (declared there in
-    # DTDL), not the Person/User node — strip it from node props to avoid a
-    # "Property 'role' is not defined in the model" validation error.
+    # `role`/`note` are trip-relative and ride the `hasCrew` *edge* (declared
+    # there in DTDL), not the Person/User node — strip them from node props to
+    # avoid a "Property '...' is not defined in the model" validation error.
+    # (The node is shared across trips after claim; the edge belongs to the trip.)
     if model_name in ("Person", "User"):
         data.pop("role", None)
+        data.pop("note", None)
     return data
 
 
@@ -177,7 +179,7 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
             loc_ids[a] = lid
         twins.append(twin(lid, "Location", _strip_rel_fields("Location", loc.model_dump(by_alias=True))))
 
-    # --- crew (role is moved onto the hasCrew edge, not the Person twin) ------
+    # --- crew (role/note are moved onto the hasCrew edge, not the Person twin)
     person_ids: list[str] = []
     for i, p in enumerate(trip.crew):
         pid = p.id
@@ -185,6 +187,8 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
         twins.append(twin(pid, "Person", _strip_rel_fields("Person", p.model_dump(by_alias=True))))
         rel = relationship(_rel_id(tid, "hasCrew", pid), tid, "hasCrew", pid, index=i)
         rel["role"] = p.role  # trip-relative role rides on the edge
+        if p.note is not None:
+            rel["note"] = p.note  # trip-relative note rides on the edge
         rels.append(rel)
 
     # --- features / sections -------------------------------------------------

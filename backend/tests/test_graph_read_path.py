@@ -183,3 +183,24 @@ def test_client_uses_parameterized_queries(monkeypatch) -> None:
     # Token value must travel in the parameter binding, not the string.
     find_params = captured["calls"][0][1]
     assert find_params.get("claimToken") == "abc123"
+
+
+def test_rel_from_list_maps_note_and_tolerates_legacy_rows() -> None:
+    """_Q_RELS rows carry [src, name, tgt, role, index, note]; pre-note
+    5-element rows keep working (note simply absent)."""
+    full = graph_client_mod.GraphReadClient._rel_from_list(
+        ["t1", "hasCrew", "p1", "owner", 2, "Skis — Elan Playmaker 111"]
+    )
+    assert full == {
+        "$sourceId": "t1",
+        "$relationshipName": "hasCrew",
+        "$targetId": "p1",
+        "role": "owner",
+        "index": 2,
+        "note": "Skis — Elan Playmaker 111",
+    }
+    legacy = graph_client_mod.GraphReadClient._rel_from_list(
+        ["t1", "hasCrew", "p1", "owner", 2]
+    )
+    assert legacy["role"] == "owner" and legacy["index"] == 2
+    assert "note" not in legacy

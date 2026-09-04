@@ -44,12 +44,13 @@ both point at the same place node (by `name`/`alias`).
   plus `email`/`displayName`/`authProvider`. Because a real user's `$dtId` is
   their global auth id (**an opaque GUID, no prefix** — not the trip-scoped
   person id), login does NOT mutate the placeholder twin — it creates the `User`
-  twin and **transfers the `hasCrew` edges** (carrying `role`) onto it, then
-  drops the placeholder. No field copy; `role` survives.
-- **`role` is a `hasCrew` edge property** (trip-relative), NOT a `Person`
-  field — it is kept in `models.py` only as the trip.json data carrier; the
-  generator strips it from the `Person`/`User` DTDL and the converter moves it
-  to the edge.
+  twin and **transfers the `hasCrew` edges** (carrying `role` + `note`) onto
+  it, then drops the placeholder. No field copy; `role` and `note` survive.
+- **`role` + `note` are `hasCrew` edge properties** (trip-relative), NOT
+  `Person` fields — they are kept in `models.py` only as the trip.json data
+  carriers; the generator strips them from the `Person`/`User` DTDL and the
+  converter moves them to the edge. (The node is shared across trips after
+  claim; the edge belongs to the trip.)
 - **Inline value objects (no twin)** — `Link`, `Stat`, `Theme`, `MetaItem`,
   `TodoItem`, `FeatureCard`, `Contact`, `Practical`, `BlockItem`. They serialize
   as DTDL `Object`/inline `Array` schemas on the owning twin.
