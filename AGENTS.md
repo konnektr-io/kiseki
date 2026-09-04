@@ -20,9 +20,9 @@ A private web app that renders "trip documents" — the travel booklets Niko and
 
 | Path | What |
 |---|---|
-| `backend/` | FastAPI (Python 3.13, uv). Serves the built React app from `app/static`, trip JSON from `data/trips/`, PDF via Playwright. **Single container.** |
+| `backend/` | FastAPI (Python 3.13, uv). Serves the built React app from `app/static`, **trip documents from the Konnektr Graph** (write API since #46 — `trip.json`/PVC are migration-only), PDF via Playwright. **Single container.** |
 | Konnektr Graph twins | **The content.** Trip/Day/Block/Person… twins + relationships. Live source of truth. |
-| `frontend/` | React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components via `class-variance-authority`). Read-only SPA. |
+| `frontend/` | React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components via `class-variance-authority`). Read-only for viewers/followers; `editor+` get role-gated inline edit affordances (#46). |
 | `deployments/docker/Dockerfile` | Multi-stage: node build → python runtime (+ Playwright chromium). |
 | `.github/workflows/build-image.yml` | Builds + pushes `ghcr.io/konnektr-io/kiseki` on main / tags / release. |
 | `k8s/` | **Not in this repo** — deployment manifests live in the `home-k8s` repo under `konnektr/kiseki/`. |
@@ -205,6 +205,6 @@ writeup; in short:
 ## Notes for coding agents
 
 - Read `docs/spec.md` before large changes. Ask before changing the data model or adding dependencies.
-- Backend is small and boring on purpose. Frontend is **read-only by design** (P2 adds the manage UI).
+- Backend is small and boring on purpose. Frontend is read-only for `viewer`/`follower`/anonymous; `editor+` see inline write affordances (todo toggles, block edit/reorder/delete, section→day promote, stage, owner-only visibility) — **the server is always the enforcement point** (hiding a button is not access control; the ACL matrix is tested in `backend/tests/test_write_api.py`). Booklet/PDF output stays untouched (`no-print` chrome, no editable surfaces in the print route).
 - Do not add SSR, a state library, or a component framework to the frontend without checking in first.
 - Playwright browsers: the Docker image installs chromium (`--with-deps`); locally, `python -m playwright install chromium` if you need the PDF endpoint (optional — API tests skip it when browsers are missing).
