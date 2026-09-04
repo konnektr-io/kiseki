@@ -24,9 +24,30 @@ from __future__ import annotations
 from fastapi import Header, HTTPException
 
 from .auth import get_current_user
+from .config import KISEKI_AGENT_CLIENT_ID
 from .store import get_trip_by_id, get_trip_role_for_user
 
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
+
+
+def _agent_role(user: dict) -> str | None:
+    """Role for the sanctioned agent M2M client — owner, WITHOUT a graph twin.
+
+    Identity model (#46): the agent never appears in the graph. User-initiated
+    requests present the acting user's own token and resolve roles normally.
+    Only unattended changes with no linkable user use the M2M client token,
+    and only when its client id is explicitly sanctioned via
+    ``KISEKI_AGENT_CLIENT_ID``. Both ``azp`` and ``gty`` are issuer-asserted
+    (the token is signature-validated before this runs), so a spoofed header
+    cannot claim the role.
+    """
+    if not KISEKI_AGENT_CLIENT_ID:
+        return None
+    if user.get("azp") != KISEKI_AGENT_CLIENT_ID:
+        return None
+    if user.get("gty") != "client-credentials":
+        return None
+    return "owner"
 
 
 def _role_ok(role: str | None, min_role: str) -> bool:
@@ -55,7 +76,7 @@ def authorize_trip_path(
             try:
                 user = get_current_user(authorization)
                 role = get_trip_role_for_user(trip_id.lower(), user["sub"])
-                return role
+                return role or _agent_role(user)
             except HTTPException:
                 return None
         return None
@@ -68,7 +89,7 @@ def authorize_trip_path(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = get_current_user(authorization)  # validates; 401 on invalid
-    role = get_trip_role_for_user(trip_id.lower(), user["sub"])
+    role = get_trip_role_for_user(trip_id.lower(), user["sub"]) or _agent_role(user)
     if not _role_ok(role, "follower"):
         raise HTTPException(
             status_code=403,
@@ -102,7 +123,7 @@ def require_trip_role(min_role: str):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         user = get_current_user(authorization)  # validates; 401 on invalid
-        role = get_trip_role_for_user(trip_id.lower(), user["sub"])
+        role = get_trip_role_for_user(trip_id.lower(), user["sub"]) or _agent_role(user)
         if not _role_ok(role, min_role):
             raise HTTPException(
                 status_code=403,

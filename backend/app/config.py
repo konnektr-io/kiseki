@@ -65,3 +65,10 @@ AUTH0_AUDIENCE = os.environ.get(
 # at the in-cluster `graph-cluster-api` service.
 KISEKI_GRAPH_URL = os.environ.get("KISEKI_GRAPH_URL", "")
 KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
+
+# The sanctioned agent M2M client (issue #46 identity model). When set, a
+# client_credentials token from this client acts as an OWNER-level service
+# principal WITHOUT any graph twin (no User node, no hasCrew edge) — the
+# last-resort path for unattended agent changes that cannot be attributed to
+# a real user. User-initiated writes always use the acting user's own token.
+KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
