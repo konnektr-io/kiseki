@@ -79,13 +79,17 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
 <path> [--json '…'|--file -]`.
 
-**Identity model (#46)**: for user-initiated writes, present **the acting
-user's access token** — the agent has no identity of its own in the graph; ACL
-and `x-user-id` attribution follow the token's `sub` (today: Niko's; later:
-the UI chat forwards the user's frontend token). Unattended changes with no
-linkable user MAY present the sanctioned M2M client token instead — the
-backend recognizes that client (`KISEKI_AGENT_CLIENT_ID`) as an owner-level
-service principal without any graph twin (last resort, never the default).
+**Identity model (#46)**: the agent has no identity of its own in the graph.
+Three modes, in order of preference:
+1. **User's own token** (dedicated end-user profile / UI chat): present the
+   acting user's access token — ACL + `x-user-id` follow its `sub`.
+2. **Act-as (this Niko home profile only)**: the agent authenticates with the
+   sanctioned M2M client token and the backend resolves the actor as Niko
+   (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role, attribution = his
+   sub. No user token needed; never configured on the end-user profile.
+3. **Unattended fallback**: M2M token with no act-as → owner-level service
+   principal (`KISEKI_AGENT_CLIENT_ID`), last resort only.
+Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
 
 **Not the content path anymore**: `backend/data/trips/*/trip.json` (local
