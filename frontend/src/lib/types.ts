@@ -35,6 +35,7 @@ export interface TodoItem {
 }
 
 export interface Block {
+  id: string;
   kind: BlockKind;
   title?: string;
   time?: string;
@@ -106,6 +107,7 @@ export interface Contact {
 }
 
 export interface Day {
+  id: string;
   date: string; // ISO YYYY-MM-DD
   title: string;
   notes?: string;
@@ -122,6 +124,7 @@ export interface SectionFold {
 }
 
 export interface TripSection {
+  id: string;
   title: string;
   days: number[]; // inclusive [first,last] 0-based day indices this section groups
   locationRefs?: string[]; // location name/alias(es) this section covers

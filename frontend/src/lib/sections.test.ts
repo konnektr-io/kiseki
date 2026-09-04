@@ -34,10 +34,10 @@ describe("sectionRange", () => {
 
 describe("sectionIndexForDay", () => {
   const sections: TripSection[] = [
-    { title: "Banff", days: [0, 1] },
-    { title: "Revelstoke", days: [2, 4] },
-    { title: "The Heli Block", days: [5, 8] },
-    { title: "Flex & Fly Home", days: [9, 9] },
+    { id: "s-banff", title: "Banff", days: [0, 1] },
+    { id: "s-revelstoke", title: "Revelstoke", days: [2, 4] },
+    { id: "s-heli", title: "The Heli Block", days: [5, 8] },
+    { id: "s-flex", title: "Flex & Fly Home", days: [9, 9] },
   ];
 
   it("finds the section containing a day inside a range", () => {
@@ -62,7 +62,7 @@ describe("sectionIndexForDay", () => {
 
 describe("itineraryItems", () => {
   it("renders every day when no fold is declared", () => {
-    const s: TripSection = { title: "Revelstoke", days: [2, 4] };
+    const s: TripSection = { id: "s1", title: "Revelstoke", days: [2, 4] };
     expect(itineraryItems(s)).toEqual([
       { kind: "day", idx: 2 },
       { kind: "day", idx: 3 },
@@ -72,6 +72,7 @@ describe("itineraryItems", () => {
 
   it("folds a consecutive group into one card in place", () => {
     const s: TripSection = {
+      id: "s-heli",
       title: "The Heli Block",
       days: [5, 8],
       fold: [{ title: "Heli Days 1–3", days: [6, 7, 8] }],
@@ -84,6 +85,7 @@ describe("itineraryItems", () => {
 
   it("ignores a fold that is not consecutive or outside the section range", () => {
     const s: TripSection = {
+      id: "s-heli-bad",
       title: "The Heli Block",
       days: [5, 8],
       fold: [
@@ -102,6 +104,7 @@ describe("itineraryItems", () => {
 
   it("supports multiple folds and a leading single day", () => {
     const s: TripSection = {
+      id: "s-multi",
       title: "Multi",
       days: [0, 6],
       fold: [
@@ -119,6 +122,6 @@ describe("itineraryItems", () => {
   });
 
   it("returns [] for an empty section", () => {
-    expect(itineraryItems({ title: "Pool", days: [] })).toEqual([]);
+    expect(itineraryItems({ id: "s-pool", title: "Pool", days: [] })).toEqual([]);
   });
 });
