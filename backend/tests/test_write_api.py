@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app import acl as acl_module
 from app import auth as auth_module
 from app import store as store_mod
 from app.auth import Auth0JWTValidator
@@ -30,6 +31,7 @@ from conftest import CLIENT_ID, TENANT, _claims, _sign
 from fake_graph import FakeGraph
 
 SUB = "google-oauth2|1234567890"
+AGENT_CLIENT = "cyKpzLkq8J5LMFPfWYOioG8VzYsMgm8U"
 
 
 def _token_of(rsa_keypair, **overrides: object) -> str:
@@ -549,6 +551,124 @@ def test_add_and_remove_crew(client, rsa_keypair, graph) -> None:
     r = client.delete(f"{url}/{new_member['id']}", headers=_auth(token))
     assert r.status_code == 200
     assert all(c["name"] != "Stefan De Pauw" for c in r.json()["crew"])
+
+
+# ---------------------------------------------------------------- agent identity
+# The agent has NO identity in the graph (no User twin, no hasCrew edge).
+# User-initiated writes present the acting user's token. The sanctioned M2M
+# client (azp + gty=client-credentials == KISEKI_AGENT_CLIENT_ID) resolves to
+# an agent actor: with KISEKI_AGENT_ACT_AS it acts AS that user (their real
+# role, never widened — the Niko home-profile mode); without it, it is an
+# owner-level service principal (unattended fallback). Nothing is ever
+# provisioned in the graph.
+
+
+def _agent_token(rsa_keypair, azp=AGENT_CLIENT, gty="client-credentials", sub=None) -> str:
+    return _token_of(rsa_keypair, azp=azp, gty=gty, sub=sub or f"{azp}@clients")
+
+
+def _sanction(monkeypatch, act_as: str = "") -> None:
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", act_as)
+
+
+def test_agent_m2m_owner_fallback_without_twin(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unattended mode (no ACT_AS): the M2M token writes as owner even though
+    its sub has NO crew edge — and creates no graph identity doing so."""
+    _sanction(monkeypatch)
+    g = graph()  # only SUB (a human) has a crew edge — not the agent
+    trip = _trip_of(g)
+    twin_count = len(g.twins)
+    agent_sub = f"{AGENT_CLIENT}@clients"
+
+    r = _authz(client, "put", f"/api/trips/{trip.id}", _agent_token(rsa_keypair),
+               json={"stage": "live"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stage"] == "live"
+    assert body.get("myRole") == "owner"
+    # attribution carries the agent client sub, but no twin was ever created
+    assert any(h.get("x-user-id") == agent_sub for h in g.write_headers)
+    assert len(g.twins) == twin_count
+    assert all(t.get("$dtId") != agent_sub for t in g.twins)
+    assert all(c.get("id") != agent_sub for c in body["crew"])
+
+
+def test_agent_m2m_act_as_user(client, rsa_keypair, graph, monkeypatch) -> None:
+    """Niko-profile mode (ACT_AS = a real user): the M2M call acts AS that
+    user — ACL from their hasCrew edge, attribution = their sub, no agent
+    twin, and the agent has no more power than the user."""
+    _sanction(monkeypatch, act_as=SUB)
+    g = graph()  # SUB holds the owner edge
+    trip = _trip_of(g)
+    twin_count = len(g.twins)
+
+    r = _authz(client, "put", f"/api/trips/{trip.id}", _agent_token(rsa_keypair),
+               json={"stage": "live"})
+    assert r.status_code == 200
+    assert r.json().get("myRole") == "owner"
+    assert r.json()["stage"] == "live"
+    # attribution is the USER's sub, not the agent client's
+    assert any(h.get("x-user-id") == SUB for h in g.write_headers)
+    assert all(h.get("x-user-id") != f"{AGENT_CLIENT}@clients" for h in g.write_headers)
+    assert len(g.twins) == twin_count  # still nothing provisioned
+
+
+def test_agent_m2m_act_as_respects_user_role(client, rsa_keypair, graph, monkeypatch) -> None:
+    """Act-as grants exactly the mapped user's role — a viewer-mapped agent
+    cannot write, and a user with no access maps to no access."""
+    _sanction(monkeypatch, act_as=SUB)
+    g = graph(role="viewer")
+    trip = _trip_of(g)
+    r = _authz(client, "put", f"/api/trips/{trip.id}", _agent_token(rsa_keypair),
+               json={"stage": "live"})
+    assert r.status_code == 403
+    # mapped user has no edge at all → agent has no access either
+    _sanction(monkeypatch, act_as="google-oauth2|999")
+    r = _authz(client, "put", f"/api/trips/{trip.id}", _agent_token(rsa_keypair),
+               json={"stage": "live"})
+    assert r.status_code == 403
+
+
+def test_agent_m2m_reads_private_trip(client, rsa_keypair, graph, monkeypatch) -> None:
+    _sanction(monkeypatch)
+    g = graph()
+    trip = _trip_of(g)
+    g.set_twin_prop(trip.id, "visibility", "private")
+    r = client.get(f"/api/trips/{trip.id}", headers=_auth(_agent_token(rsa_keypair)))
+    assert r.status_code == 200
+    assert r.json().get("myRole") == "owner"
+
+
+def test_agent_m2m_requires_sanctioned_client(client, rsa_keypair, graph, monkeypatch) -> None:
+    _sanction(monkeypatch)
+    g = graph()
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}"
+
+    # A different M2M client is NOT privileged.
+    other = _agent_token(rsa_keypair, azp="some-other-client-123")
+    assert _authz(client, "put", url, other, json={"stage": "live"}).status_code == 403
+    # An interactive token for the agent client (no gty=client-credentials) is NOT.
+    interactive = _agent_token(rsa_keypair, gty="authorization_code")
+    assert _authz(client, "put", url, interactive, json={"stage": "live"}).status_code == 403
+    # Unsanctioned deployment (env unset): the M2M token is just another caller.
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", "")
+    assert _authz(client, "put", url, _agent_token(rsa_keypair),
+                  json={"stage": "live"}).status_code == 403
+
+
+def test_user_token_still_requires_crew_edge(client, rsa_keypair, graph, monkeypatch) -> None:
+    """Sanctioning the agent client never widens HUMAN tokens: a user without
+    a crew edge stays 403 even with the agent client configured."""
+    _sanction(monkeypatch)
+    g = graph()
+    trip = _trip_of(g)
+    nobody = _token_of(rsa_keypair, sub="google-oauth2|999", azp=CLIENT_ID)
+    assert _authz(client, "put", f"/api/trips/{trip.id}", nobody,
+                  json={"stage": "live"}).status_code == 403
 
 
 # ---------------------------------------------------------------- locations

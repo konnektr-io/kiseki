@@ -65,3 +65,14 @@ AUTH0_AUDIENCE = os.environ.get(
 # at the in-cluster `graph-cluster-api` service.
 KISEKI_GRAPH_URL = os.environ.get("KISEKI_GRAPH_URL", "")
 KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
+
+# The sanctioned agent M2M client (issue #46 identity model). When set, a
+# client_credentials token from this client resolves to an agent ACTOR:
+#   - with KISEKI_AGENT_ACT_AS set (this Niko profile only — never the
+#     dedicated end-user profile), the actor IS that user: ACL + x-user-id
+#     are the user's own (their real crew role, never widened);
+#   - without it, the actor is an OWNER-level service principal for
+#     unattended changes that cannot be linked to a user.
+# Either way NOTHING is provisioned in the graph — no User twin, no edge.
+KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
+KISEKI_AGENT_ACT_AS = os.environ.get("KISEKI_AGENT_ACT_AS", "")
