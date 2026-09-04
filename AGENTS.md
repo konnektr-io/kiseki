@@ -46,23 +46,57 @@ cd backend && uv run pytest
 pnpm --dir frontend build
 rm -rf backend/app/static && cp -r frontend/dist backend/app/static   # NOTE: replace, don't nest (cp -r src dst nests when dst exists!)
 cd backend && uv run uvicorn app.main:app --port 8000
-# → http://127.0.0.1:8000/t/<token>/  (token lives inside each backend/data/trips/<slug>/trip.json)
+# → http://127.0.0.1:8000/t/<trip-id>/  (trip ids live in the anon mocks / live graph)
 ```
 
 ## Content update (deployed — no rebuild, no redeploy)
 
-1. Patch the twin via the SDK/API (JSON Patch, #46) — `backend/data/trips/*/trip.json` is local scratch only (see `backend/data/trips/README.md`).
-2. Copy to the cluster PVC (per-file — `kubectl cp <dir>` nests like `cp -r`):
+Content lives in the **graph**; edit it through the **write API (#46)** —
+role-gated (`editor+` via the `hasCrew` edge; `owner` for `visibility`, crew
+roles, archive/backward stage), per-field JSON PATCH, `x-user-id` attribution.
+Every write returns the canonical trip document and retires the read cache, so
+the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 
-   ```bash
-   export KUBECONFIG=/opt/data/home/home-k8s/kubeconfig
-   POD=$(kubectl get pod -n kiseki -l app.kubernetes.io/name=kiseki -o jsonpath='{.items[0].metadata.name}')
-   for slug in canada-2027 chile-peru-2027 japan-campervan-2028; do
-     kubectl -n kiseki cp backend/data/trips/$slug/trip.json $POD:/data/trips/$slug/trip.json
-   done
-   ```
+| Method | Path | Notes |
+|---|---|---|
+| PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates; `visibility` owner-only |
+| PUT | `/api/trips/{trip_id}/practical` | whole practical object |
+| POST | `/api/trips/{trip_id}/practical/todos` | append todo |
+| POST | `/api/trips/{trip_id}/practical/todos/{i}/toggle` | per-item `{"done": bool}` |
+| PUT | `/api/trips/{trip_id}/days/{day_id}` | title/notes/meta/map (date immutable) |
+| PUT | `/api/trips/{trip_id}/sections/{section_id}` | title + `locationRefs` |
+| POST | `/api/trips/{trip_id}/blocks` | create — `container: {"type": "day"\|"section", "id"}` |
+| PUT | `/api/trips/{trip_id}/blocks/{block_id}` | edit fields (kind immutable; transport fields only on `transport`) |
+| DELETE | `/api/trips/{trip_id}/blocks/{block_id}` | |
+| POST | `/api/trips/{trip_id}/blocks/{block_id}/move` | promote/demote day ↔ section (§7.5) |
+| PUT | `/api/trips/{trip_id}/containers/{id}/block-order` | exact-set reorder `{block_ids: [...]}` |
+| PATCH | `/api/trips/{trip_id}/crew/{person_id}` | `note` editor+ · `role` owner |
+| POST | `/api/trips/{trip_id}/crew` | add placeholder person (they claim later) |
+| DELETE | `/api/trips/{trip_id}/crew/{person_id}` | owner-only |
+| PUT | `/api/trips/{trip_id}/locations` | replace registry (`locations: [...]`) |
 
-3. The pod seeds `/data/trips` from the image on first boot **only if empty**; afterwards `/data/trips` wins. No image rebuild, no pod restart.
+`order` is always server-managed (never send it); `claimToken` is never
+accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
+<path> [--json '…'|--file -]`.
+
+**Identity model (#46)**: the agent has no identity of its own in the graph.
+Three modes, in order of preference:
+1. **User's own token** (dedicated end-user profile / UI chat): present the
+   acting user's access token — ACL + `x-user-id` follow its `sub`.
+2. **Act-as (this Niko home profile only)**: the agent authenticates with the
+   sanctioned M2M client token and the backend resolves the actor as Niko
+   (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role, attribution = his
+   sub. No user token needed; never configured on the end-user profile.
+3. **Unattended fallback**: M2M token with no act-as → owner-level service
+   principal (`KISEKI_AGENT_CLIENT_ID`), last resort only.
+Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
+Audience for all tokens: `https://kiseki.konnektr.io`.
+
+**Not the content path anymore**: `backend/data/trips/*/trip.json` (local
+scratch), reseed scripts (`trip_to_graph.py`, `seed_graph.py`,
+`reseed_crew_safe.py`) and PVC copies are MIGRATION-ONLY tooling. Media
+(images) still goes through the Garage S3 pipeline (`migrate_assets_to_s3.py`)
+— the API accepts and returns bare filenames.
 
 ## Trip JSON schema
 
@@ -137,7 +171,7 @@ writeup; in short:
 
 ## Conventions / rules
 
-- **Content-first**: trip content lives in the graph (SDK PATCH, #46). The image contains only app code; a content change never rebuilds or redeploys. Local `trip.json` scratch is for authoring only.
+- **Content-first**: trip content lives in the graph and is edited through the write API (`backend/scripts/api_write.py`, #46). The image contains only app code; a content change never rebuilds or redeploys. Local `trip.json` scratch + reseed scripts are migration-only tooling.
 - **Tokens are secrets-in-effect**: private repo + private link. Never commit a token to a public place. Rotate by editing the field.
 - Dates ISO (`YYYY-MM-DD`); costs = number + currency code; links always `{label, url}`.
 - Markdown (GFM) allowed in `summary`, day `notes`, block `description`.
