@@ -119,9 +119,17 @@ def graph_to_trip(graph: dict) -> M.Trip:
 
     # ---- crew (role/note ride the hasCrew edge) --------------------------
     crew: list[M.Person] = []
-    for r in rels_by_src.get(root_id, []):
-        if r.get("$relationshipName") != "hasCrew":
-            continue
+    has_crew = [
+        r for r in rels_by_src.get(root_id, [])
+        if r.get("$relationshipName") == "hasCrew"
+    ]
+    # Crew display order is the edge's `index` (0 = first), same as
+    # days/blocks below. Never rely on AGE row order: an edge PATCH (e.g. the
+    # note migration or role edit) reorders relationship storage, which would
+    # otherwise shuffle the Crew page.
+    if any("index" in r for r in has_crew):
+        has_crew.sort(key=lambda r: r.get("index", 0))
+    for r in has_crew:
         t = twin_of(r.get("$targetId", ""))
         if not t:
             continue
