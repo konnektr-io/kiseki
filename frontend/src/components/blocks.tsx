@@ -21,6 +21,7 @@ import {
 import DOMPurify from "dompurify";
 import type { Block, BlockKind, BlockStatus } from "../lib/types";
 import { Markdown } from "../lib/markdown";
+import { EditableBlockList } from "./block-edit";
 
 /* ---------- shared bits ---------- */
 
@@ -405,8 +406,21 @@ function MealBlock({ b }: { b: Block }) {
   );
 }
 
-function TodoBlock({ b }: { b: Block }) {
+function TodoBlock({
+  b,
+  editable = false,
+  onToggleItem,
+}: {
+  b: Block;
+  editable?: boolean;
+  onToggleItem?: (itemIndex: number, done: boolean) => void;
+}) {
   const items = (b.items ?? []) as { label?: string; done?: boolean }[];
+  const interactive = editable && !!onToggleItem;
+  const boxCls = (done: boolean) =>
+    `mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+      done ? "bg-accent text-accent-foreground" : "border border-border"
+    } ${interactive ? "cursor-pointer transition-colors hover:border-accent" : ""}`;
   return (
     <BlockCard>
       <div className="flex items-start gap-3">
@@ -418,13 +432,21 @@ function TodoBlock({ b }: { b: Block }) {
             <ul className="mt-2 space-y-1.5">
               {items.map((it, i) => (
                 <li key={i} className="flex items-start gap-2 text-sm">
-                  <span
-                    className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded ${
-                      it.done ? "bg-accent text-accent-foreground" : "border border-border"
-                    }`}
-                  >
-                    {it.done && <Check className="h-3 w-3" />}
-                  </span>
+                  {interactive ? (
+                    <button
+                      type="button"
+                      onClick={() => onToggleItem(i, !it.done)}
+                      aria-pressed={!!it.done}
+                      aria-label={`Mark "${it.label ?? "item"}" ${it.done ? "not done" : "done"}`}
+                      className={boxCls(!!it.done)}
+                    >
+                      {it.done && <Check className="h-3 w-3" />}
+                    </button>
+                  ) : (
+                    <span className={boxCls(!!it.done)} aria-hidden>
+                      {it.done && <Check className="h-3 w-3" />}
+                    </span>
+                  )}
                   <span className={it.done ? "text-muted-foreground line-through" : ""}>{it.label}</span>
                 </li>
               ))}
@@ -532,7 +554,16 @@ function CustomBlock({ b }: { b: Block }) {
 
 /* ---------- dispatcher ---------- */
 
-export function BlockView({ block }: { block: Block }) {
+export function BlockView({
+  block,
+  editable = false,
+  onToggleItem,
+}: {
+  block: Block;
+  /** Interactive affordances (currently: todo-item checkboxes). */
+  editable?: boolean;
+  onToggleItem?: (itemIndex: number, done: boolean) => void;
+}) {
   switch (block.kind) {
     case "transport":
       return <TransportBlock b={block} />;
@@ -543,7 +574,7 @@ export function BlockView({ block }: { block: Block }) {
     case "meal":
       return <MealBlock b={block} />;
     case "todo":
-      return <TodoBlock b={block} />;
+      return <TodoBlock b={block} editable={editable} onToggleItem={onToggleItem} />;
     case "note":
       return <NoteBlock b={block} />;
     case "gallery":
@@ -559,15 +590,29 @@ export function BlockView({ block }: { block: Block }) {
   }
 }
 
-export function DayBlocks({ blocks }: { blocks: Block[] }) {
+export function DayBlocks({
+  blocks,
+  editable = false,
+  containerId,
+}: {
+  blocks: Block[];
+  /** Editor mode (issue #46): inline chrome per block. Requires the owning
+   *  day's twin id — the block-order target. Booklet/today/summary renderers
+   *  never set it, so the print output stays byte-identical. */
+  editable?: boolean;
+  containerId?: string;
+}) {
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
+  if (editable && containerId) {
+    return <EditableBlockList blocks={blocks} containerId={containerId} />;
+  }
   return (
     <div className="space-y-2.5">
       {[...blocks]
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map((b, i) => (
-          <BlockView key={i} block={b} />
+        .map((b) => (
+          <BlockView key={b.id} block={b} />
         ))}
     </div>
   );
