@@ -204,3 +204,35 @@ def test_rel_from_list_maps_note_and_tolerates_legacy_rows() -> None:
     )
     assert legacy["role"] == "owner" and legacy["index"] == 2
     assert "note" not in legacy
+
+
+def test_crew_read_sorts_by_edge_index_not_storage_order() -> None:
+    """Crew display order follows the hasCrew ``index`` edge property, never
+    AGE storage order: edges PATCHed at write time (note/role edits, the live
+    graph migration) reorder relationship rows, so the read-path must sort
+    hasCrew edges by ``index`` exactly like days/blocks — the fix for the
+    deploy-time reorder where the owner slipped to the back of the Crew page.
+    (v0.16.7 follow-up)"""
+    # Two hasCrew edges stored OUT of index order (index 1 first, then 0).
+    graph = {
+        "$dtId": "trip-1",
+        "twins": [
+            {"$dtId": "trip-1", "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+             "id": "trip-1", "slug": "x", "title": "T"},
+            {"$dtId": "u1", "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
+             "id": "u1", "name": "Niko", "role": "owner"},
+            {"$dtId": "u2", "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
+             "id": "u2", "name": "Nick", "role": "viewer"},
+        ],
+        "relationships": [
+            {"$relationshipId": "r1", "$sourceId": "trip-1",
+             "$relationshipName": "hasCrew", "$targetId": "u2",
+             "role": "viewer", "index": 1},
+            {"$relationshipId": "r0", "$sourceId": "trip-1",
+             "$relationshipName": "hasCrew", "$targetId": "u1",
+             "role": "owner", "index": 0},
+        ],
+    }
+    crew = graph_to_trip(graph).crew
+    assert [c.name for c in crew] == ["Niko", "Nick"]
+    assert [c.role for c in crew] == ["owner", "viewer"]
