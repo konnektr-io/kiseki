@@ -85,12 +85,16 @@ def require_trip_role(min_role: str):
 
         @app.get("/api/trips/{trip_id}/join-link")
         def join_link(trip_id: str, _: None = Depends(require_trip_role("owner"))): ...
+
+    Returns the validated actor ``{"sub": …, "role": …}`` (the role that
+    passed the gate) so write routes can forward the caller's identity to the
+    write service for ``x-user-id`` attribution and owner-only checks.
     """
 
     def dependency(
         trip_id: str,
         authorization: str | None = Header(default=None),
-    ) -> None:
+    ) -> dict:
         if not authorization or not authorization.lower().startswith("bearer "):
             raise HTTPException(
                 status_code=401,
@@ -104,5 +108,6 @@ def require_trip_role(min_role: str):
                 status_code=403,
                 detail=f"You need the '{min_role}' role for this trip",
             )
+        return {"sub": user["sub"], "role": role}
 
     return dependency

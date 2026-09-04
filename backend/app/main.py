@@ -24,6 +24,23 @@ from .acl import authorize_trip_path, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
+from . import write as write_svc
+from .write import (
+    BlockCreate,
+    BlockFields,
+    BlockMove,
+    BlockOrder,
+    CrewAdd,
+    CrewPatch,
+    DayPatch,
+    LocationsPut,
+    PracticalPut,
+    SectionPatch,
+    TodoAdd,
+    TodoToggle,
+    TripPatch,
+    WriteError,
+)
 from .maps import resolve_places, route_legs
 from .media import (
     get_media_store,
@@ -220,6 +237,188 @@ def get_trip(
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return _public_trip(trip, my_role=my_role)
+
+
+# ------------------------------------------------------------------ write path (#46)
+# Role-gated content writes to the graph (the ONLY store). ``require_trip_role``
+# gates the route AND returns the validated actor {sub, role}: sub is forwarded
+# as x-user-id so edits are attributable ($lastUpdatedBy), role drives the
+# owner-only checks (visibility, stage backward/archive, crew roles). Every
+# handler returns the canonical trip document so clients converge in one round
+# trip. ``claimToken`` is not accepted by any payload model and never returned.
+
+def _write(fn, **kwargs):
+    """Run a write-service call, mapping WriteError to HTTP."""
+    try:
+        return fn(**kwargs)
+    except WriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+
+
+@app.put("/api/trips/{trip_id}")
+def put_trip(
+    trip_id: str,
+    body: TripPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.update_trip, trip_dtid=trip_id.lower(), actor=actor, patch=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/practical")
+def put_practical(
+    trip_id: str,
+    body: PracticalPut,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.put_practical, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/practical/todos")
+def add_todo(
+    trip_id: str,
+    body: TodoAdd,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.add_todo, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/practical/todos/{index}/toggle")
+def toggle_todo(
+    trip_id: str,
+    index: int,
+    body: TodoToggle,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.toggle_todo, trip_dtid=trip_id.lower(), actor=actor,
+                  index=index, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/days/{day_id}")
+def put_day(
+    trip_id: str,
+    day_id: str,
+    body: DayPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.update_day, trip_dtid=trip_id.lower(), actor=actor,
+                  day_id=day_id.lower(), patch=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/sections/{section_id}")
+def put_section(
+    trip_id: str,
+    section_id: str,
+    body: SectionPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.update_section, trip_dtid=trip_id.lower(), actor=actor,
+                  section_id=section_id.lower(), patch=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/blocks", status_code=201)
+def post_block(
+    trip_id: str,
+    body: BlockCreate,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.create_block, trip_dtid=trip_id.lower(), actor=actor, payload=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/blocks/{block_id}")
+def put_block(
+    trip_id: str,
+    block_id: str,
+    body: BlockFields,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.update_block, trip_dtid=trip_id.lower(), actor=actor,
+                  block_id=block_id.lower(), payload=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.delete("/api/trips/{trip_id}/blocks/{block_id}")
+def delete_block(
+    trip_id: str,
+    block_id: str,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.delete_block, trip_dtid=trip_id.lower(), actor=actor,
+                  block_id=block_id.lower())
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/blocks/{block_id}/move")
+def move_block(
+    trip_id: str,
+    block_id: str,
+    body: BlockMove,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.move_block, trip_dtid=trip_id.lower(), actor=actor,
+                  block_id=block_id.lower(), payload=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/containers/{container_id}/block-order")
+def put_block_order(
+    trip_id: str,
+    container_id: str,
+    body: BlockOrder,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.order_container_blocks, trip_dtid=trip_id.lower(), actor=actor,
+                  container_id=container_id.lower(), body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.patch("/api/trips/{trip_id}/crew/{person_id}")
+def patch_crew(
+    trip_id: str,
+    person_id: str,
+    body: CrewPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.patch_crew, trip_dtid=trip_id.lower(), actor=actor,
+                  person_id=person_id.lower(), patch=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/crew", status_code=201)
+def post_crew(
+    trip_id: str,
+    body: CrewAdd,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.add_crew, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.delete("/api/trips/{trip_id}/crew/{person_id}")
+def delete_crew(
+    trip_id: str,
+    person_id: str,
+    actor: dict = Depends(require_trip_role("owner")),
+) -> dict:
+    trip = _write(write_svc.remove_crew, trip_dtid=trip_id.lower(), actor=actor,
+                  person_id=person_id.lower())
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/locations")
+def put_locations(
+    trip_id: str,
+    body: LocationsPut,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.put_locations, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
 
 
 @app.get("/api/trips/{trip_id}/booklet.pdf")
