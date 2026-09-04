@@ -19,10 +19,19 @@ low-contrast; the trip's own color is the only saturated thing on screen.
 The Google Maps JS migration is **done** (#18/#27, v0.14.0). Nothing in the browser talks to
 Google any more.
 
-- `components/MapView.tsx` — MapLibre GL JS v6 over keyless OpenFreeMap `positron` tiles.
-  Numbered DOM markers, cased routes, a live drive-time chip on single-leg maps. No wrapper
-  library: a hand-rolled effect, because there is exactly one map component. `react-maplibre`
-  (visgl) is the option if a second map surface (#39) makes the imperative code hurt.
+- `components/MapView.tsx` — the CARD map (document surfaces + the booklet). MapLibre GL JS v6
+  over keyless OpenFreeMap `positron` tiles: numbered DOM markers, cased routes, a live drive-time
+  chip on single-leg maps. Fixed height, one shot, and the PDF renders through it — leave it alone
+  unless you mean to change the booklet.
+- `components/RouteMap.tsx` — the SURFACE map (#39). Fills its container, driven from outside by
+  selection and camera padding, legs styled per state, never printed. Both share
+  `lib/maplibre.ts` (`loadMapLibre` — `setWorkerUrl` must run exactly once, before the first
+  `Map`) and `lib/maps.ts` (`CHROME_PADDING`, `clampPadding`, `prefersReducedMotion`).
+- `components/Sheet.tsx` + `components/SplitView.tsx` + `lib/sheet.ts` — the sheet primitive and
+  the ratio ladder. `lib/route-surface.ts` derives the journey: `tripJourney`, `journeyOrder`,
+  `legStage`, `daysAtLocation`, `returnsToStart`, `dayRangeLabel`, `greatCircle`.
+- Two map components is still hand-rolled imperative code by choice. `react-maplibre` (visgl) is
+  the option if a THIRD surface makes it hurt.
 - `lib/terrain.ts` — the shared `raster-dem` source (Mapterhorn), hillshade, runtime contours,
   and the `TERRAIN_3D` seam (#38).
 - `StaticMapImg` — server-proxied Google Static Maps, still the print path. Retiring it is #37.
@@ -55,10 +64,14 @@ Spec for the marker component (one component, every surface, plus print):
 - **Stage-aware** (DESIGN.md §5.3): outline/dashed for `idea`/`options`/`shortlist`, solid
   muted for `planned`, filled `accent` for `booked`, `primary` for `live`, desaturated for
   `archive`. Provisional plans must *look* provisional.
-  ⚠️ **Specified but NOT implemented.** `Location` carries no `stage` field, so the only
+  ⚠️ **Still NOT implemented for markers.** `Location` carries no `stage` field, so the only
   available stage is trip-level, which would restyle every marker on a trip identically. It
   needs either a derivation from the blocks referencing a location or a model change —
   parked on #40, which owns the model. Do not implement it as trip-level and call it done.
+  **Legs do have it** (#39): `legStage` in `lib/route-surface.ts` reads the leg's own transport
+  block `status` and only falls back to the trip stage when no block speaks for the leg. That
+  fallback is honest for a leg (an `idea` trip's undescribed leg really is provisional) and
+  dishonest for a marker (it would say the same thing about every place at once).
 - Visual ~28px, **hit target 44px** via transparent padding.
 - Selected: scale 1.15 + accent ring. Off-focus day: 45% opacity — dimmed, never hidden.
 - Cluster below the zoom where pins collide; clusters show a count, not a range.
@@ -103,7 +116,7 @@ Non-negotiables:
 
 ## The bottom sheet
 
-Build it once as a real primitive **before** building any map surface on it.
+**Built** — `components/Sheet.tsx`, geometry in `lib/sheet.ts`. Use it; don't hand-roll a second.
 
 - Three detents: **peek** ~15% (the "what am I looking at" line) · **half** ~50% (list) ·
   **full** ~90%.
@@ -114,6 +127,11 @@ Build it once as a real primitive **before** building any map surface on it.
 - Escape / backdrop tap returns to `peek` — the sheet is the content, **not a modal**; it
   never fully dismisses.
 - `prefers-reduced-motion` → instant detent change, no snap animation.
+- A finished drag still fires `click` on whatever it started on. Without a capture-phase swallow,
+  a pull on the handle steps the detent again over the top of the snap, and a pull on a list row
+  selects the place the user was only using as something to grab.
+- A press on a control inside the sheet must NOT start a drag: capturing the pointer retargets
+  that control's `click` to the capture element and the button simply never fires.
 
 ## Working on the MapLibre map
 
@@ -236,8 +254,9 @@ A WebGL canvas is not accessible. Therefore:
 
 ## Map surfaces worth building (in order)
 
-1. **Trip route** — the whole journey, numbered markers, legs colored by stage. The
-   flagship; replaces the current overview map feature.
+1. ~~**Trip route**~~ — **shipped** (#39): `/t/<id>/map`. The whole journey, numbered markers,
+   legs by state. It sits ALONGSIDE the overview's route card — #39 added a surface, it did not
+   convert a document page.
 2. **Day on map** — the active day's blocks pinned, other days dimmed to 45%. Pairs with
    `DayPage`.
 3. **Discovery** — public trips / trips from people you follow, as clustered pins. This is a

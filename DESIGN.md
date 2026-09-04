@@ -56,9 +56,10 @@ Overview, itinerary, day detail, practicals, crew, booklet.
   `no-print`.
 - Opaque surfaces (`bg-card` on `bg-background`), hairline borders, minimal elevation.
 
-### 2.2 Map surfaces — *the map is the canvas* (**TARGET**, new)
+### 2.2 Map surfaces — *the map is the canvas*
 
-Discovery, the trip route view, day-on-map, "things to do around here".
+Discovery, the trip route view, day-on-map, "things to do around here". The trip route view
+ships (#39, `/t/<id>/map`); the rest are still ahead.
 
 - Map fills the viewport. Content **floats over it**: sheets, rails, chips, pills.
 - No reading column. Layout is driven by the map/content ratio ladder (§7.2).
@@ -86,9 +87,8 @@ translucent surface   bg-background/85
 + soft shadow         shadow-[0_2px_12px_rgb(0_0_0/0.12)]
 ```
 
-`StageBadge` in [`ui.tsx`](frontend/src/components/ui.tsx) already discovered the first two layers
-by hand. **TARGET**: promote this to a `<Floating>` primitive / `.floating` utility so it isn't
-rediscovered per component.
+`StageBadge` in [`ui.tsx`](frontend/src/components/ui.tsx) discovered the first two layers by hand;
+the recipe is now the `<Floating>` primitive and the `.floating` utility. Use those.
 
 ---
 
@@ -274,14 +274,14 @@ At ≥1280px, **do not widen the text** — instead let a document surface place
 metadata rail beside the column (§7.2, desktop row). Wide measure is the single fastest way to lose
 the editorial feel.
 
-### 7.2 Map surfaces — the ratio ladder (**TARGET**)
+### 7.2 Map surfaces — the ratio ladder
 
 Think in *map/content ratio*, not breakpoints:
 
 | Viewport | Map | Content | Notes |
 |---|---|---|---|
 | Phone portrait (<640) | full-bleed behind | **bottom sheet**, 3 detents | The core interaction. See §7.3. |
-| Phone landscape / small tablet | 100% | side sheet, left, ~340px | Landscape phones have no vertical room for a sheet. |
+| Phone landscape / small tablet | 100% | side sheet, left, ~340px | Keyed on `max-height: 500px`, not `orientation` — what rules out a bottom sheet is missing vertical room, and a 700×600 viewport is "landscape" with plenty. |
 | Tablet (768–1279) | ~60% right | ~40% left, scrolls | Split view. |
 | Desktop (≥1280) | fills remaining | fixed left rail, 380–420px | Rail scrolls, map does not. |
 
@@ -295,9 +295,15 @@ Non-negotiables:
   home-indicator zone.
 - Use `100dvh`, not `100vh` — mobile browser chrome will otherwise clip the sheet.
 
+Built as `SplitView` (`frontend/src/components/SplitView.tsx`), which owns the ladder and hands the
+map its camera padding. A map surface takes `100dvh` minus the app chrome, which is why `TripLayout`
+exposes both `--kiseki-header-h` and `--kiseki-nav-h` and drops the reading column for that one
+route.
+
 ### 7.3 The bottom sheet
 
-Build it once, as a real primitive, before building any map surface on top of it.
+Built as `Sheet` (`frontend/src/components/Sheet.tsx`), with the geometry in `lib/sheet.ts`. Use it;
+don't hand-roll a second one.
 
 - **Three detents**: peek (~15% — the "what am I looking at" line), half (~50% — list), full (~90%).
 - Drag handle (a visible grab bar) — the affordance is not optional.
@@ -307,6 +313,15 @@ Build it once, as a real primitive, before building any map surface on top of it
 - Escape / backdrop tap returns to `peek`, never fully dismisses — the sheet is the content, not a
   modal.
 - Reduced motion (§10) → no snap animation, instant detent change.
+
+Two things the build learned. **MapLibre has two padding mechanisms and they add up**: `fitBounds`
+bakes `options.padding` into the centre/zoom and then discards it, while `easeTo({padding})` sets
+the transform's persistent padding — use both and the route ends up shifted twice, clipped against
+the top edge. Pick one (`RouteMap` passes `padding` to `fitBounds` and the equivalent `offset` to
+`easeTo`). And **MapLibre's own corner chrome is under the content**: the attribution row sits
+where the sheet is and the zoom chips sit where the side panel is, so both corner rows are
+translated clear of it. Attribution is a legal requirement and the zoom buttons are the a11y
+floor's answer to "not everyone can pinch"; neither may be covered.
 
 ### 7.4 Density
 
@@ -364,13 +379,14 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 /t/<token>/itinerary#s-<n>        a section — an ANCHOR, not a page (see below)
 /t/<token>/s/<n>      →           redirect to /itinerary#s-<n> (legacy links)
 /t/<token>/day/<i>    Day         full detail, swipe prev/next
-/t/<token>/map        Map         §2.2, §7.2                                   (TARGET)
+/t/<token>/map        Map         the trip route surface — §2.2, §7.2
 /t/<token>/practical  Practical
 /t/<token>/crew       Crew
 ```
 
 Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Map · Practical*. Crew folds
-into Overview — it's a low-frequency page. Map earns its slot only once a real map surface exists.
+into Overview — it's a low-frequency page. Map earned its slot with #39, and took the `Map` icon
+from Itinerary, which now uses `CalendarDays` — two nav items cannot share a glyph.
 
 #### List vs. detail — keep both, and let each do one job
 
@@ -689,9 +705,10 @@ Ordered by cost-to-fix vs. value:
 
 1. `Button` adoption + `focus-visible` on all interactive elements *(unblocks everything)*
 2. `Floating` / `.floating` recipe (§2.4) *(unblocks map surfaces)*
-3. `Sheet` with detents (§7.3) *(unblocks mobile map surfaces)*
-4. `Marker` + `RouteLayer` (§8.3, §8.4) *(the map's identity)*
-5. `SplitView` (map/content ratio ladder, §7.2)
+3. ~~`Sheet` with detents (§7.3)~~ *(shipped, #39)*
+4. `Marker` + `RouteLayer` (§8.3, §8.4) *(the map's identity — routes shipped in `RouteMap`; the
+   numbered pin is still built inline in two places and wants extracting)*
+5. ~~`SplitView` (map/content ratio ladder, §7.2)~~ *(shipped, #39)*
 6. `PhotoFrame` (aspect + scrim + lazy, §9)
 7. `EmptyState` (the "no trips yet" pattern in `LandingPage` wants to be reusable)
 
@@ -733,8 +750,8 @@ Don't do this as one redesign. Suggested order, each independently shippable:
    sections. Do this *before* the map surfaces: a section is a place is a map extent. *(§7.5)*
 6. **MapLibre migration at parity** — same surfaces, same numbered markers, new renderer, route/marker
    colours from tokens. No layout change yet. *(§8)*
-7. **The `Sheet` primitive + first map surface** — the trip route view. This is the visible leap.
-   *(§7.3)*
+7. ~~**The `Sheet` primitive + first map surface**~~ — done (#39): `Sheet`, `SplitView`, and the
+   trip route surface at `/t/<id>/map`. *(§7.3)*
 8. **Preset system** — `theme.preset`, 8–12 presets, validation, lazy fonts, map style per preset.
    *(§6)*
 9. **Dark mode.** *(§3.3)*

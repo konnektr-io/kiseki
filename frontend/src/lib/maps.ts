@@ -95,3 +95,59 @@ export function hasWebGL2(): boolean {
     return false;
   }
 }
+
+/** The map camera's keep-out box, in CSS px. */
+export interface MapPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * Keep-out for the map's own chrome (kiseki-map-ux: "the map's usable viewport
+ * is the part not covered by content — always pass padding matching the
+ * occlusion"). Extra on the left for the zoom chips, and on the bottom for the
+ * attribution, which wraps to two lines at phone width — so a marker never
+ * lands underneath either.
+ *
+ * Right/bottom also clear the marker's own extent: pins are 28px in a 44px hit
+ * target anchored at the coordinate, so a marker center needs >= ~24px from
+ * the container edge to render whole (44/2 + rounding) — 32px right was enough
+ * in theory and clipped in practice under rounded corners, so the padding is
+ * padded.
+ */
+export const CHROME_PADDING: MapPadding = { top: 36, right: 44, bottom: 52, left: 64 };
+
+/**
+ * Shrink padding until it leaves a usable viewport.
+ *
+ * Content occlusion is real padding — a sheet at `full` covers 90% of the
+ * surface — but padding wider than the container leaves `fitBounds` no box to
+ * fit into and it silently gives up (or frames nothing). Squeeze the two
+ * opposing sides proportionally instead, so the camera still leans away from
+ * the content and always has `min` px to work with.
+ */
+export function clampPadding(
+  padding: MapPadding,
+  width: number,
+  height: number,
+  min = 96,
+): MapPadding {
+  const squeeze = (a: number, b: number, extent: number): [number, number] => {
+    const room = extent - min;
+    if (room <= 0) return [0, 0];
+    const total = a + b;
+    if (total <= room) return [a, b];
+    const k = room / total;
+    return [Math.floor(a * k), Math.floor(b * k)];
+  };
+  const [left, right] = squeeze(padding.left, padding.right, width);
+  const [top, bottom] = squeeze(padding.top, padding.bottom, height);
+  return { top, right, bottom, left };
+}
+
+/** `prefers-reduced-motion` — a JS-driven camera has to check it itself (§10). */
+export function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}

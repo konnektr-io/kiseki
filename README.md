@@ -86,6 +86,7 @@ cd backend && uv run pytest
 - **Design foundation (done)** — [`DESIGN.md`](DESIGN.md) is the visual and interaction law; token layer + accessibility floor shipped (#36, #41).
 - **Information architecture (done)** — continuous itinerary with sections as a first-class unit (#43); the Today surface reaches today's plan in one tap (#42).
 - **Map stack (done)** — MapLibre GL JS replaces the Google Maps JS API with no key in the client (#18, #27); the booklet PDF renders the same MapLibre maps via Playwright, so screen and paper agree (#37); hillshade and runtime contours from a keyless Mapterhorn DEM (#38).
+- **Map surfaces (done)** — the `Sheet` primitive (three detents, drag handle, camera padding that tracks the occlusion) and the `SplitView` ratio ladder; the trip route surface at `/t/<id>/map` draws the whole journey with legs coloured by their own state, and its list is a full keyboard path to every place (#39).
 - **Media (done)** — trip media lives in Garage object storage, namespaced by trip `$dtId`, out of the repo (#47).
 
 ### Order of work
@@ -96,19 +97,18 @@ The backlog is sequenced by dependency, not by issue number. Each line is indepe
 |---|---|---|
 | 1 | #64 — `Trip.visibility` enum, no secret in the URL | **In progress.** Ahead of everything else: it renames every trip route, and the backend is already halfway there (`{trip_param}`, map proxies and media addressed by `$dtId`). Doing it after #39 means doing it twice. |
 | 2 | #65 — Non-crew followers via `claimToken` | **In progress, alongside #64** — same ACL branch, same store/convert lookups. |
-| 3 | #39 — Sheet primitive + map-first route surface | The visible leap. Unblocked: #18, #27, #37, #38, #43 all closed. |
-| 4 | #40 — Per-trip theme presets | The album differentiator. |
-| 5 | #46 — Write-path (edit a trip in the UI) | The largest single item; the gateway to non-Niko users. Its `token`-flips-visibility criterion is superseded by #64. |
-| 6 | #21 — Analytics | Cheap, and much cheaper after #64 retires the secret-link URL. **Required before #14.** |
-| 7 | #15 — Google Places suggestions | Needs #39 as somewhere to put results. Re-derive the cost model first — the write-up predates Google retiring the universal credit. |
-| 8 | #48 — Live capture during travel | Unblocked: #42 (timezone) and #47 (media) are closed. |
-| 9 | #11 — Installable PWA / offline | After the map stack — offline vector tiles depend on the tile source. |
-| 10 | #12 — Events & notifications | P2–3 platform. |
-| 11 | #9 — Agent backend + chat UI | |
-| 12 | #10 — Agent memory per user / trip | After #9. |
-| 13 | #14 — Social: feed, followers | P4. Last, by design. |
+| 3 | #40 — Per-trip theme presets | The album differentiator. Now also owns per-**marker** stage (DESIGN.md §8.3): #39 shipped stage-coloured legs, but `Location` carries no stage, so the pins are still uniform. |
+| 4 | #46 — Write-path (edit a trip in the UI) | The largest single item; the gateway to non-Niko users. Its `token`-flips-visibility criterion is superseded by #64. |
+| 5 | #21 — Analytics | Cheap, and much cheaper after #64 retires the secret-link URL. **Required before #14.** |
+| 6 | #15 — Google Places suggestions | #39 shipped the sheet to put results in. Re-derive the cost model first — the write-up predates Google retiring the universal credit. |
+| 7 | #48 — Live capture during travel | Unblocked: #42 (timezone) and #47 (media) are closed. |
+| 8 | #11 — Installable PWA / offline | After the map stack — offline vector tiles depend on the tile source. |
+| 9 | #12 — Events & notifications | P2–3 platform. |
+| 10 | #9 — Agent backend + chat UI | |
+| 11 | #10 — Agent memory per user / trip | After #9. |
+| 12 | #14 — Social: feed, followers | P4. Last, by design. |
 
-Parallelizable: **#64/#65** (in flight now), then **#40** alongside **#39**. Everything else serializes.
+Parallelizable: **#64/#65** (in flight now), then **#40**. Everything else serializes.
 
 ## License
 

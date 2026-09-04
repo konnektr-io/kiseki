@@ -11,9 +11,12 @@ import { TripProvider, tripStyle } from "../components/theme";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
+/** Four items is the mobile cap (DESIGN.md §7.5) — this is exactly four. The
+ *  itinerary gives up the `Map` icon to the actual map surface (#39). */
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
   { to: "", label: "Overview", icon: Home, end: true },
-  { to: "itinerary", label: "Itinerary", icon: Map },
+  { to: "itinerary", label: "Itinerary", icon: CalendarDays },
+  { to: "map", label: "Map", icon: Map },
   { to: "practical", label: "Practical", icon: ListChecks },
 ];
 
@@ -85,6 +88,7 @@ export function TripLayout() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
   // Latest pathname, read lazily inside the fetch effect — deliberately NOT a
   // dependency: child-route navigation (/t/<id>/itinerary → /day/3) would
   // otherwise re-run the effect and refetch the whole trip on every page
@@ -166,19 +170,28 @@ export function TripLayout() {
     };
   }, [tripId, authReady, isAuthenticated, getAccessTokenSilently, navigate]);
 
-  // Expose the app header's live height as --kiseki-header-h so sticky
-  // section headers (itinerary) can dock exactly below it. Re-measured on
-  // trip change (title/dates row) and on any header resize.
+  // Expose the app chrome's live heights as --kiseki-header-h /
+  // --kiseki-nav-h. The sticky itinerary chapter headers dock below the
+  // header, and the map surface (#39) sizes itself to the viewport MINUS both:
+  // a map surface has no page scroll, so it has to know exactly how much of
+  // the viewport the chrome takes. Re-measured on trip change (the title/dates
+  // row wraps) and on any resize; the nav is absent on day pages and hidden on
+  // desktop, and 0 is the right answer in both cases.
   useLayoutEffect(() => {
     const root = rootRef.current;
     const header = headerRef.current;
-    if (!root || !header) return;
-    const update = () => root.style.setProperty("--kiseki-header-h", `${header.offsetHeight}px`);
+    if (!root) return;
+    const update = () => {
+      root.style.setProperty("--kiseki-header-h", `${header?.offsetHeight ?? 0}px`);
+      const nav = navRef.current;
+      root.style.setProperty("--kiseki-nav-h", `${nav?.offsetHeight ?? 0}px`);
+    };
     update();
     const ro = new ResizeObserver(update);
-    ro.observe(header);
+    if (header) ro.observe(header);
+    if (navRef.current) ro.observe(navRef.current);
     return () => ro.disconnect();
-  }, [trip]);
+  }, [trip, pathname]);
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
@@ -247,6 +260,11 @@ export function TripLayout() {
 
   const days = dayCount(trip.startDate, trip.endDate);
   const onDayPage = pathname.includes(`/t/${tripId}/day/`);
+  // A MAP surface is viewport-shaped, a document surface is column-shaped, and
+  // they cannot share a wrapper (DESIGN.md §2): the reading column would crop
+  // the map to 768px and `pb-24` would leave a dead strip under the sheet. So
+  // the shell drops the column for the one route that is a map.
+  const onMapSurface = pathname === `/t/${tripId}/map`;
   const isOwner = trip.myRole === "owner";
 
   const handleDownloadPdf = async () => {
@@ -342,17 +360,36 @@ export function TripLayout() {
           </div>
         </header>
 
-        {/* Content */}
-        <main className="mx-auto max-w-3xl px-4 py-5 pb-24 md:pb-10">
-          <Outlet />
-        </main>
+        {/* Content — the reading column, except on a map surface, which takes
+            the viewport minus the chrome and owns its own scrolling. */}
+        {onMapSurface ? (
+          <main
+            className="no-print overflow-hidden"
+            style={{
+              height:
+                "calc(100dvh - var(--kiseki-header-h, 3.5rem) - var(--kiseki-nav-h, 0px))",
+            }}
+          >
+            <Outlet />
+          </main>
+        ) : (
+          <main className="mx-auto max-w-3xl px-4 py-5 pb-24 md:pb-10">
+            <Outlet />
+          </main>
+        )}
 
         {/* Mobile bottom nav (hidden on day pages — DayPage has its own bar) */}
         {!onDayPage && (() => {
           const NAV = navForTrip(trip);
           return (
-          <nav className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden">
-            <div className="grid grid-cols-3">
+          <nav
+            ref={navRef}
+            // The home-indicator zone is real estate the OS owns — without the
+            // inset the last row of icons sits under it (§7.2).
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+            className="no-print fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur md:hidden"
+          >
+            <div className="grid" style={{ gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}>
               {NAV.map(({ to, label, icon: Icon, end }) => {
                 const isActive = isNavActive(pathname, `/t/${tripId}`, to, end);
                 return (
@@ -360,11 +397,11 @@ export function TripLayout() {
                     key={to}
                     to={to}
                     aria-current={isActive ? "page" : undefined}
-                    className={`flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium ${
+                    className={`flex min-h-11 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium ${
                       isActive ? "text-primary" : "text-muted-foreground"
                     }`}
                   >
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-5 w-5" aria-hidden="true" />
                     {label}
                   </Link>
                 );

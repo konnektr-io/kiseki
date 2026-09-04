@@ -25,8 +25,10 @@ like a SaaS dashboard, it's wrong.
    component silently breaks the PDF.
 
 2. **Check whether the component already exists.** `frontend/src/components/ui.tsx` has
-   `Button`, `Card`, `Badge`, `StageBadge`, `StatusChip`, `Separator`.
-   `blocks.tsx` has the ten block renderers. Reuse before creating.
+   `Button`, `Card`, `Floating`, `Badge`, `StageBadge`, `StatusChip`, `Separator`.
+   `blocks.tsx` has the ten block renderers. `Sheet.tsx` is the three-detent bottom sheet and
+   `SplitView.tsx` the map/content ratio ladder (#39) — a map surface composes those two, it does
+   not re-derive them. Reuse before creating.
 
 3. **Never add a color, radius or shadow that isn't a token.**
 
@@ -34,15 +36,16 @@ like a SaaS dashboard, it's wrong.
 
 ### Tokens
 - All color goes through the `@theme inline` tokens in `frontend/src/index.css`.
-  **Zero hex literals in components.** (`MapView.tsx` violates this with `#1e3a8a` — that's
-  Canada 2027's primary hardcoded into shared code; fix it if you touch that file.)
+  **Zero hex literals in components** — including map code, which reads the `--map-*` properties
+  off the DOM via `lib/tokens.ts` because a canvas renderer takes strings, not classes. The old
+  `#1e3a8a` leak (Canada 2027's primary in shared code) is dead; do not let one back in.
 - `@theme inline` is intentional — it inlines `var(--trip-*, fallback)` so per-trip runtime
   theming works. Do not convert it to plain `@theme`.
 - Per-trip theming is injected as `--trip-*` CSS variables by `tripStyle()` in
   `components/theme.tsx`. Anything that should change per trip must read a token, not a class.
-- **`--color-destructive` does not exist yet** but `text-destructive` is used in
-  `LandingPage.tsx` and `JoinPage.tsx` — those error messages currently render as plain
-  body text. Add the token when you're next in `index.css`.
+- Tailwind v4 **drops a rule whose selector starts with an attribute** — it reads `[data-x] .y`
+  as one of its own candidates and the rule never reaches the output, silently, with the source
+  file still looking correct. Hook plain CSS on a class (`.map-surface .maplibregl-…`).
 
 ### Color roles
 `primary` = the trip's signature (nav active, links, routes, primary CTA) — **never body
@@ -86,28 +89,31 @@ view of its parent, it is a *filter* or an *anchor*, not a page.
 
 ### Elevation
 Anything floating over a map or photo needs all four layers, not just a shadow
-(DESIGN.md §2.4):
+(DESIGN.md §2.4) — that is the `Floating` component / `.floating` utility, already built:
 
 ```
 bg-background/85  backdrop-blur-md  border border-border/60  shadow-[0_2px_12px_rgb(0_0_0/0.12)]
 ```
 
-`StageBadge` already does the first two by hand. Prefer promoting this to a shared
-`Floating` primitive over copying it a fifth time.
+Use `<Floating>` (or the `.floating` class where the element already exists, as `StageBadge`
+does). Never re-type the four layers.
 
 ### Motion
 Durations: **120ms** state/hover · **200ms** page/detent · **400–600ms** map camera. Nothing
 else. `ease-out` in, `ease-in` out. Animate `transform`/`opacity` only — never `height` or
 `top`. The `live` stage pulse is the only looping animation permitted.
 
-`prefers-reduced-motion` is **not handled anywhere in this repo today.** If you add or
-touch an animation, add the global guard from DESIGN.md §10 in the same PR.
+`prefers-reduced-motion` has the global CSS guard from DESIGN.md §10 in `index.css`. That only
+reaches CSS: **JS-driven motion has to check the query itself** — `prefersReducedMotion()` in
+`lib/maps.ts`, used by the map camera (`jumpTo`, not `easeTo`) and by the sheet's snap.
 
 ## Accessibility floor — verify before calling anything done
 
-- [ ] `focus-visible:ring-2 ring-primary ring-offset-2 ring-offset-background` on every
-      interactive element. **The codebase currently has zero focus styles** — every PR that
-      touches an interactive element should leave this better.
+- [ ] A visible focus ring on every interactive element. There is a base rule in `index.css`
+      (`a/button/summary/input/[tabindex]:focus-visible` → the `focus-ring` utility), so this is a
+      floor, not a per-component chore. Where the target is a transparent 44px box around a small
+      visible chip — markers, the MapLibre zoom controls, the map's frame button, the sheet's grab
+      bar — ring the **chip**, or you get a stray rectangle (see `.map-chip-btn`, `.sheet-handle`).
 - [ ] `<button>` for actions, `<a>`/`<Link>` for navigation.
 - [ ] Touch targets ≥44×44 (visual size may be smaller; pad the hit area).
 - [ ] `aria-label` on every icon-only button (the app has two, and needs ~six).
@@ -131,14 +137,17 @@ breaks print.
   It is the first thing that silently regresses.
 
 ## Existing debt — fix opportunistically, don't refactor everything at once
-1. `Button` is defined in `ui.tsx` and used **zero times**; there are 4 hand-rolled copies
-   of the same outline button in `TripLayout.tsx` and `LandingPage.tsx`. Adopt it when you
-   touch those files.
-2. Missing `--color-destructive` (see above).
-3. Hardcoded `#1e3a8a` route color in `MapView.tsx`.
-4. No focus styles, no reduced-motion guard, no dark mode, no spacing/radius/elevation tokens.
+1. The numbered marker pin is built inline twice — as a DOM element in `MapView.tsx` and
+   `RouteMap.tsx`, and as a React `Pin` in `RouteMapPage.tsx`. It is the app's strongest design
+   idea and it wants to be one component (DESIGN.md §13.3 item 4).
+2. Markers do not cluster, so two places closer than ~30px at the current zoom draw on top of
+   each other (visible on chile-peru's Santiago / Valle Nevado). The list is still a complete path
+   to both, so it degrades rather than breaks.
+3. No dark mode (§3.3).
+4. `--color-destructive`, focus styles, the reduced-motion guard, and the radius/elevation tokens
+   are all **done** — don't re-fix them.
 
 ## Related
-- Map surfaces, markers, routes, sheets → **`kiseki-map-ux`**
+- Map surfaces, markers, routes, sheets, the ratio ladder → **`kiseki-map-ux`**
 - Per-trip palettes, fonts, presets → **`kiseki-trip-identity`**
 - Product/architecture context → [`AGENTS.md`](../../../AGENTS.md), [`docs/spec.md`](../../../docs/spec.md)
