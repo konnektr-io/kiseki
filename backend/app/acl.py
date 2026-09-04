@@ -24,22 +24,27 @@ from __future__ import annotations
 from fastapi import Header, HTTPException
 
 from .auth import get_current_user
-from .config import KISEKI_AGENT_CLIENT_ID
+from .config import KISEKI_AGENT_ACT_AS, KISEKI_AGENT_CLIENT_ID
 from .store import get_trip_by_id, get_trip_role_for_user
 
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
 
 
-def _agent_role(user: dict) -> str | None:
-    """Role for the sanctioned agent M2M client — owner, WITHOUT a graph twin.
+def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
+    """Actor {sub, role} for the sanctioned agent M2M client (#46).
 
-    Identity model (#46): the agent never appears in the graph. User-initiated
-    requests present the acting user's own token and resolve roles normally.
-    Only unattended changes with no linkable user use the M2M client token,
-    and only when its client id is explicitly sanctioned via
-    ``KISEKI_AGENT_CLIENT_ID``. Both ``azp`` and ``gty`` are issuer-asserted
-    (the token is signature-validated before this runs), so a spoofed header
-    cannot claim the role.
+    The agent NEVER appears in the graph — no User twin, no hasCrew edge.
+    Only the signature-validated M2M token whose client id is sanctioned via
+    ``KISEKI_AGENT_CLIENT_ID`` (azp + gty are issuer-asserted) reaches this.
+
+    Two modes:
+    - ``KISEKI_AGENT_ACT_AS`` set (Niko's home profile only — deliberately
+      never configured on the dedicated end-user profile): the agent acts AS
+      that user. Role = the user's REAL crew role on this trip (resolved via
+      their hasCrew edge; never widened, None when the user has no access).
+      Attribution (x-user-id) is the user's sub.
+    - unset: owner-level service principal for unattended changes that cannot
+      be linked to a user. Attribution = the M2M token's own sub.
     """
     if not KISEKI_AGENT_CLIENT_ID:
         return None
@@ -47,7 +52,21 @@ def _agent_role(user: dict) -> str | None:
         return None
     if user.get("gty") != "client-credentials":
         return None
-    return "owner"
+    if KISEKI_AGENT_ACT_AS:
+        role = get_trip_role_for_user(trip_dtid, KISEKI_AGENT_ACT_AS)
+        if not role:
+            return None  # the mapped user has no access → the agent has none
+        return {"sub": KISEKI_AGENT_ACT_AS, "role": role}
+    return {"sub": user.get("sub"), "role": "owner"}
+
+
+def _resolve_actor(user: dict, trip_dtid: str) -> dict | None:
+    """The acting identity: the token's own user (crew role via hasCrew) or,
+    for the sanctioned M2M client, the agent actor (act-as / owner fallback)."""
+    role = get_trip_role_for_user(trip_dtid, user["sub"])
+    if role:
+        return {"sub": user["sub"], "role": role}
+    return _agent_actor(user, trip_dtid)
 
 
 def _role_ok(role: str | None, min_role: str) -> bool:
@@ -75,8 +94,8 @@ def authorize_trip_path(
         if authorization and authorization.lower().startswith("bearer "):
             try:
                 user = get_current_user(authorization)
-                role = get_trip_role_for_user(trip_id.lower(), user["sub"])
-                return role or _agent_role(user)
+                actor = _resolve_actor(user, trip_id.lower())
+                return actor["role"] if actor else None
             except HTTPException:
                 return None
         return None
@@ -89,13 +108,13 @@ def authorize_trip_path(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = get_current_user(authorization)  # validates; 401 on invalid
-    role = get_trip_role_for_user(trip_id.lower(), user["sub"]) or _agent_role(user)
-    if not _role_ok(role, "follower"):
+    actor = _resolve_actor(user, trip_id.lower())
+    if not actor or not _role_ok(actor["role"], "follower"):
         raise HTTPException(
             status_code=403,
             detail="You don't have access to this trip",
         )
-    return role
+    return actor["role"]
 
 
 def require_trip_role(min_role: str):
@@ -123,12 +142,14 @@ def require_trip_role(min_role: str):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         user = get_current_user(authorization)  # validates; 401 on invalid
-        role = get_trip_role_for_user(trip_id.lower(), user["sub"]) or _agent_role(user)
-        if not _role_ok(role, min_role):
+        actor = _resolve_actor(user, trip_id.lower())
+        if not actor or not _role_ok(actor["role"], min_role):
             raise HTTPException(
                 status_code=403,
                 detail=f"You need the '{min_role}' role for this trip",
             )
-        return {"sub": user["sub"], "role": role}
+        # Actor carries the RESOLVED identity: the user's sub, the act-as
+        # user's sub, or the M2M client's sub — writes attribute accordingly.
+        return actor
 
     return dependency
