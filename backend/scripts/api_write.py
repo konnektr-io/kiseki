@@ -7,7 +7,11 @@ workarounds (direct graph SDK PATCHes, reseeds, kubectl cp). Every command
 prints the API response — for writes that is the canonical trip document
 (media URLs canonicalized, claimToken absent).
 
-    export KISEKI_TOKEN=<Auth0 access token>        # sub must be editor+/owner on the trip
+    export KISEKI_TOKEN=<access token>              # USER-INITIATED: the acting user's
+                                                    # token (ACL + x-user-id follow its sub).
+                                                    # Unattended fallback only: the sanctioned
+                                                    # M2M client token (backend treats that
+                                                    # client as owner; no agent twin exists).
     python scripts/api_write.py get /api/trips/<trip_id>
     python scripts/api_write.py put /api/trips/<trip_id> --json '{"stage": "booked"}'
     python scripts/api_write.py post /api/trips/<trip_id>/blocks \
@@ -17,9 +21,15 @@ prints the API response — for writes that is the canonical trip document
     python scripts/api_write.py delete /api/trips/<trip_id>/blocks/<block_id>
     python scripts/api_write.py put /api/trips/<trip_id>/practical --file body.json
 
-Endpoint reference: AGENTS.md → "Content update". Tokens: an Auth0 access
-token with audience https://kiseki.konnektr.io (M2M client_credentials for
-agents — the token's `sub` carries the crew role via a hasCrew edge).
+Endpoint reference: AGENTS.md → "Content update".
+
+**Identity model (#46)**: the agent has NO identity in the graph. For
+user-initiated writes present the acting user's access token — ACL and
+x-user-id attribution follow the token's `sub` (no agent User twin is ever
+created; crew lists stay human-only). Unattended changes with no linkable user
+may present the sanctioned M2M client token (`KISEKI_AGENT_CLIENT_ID`): the
+backend recognizes that client as an owner-level service principal without any
+graph twin — last resort only. Audience: `https://kiseki.konnektr.io`.
 
 Stdlib only (urllib) so it runs anywhere, no venv needed.
 """

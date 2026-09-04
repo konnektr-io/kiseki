@@ -77,9 +77,16 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
-<path> [--json '…'|--file -]` with `KISEKI_TOKEN` (Auth0 access token whose
-`sub` — M2M client_credentials for agents, audience
-`https://kiseki.konnektr.io` — has a crew role on the trip).
+<path> [--json '…'|--file -]`.
+
+**Identity model (#46)**: for user-initiated writes, present **the acting
+user's access token** — the agent has no identity of its own in the graph; ACL
+and `x-user-id` attribution follow the token's `sub` (today: Niko's; later:
+the UI chat forwards the user's frontend token). Unattended changes with no
+linkable user MAY present the sanctioned M2M client token instead — the
+backend recognizes that client (`KISEKI_AGENT_CLIENT_ID`) as an owner-level
+service principal without any graph twin (last resort, never the default).
+Audience for all tokens: `https://kiseki.konnektr.io`.
 
 **Not the content path anymore**: `backend/data/trips/*/trip.json` (local
 scratch), reseed scripts (`trip_to_graph.py`, `seed_graph.py`,
