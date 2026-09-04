@@ -4,6 +4,7 @@ import { useTrip } from "../components/theme";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay, humanizeDays, resolveToday } from "../lib/dates";
+import { roleAtLeast } from "../lib/editing";
 
 /**
  * Today surface — chrome, no-print.
@@ -150,7 +151,11 @@ export function TodayPage() {
         </div>
       ) : null}
 
-      <DayBlocks blocks={day.blocks} />
+      <DayBlocks
+        blocks={day.blocks}
+        editable={roleAtLeast(trip.myRole, "editor")}
+        containerId={day.id}
+      />
 
       <div className="flex flex-wrap gap-2 pt-2">
         <Link

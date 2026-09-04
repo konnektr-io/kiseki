@@ -7,6 +7,7 @@ import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
+import { roleAtLeast } from "../lib/editing";
 
 type Dir = "prev" | "next" | null;
 
@@ -95,7 +96,11 @@ export function DayPage() {
           </div>
         )}
 
-        <DayBlocks blocks={day.blocks} />
+        <DayBlocks
+          blocks={day.blocks}
+          editable={roleAtLeast(trip.myRole, "editor")}
+          containerId={day.id}
+        />
       </div>
 
       {/* sticky day navigation — always visible, same place */}

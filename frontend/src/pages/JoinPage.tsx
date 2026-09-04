@@ -116,7 +116,7 @@ export function JoinPage() {
   };
 
   return (
-    <TripProvider trip={trip}>
+    <TripProvider trip={trip} apply={() => undefined}>
       <div style={tripStyle(trip)} className="min-h-full">
         <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
