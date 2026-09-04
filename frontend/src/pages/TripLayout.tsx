@@ -1,15 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarCheck, CalendarDays, FileDown, Home, Link2, ListChecks, Map } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, Map } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
-import { roleAtLeast } from "../lib/editing";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
-import { TripControls } from "../components/trip-controls";
+import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
@@ -327,44 +326,17 @@ export function TripLayout() {
                   : "Dates TBD"}
               </p>
             </div>
-            {/* Both header actions collapse to icon-only below `sm`, so the
-                label has to live in aria-label, not only in the span. */}
-            {isOwner && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={copyJoinLink}
-                title="Copy the crew join link"
-                aria-label={joinCopied ? "Join link copied" : "Copy the crew join link"}
-              >
-                <Link2 className="h-4 w-4" />
-                <span className="hidden sm:inline">{joinCopied ? "Join link copied" : "Join link"}</span>
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDownloadPdf}
-              disabled={pdfBusy}
-              title="Download the booklet PDF"
-              aria-label={pdfBusy ? "Preparing the booklet PDF" : "Download the booklet PDF"}
-              className="disabled:opacity-60"
-            >
-              <FileDown className="h-4 w-4" />
-              <span className="hidden sm:inline" aria-live="polite">
-                {pdfBusy ? "Preparing…" : "PDF"}
-              </span>
-            </Button>
+            {/* One overflow menu holds every trip action (PDF for everyone,
+                join link for the owner, stage + sharing for editor+/owner) so
+                the header stays a single row. */}
+            <TripActionsMenu
+              pdfBusy={pdfBusy}
+              onDownloadPdf={handleDownloadPdf}
+              joinCopied={joinCopied}
+              onCopyJoinLink={isOwner ? copyJoinLink : undefined}
+            />
           </div>
-          {/* Editor strip — stage + visibility. Rendered only for editor+ so
-            viewers/followers/anonymous see no change (and no hint that the
-            surface exists). Server enforces everything. */}
-        {roleAtLeast(trip.myRole, "editor") && (
-          <div className="no-print mx-auto flex max-w-3xl items-center px-4 pb-2.5">
-            <TripControls />
-          </div>
-        )}
-        {/* Desktop nav */}
+          {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
             <NavLinks tripId={tripId} trip={trip} />
           </div>
