@@ -6,8 +6,10 @@ import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../l
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
+import { roleAtLeast } from "../lib/editing";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
+import { TripControls } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
@@ -300,7 +302,7 @@ export function TripLayout() {
   };
 
   return (
-    <TripProvider trip={trip}>
+    <TripProvider trip={trip} apply={setTrip}>
       <div ref={rootRef} style={tripStyle(trip)} className="min-h-full">
         {/* Header — content focus: just a back button, no brand chrome */}
         <header ref={headerRef} className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
@@ -354,7 +356,15 @@ export function TripLayout() {
               </span>
             </Button>
           </div>
-          {/* Desktop nav */}
+          {/* Editor strip — stage + visibility. Rendered only for editor+ so
+            viewers/followers/anonymous see no change (and no hint that the
+            surface exists). Server enforces everything. */}
+        {roleAtLeast(trip.myRole, "editor") && (
+          <div className="no-print mx-auto flex max-w-3xl items-center px-4 pb-2.5">
+            <TripControls />
+          </div>
+        )}
+        {/* Desktop nav */}
           <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
             <NavLinks tripId={tripId} trip={trip} />
           </div>

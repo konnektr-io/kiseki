@@ -2,13 +2,25 @@ import { ExternalLink, ListChecks, Phone, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
 import { Markdown } from "../lib/markdown";
+import { toggleTodoItem } from "../lib/api";
+import { roleAtLeast, withTodoDone } from "../lib/editing";
+import { useTripWrite } from "../lib/useTripWrite";
 
 export function PracticalsPage() {
   const trip = useTrip();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const { busy, error, run } = useTripWrite();
   const todos = trip.practical.todos ?? [];
   const links = trip.practical.links ?? [];
   const contacts = trip.practical.contacts ?? [];
   const done = todos.filter((t) => t.done).length;
+
+  const toggle = (index: number, nextDone: boolean) => {
+    void run(
+      (token) => toggleTodoItem(trip.id, index, nextDone, token),
+      (t) => withTodoDone(t, index, nextDone),
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -26,13 +38,28 @@ export function PracticalsPage() {
           <ul className="mt-4 space-y-2">
             {todos.map((t, i) => (
               <li key={i} className="flex items-start gap-2.5 text-sm">
-                <span
-                  className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded ${
-                    t.done ? "bg-accent text-accent-foreground" : "border border-border"
-                  }`}
-                >
-                  {t.done && <span className="text-[10px]">✓</span>}
-                </span>
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => toggle(i, !t.done)}
+                    disabled={busy}
+                    aria-pressed={!!t.done}
+                    aria-label={`Mark "${t.label}" ${t.done ? "not done" : "done"}`}
+                    className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-50 ${
+                      t.done ? "bg-accent text-accent-foreground" : "border border-border hover:border-accent"
+                    }`}
+                  >
+                    {t.done && <span className="text-[10px]">✓</span>}
+                  </button>
+                ) : (
+                  <span
+                    className={`mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded ${
+                      t.done ? "bg-accent text-accent-foreground" : "border border-border"
+                    }`}
+                  >
+                    {t.done && <span className="text-[10px]">✓</span>}
+                  </span>
+                )}
                 <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground line-through" : ""}`}>
                   {t.label}
                   {t.links?.length ? (
@@ -60,6 +87,11 @@ export function PracticalsPage() {
               </li>
             ))}
           </ul>
+          {error && (
+            <p role="alert" className="mt-2 text-xs font-medium text-destructive">
+              {error}
+            </p>
+          )}
         </Card>
       )}
 

@@ -5,8 +5,11 @@ import { useTrip } from "../components/theme";
 import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "../components/DaySummaryRow";
 import { useLocationMarkers } from "../components/blocks";
 import { findLocation } from "../lib/maps";
-import { tripTodayIso, isTodayInRange } from "../lib/dates";
+import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
 import { itineraryItems, sectionRange } from "../lib/sections";
+import { roleAtLeast } from "../lib/editing";
+import { useTripWrite } from "../lib/useTripWrite";
+import { moveTripBlock } from "../lib/api";
 import type { Day, TripSection } from "../lib/types";
 
 const scrollKey = (tripId: string) => `kiseki:itinerary-scroll:${tripId}`;
@@ -65,6 +68,8 @@ export function ItineraryPage() {
   const todayIso = tripTodayIso(trip);
   const todayInRange = isTodayInRange(trip, todayIso);
   const key = scrollKey(tripId);
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const { busy, error, run } = useTripWrite();
 
   // Restore position with strict precedence: an incoming #s-<n> anchor (from a
   // shared /s/<n> link, the Overview TOC, or a day page's up button) wins;
@@ -183,16 +188,53 @@ export function ItineraryPage() {
               </div>
             ) : (
               /* a section with no days yet — its unscheduled blocks ARE the
-                 chapter content (idea-stage trip). */
+                 chapter content (idea-stage trip). Editors can "schedule"
+                 (promote) one onto a day (§7.5 / #46). */
               <div className="space-y-2.5 pt-3">
                 {[...(section.blocks ?? [])]
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                   .map((b, i) => (
-                    <BlockSummaryRow key={i} block={b} />
+                    <div key={b.id ?? i} className="space-y-1">
+                      <BlockSummaryRow block={b} />
+                      {canEdit && trip.days.length > 0 && (
+                        <div className="no-print flex items-center gap-1.5 pl-1">
+                          <label className="sr-only" htmlFor={`schedule-${b.id}`}>
+                            Schedule block to a day
+                          </label>
+                          <select
+                            id={`schedule-${b.id}`}
+                            className="h-7 rounded-md border border-border bg-card px-1.5 text-[11px] font-medium text-foreground focus-visible:focus-ring disabled:opacity-50"
+                            disabled={busy}
+                            defaultValue=""
+                            onChange={(e) => {
+                              const dayId = e.target.value;
+                              if (!dayId) return;
+                              void run((token) =>
+                                moveTripBlock(trip.id, b.id, { type: "day", id: dayId }, token),
+                              );
+                            }}
+                          >
+                            <option value="" disabled>
+                              Schedule to day…
+                            </option>
+                            {trip.days.map((d, di) => (
+                              <option key={d.id} value={d.id}>
+                                Day {di + 1} — {d.title || formatDay(d.date)}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   ))}
                 {!section.blocks?.length && (
                   <p className="text-sm italic text-muted-foreground">
                     Planning this chapter — nothing scheduled yet.
+                  </p>
+                )}
+                {error && (
+                  <p role="alert" className="pt-1 text-xs font-medium text-destructive">
+                    {error}
                   </p>
                 )}
               </div>

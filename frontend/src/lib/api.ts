@@ -153,3 +153,132 @@ export async function followTrip(claimToken: string, accessToken: string): Promi
 }
 
 export const bookletUrl = (tripId: string) => `/api/trips/${encodeURIComponent(tripId)}/booklet.pdf`;
+
+/* ---------------- #46 write-path client (role-gated; editor+) ----------------
+ * Every write endpoint returns the canonical trip document. Callers layer the
+ * optimistic-update + rollback loop (lib/useTripWrite) on top; these functions
+ * only ship bytes and refresh the session cache. */
+
+type JsonBody = Record<string, unknown>;
+
+async function tripWrite<T = Trip>(
+  method: string,
+  path: string,
+  accessToken: string,
+  body?: JsonBody,
+): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  headers.Authorization = `Bearer ${accessToken}`;
+  const res = await fetch(path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as T;
+}
+
+/** A successful write retires the anonymous copies and refreshes the authed
+ *  ones under both the param key and the doc id key, so back-navigation and
+ *  remounts see the fresh document. */
+function cacheTrip(tripId: string, doc: Trip): void {
+  tripCache.delete(`${tripId}|anon`);
+  tripCache.delete(`${doc.id}|anon`);
+  tripCache.set(`${tripId}|auth`, doc);
+  tripCache.set(`${doc.id}|auth`, doc);
+}
+
+export async function putTrip(
+  tripId: string,
+  patch: JsonBody,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite("PUT", `/api/trips/${encodeURIComponent(tripId)}`, accessToken, patch);
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export async function toggleTodoItem(
+  tripId: string,
+  index: number,
+  done: boolean,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "POST",
+    `/api/trips/${encodeURIComponent(tripId)}/practical/todos/${index}/toggle`,
+    accessToken,
+    { done },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export async function putTripBlock(
+  tripId: string,
+  blockId: string,
+  fields: JsonBody,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PUT",
+    `/api/trips/${encodeURIComponent(tripId)}/blocks/${encodeURIComponent(blockId)}`,
+    accessToken,
+    fields,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export async function deleteTripBlock(
+  tripId: string,
+  blockId: string,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "DELETE",
+    `/api/trips/${encodeURIComponent(tripId)}/blocks/${encodeURIComponent(blockId)}`,
+    accessToken,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export interface BlockContainerRef {
+  type: "day" | "section";
+  id: string;
+}
+
+/** Promote/demote a block between a section (unscheduled pool) and a day
+ *  (§7.5 — "schedule this"). Server appends unless `index` is given. */
+export async function moveTripBlock(
+  tripId: string,
+  blockId: string,
+  container: BlockContainerRef,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "POST",
+    `/api/trips/${encodeURIComponent(tripId)}/blocks/${encodeURIComponent(blockId)}/move`,
+    accessToken,
+    { container },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export async function putContainerOrder(
+  tripId: string,
+  containerId: string,
+  blockIds: string[],
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PUT",
+    `/api/trips/${encodeURIComponent(tripId)}/containers/${encodeURIComponent(containerId)}/block-order`,
+    accessToken,
+    { block_ids: blockIds },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
