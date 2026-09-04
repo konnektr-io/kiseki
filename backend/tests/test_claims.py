@@ -142,7 +142,32 @@ def test_claim_crew_person_rejects_bad_input(sdk_client) -> None:
     assert sdk_client.claim_crew_person("not-a-uuid", "u", "p", "owner", 0) is False
     assert sdk_client.claim_crew_person(trip, "u", "p", "superadmin", 0) is False
     assert sdk_client.claim_crew_person(trip, "u", "p", "viewer", "0") is False
+    assert sdk_client.claim_crew_person(trip, "u", "p", "viewer", 0, 123) is False  # note must be str
     assert sdk_client._client.calls == []  # type: ignore[attr-defined]
+
+
+def test_claim_crew_person_carries_note(sdk_client) -> None:
+    """Claim transfers the trip-relative note onto the new User edge (#6)."""
+    trip, user, person = (
+        _trip_id("canada-2027"),
+        "google-oauth2|42",
+        "11111111-2222-4333-8444-555555555555",
+    )
+    assert sdk_client.claim_crew_person(trip, user, person, "owner", 2, "Skis — Elan Playmaker 111") is True
+    _, _, _, rel = sdk_client._client.calls[0]  # type: ignore[attr-defined]
+    assert rel["note"] == "Skis — Elan Playmaker 111"
+
+
+def test_claim_crew_person_omits_missing_note(sdk_client) -> None:
+    """No note on the placeholder edge → no note key on the User edge."""
+    trip, user, person = (
+        _trip_id("canada-2027"),
+        "google-oauth2|42",
+        "11111111-2222-4333-8444-555555555555",
+    )
+    assert sdk_client.claim_crew_person(trip, user, person, "owner", 2) is True
+    _, _, _, rel = sdk_client._client.calls[0]  # type: ignore[attr-defined]
+    assert "note" not in rel
 
 
 # ------------------------------------------------------------- claim service
@@ -199,8 +224,8 @@ class _StubClient:
         )
         return True
 
-    def claim_crew_person(self, trip, user, person, role, index) -> bool:
-        self.transfer = (trip, user, person, role, index)
+    def claim_crew_person(self, trip, user, person, role, index, note=None) -> bool:
+        self.transfer = (trip, user, person, role, index, note)
         self.graph["twins"] = [
             t for t in self.graph["twins"] if t["$dtId"] != person
         ]
@@ -217,10 +242,13 @@ class _StubClient:
             r for r in self.graph["relationships"]
             if not (r["$targetId"] == person and r["$relationshipName"] == "hasCrew")
         ]
-        self.graph["relationships"].append(
+        new_edge: dict = (
             {"$sourceId": trip, "$relationshipName": "hasCrew",
              "$targetId": user, "role": role, "index": index}
         )
+        if note is not None:
+            new_edge["note"] = note
+        self.graph["relationships"].append(new_edge)
         return True
 
 
@@ -238,9 +266,10 @@ def test_claim_identity_success(stub: _StubClient) -> None:
     trip_model = claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
 
     assert stub.created_user == "google-oauth2|42"
-    trip_dtid, user, p, role, index = stub.transfer  # type: ignore[misc]
+    trip_dtid, user, p, role, index, note = stub.transfer  # type: ignore[misc]
     assert trip_dtid == trip and user == "google-oauth2|42" and p == person
     assert role == "owner"
+    assert note is None  # anon fixture crew carry no notes
     # rebuilt: the user is on the crew (placeholder gone) — names redacted in anon graph
     assert any(c.id == "google-oauth2|42" for c in trip_model.crew)
     assert len(trip_model.crew) == 3

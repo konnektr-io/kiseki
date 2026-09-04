@@ -95,11 +95,26 @@ def test_user_extends_person_and_has_no_role():
     user = by_id[mid("User")]
     assert user.get("extends") == mid("Person"), "User must extend Person"
     user_props = {c["name"] for c in user["contents"] if c["@type"] == "Property"}
-    # own fields only — name/note/contact come from Person via `extends`
+    # own fields only — name/contact come from Person via `extends`
+    # (role/note ride the hasCrew edge, never a node)
     assert user_props == {"email", "displayName", "authProvider"}
     assert "role" not in user_props
     person_props = {c["name"] for c in by_id[mid("Person")]["contents"] if c["@type"] == "Property"}
     assert "role" not in person_props, "role must not be a Person property (carried on hasCrew edge)"
+    assert "note" not in person_props, "note must not be a Person property (carried on hasCrew edge)"
+
+
+def test_hascrew_edge_declares_role_and_note():
+    """Trip-relative crew metadata (role + note, e.g. gear) is declared on the
+    hasCrew edge — the Person/User node is shared across trips after claim,
+    so per-trip notes must not live on the node."""
+    doc = json.loads(DTDL.read_text())
+    by_id = {d["@id"]: d for d in doc}
+    trip_iface = by_id[mid("Trip")]
+    edges = [c for c in trip_iface["contents"]
+             if c["@type"] == "Relationship" and c["name"] == "hasCrew"]
+    assert len(edges) == 1, "Trip must expose exactly one hasCrew edge"
+    assert {p["name"] for p in edges[0].get("properties", [])} == {"role", "note"}
 
 
 def test_tripsection_has_section_relationship_edges():
@@ -207,6 +222,27 @@ def test_dtids_are_opaque_guid_and_unique(trip):
     # Trip's own $dtId appears exactly once (its twin); no other twin leaks it
     assert sum(1 for x in g["twins"] if x["$dtId"] == trip.id) == 1
     assert not any(trip.id in x["$dtId"] and x["$dtId"] != trip.id for x in g["twins"])
+
+
+def test_crew_note_rides_edge_roundtrip(trip):
+    """Converter moves Person.note onto the hasCrew edge (never the twin);
+    graph_to_trip reads it back — so per-trip gear notes survive the graph."""
+    if not trip.crew:
+        pytest.skip("no crew in fixture trip")
+    trip.crew[0].note = "Skis — Elan Playmaker 111"
+    g = trip_to_graph(trip)
+    crew_edges = [r for r in g["relationships"] if r.get("$relationshipName") == "hasCrew"]
+    assert len(crew_edges) == len(trip.crew)
+    edge = next(r for r in crew_edges if r["$targetId"] == trip.crew[0].id)
+    assert edge.get("note") == "Skis — Elan Playmaker 111"
+    assert edge.get("role") == trip.crew[0].role
+    twin = next(t for t in g["twins"] if t["$dtId"] == trip.crew[0].id)
+    assert "note" not in twin and "role" not in twin
+    from app.graph.convert import graph_to_trip
+    back = graph_to_trip(g)
+    person = next(p for p in back.crew if p.id == trip.crew[0].id)
+    assert person.note == "Skis — Elan Playmaker 111"
+    assert person.role == trip.crew[0].role
 
 
 def test_anonymize_removes_pii(trip):

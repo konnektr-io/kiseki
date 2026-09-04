@@ -111,10 +111,14 @@ def claim_identity(
         role = "viewer"
     index = edge.get("index")
     index = index if isinstance(index, int) else 0
+    # Trip-relative note rides the edge too — carry it over to the User edge
+    # so claiming never drops it.
+    note = edge.get("note")
+    note = note if isinstance(note, str) else None
 
     if not client.create_user_twin(user_dtid, profile):
         raise ClaimError(503, "Could not create your user identity")
-    if not client.claim_crew_person(trip_dtid, user_dtid, person_id, role, index):
+    if not client.claim_crew_person(trip_dtid, user_dtid, person_id, role, index, note):
         raise ClaimError(503, "Could not transfer your crew role")
 
     rebuilt = client.fetch_graph(trip_dtid)

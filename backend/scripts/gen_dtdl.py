@@ -104,6 +104,7 @@ REL_NAME = {
 REL_PROPERTIES = {
     "hasCrew": [
         {"@type": "Property", "name": "role", "schema": "string", "writable": True, "description": "Trip-relative role of the crew member (e.g. owner | planner | guest). Carried on the edge, not on the person."},
+        {"@type": "Property", "name": "note", "schema": "string", "writable": True, "description": "Trip-relative note about the crew member on this trip (e.g. gear). Carried on the edge, not on the person — the Person/User node is shared across trips after claim."},
     ],
 }
 
@@ -265,9 +266,9 @@ def build_interface(model_cls) -> dict:
                 edge["properties"] = REL_PROPERTIES[rel_name]
             contents.append(edge)
             continue
-        # Person.role is trip-relative -> carried on the hasCrew edge, not on the node.
+        # Person.role/note are trip-relative -> carried on the hasCrew edge, not on the node.
         # Strip from Person AND any derived model (User extends Person).
-        if issubclass(model_cls, M.Person) and name == "role":
+        if issubclass(model_cls, M.Person) and name in ("role", "note"):
             continue
         # plain property (primitive / enum / inline value object)
         schema = _schema_for_scalar(inner, fld.annotation)

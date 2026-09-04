@@ -117,7 +117,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
         locations.append(loc)
         loc_name_by_id[lid] = loc.name
 
-    # ---- crew (role rides the hasCrew edge) ------------------------------
+    # ---- crew (role/note ride the hasCrew edge) --------------------------
     crew: list[M.Person] = []
     for r in rels_by_src.get(root_id, []):
         if r.get("$relationshipName") != "hasCrew":
@@ -127,6 +127,9 @@ def graph_to_trip(graph: dict) -> M.Trip:
             continue
         d = _bydict(t)
         d["role"] = r.get("role", "viewer")
+        # Trip-relative note lives on the edge (the Person/User node is shared
+        # across trips after claim); missing on old edges -> None.
+        d["note"] = r.get("note")
         crew.append(M.Person.model_validate(d))
 
     # ---- days + their blocks ---------------------------------------------

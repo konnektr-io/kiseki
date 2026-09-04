@@ -168,14 +168,14 @@ RETURN collect(DISTINCT n) AS nodes
 
 # All relationships whose source is in the trip's component. AGE rejects a `$`
 # map key (even quoted), so we collect each edge as a plain LIST
-# [sourceId, relationshipName, targetId, role, index] and map it to the ADT
+# [sourceId, relationshipName, targetId, role, index, note] and map it to the ADT
 # relationship shape in Python. `type(r)` is the edge name.
 _Q_RELS = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
 MATCH (trip)-[*0..{max_hops}]->(a:Twin)
 MATCH (a)-[r]->(b:Twin)
-RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.role, r.index]) AS rels
+RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.role, r.index, r.note]) AS rels
 """.format(max_hops=MAX_HOPS)
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
@@ -400,11 +400,12 @@ class GraphReadClient:
         person_dtid: str,
         role: str,
         index: int,
+        note: Optional[str] = None,
     ) -> bool:
         """Transfer a trip's ``hasCrew`` edge from a placeholder Person to the
         User twin, then retire the placeholder (issue #6).
 
-        Upserts the trip->User edge (same ``role`` + ``index`` as the
+        Upserts the trip->User edge (same ``role`` + ``index`` + ``note`` as the
         placeholder's), deletes the old trip->Person edge, and deletes the
         placeholder node itself — the placeholder is gone once claimed.
         """
@@ -413,20 +414,23 @@ class GraphReadClient:
             return False
         if role not in {"owner", "editor", "viewer", "follower"} or not isinstance(index, int):
             return False
+        if note is not None and not isinstance(note, str):
+            return False
         try:
             from konnektr_graph import BasicRelationship
 
             rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
-            rel = BasicRelationship.from_dict(
-                {
-                    "$relationshipId": rel_id,
-                    "$sourceId": trip_dtid,
-                    "$relationshipName": "hasCrew",
-                    "$targetId": user_dtid,
-                    "role": role,
-                    "index": index,
-                }
-            )
+            props: dict[str, Any] = {
+                "$relationshipId": rel_id,
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasCrew",
+                "$targetId": user_dtid,
+                "role": role,
+                "index": index,
+            }
+            if note is not None:
+                props["note"] = note
+            rel = BasicRelationship.from_dict(props)
             self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
             self._client.delete_relationship(  # type: ignore[union-attr]
                 trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
@@ -497,12 +501,13 @@ class GraphReadClient:
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
-        """Map a [src, name, tgt, role, index] row into an ADT relationship.
+        """Map a [src, name, tgt, role, index, note] row into an ADT relationship.
 
         ``_Q_RELS`` returns each edge as a plain list (AGE rejects `$`-prefixed
         map keys), so we assemble the canonical ``$sourceId`` /
         ``$relationshipName`` / ``$targetId`` keys plus any edge properties
-        (``role`` / ``index``) here.
+        (``role`` / ``index`` / ``note``) here. Shorter rows (pre-note edges)
+        simply omit the missing properties.
         """
         if not isinstance(r, (list, tuple)):
             return dict(r) if isinstance(r, dict) else {}
@@ -513,8 +518,7 @@ class GraphReadClient:
             "$targetId": tgt,
         }
         # edge properties ride in positions 3..n
-        for k, v in (zip(("role", "index"), r[3:4]) if len(r) == 4
-                     else zip(("role", "index"), r[3:5])):
+        for k, v in zip(("role", "index", "note"), r[3:]):
             if v is not None:
                 out[k] = v
         return out
