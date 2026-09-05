@@ -347,6 +347,55 @@ h4 {
   opacity: 0.45;
 }
 
+/* Letter chips (§8.3, #90) — the day level's activity markers. Square dots,
+   selected = the same raise+ring grammar as the numbered pins; everything
+   else dims while a chip is focused so the day's focus story matches the
+   scan level's. */
+.route-chip.is-selected .route-chip-dot {
+  transform: scale(1.15);
+  @apply outline-2 outline-offset-2 outline-accent;
+}
+.route-map-focused .route-chip:not(.is-selected) .route-chip-dot {
+  opacity: 0.45;
+}
+
+/* Scroll-spy raise (#92): at scan level with no explicit selection, the pins
+   of the chapter in view stay full-strength and the rest recede — the map
+   reads the rail instead of waiting for a tap. */
+.route-spy-active .route-pin:not(.is-spy) .route-pin-dot {
+  opacity: 0.45;
+}
+.route-spy-active .route-pin-excursion:not(.is-spy) .route-pin-dot-excursion {
+  opacity: 0.45;
+}
+
+/* Tap↔card (#90): the card a letter chip answers pulses — a quiet ring-breath,
+   not a bounce. One card at a time, so a box-shadow animation is an acceptable
+   paint cost here (§10 governs scroll/interaction transitions); the global
+   reduced-motion guard covers it. The attribute is set only by the map
+   surface's rail, so booklet/today/summary cards are untouched. */
+@keyframes card-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 45%, transparent);
+  }
+}
+[data-active-block="true"] {
+  animation: card-pulse 1.6s ease-in-out infinite;
+}
+
+/* Minimap suppression (#92): inside the map surface the day panel sits right
+   beside the live map, so the per-block mini maps are redundant chrome —
+   hidden by a surface-scoped rule (not a print rule) and the booklet keeps
+   them. The `h-24` strip stays in the DOM for layout stability of the non-
+   map contexts that share the component. */
+.trip-map-surface .minimap {
+  display: none;
+}
+
 /* MapLibre's corner chrome vs. the surface's content (#39).
 
    Attribution is a legal requirement and a design element — style it, never

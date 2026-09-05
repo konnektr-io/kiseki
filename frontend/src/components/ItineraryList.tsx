@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { MapPin } from "lucide-react";
-import { useTrip } from "../components/theme";
-import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "../components/DaySummaryRow";
-import { useLocationMarkers } from "../components/blocks";
+import { useTrip } from "./theme";
+import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "./DaySummaryRow";
+import { useLocationMarkers } from "./blocks";
 import { findLocation } from "../lib/maps";
 import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
 import { itineraryItems, sectionRange } from "../lib/sections";
@@ -18,13 +18,23 @@ const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)"
 
 /** Sticky chapter header — title + derived range on one line. A section is a
  *  chapter within the itinerary, not a page (§7.5), so this bar is a plain
- *  header: the chapter itself is the anchor target (id="s-<si>"). */
-function SectionHeader({ section }: { section: TripSection }) {
+ *  header: the chapter itself is the anchor target (id="s-<si>"). `top` and
+ *  `inset` are set by the host: the document page docks under the app header,
+ *  the map surface's rail/sheet docks at its own scroll container's top. */
+function SectionHeader({
+  section,
+  top = "var(--kiseki-header-h, 3.5rem)",
+  inset = "-mx-4 px-4",
+}: {
+  section: TripSection;
+  top?: string;
+  inset?: string;
+}) {
   const range = sectionRange(section.days);
   return (
     <div
-      className="sticky z-10 -mx-4 flex items-center gap-3 border-b border-border bg-background/90 px-4 py-2.5 backdrop-blur"
-      style={{ top: "var(--kiseki-header-h, 3.5rem)" }}
+      className={`sticky z-10 flex items-center gap-3 border-b border-border bg-background/90 py-2.5 backdrop-blur ${inset}`}
+      style={{ top }}
     >
       <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" aria-hidden />
       <h3 className="min-w-0 flex-1 truncate font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
@@ -39,29 +49,81 @@ function SectionHeader({ section }: { section: TripSection }) {
 
 /** Location chips for a chapter — orientation read once on arrival, so they
  *  live in the (non-sticky) chapter body, not the pinned bar. Marker numbers
- *  are the section → place → map-marker tie (§7.5, §8.3). */
-function SectionLocations({ section }: { section: TripSection }) {
+ *  are the section → place → map-marker tie (§7.5, §8.3). On the map surface
+ *  (#92) a pill is also a BUTTON: tapping it selects the place on the map. */
+function SectionLocations({
+  section,
+  onSelectPlace,
+}: {
+  section: TripSection;
+  onSelectPlace?: (name: string) => void;
+}) {
   const trip = useTrip();
   const marker = useLocationMarkers();
   const refs = (section.locationRefs ?? []).filter((ref) => findLocation(trip, ref));
   if (!refs.length) return null;
+  const Pill = onSelectPlace ? "button" : "span";
   return (
     <ul className="flex flex-wrap gap-1.5 pt-3">
       {refs.map((ref) => (
-        <li
-          key={ref}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground"
-        >
-          <MapPin className="h-3 w-3 text-primary" aria-hidden />
-          <span aria-hidden>{marker(ref) !== "•" ? `${marker(ref)} ` : ""}</span>
-          {ref}
+        <li key={ref}>
+          <Pill
+            {...(onSelectPlace
+              ? {
+                  type: "button" as const,
+                  "aria-pressed": undefined,
+                  onClick: () => onSelectPlace(ref),
+                  "aria-label": `Show ${ref} on the map`,
+                }
+              : {})}
+            data-place-pill={ref}
+            className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground ${
+              onSelectPlace ? "transition-colors hover:border-primary/40 hover:bg-muted cursor-pointer" : ""
+            }`}
+          >
+            <MapPin className="h-3 w-3 text-primary" aria-hidden />
+            <span aria-hidden>{marker(ref) !== "•" ? `${marker(ref)} ` : ""}</span>
+            {ref}
+          </Pill>
         </li>
       ))}
     </ul>
   );
 }
 
-export function ItineraryPage() {
+export interface ItineraryListProps {
+  /** Sticky-header top within the host's scroll container. */
+  stickyTop?: string;
+  /** Sticky-header horizontal bleed — matches the host scroll container's padding. */
+  stickyInset?: string;
+  /** Scroll-margin for #s-<n> anchors inside the host scroll container. */
+  anchorMargin?: string;
+  /** Scan-level map interactions (#92): pills select places. */
+  onSelectPlace?: (name: string) => void;
+  /** The currently selected place — its pills highlight. */
+  selectedPlace?: string | null;
+  /** Receives the list root — the scroll-spy's query scope (map surface). */
+  rootRef?: RefObject<HTMLDivElement | null>;
+  /** Which day is open in the day level (highlights its row when embedded elsewhere). */
+  activeDayIdx?: number | null;
+}
+
+/**
+ * The itinerary scan list — chapters, sticky headers, location pills, day
+ * summary cards, folds — EXACTLY as the itinerary page has always rendered it
+ * (#92: "no markup change"). Extracted from `ItineraryPage` so the map
+ * surface's rail/sheet can host the same content; the document page renders
+ * it with its original chrome (app-header-docked sticky bars, window scroll).
+ */
+export function ItineraryList({
+  stickyTop,
+  stickyInset = "-mx-4 px-4",
+  anchorMargin = "var(--kiseki-header-h, 3.5rem)",
+  onSelectPlace,
+  selectedPlace,
+  rootRef,
+  activeDayIdx,
+}: ItineraryListProps) {
   const trip = useTrip();
   const { tripId = "" } = useParams();
   const { hash } = useLocation();
@@ -70,6 +132,7 @@ export function ItineraryPage() {
   const key = scrollKey(tripId);
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const { busy, error, run } = useTripWrite();
+  const innerRef = useRef<HTMLDivElement>(null);
 
   // Restore position with strict precedence: an incoming #s-<n> anchor (from a
   // shared /s/<n> link, the Overview TOC, or a day page's up button) wins;
@@ -78,9 +141,14 @@ export function ItineraryPage() {
   // for a specific place, smooth-scrolling across the whole trip is
   // disorienting. Today keeps its smooth "here's where you are" gesture.
   // Both degrade to instant under prefers-reduced-motion (§10).
+  //
+  // The scroll container is the nearest [data-scroll-root] — the window on the
+  // document page, the rail/sheet body on the map surface.
   useLayoutEffect(() => {
+    const root = innerRef.current;
+    const scroller = (root?.closest("[data-scroll-root]") as HTMLElement | null) ?? null;
     if (hash.startsWith("#s-")) {
-      const el = document.getElementById(hash.slice(1));
+      const el = root?.querySelector(hash.slice(1));
       if (el) {
         el.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "instant" });
         return;
@@ -90,11 +158,12 @@ export function ItineraryPage() {
     }
     const saved = sessionStorage.getItem(key);
     if (saved != null && !Number.isNaN(Number(saved))) {
-      window.scrollTo(0, Number(saved));
+      if (scroller) scroller.scrollTop = Number(saved);
+      else window.scrollTo(0, Number(saved));
       return;
     }
     if (todayInRange) {
-      const el = document.querySelector<HTMLElement>('[data-today="true"]');
+      const el = root?.querySelector<HTMLElement>('[data-today="true"]');
       if (el) el.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,19 +171,25 @@ export function ItineraryPage() {
 
   // Track scroll live (passive) so the unmount-save below reads the LAST real
   // position: passive cleanups run after React swaps the DOM, when
-  // window.scrollY has already been reset to 0. The listener also covers
-  // exits via browser back/forward, which fire no click.
+  // scrollTop/scrollY has already been reset. The listener also covers exits
+  // via browser back/forward, which fire no click.
   const lastY = useRef(0);
   useEffect(() => {
+    const root = innerRef.current;
+    const scroller = (root?.closest("[data-scroll-root]") as HTMLElement | null) ?? null;
     const onScroll = () => {
-      lastY.current = window.scrollY;
+      lastY.current = scroller ? scroller.scrollTop : window.scrollY;
     };
+    scroller?.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    return () => {
+      scroller?.removeEventListener("scroll", onScroll);
+      window.removeEventListener("scroll", onScroll);
+    };
   }, []);
 
-  // Persist the scroll position whenever the itinerary unmounts (day page,
-  // nav away) so the scan view resumes where it was.
+  // Persist the scroll position whenever the list unmounts (day level, nav
+  // away) so the scan view resumes where it was.
   useEffect(() => {
     return () => sessionStorage.setItem(key, String(lastY.current));
   }, [key]);
@@ -147,23 +222,34 @@ export function ItineraryPage() {
 
   if (!hasDays && !hasSections) {
     return (
-      <p className="py-10 text-center text-sm italic text-muted-foreground">
-        Still in the <strong>idea</strong> stage — no itinerary yet. The route skeleton lives in the overview.
-      </p>
+      <div ref={rootRef ?? innerRef} data-itinerary-list="">
+        <p className="py-10 text-center text-sm italic text-muted-foreground">
+          Still in the <strong>idea</strong> stage — no itinerary yet. The route skeleton lives in the overview.
+        </p>
+      </div>
     );
   }
 
-  return (
+  const content = (
     <div className="space-y-8">
       {hasSections ? (
         sections.map(({ section, si, items }) => (
           <section
             key={si}
             id={`s-${si}`}
-            style={{ scrollMarginTop: "var(--kiseki-header-h, 3.5rem)" }}
+            data-section-id={section.id}
+            data-section-index={si}
+            style={{ scrollMarginTop: anchorMargin }}
           >
-            <SectionHeader section={section} />
-            <SectionLocations section={section} />
+            <SectionHeader section={section} top={stickyTop} inset={stickyInset} />
+            <SectionLocations
+              section={section}
+              onSelectPlace={
+                onSelectPlace
+                  ? (name) => onSelectPlace(selectedPlace === name ? "" : name)
+                  : undefined
+              }
+            />
             {items.length ? (
               <div className="space-y-2.5 pt-3">
                 {items.map((item) =>
@@ -182,6 +268,7 @@ export function ItineraryPage() {
                       idx={item.idx}
                       dayNo={item.idx + 1}
                       isToday={item.day.date === todayIso}
+                      active={activeDayIdx === item.idx}
                     />
                   ),
                 )}
@@ -245,10 +332,29 @@ export function ItineraryPage() {
         /* no sections — legacy flat day list */
         <div className="space-y-2.5">
           {trip.days.map((day, idx) => (
-            <DaySummaryRow key={idx} day={day} idx={idx} dayNo={idx + 1} isToday={day.date === todayIso} />
+            <DaySummaryRow
+              key={idx}
+              day={day}
+              idx={idx}
+              dayNo={idx + 1}
+              isToday={day.date === todayIso}
+              active={activeDayIdx === idx}
+            />
           ))}
         </div>
       )}
+    </div>
+  );
+
+  return (
+    <div
+      ref={(el) => {
+        innerRef.current = el;
+        if (rootRef) rootRef.current = el;
+      }}
+      data-itinerary-list=""
+    >
+      {content}
     </div>
   );
 }

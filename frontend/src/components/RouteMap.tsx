@@ -12,13 +12,21 @@ import {
   type MapPadding,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { greatCircle, type Journey } from "../lib/route-surface";
+import { greatCircle, placeRole, type Journey } from "../lib/route-surface";
+import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import type { TripLocation } from "../lib/types";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
+
+/** One resolved leg to draw, scan or day. */
+interface LegFeature {
+  coordinates: [number, number][];
+  stage: string;
+  road: boolean;
+}
 
 /**
  * Camera padding, as a centre offset in px.
@@ -38,17 +46,38 @@ function paddingOffset(p: MapPadding): [number, number] {
 }
 
 interface RouteMapProps {
+  /** The whole journey (scan level) — read through a ref inside the effects. */
   journey: Journey;
   /** Camera keep-out for the sheet/rail occlusion — see `SplitView`. */
   padding: MapPadding;
+  /* ---- scan level ---- */
   selected: TripLocation | null;
   onSelect: (loc: TripLocation) => void;
+  /** Places of the chapter currently in view (scroll-spy, #92) — their pins
+   *  stay full-strength while the rest dim. Null = no spy / a selection owns
+   *  the focus story. */
+  spyPlaces: string[] | null;
+  /* ---- day level (#90) — null `day` = scan level ---- */
+  day: DaySurface | null;
+  dayIdx: number | null;
+  /** The selected day block id — its chip rings, its card pulses in the rail. */
+  activeBlock: string | null;
+  /** Chip / day-pin tap from the map. `""` clears the chip focus. */
+  onBlockTap: (blockId: string) => void;
 }
 
 /**
- * The trip route as a map SURFACE (#39, DESIGN.md §2.2): the whole journey,
- * numbered markers, legs drawn by their own state — plus the trip's
- * EXCURSIONS (#91) as secondary markers beside the chain.
+ * The trip map SURFACE (DESIGN.md §7.6): ONE MapLibre instance serving BOTH
+ * levels — the itinerary scan (#92) and the day read (#90) — that stays
+ * mounted while the app navigates between them. Only the markers, the line
+ * layers and the camera change with the level; the map never remounts, so
+ * there is no basemap flash and no tile re-fetch on day→day moves.
+ *
+ * Scan level draws the whole journey: numbered stop pins, excursion diamonds,
+ * legs styled by their own state. Day level draws THAT DAY's world: the same
+ * numbered place pins (the registry through-line, §8.3), letter chips for the
+ * day's activities, and cased polylines for the day's drive legs — flights
+ * appear as endpoint pins only, never an arc (#90).
  *
  * This is not `MapView` with a bigger box. `MapView` is a document-surface
  * card — fixed height, one shot, and the booklet PDF renders through it, so it
@@ -57,56 +86,95 @@ interface RouteMapProps {
  * booklet's route map is still `MapView`'s (#37), which is why nothing here
  * carries the `data-maplibre` handshake the PDF waiter looks for.
  */
-export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps) {
+export function RouteMap({
+  journey,
+  padding,
+  selected,
+  onSelect,
+  spyPlaces,
+  day,
+  dayIdx,
+  activeBlock,
+  onBlockTap,
+}: RouteMapProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  /** The maplibre module, captured at mount — the level effect needs its
+   *  `Marker`/`LngLatBounds` constructors and re-importing is pointless. */
+  const libRef = useRef<typeof import("maplibre-gl") | null>(null);
+  /** Live marker elements by identity: place name (pins/diamonds) or the
+   *  chip's FIRST block id (letter chips). */
   const markersRef = useRef<Map<string, HTMLElement>>(new Map());
-  const fitRef = useRef<(() => void) | null>(null);
-  // Latest selection handler, read from the marker's own click listener — the
-  // markers are DOM built once, so they must not close over a stale prop.
+  /** Chip coordinates by first-block id — the tap↔card flyTo. */
+  const chipPosRef = useRef<Map<string, [number, number]>>(new Map());
+  const fitJourneyRef = useRef<(() => void) | null>(null);
+  const fitDayRef = useRef<(() => void) | null>(null);
+  // Live props, read through refs inside effects so those effects can key on
+  // STABLE identities (level key, legs data) instead of objects rebuilt every
+  // render.
+  const journeyRef = useRef(journey);
+  journeyRef.current = journey;
+  const dayRef = useRef(day);
+  dayRef.current = day;
+  const dayIdxRef = useRef(dayIdx);
+  dayIdxRef.current = dayIdx;
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
+  const onBlockTapRef = useRef(onBlockTap);
+  onBlockTapRef.current = onBlockTap;
   const paddingRef = useRef(padding);
   paddingRef.current = padding;
+
+  const isDay = day != null;
 
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
   // preference — without WebGL2 the constructor throws (DESIGN.md §8.2).
   const [webgl2] = useState(hasWebGL2);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
+  /** Journey leg geometry from the backend (scan level). `undefined` = still
+   *  fetching, `null` = nothing to fetch (no legs / maps unconfigured). */
+  const [legsData, setLegsData] = useState<LegFeature[] | null | undefined>(undefined);
 
-  const legsKey = journey.legs.map((l) => `${l.from.name}>${l.to.name}:${l.stage}`).join("|");
+  const journeyKey =
+    journey.legs.map((l) => `${l.from.name}>${l.to.name}:${l.stage}`).join("|") +
+    "#" +
+    journey.stops.map((s) => s.name).join(",") +
+    "#" +
+    journey.excursions.map((s) => s.name).join(",") +
+    (journey.loop ? "#loop" : "");
 
+  /* ------------------------------------------------------------------ */
+  /* Mount: the map instance itself, terrain, and the journey leg fetch. */
+  /* Level content (markers, layers, camera) is the NEXT effect.         */
+  /* ------------------------------------------------------------------ */
   useEffect(() => {
-    if (!webgl2 || !ref.current || journey.stops.length < 1) return;
+    if (!webgl2 || !ref.current || journeyRef.current.stops.length < 1) return;
     let cancelled = false;
     let map: MapLibreMap | null = null;
     const abort = new AbortController();
-    const markers: MapLibreMarker[] = [];
-    markersRef.current = new Map();
 
     (async () => {
       try {
         const lib = await loadMapLibre();
         if (cancelled || !ref.current) return;
-
-        // Colours come off the token layer, resolved against this element so
-        // they carry THIS trip's identity (§8.4). No hex literal belongs in
-        // map code.
-        const colors = mapColors(ref.current);
+        libRef.current = lib;
 
         const bounds = new lib.LngLatBounds();
-        journey.stops.forEach((s) => bounds.extend([s.lng!, s.lat!]));
-        journey.excursions.forEach((s) => bounds.extend([s.lng!, s.lat!]));
+        journeyRef.current.stops.forEach((s) => bounds.extend([s.lng!, s.lat!]));
+        journeyRef.current.excursions.forEach((s) => bounds.extend([s.lng!, s.lat!]));
 
         map = new lib.Map({
           container: ref.current,
           style: MAP_STYLE_URL,
           attributionControl: { compact: true },
-          bounds: journey.stops.length > 1 ? bounds : undefined,
-          center: journey.stops.length === 1 ? [journey.stops[0].lng!, journey.stops[0].lat!] : undefined,
-          zoom: journey.stops.length === 1 ? 9 : undefined,
+          bounds: journeyRef.current.stops.length > 1 ? bounds : undefined,
+          center:
+            journeyRef.current.stops.length === 1
+              ? [journeyRef.current.stops[0].lng!, journeyRef.current.stops[0].lat!]
+              : undefined,
+          zoom: journeyRef.current.stops.length === 1 ? 9 : undefined,
           fitBoundsOptions: { padding: paddingRef.current, maxZoom: 12 },
         });
         mapRef.current = map;
@@ -121,54 +189,6 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
 
         map.on("error", () => {
           if (!cancelled && !map?.loaded()) setFailed(true);
-        });
-
-        journey.stops.forEach((loc) => {
-          const n = markerNumber(trip, loc);
-          const el = document.createElement("button");
-          el.type = "button";
-          // The list beside the map is the accessible path to every place
-          // (kiseki-map-ux), so the pins stay out of the tab order rather than
-          // duplicating every stop in it — but they are still real buttons, so
-          // a pointer gets button semantics and a 44px target.
-          el.tabIndex = -1;
-          el.setAttribute("aria-hidden", "true");
-          el.title = loc.name;
-          el.dataset.place = loc.name;
-          el.className = "route-pin grid h-11 w-11 cursor-pointer place-items-center";
-          const pin = document.createElement("span");
-          // Pin colours are Tailwind utilities off --color-marker /
-          // --color-marker-fg, so the pin is per-trip for free and no colour
-          // is written in JS at all.
-          pin.className =
-            "route-pin-dot grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card transition-transform duration-120";
-          pin.textContent = String(n);
-          el.appendChild(pin);
-          el.addEventListener("click", () => onSelectRef.current(loc));
-          markersRef.current.set(loc.name, el);
-          markers.push(new lib.Marker({ element: el }).setLngLat([loc.lng!, loc.lat!]).addTo(map!));
-        });
-
-        // Excursions (#91): same family, secondary visual weight — smaller,
-        // hollow (surface-tinted ring instead of the filled marker token), a
-        // diamond read where stops are circles. Selectable like any pin, so
-        // the tap↔list behaviour stays uniform. No number: they are not chain
-        // members, so they must not claim a slot in the ① ② ③ index.
-        journey.excursions.forEach((loc) => {
-          const el = document.createElement("button");
-          el.type = "button";
-          el.tabIndex = -1;
-          el.setAttribute("aria-hidden", "true");
-          el.title = `${loc.name} (excursion)`;
-          el.dataset.place = loc.name;
-          el.className = "route-pin route-pin-excursion grid h-11 w-11 cursor-pointer place-items-center";
-          const pin = document.createElement("span");
-          pin.className =
-            "route-pin-dot route-pin-dot-excursion h-5 w-5 rotate-45 rounded-[4px] border-2 border-marker bg-surface shadow-card transition-transform duration-120";
-          el.appendChild(pin);
-          el.addEventListener("click", () => onSelectRef.current(loc));
-          markersRef.current.set(loc.name, el);
-          markers.push(new lib.Marker({ element: el }).setLngLat([loc.lng!, loc.lat!]).addTo(map!));
         });
 
         await new Promise<void>((resolve) => {
@@ -188,147 +208,36 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
         // `chain` + `loop` is exactly the pair list `journey.legs` describes:
         // the backend closes the loop itself, so the chain must NOT already
         // repeat the first stop or the route gains a zero-length leg.
-        const fetched = journey.legs.length
-          ? await fetchRouteLegs(
-              trip,
-              journey.chain.map((s) => s.name),
-              journey.loop,
-              abort.signal,
-            )
-          : null;
-        if (cancelled || !map) return;
-
-        const features = journey.legs.map((leg) => {
-          const hit = fetched?.find(
-            (f) =>
-              (f.from === leg.from.name && f.to === leg.to.name) ||
-              (f.from === leg.to.name && f.to === leg.from.name),
+        const j = journeyRef.current;
+        if (j.legs.length) {
+          const fetched = await fetchRouteLegs(
+            trip,
+            j.chain.map((s) => s.name),
+            j.loop,
+            abort.signal,
           );
-          const road = hit?.road ?? false;
-          const coordinates =
-            hit?.geometry.coordinates ??
-            greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]);
-          return {
-            type: "Feature" as const,
-            properties: { state: leg.stage, road },
-            geometry: { type: "LineString" as const, coordinates },
-          };
-        });
-
-        map.addSource("journey", { type: "geojson", data: { type: "FeatureCollection", features } });
-
-        // Under the basemap's labels so place names stay readable across the
-        // route (§8.5). Found by layer TYPE, not id — hardcoded ids do not
-        // survive the per-trip style swap #40 will make.
-        const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
-
-        // Provisional legs are dashed and dim, committed ones solid and full
-        // width — the map shows intent, not just geography (§5.3).
-        const solid: import("maplibre-gl").FilterSpecification = [
-          "all",
-          ["get", "road"],
-          ["!=", ["get", "state"], "provisional"],
-        ];
-        const dashed: import("maplibre-gl").FilterSpecification = [
-          "any",
-          ["!", ["get", "road"]],
-          ["==", ["get", "state"], "provisional"],
-        ];
-        const width: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
-          "match",
-          ["get", "state"],
-          "booked",
-          4.5,
-          "planned",
-          3.5,
-          3,
-        ];
-        const opacity: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
-          "match",
-          ["get", "state"],
-          "booked",
-          1,
-          "planned",
-          0.85,
-          0.6,
-        ];
-
-        // Every line twice: a wide casing under a narrower body, or the route
-        // vanishes over roads of a similar colour (§8.4). The dashed casing
-        // shares the dash pattern — a solid casing under a dashed body fills
-        // the gaps back in and the leg stops reading as provisional.
-        map.addLayer(
-          {
-            id: "journey-casing",
-            type: "line",
-            source: "journey",
-            filter: solid,
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": colors.routeCasing, "line-width": 7.5, "line-opacity": 0.9 },
-          },
-          firstSymbol,
-        );
-        map.addLayer(
-          {
-            id: "journey-dashed-casing",
-            type: "line",
-            source: "journey",
-            filter: dashed,
-            layout: { "line-cap": "butt", "line-join": "round" },
-            paint: {
-              "line-color": colors.routeCasing,
-              "line-width": 6,
-              "line-opacity": 0.7,
-              "line-dasharray": [2, 2.2],
-            },
-          },
-          firstSymbol,
-        );
-        map.addLayer(
-          {
-            id: "journey-solid",
-            type: "line",
-            source: "journey",
-            filter: solid,
-            layout: { "line-cap": "round", "line-join": "round" },
-            paint: { "line-color": colors.route, "line-width": width, "line-opacity": opacity },
-          },
-          firstSymbol,
-        );
-        map.addLayer(
-          {
-            id: "journey-dashed",
-            type: "line",
-            source: "journey",
-            filter: dashed,
-            layout: { "line-cap": "butt", "line-join": "round" },
-            paint: {
-              "line-color": colors.route,
-              "line-width": width,
-              "line-opacity": opacity,
-              "line-dasharray": [2, 2.2],
-            },
-          },
-          firstSymbol,
-        );
-
-        // Frame the whole journey on the settled container, including the road
-        // geometry — a real route swings well outside the straight line
-        // between its pins.
-        const full = new lib.LngLatBounds();
-        journey.stops.forEach((s) => full.extend([s.lng!, s.lat!]));
-        journey.excursions.forEach((s) => full.extend([s.lng!, s.lat!]));
-        features.forEach((f) => f.geometry.coordinates.forEach((c) => full.extend(c as [number, number])));
-        fitRef.current = () => {
-          if (!mapRef.current || journey.stops.length < 2) return;
-          mapRef.current.fitBounds(full, {
-            padding: paddingRef.current,
-            maxZoom: 12,
-            animate: !prefersReducedMotion(),
-            duration: CAMERA_MS,
-          });
-        };
-        fitRef.current();
+          if (cancelled) return;
+          const resolved: LegFeature[] | null =
+            fetched == null
+              ? null
+              : j.legs.map((leg) => {
+                  const hit = fetched.find(
+                    (f) =>
+                      (f.from === leg.from.name && f.to === leg.to.name) ||
+                      (f.from === leg.to.name && f.to === leg.from.name),
+                  );
+                  return {
+                    stage: leg.stage,
+                    road: hit?.road ?? false,
+                    coordinates:
+                      (hit?.geometry.coordinates as [number, number][]) ??
+                      greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
+                  };
+                });
+          setLegsData(resolved);
+        } else {
+          setLegsData(null);
+        }
         setReady(true);
       } catch {
         if (!cancelled) setFailed(true);
@@ -338,36 +247,343 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
     return () => {
       cancelled = true;
       abort.abort();
-      markers.forEach((m) => m.remove());
       map?.remove();
       mapRef.current = null;
-      fitRef.current = null;
+      libRef.current = null;
+      markersRef.current = new Map();
+      chipPosRef.current = new Map();
+      fitJourneyRef.current = null;
+      fitDayRef.current = null;
+      setReady(false);
+      setLegsData(undefined);
     };
-  }, [trip, legsKey, webgl2]);
+    // `trip` and `journey` are read through refs; the stable identity is the
+    // signature — a changed journey (a content write) rebuilds the map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip, journeyKey, webgl2]);
 
-  // Selection: the pin grows and gets a ring, the others dim to 45% —
-  // dimmed, never hidden (§8.3). Done with classes so no colour is written in
-  // JS and the paint layers are never re-set.
+  /* ------------------------------------------------------------------ */
+  /* Level content: markers + line layers + camera, rebuilt on every     */
+  /* level change (scan ↔ day ↔ day) while the MAP ITSELF stays up.      */
+  /*                                                                     */
+  /* Fully synchronous (everything it needs is already loaded), so the   */
+  /* effect's own cleanup is the whole teardown story — no async races.  */
+  /* ------------------------------------------------------------------ */
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    if (!map || !lib || !ready) return;
+    const d = dayRef.current;
+    const levelIsDay = d != null && dayIdxRef.current != null;
+    const colors = mapColors(map.getContainer());
+
+    const markers: MapLibreMarker[] = [];
+    const addedLayers: string[] = [];
+    let addedSource: string | null = null;
+
+    /** A numbered place pin — the same registry ordinal on every surface. */
+    const addPin = (loc: TripLocation, excursion: boolean) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      // The rail/sheet beside the map is the accessible path (kiseki-map-ux),
+      // so pins stay out of the tab order — but they are real buttons, so a
+      // pointer gets button semantics and a 44px target.
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+      el.title = excursion ? `${loc.name} (excursion)` : loc.name;
+      el.dataset.place = loc.name;
+      if (excursion) {
+        el.className = "route-pin route-pin-excursion grid h-11 w-11 cursor-pointer place-items-center";
+        const pin = document.createElement("span");
+        // Excursions (#91): secondary weight — hollow diamond, no number (it
+        // must not claim a slot in the ① ② ③ index).
+        pin.className =
+          "route-pin-dot route-pin-dot-excursion h-5 w-5 rotate-45 rounded-[4px] border-2 border-marker bg-surface shadow-card transition-transform duration-120";
+        el.appendChild(pin);
+      } else {
+        el.className = "route-pin grid h-11 w-11 cursor-pointer place-items-center";
+        const pin = document.createElement("span");
+        // Pin colours are Tailwind utilities off --color-marker /
+        // --color-marker-fg, so the pin is per-trip for free and no colour
+        // is written in JS at all.
+        pin.className =
+          "route-pin-dot grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card transition-transform duration-120";
+        pin.textContent = String(markerNumber(trip, loc));
+        el.appendChild(pin);
+      }
+      markersRef.current.set(loc.name, el);
+      markers.push(new lib.Marker({ element: el }).setLngLat([loc.lng!, loc.lat!]).addTo(map));
+      return el;
+    };
+
+    /** A letter chip — the day level's activity marker (§8.3): square, so it
+     *  can never be confused with the round numbered pins. */
+    const addChip = (blockId: string, letter: string, place: TripLocation) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+      el.title = `${letter} — ${place.name}`;
+      el.dataset.block = blockId;
+      el.className = "route-chip grid h-11 w-11 cursor-pointer place-items-center";
+      const chip = document.createElement("span");
+      chip.className =
+        "route-chip-dot grid h-6 w-6 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card transition-transform duration-120";
+      chip.textContent = letter;
+      el.appendChild(chip);
+      markersRef.current.set(blockId, el);
+      chipPosRef.current.set(blockId, [place.lng!, place.lat!]);
+      markers.push(new lib.Marker({ element: el }).setLngLat([place.lng!, place.lat!]).addTo(map));
+      el.addEventListener("click", () => onBlockTapRef.current(blockId));
+    };
+
+    /** Cased line layers for the level's legs — the §8.4 grammar. */
+    const addLineLayers = (source: string, legs: LegFeature[]) => {
+      map.addSource(source, {
+        type: "geojson",
+        data: {
+          type: "FeatureCollection",
+          features: legs.map((f) => ({
+            type: "Feature" as const,
+            properties: { state: f.stage, road: f.road },
+            geometry: { type: "LineString" as const, coordinates: f.coordinates },
+          })),
+        },
+      });
+      addedSource = source;
+      // Under the basemap's labels so place names stay readable across the
+      // route (§8.5). Found by layer TYPE, not id — hardcoded ids do not
+      // survive the per-trip style swap #40 will make.
+      const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+      const solid: import("maplibre-gl").FilterSpecification = [
+        "all",
+        ["get", "road"],
+        ["!=", ["get", "state"], "provisional"],
+      ];
+      const dashed: import("maplibre-gl").FilterSpecification = [
+        "any",
+        ["!", ["get", "road"]],
+        ["==", ["get", "state"], "provisional"],
+      ];
+      const width: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
+        "match",
+        ["get", "state"],
+        "booked",
+        4.5,
+        "planned",
+        3.5,
+        3,
+      ];
+      const opacity: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
+        "match",
+        ["get", "state"],
+        "booked",
+        1,
+        "planned",
+        0.85,
+        0.6,
+      ];
+      // Every line twice: a wide casing under a narrower body, or the route
+      // vanishes over roads of a similar colour (§8.4). The dashed casing
+      // shares the dash pattern — a solid casing under a dashed body fills
+      // the gaps back in and the leg stops reading as provisional.
+      const specs: Array<{
+        id: string;
+        filter: import("maplibre-gl").FilterSpecification;
+        body: boolean;
+        dashed: boolean;
+      }> = [
+        { id: `${source}-casing`, filter: solid, body: false, dashed: false },
+        { id: `${source}-dashed-casing`, filter: dashed, body: false, dashed: true },
+        { id: `${source}-solid`, filter: solid, body: true, dashed: false },
+        { id: `${source}-dashed`, filter: dashed, body: true, dashed: true },
+      ];
+      for (const s of specs) {
+        map.addLayer(
+          {
+            id: s.id,
+            type: "line",
+            source,
+            filter: s.filter,
+            layout: s.dashed
+              ? { "line-cap": "butt", "line-join": "round" }
+              : { "line-cap": "round", "line-join": "round" },
+            paint: s.body
+              ? {
+                  "line-color": colors.route,
+                  "line-width": width,
+                  "line-opacity": opacity,
+                  ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                }
+              : {
+                  "line-color": colors.routeCasing,
+                  "line-width": s.dashed ? 6 : 7.5,
+                  "line-opacity": s.dashed ? 0.7 : 0.9,
+                  ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                },
+          } as Parameters<MapLibreMap["addLayer"]>[0],
+          firstSymbol,
+        );
+        addedLayers.push(s.id);
+      }
+    };
+
+    const bounds = new lib.LngLatBounds();
+    const extend = (loc: TripLocation) => bounds.extend([loc.lng!, loc.lat!]);
+
+    if (!levelIsDay) {
+      /* ---------------- SCAN LEVEL (#92) ---------------- */
+      journeyRef.current.chain.forEach((loc) => {
+        const el = addPin(loc, false);
+        el.addEventListener("click", () => onSelectRef.current(loc));
+      });
+      journeyRef.current.excursions.forEach((loc) => {
+        const el = addPin(loc, true);
+        el.addEventListener("click", () => onSelectRef.current(loc));
+      });
+      if (legsData != null && legsData.length) addLineLayers("journey", legsData);
+      journeyRef.current.stops.forEach(extend);
+      journeyRef.current.excursions.forEach(extend);
+      (legsData ?? []).forEach((l) => l.coordinates.forEach((c) => bounds.extend(c)));
+      // Frame the whole journey on the settled container, including the road
+      // geometry — a real route swings well outside the straight line
+      // between its pins.
+      fitJourneyRef.current = () => {
+        if (!mapRef.current || journeyRef.current.stops.length < 2) return;
+        mapRef.current.fitBounds(bounds, {
+          padding: paddingRef.current,
+          maxZoom: 12,
+          animate: !prefersReducedMotion(),
+          duration: CAMERA_MS,
+        });
+      };
+      fitJourneyRef.current();
+    } else {
+      /* ---------------- DAY LEVEL (#90) ---------------- */
+      const surface = d;
+      for (const m of surface.markers) {
+        if (m.role === "place") {
+          const excursion = placeRole(trip, m.place.name) === "excursion";
+          const el = addPin(m.place, excursion);
+          // A day pin tap is not a card — it just clears the chip focus so
+          // the map's focus story resets.
+          el.addEventListener("click", () => onBlockTapRef.current(""));
+        } else {
+          addChip(m.blockIds[0], m.letter, m.place);
+        }
+      }
+      if (surface.legs.length) {
+        addLineLayers(
+          "day",
+          surface.legs.map((l) => ({
+            coordinates: [
+              [l.from.lng!, l.from.lat!],
+              [l.to.lng!, l.to.lat!],
+            ],
+            stage: l.stage,
+            // Day legs run between the block's endpoints — the straight pair
+            // IS the geometry (§7.6); dashed only when the leg is provisional.
+            road: l.stage !== "provisional",
+          })),
+        );
+      }
+      surface.markers.forEach((m) => extend(m.place));
+      fitDayRef.current = () => {
+        if (!mapRef.current || surface.markers.length === 0) return;
+        if (surface.markers.length === 1) {
+          const p = surface.markers[0].place;
+          const opts = {
+            center: [p.lng!, p.lat!] as [number, number],
+            zoom: Math.max(mapRef.current.getZoom(), 11),
+            offset: paddingOffset(paddingRef.current),
+          };
+          if (prefersReducedMotion()) mapRef.current.jumpTo(opts);
+          else mapRef.current.easeTo({ ...opts, duration: CAMERA_MS });
+          return;
+        }
+        mapRef.current.fitBounds(bounds, {
+          padding: paddingRef.current,
+          maxZoom: 13,
+          animate: !prefersReducedMotion(),
+          duration: CAMERA_MS,
+        });
+      };
+      fitDayRef.current();
+    }
+
+    return () => {
+      // Tear down THIS build's content: the markers it added and the layers
+      // on its own source. Runs before the next build and on unmount.
+      markers.forEach((m) => m.remove());
+      for (const id of [...addedLayers].reverse()) {
+        if (map.getLayer(id)) map.removeLayer(id);
+      }
+      if (addedSource && map.getSource(addedSource)) map.removeSource(addedSource);
+    };
+    // `trip` is read for marker numbers/roles and IS a dep: a content write
+    // that changes the registry must restyle the pins.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip, ready, legsData, isDay, dayIdx]);
+
+  /* Selection visuals + the camera that follows it. Level-aware: the scan
+     selection moves to a place; the day selection moves to a letter chip. */
   useEffect(() => {
     const container = ref.current;
-    if (container) container.classList.toggle("route-map-focused", !!selected);
-    markersRef.current.forEach((el, name) => {
-      el.classList.toggle("is-selected", selected?.name === name);
-    });
-  }, [selected, ready]);
+    if (!container) return;
+    if (!isDay) {
+      container.classList.toggle("route-map-focused", !!selected);
+      markersRef.current.forEach((el, name) => {
+        el.classList.toggle("is-selected", selected?.name === name);
+      });
+    } else {
+      container.classList.toggle("route-map-focused", !!activeBlock);
+      markersRef.current.forEach((el, id) => {
+        const isChip = el.classList.contains("route-chip");
+        el.classList.toggle("is-selected", isChip ? id === activeBlock : false);
+      });
+      const chip = activeBlock ? chipPosRef.current.get(activeBlock) : null;
+      const map = mapRef.current;
+      if (chip && map) {
+        const opts = {
+          center: chip,
+          zoom: Math.max(map.getZoom(), 11.5),
+          offset: paddingOffset(paddingRef.current),
+        };
+        if (prefersReducedMotion()) map.jumpTo(opts);
+        else map.easeTo({ ...opts, duration: CAMERA_MS });
+      }
+    }
+  }, [selected, activeBlock, isDay, ready]);
 
-  // Frame whatever the surface is currently about, in the part of the map the
-  // content does NOT cover.
-  //
-  // Both inputs land here: a new selection, and a new occlusion (a detent
-  // drag, a rotation, a breakpoint change). Forgetting the second one is the
-  // #1 bug in map+sheet layouts — the route hides under the sheet and it reads
-  // as "the map is broken".
+  /* Scroll-spy raise (#92): at scan level, with no explicit selection, the
+     pins of the chapter in view stay full-strength and the rest dim. */
+  useEffect(() => {
+    const container = ref.current;
+    if (!container || isDay || selected || !spyPlaces) {
+      container?.classList.remove("route-spy-active");
+      markersRef.current.forEach((el) => el.classList.remove("is-spy"));
+      return;
+    }
+    const spy = new Set(spyPlaces);
+    container.classList.add("route-spy-active");
+    markersRef.current.forEach((el, name) => {
+      el.classList.toggle("is-spy", !spy.has(name));
+    });
+  }, [spyPlaces, selected, isDay, ready]);
+
+  /* Camera reframes when the occlusion changes (a detent drag, a rotation, a
+     breakpoint change) — at whichever level is live. Forgetting this is the
+     #1 bug in map+sheet layouts: the route hides under the sheet and it
+     reads as "the map is broken". */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
+    if (isDay) {
+      fitDayRef.current?.();
+      return;
+    }
     if (!selected || selected.lng == null || selected.lat == null) {
-      fitRef.current?.();
+      fitJourneyRef.current?.();
       return;
     }
     const opts = {
@@ -377,7 +593,7 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
     };
     if (prefersReducedMotion()) map.jumpTo(opts);
     else map.easeTo({ ...opts, duration: CAMERA_MS });
-  }, [selected, padding, ready]);
+  }, [selected, padding, ready, isDay]);
 
   if (!webgl2 || failed) {
     return (
@@ -404,8 +620,8 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
           canvas gives keyboard users nothing (§11). */}
       <button
         type="button"
-        onClick={() => fitRef.current?.()}
-        aria-label="Frame the whole route"
+        onClick={() => (isDay ? fitDayRef.current?.() : fitJourneyRef.current?.())}
+        aria-label={isDay ? "Frame the day" : "Frame the whole route"}
         className="map-chip-btn absolute right-0 top-0 z-10 grid h-11 w-11 place-items-center"
       >
         <span className="floating grid h-8 w-8 place-items-center rounded-lg text-muted-foreground">
