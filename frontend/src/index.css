@@ -335,6 +335,18 @@ h4 {
   opacity: 0.45;
 }
 
+/* Excursion markers (#91): secondary weight — hollow diamonds beside the
+   filled numbered pins. Selection dims/rings the diamond, never the (absent)
+   number, and a selected excursion dims the stop pins symmetrically so the
+   focus story stays "one place, everything else recedes". */
+.route-pin-excursion.is-selected .route-pin-dot-excursion {
+  transform: scale(1.25);
+  @apply outline-2 outline-offset-2 outline-accent;
+}
+.route-map-focused .route-pin-excursion:not(.is-selected) .route-pin-dot-excursion {
+  opacity: 0.45;
+}
+
 /* MapLibre's corner chrome vs. the surface's content (#39).
 
    Attribution is a legal requirement and a design element — style it, never

@@ -47,7 +47,8 @@ interface RouteMapProps {
 
 /**
  * The trip route as a map SURFACE (#39, DESIGN.md §2.2): the whole journey,
- * numbered markers, legs drawn by their own state.
+ * numbered markers, legs drawn by their own state — plus the trip's
+ * EXCURSIONS (#91) as secondary markers beside the chain.
  *
  * This is not `MapView` with a bigger box. `MapView` is a document-surface
  * card — fixed height, one shot, and the booklet PDF renders through it, so it
@@ -97,6 +98,7 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
 
         const bounds = new lib.LngLatBounds();
         journey.stops.forEach((s) => bounds.extend([s.lng!, s.lat!]));
+        journey.excursions.forEach((s) => bounds.extend([s.lng!, s.lat!]));
 
         map = new lib.Map({
           container: ref.current,
@@ -141,6 +143,28 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
           pin.className =
             "route-pin-dot grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card transition-transform duration-120";
           pin.textContent = String(n);
+          el.appendChild(pin);
+          el.addEventListener("click", () => onSelectRef.current(loc));
+          markersRef.current.set(loc.name, el);
+          markers.push(new lib.Marker({ element: el }).setLngLat([loc.lng!, loc.lat!]).addTo(map!));
+        });
+
+        // Excursions (#91): same family, secondary visual weight — smaller,
+        // hollow (surface-tinted ring instead of the filled marker token), a
+        // diamond read where stops are circles. Selectable like any pin, so
+        // the tap↔list behaviour stays uniform. No number: they are not chain
+        // members, so they must not claim a slot in the ① ② ③ index.
+        journey.excursions.forEach((loc) => {
+          const el = document.createElement("button");
+          el.type = "button";
+          el.tabIndex = -1;
+          el.setAttribute("aria-hidden", "true");
+          el.title = `${loc.name} (excursion)`;
+          el.dataset.place = loc.name;
+          el.className = "route-pin route-pin-excursion grid h-11 w-11 cursor-pointer place-items-center";
+          const pin = document.createElement("span");
+          pin.className =
+            "route-pin-dot route-pin-dot-excursion h-5 w-5 rotate-45 rounded-[4px] border-2 border-marker bg-surface shadow-card transition-transform duration-120";
           el.appendChild(pin);
           el.addEventListener("click", () => onSelectRef.current(loc));
           markersRef.current.set(loc.name, el);
@@ -293,6 +317,7 @@ export function RouteMap({ journey, padding, selected, onSelect }: RouteMapProps
         // between its pins.
         const full = new lib.LngLatBounds();
         journey.stops.forEach((s) => full.extend([s.lng!, s.lat!]));
+        journey.excursions.forEach((s) => full.extend([s.lng!, s.lat!]));
         features.forEach((f) => f.geometry.coordinates.forEach((c) => full.extend(c as [number, number])));
         fitRef.current = () => {
           if (!mapRef.current || journey.stops.length < 2) return;

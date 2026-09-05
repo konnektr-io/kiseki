@@ -11,7 +11,7 @@ import { markerNumber } from "../lib/maps";
 import {
   LEG_STAGE_LABELS,
   dayRangeLabel,
-  daysAtLocation,
+  placeDays,
   tripJourney,
   type JourneyLeg,
   type LegStage,
@@ -45,7 +45,9 @@ function legIcon(block: Block | undefined) {
  *
  * It carries the same three states the map draws, in words — the list is the
  * accessible path to a map surface (§11), so "this leg is still provisional"
- * has to be readable and not only dashed.
+ * has to be readable and not only dashed. A leg with no speaking block reads
+ * "Provisional" with no card facts — there is genuinely no plan for it (#91),
+ * and the fallback title names the two places it would join.
  */
 function LegRow({ leg }: { leg: JourneyLeg }) {
   const border: Record<LegStage, string> = {
@@ -83,7 +85,7 @@ export function RouteMapPage() {
 
   const journey = useMemo(() => tripJourney(trip), [trip]);
   const dayIndex = useMemo(
-    () => new Map(journey.stops.map((s) => [s.name, daysAtLocation(trip, s.name)])),
+    () => new Map(journey.stops.map((s) => [s.name, placeDays(trip, s.name)])),
     [trip, journey.stops],
   );
 
@@ -147,6 +149,8 @@ export function RouteMapPage() {
         {journey.legs.length > 0 &&
           ` · ${journey.legs.length} ${journey.legs.length === 1 ? "leg" : "legs"}`}
         {journey.loop && " · returns to the start"}
+        {journey.excursions.length > 0 &&
+          ` · ${journey.excursions.length} side trip${journey.excursions.length === 1 ? "" : "s"}`}
       </p>
     </div>
   );
@@ -212,11 +216,82 @@ export function RouteMapPage() {
     </ol>
   );
 
+  // Excursions are not chain members, so they must not pretend to be: they
+  // ride under the route as "side trips" — diamond glyph (the same marker the
+  // map draws), days, days-link list. The keyboard/reader path to them stays
+  // real without ever suggesting a leg passes through them (§11, #91).
+  const excursions =
+    journey.excursions.length > 0 ? (
+      <section aria-label="Side trips" className="mt-4 border-t border-border pt-3">
+        <p className="kicker">Side trips</p>
+        <ul className="pb-6">
+          {journey.excursions.map((stop) => {
+            const days = dayIndex.get(stop.name) ?? [];
+            const isSelected = selected?.name === stop.name;
+            return (
+              <li key={stop.name} data-stop={stop.name}>
+                <Button
+                  variant="ghost"
+                  size="auto"
+                  aria-pressed={isSelected}
+                  onClick={() => setSelected(isSelected ? null : stop)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-2.5 text-left ${
+                    isSelected ? "bg-primary/10" : ""
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`grid h-7 w-7 shrink-0 rotate-45 place-items-center rounded-[4px] border-2 border-marker bg-surface ${
+                      selected && !isSelected ? "opacity-45" : ""
+                    }`}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-heading text-[15px] font-semibold leading-tight">
+                      {stop.name}
+                    </span>
+                    <span className="block text-xs tabular-nums text-muted-foreground">
+                      {dayRangeLabel(days) ?? "Not scheduled yet"}
+                    </span>
+                  </span>
+                </Button>
+                {isSelected && days.length > 0 && (
+                  <ul className="mb-1 ml-9 space-y-0.5 border-l border-border pl-3">
+                    {days.map((d) => (
+                      <li key={d}>
+                        <Link
+                          to={`/t/${tripId}/day/${d}`}
+                          className="flex items-baseline gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
+                        >
+                          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide tabular-nums text-muted-foreground">
+                            Day {d + 1}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">
+                            {trip.days[d]?.title || formatDay(trip.days[d]?.date ?? "")}
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    ) : null;
+
+  const contentWithExcursions = (
+    <>
+      {content}
+      {excursions}
+    </>
+  );
+
   return (
     <SplitView
       label={`${trip.title} — places and legs`}
       header={header}
-      content={content}
+      content={contentWithExcursions}
       detent={detent}
       onDetentChange={setDetent}
       map={(padding) => (

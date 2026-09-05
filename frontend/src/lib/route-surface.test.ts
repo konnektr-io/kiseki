@@ -1,24 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
   blockEndpoints,
+  blockPlaces,
   dayRangeLabel,
   daysAtLocation,
   greatCircle,
+  isRegistryScaffold,
   journeyOrder,
   legBlock,
   legStage,
   locationsInText,
+  LEG_STAGE_LABELS,
+  placeDays,
+  placeRole,
   returnsToStart,
   stageToLegStage,
+  tripExcursions,
   tripJourney,
 } from "./route-surface";
-import type { Trip, TripLocation } from "./types";
+import type { Block, Day, Trip, TripLocation } from "./types";
 
 const loc = (name: string, lat: number, lng: number, alias: string[] = []): TripLocation => ({
   name,
   alias,
   lat,
   lng,
+});
+
+/** A calendar-truthful day entry: id/date derived from the 0-based index. */
+const dayAt = (idx: number, title: string, blocks: Block[] = [], month = "02"): Day => ({
+  id: `d${idx}`,
+  date: `2027-${month}-${String(1 + idx).padStart(2, "0")}`,
+  title,
+  blocks,
 });
 
 /** A canada-2027-shaped trip: airport in, four stops, drive back to the airport. */
@@ -81,6 +95,147 @@ function canada(overrides: Partial<Trip> = {}): Trip {
   };
 }
 
+/**
+ * Live-shaped canada-2027 (post-#89 content conventions): 15 calendar days,
+ * endpointed transports, and the two #91 hazards the live data carried —
+ * Rogers Pass named in day-title prose only (an excursion from Revelstoke,
+ * never a transport endpoint or chapter base), and `via` mentions of Banff on
+ * the Lake Louise drives that used to smear days onto Banff.
+ *
+ * Labels the derivation must produce (1-based, see the tests below):
+ * YYC Days 1, 15 · Banff 1–3 · Revelstoke 3–10 · Golden 10–13 ·
+ * Lake Louise 13–15 · Rogers Pass Day 5, an excursion.
+ */
+function canadaLive(): Trip {
+  return {
+    id: "t-ca",
+    slug: "canada-2027",
+    title: "Canada 2027",
+    stage: "booked",
+    visibility: "private",
+    crew: [],
+    practical: {},
+    locations: [
+      loc("YYC", 51.1215, -114.0079, ["Calgary"]),
+      loc("Banff", 51.1784, -115.5708),
+      loc("Revelstoke", 50.9981, -118.1957),
+      loc("Golden", 51.292, -116.9656),
+      loc("Lake Louise", 51.4254, -116.1773),
+      loc("Rogers Pass", 51.3019, -117.5167, ["Glacier National Park"]),
+    ],
+    sections: [
+      { id: "s0", title: "Arrival & Banff", days: [0, 2], locationRefs: ["Banff"] },
+      { id: "s1", title: "Revelstoke heli days", days: [2, 9], locationRefs: ["Revelstoke"] },
+      { id: "s2", title: "Kicking Horse, Golden", days: [9, 12], locationRefs: ["Golden"] },
+      { id: "s3", title: "Lake Louise", days: [12, 13], locationRefs: ["Lake Louise"] },
+      { id: "s4", title: "The way home", days: [14, 14], locationRefs: ["Lake Louise"] },
+    ],
+    days: [
+      dayAt(0, "Fly in", [
+        { id: "b0", kind: "transport", mode: "flight", title: "Brussels → Calgary (YYC)", status: "booked" },
+        { id: "b1", kind: "transport", title: "Drive YYC → Banff", to: "Banff" },
+      ]),
+      dayAt(1, "Sunshine"),
+      dayAt(2, "Over the pass", [
+        { id: "b2", kind: "transport", title: "Drive Banff → Revelstoke", to: "Revelstoke", via: "Rogers Pass" },
+      ]),
+      dayAt(3, "Heli day 1"),
+      dayAt(4, "Heli day at Rogers Pass", [
+        { id: "b3", kind: "activity", title: "Heli laps above the tree line" },
+      ]),
+      dayAt(5, "Heli day 3"),
+      dayAt(6, "Rest day in Revelstoke"),
+      dayAt(7, "Cat ski"),
+      dayAt(8, "Last heli day"),
+      dayAt(9, "To Golden", [
+        { id: "b4", kind: "transport", title: "Drive Revelstoke → Golden", to: "Golden" },
+      ]),
+      dayAt(10, "Kicking Horse"),
+      dayAt(11, "Kicking Horse"),
+      dayAt(12, "To Lake Louise", [
+        { id: "b5", kind: "transport", title: "Drive Golden → Lake Louise", to: "Lake Louise", via: "Banff" },
+      ]),
+      dayAt(13, "Lake Louise ski day"),
+      dayAt(14, "The long way home", [
+        { id: "b6", kind: "transport", title: "Drive Lake Louise → Calgary", to: "YYC", via: "Banff, Canmore" },
+        { id: "b7", kind: "transport", mode: "flight", title: "YYC → Brussels", status: "booked" },
+      ]),
+    ],
+  };
+}
+
+/**
+ * Live-shaped chile-peru-2027: 17 days where ONE chapter covers TWO bases
+ * ("Santiago & the Andes" refs Santiago AND Valle Nevado) and chapters
+ * overlap (the Sacred Valley chapter overlaps the Cusco chapter). The #91
+ * hazard: co-located chapters used to smear across each other.
+ *
+ * Labels (1-based): Santiago Days 1–4, 7–8 · Valle Nevado 4–7 ·
+ * Sacred Valley 8–10 · Machu Picchu 10–11 · Cusco 8–9, 12–14 · Lima 15–17.
+ * Day 7 is Santiago's (the SCL→CUZ overnight flight is authored on its
+ * arrival day, day 8) and day 8 is Cusco's arrival AND the valley's stay —
+ * a transfer day belongs to both its endpoints. Cusco's day-9/10 hole is the
+ * Machu Picchu visit, which is calendar truth, not a derivation leak.
+ */
+function chile(): Trip {
+  return {
+    id: "t-cl",
+    slug: "chile-peru-2027",
+    title: "Chile & Peru 2027",
+    stage: "planned",
+    visibility: "private",
+    crew: [],
+    practical: {},
+    locations: [
+      loc("Santiago", -33.4489, -70.6693),
+      loc("Valle Nevado", -33.1969, -70.2711),
+      loc("Sacred Valley", -13.2865, -72.1325, ["Ollantaytambo"]),
+      loc("Machu Picchu", -13.1631, -72.545, ["Aguas Calientes"]),
+      loc("Cusco", -13.5319, -71.9675),
+      loc("Lima", -12.0464, -77.0428),
+    ],
+    sections: [
+      {
+        id: "s0",
+        title: "Santiago & the Andes",
+        days: [0, 6],
+        locationRefs: ["Santiago", "Valle Nevado"],
+      },
+      { id: "s1", title: "Sacred Valley", days: [7, 10], locationRefs: ["Sacred Valley", "Machu Picchu"] },
+      { id: "s2", title: "Cusco", days: [7, 13], locationRefs: ["Cusco"] },
+      { id: "s3", title: "Lima", days: [14, 16], locationRefs: ["Lima"] },
+    ],
+    days: [
+      dayAt(0, "Fly in", [{ id: "c0", kind: "transport", mode: "flight", title: "Brussels → Santiago", status: "booked" }], "07"),
+      dayAt(1, "Santiago on foot", [], "07"),
+      dayAt(2, "Cerro San Cristóbal", [], "07"),
+      dayAt(3, "Into the Andes", [
+        { id: "c1", kind: "transport", title: "Drive Santiago → Valle Nevado", to: "Valle Nevado", status: "booked" },
+      ], "07"),
+      dayAt(4, "Ski day", [{ id: "c2", kind: "activity", title: "Ski the chutes", location: "Valle Nevado" }], "07"),
+      dayAt(5, "Ski day", [{ id: "c3", kind: "activity", title: "Primeros polvos", location: "Valle Nevado" }], "07"),
+      dayAt(6, "Back down, fly north", [
+        { id: "c4", kind: "transport", title: "Drive Valle Nevado → Santiago", to: "Santiago", status: "booked" },
+      ], "07"),
+      dayAt(7, "Overnight flight lands — into the valley", [
+        { id: "c5", kind: "transport", mode: "flight", title: "Santiago → Cusco (overnight)", from: "Santiago", to: "Cusco" },
+        { id: "c6", kind: "transport", title: "Land in Cusco — drive into the Sacred Valley", from: "Cusco", to: "Sacred Valley" },
+      ], "07"),
+      dayAt(8, "Valley acclimatise", [], "07"),
+      dayAt(9, "Train to the mountain", [
+        { id: "c7", kind: "transport", title: "Train to Aguas Calientes", from: "Sacred Valley", to: "Machu Picchu" },
+      ], "07"),
+      dayAt(10, "Machu Picchu", [{ id: "c8", kind: "activity", title: "Sunrise entry", location: "Machu Picchu" }], "07"),
+      dayAt(11, "Cusco buffer", [{ id: "c9", kind: "activity", title: "Wander San Blas", location: "Cusco" }], "07"),
+      dayAt(12, "Cusco buffer", [], "07"),
+      dayAt(13, "Cusco buffer", [{ id: "c10", kind: "activity", title: "San Pedro market", location: "Cusco" }], "07"),
+      dayAt(14, "To the coast", [{ id: "c11", kind: "transport", mode: "flight", title: "Fly to Lima", to: "Lima" }], "07"),
+      dayAt(15, "Lima", [], "07"),
+      dayAt(16, "Fly home", [{ id: "c12", kind: "transport", mode: "flight", title: "Lima → Brussels", from: "Lima" }], "07"),
+    ],
+  };
+}
+
 describe("locationsInText", () => {
   const trip = canada();
 
@@ -122,6 +277,61 @@ describe("locationsInText", () => {
   });
 });
 
+describe("blockPlaces (#91: prose scope)", () => {
+  const trip = canadaLive();
+
+  it("reads explicit fields and the block title — not the road prose", () => {
+    const b = trip.days[2].blocks[0]; // Drive Banff → Revelstoke, via Rogers Pass
+    // Order is not meaningful in blockPlaces; the SET of places is.
+    expect(blockPlaces(trip, b).map((l) => l.name).sort()).toEqual(["Banff", "Revelstoke"]);
+  });
+
+  it("never attributes a day through via/route — the matching itself works", () => {
+    // The text matcher finds Banff fine; it is blockPlaces' SCOPING that
+    // excludes the road fields. "Via Banff, Canmore" is a road fact.
+    expect(locationsInText(trip, "Via Banff, Canmore").map((l) => l.name)).toEqual(["Banff"]);
+    const b = trip.days[14].blocks[0];
+    expect(blockPlaces(trip, b).map((l) => l.name).sort()).toEqual(["Lake Louise", "YYC"]);
+  });
+});
+
+describe("blockEndpoints", () => {
+  const trip = canada();
+
+  it("fills a missing `from` from the title's place order", () => {
+    const b = trip.days[0].blocks[1]; // to: "Banff", title "Drive YYC → Banff"
+    const e = blockEndpoints(trip, b);
+    expect([e.from?.name, e.to?.name]).toEqual(["YYC", "Banff"]);
+  });
+
+  it("has no `to` when only one place is named", () => {
+    const e = blockEndpoints(trip, { id: "x", kind: "transport", title: "Land at YYC" });
+    expect(e.from?.name).toBe("YYC");
+    expect(e.to).toBeUndefined();
+  });
+
+  it("does not hand one block to a leg it merely mentions in passing", () => {
+    // "over the pass" is prose, but a title naming three places would give a
+    // touches-both match to legs the block does not describe.
+    const t = canada();
+    t.days[2].blocks = [
+      { id: "b", kind: "transport", to: "Revelstoke", title: "Drive Banff → Revelstoke via Rogers Pass" },
+    ];
+    const [, banff, revelstoke, , rogers] = t.locations!;
+    expect(legBlock(t, banff, revelstoke)?.id).toBe("b");
+    expect(legBlock(t, revelstoke, rogers)).toBeUndefined();
+  });
+
+  it("may use via/route to FILL an endpoint but explicit fields win (#91 asymmetry)", () => {
+    // Leg matching is allowed the leniency day attribution is denied: a
+    // to-only drive whose road prose names the origin still matches its leg.
+    const t = canadaLive();
+    const b = t.days[2].blocks[0]; // to: Revelstoke, title names Banff, via Rogers Pass
+    const e = blockEndpoints(t, b);
+    expect([e.from?.name, e.to?.name]).toEqual(["Banff", "Revelstoke"]);
+  });
+});
+
 describe("stageToLegStage", () => {
   it("treats the pre-commitment stages as provisional", () => {
     expect(stageToLegStage("idea")).toBe("provisional");
@@ -134,6 +344,14 @@ describe("stageToLegStage", () => {
     expect(stageToLegStage("booked")).toBe("booked");
     expect(stageToLegStage("live")).toBe("booked");
     expect(stageToLegStage("archive")).toBe("booked");
+  });
+
+  it("labels the three leg states", () => {
+    expect(LEG_STAGE_LABELS).toEqual({
+      provisional: "Provisional",
+      planned: "Planned",
+      booked: "Booked",
+    });
   });
 });
 
@@ -154,11 +372,13 @@ describe("legStage", () => {
     expect(legStage(trip, yyc, banff).block?.title).toBe("Drive YYC → Banff");
   });
 
-  it("falls back to the trip stage when no block describes the leg", () => {
-    const trip = canada({ stage: "shortlist" });
-    const golden = trip.locations![3];
-    const rogers = trip.locations![4];
-    expect(legStage(trip, golden, rogers)).toEqual({ stage: "provisional", block: undefined });
+  it("never inherits the trip stage when NO block describes the leg (#91)", () => {
+    // The #91 symptom: on a booked trip, a chain gap the derivation joins but
+    // nobody authored drew as a SOLID BOOKED leg. Provisional, full stop.
+    const trip = canada({ stage: "booked" });
+    const [, , revelstoke, golden] = trip.locations!;
+    trip.days[4].blocks = []; // the only Revelstoke → Golden drive, deleted
+    expect(legStage(trip, revelstoke, golden)).toEqual({ stage: "provisional", block: undefined });
   });
 
   it("matches a leg regardless of direction", () => {
@@ -177,33 +397,153 @@ describe("legStage", () => {
   });
 });
 
-describe("daysAtLocation", () => {
-  const trip = canada();
+describe("placeRole (#91: stop vs excursion)", () => {
+  it("a transport endpoint is a stop", () => {
+    const trip = canadaLive();
+    const [, banff] = trip.locations!;
+    expect(placeRole(trip, banff.name)).toBe("stop");
+  });
 
-  it("unions block references, day titles and section locationRefs", () => {
-    // Banff: the day-0 arrival drive, section 0's range (days 0-1), and the
-    // day-2 departure drive that names it — leaving a place is a day at it.
-    expect(daysAtLocation(trip, "Banff")).toEqual([0, 1, 2]);
-    // Revelstoke: the day-2 drive plus section 1's range.
-    expect(daysAtLocation(trip, "Revelstoke")).toEqual([2, 3, 4]);
+  it("a section locationRef base is a stop", () => {
+    const trip = chile();
+    expect(placeRole(trip, "Cusco")).toBe("stop");
+  });
+
+  it("a flight gateway is a stop even without endpoint fields", () => {
+    const trip = canadaLive();
+    const [yyc] = trip.locations!;
+    expect(placeRole(trip, yyc.name)).toBe("stop");
+  });
+
+  it("a place only toured from a base is an excursion — Rogers Pass", () => {
+    const trip = canadaLive();
+    const rogers = trip.locations![5];
+    // Never a transport endpoint, never a chapter base, no flight names it.
+    // The day-2 drive's via mention is the ROAD, not a re-base.
+    expect(placeRole(trip, rogers.name)).toBe("excursion");
+  });
+
+  it("resolves aliases", () => {
+    const trip = canadaLive();
+    expect(placeRole(trip, "Glacier National Park")).toBe("excursion");
+  });
+
+  it("an unknown place is an excursion, never a stop", () => {
+    expect(placeRole(canada(), "Whistler")).toBe("excursion");
+  });
+});
+
+describe("isRegistryScaffold (#91)", () => {
+  it("is false for a trip with real re-base evidence", () => {
+    expect(isRegistryScaffold(canadaLive())).toBe(false);
+    expect(isRegistryScaffold(chile())).toBe(false);
+  });
+
+  it("chains the registry when NO place has re-base evidence", () => {
+    // A scaffold trip: curated places, no transports or chapters yet. Exiling
+    // everything to excursion would blank the route for the trips still
+    // being sketched — the registry IS the author's statement of intent.
+    const trip = canada();
+    trip.days = trip.days.map((d) => ({ ...d, blocks: [] }));
+    trip.sections = [];
+    expect(isRegistryScaffold(trip)).toBe(true);
+    expect(journeyOrder(trip).map((s) => s.name)).toEqual(
+      trip.locations!.map((l) => l.name),
+    );
+  });
+});
+
+describe("placeDays (#91: explicit days + clamped section refs)", () => {
+  it("canada-2027 live labels", () => {
+    const trip = canadaLive();
+    expect(placeDays(trip, "YYC")).toEqual([0, 14]); // Days 1, 15
+    expect(placeDays(trip, "Banff")).toEqual([0, 1, 2]); // Days 1–3
+    expect(placeDays(trip, "Revelstoke")).toEqual([2, 3, 4, 5, 6, 7, 8, 9]); // Days 3–10
+    expect(placeDays(trip, "Golden")).toEqual([9, 10, 11, 12]); // Days 10–13
+    expect(placeDays(trip, "Lake Louise")).toEqual([12, 13, 14]); // Days 13–15
+    expect(placeDays(trip, "Rogers Pass")).toEqual([4]); // Day 5 — the excursion
+  });
+
+  it("chile-peru-2027 live labels — co-located chapters split, not smear", () => {
+    const trip = chile();
+    expect(placeDays(trip, "Santiago")).toEqual([0, 1, 2, 3, 6, 7]); // Days 1–4, 7–8
+    expect(placeDays(trip, "Valle Nevado")).toEqual([3, 4, 5, 6]); // Days 4–7
+    expect(placeDays(trip, "Sacred Valley")).toEqual([7, 8, 9]); // Days 8–10
+    expect(placeDays(trip, "Machu Picchu")).toEqual([9, 10]); // Days 10–11
+    expect(placeDays(trip, "Cusco")).toEqual([7, 8, 11, 12, 13]); // Days 8–9, 12–14
+    expect(placeDays(trip, "Lima")).toEqual([14, 15, 16]); // Days 15–17
+  });
+
+  it("via/route prose never attributes days — the Banff phantom is dead", () => {
+    const trip = canadaLive();
+    // Day 13 drives "via Banff", day 15 "via Banff, Canmore" — under the old
+    // derivation Banff grew Days 1–3, 13, 15 and the chain sprouted a
+    // Revelstoke → Banff → Lake Louise fiction.
+    expect(placeDays(trip, "Banff")).not.toContain(12);
+    expect(placeDays(trip, "Banff")).not.toContain(14);
+    // Same for the pass on the day-3 drive.
+    expect(placeDays(trip, "Rogers Pass")).not.toContain(2);
+  });
+
+  it("labels the calendar truth", () => {
+    const trip = canadaLive();
+    expect(dayRangeLabel(placeDays(trip, "YYC"))).toBe("Days 1, 15");
+    expect(dayRangeLabel(placeDays(trip, "Revelstoke"))).toBe("Days 3–10");
+    expect(dayRangeLabel(placeDays(trip, "Rogers Pass"))).toBe("Day 5");
+    const cl = chile();
+    expect(dayRangeLabel(placeDays(cl, "Santiago"))).toBe("Days 1–4, 7–8");
+    expect(dayRangeLabel(placeDays(cl, "Valle Nevado"))).toBe("Days 4–7");
+    expect(dayRangeLabel(placeDays(cl, "Cusco"))).toBe("Days 8–9, 12–14");
+  });
+
+  it("refuses a chapter day past the place's own span — the stay ends", () => {
+    const t = canada();
+    // Chapter stretched to day 6, but the drive-out on day 5 (idx 4) ends the
+    // stay: [first, last] located is the place's calendar span.
+    t.sections![1].days = [2, 5];
+    t.days[5].blocks = [];
+    expect(placeDays(t, "Revelstoke")).toEqual([2, 3, 4]);
+  });
+
+  it("a ref-day already owned by another place's content is not stolen", () => {
+    const trip = chile();
+    // Day 8 (idx 7) carries Cusco + Sacred Valley content; it is BOTH of
+    // theirs, but not Santiago's even though the Andes chapter spans it —
+    // wait, it is: the flight departs Santiago. The one that must NOT gain it
+    // is Valle Nevado: the day falls outside its located span [3, 6].
+    expect(placeDays(trip, "Valle Nevado")).not.toContain(7);
+    expect(placeDays(trip, "Santiago")).toContain(7);
+  });
+
+  it("trusts the section ref when the place has no located days at all", () => {
+    const t = canada();
+    // Remove every block that names Revelstoke: the chapter ref is then the
+    // only evidence, and there is nothing to contradict it.
+    t.days[2].blocks = [];
+    t.days[4].blocks = [{ id: "b4", kind: "transport", title: "Drive on to Golden", to: "Golden" }];
+    expect(placeDays(t, "Revelstoke")).toEqual([2, 3]);
   });
 
   it("resolves by alias", () => {
+    const trip = canada();
     expect(daysAtLocation(trip, "Hillcrest")).toEqual(daysAtLocation(trip, "Revelstoke"));
   });
 
-  it("picks up a place named only in prose", () => {
-    // YYC never appears as a `location`, only in two flight titles and a drive.
-    expect(daysAtLocation(trip, "YYC")).toEqual([0, 5]);
+  it("daysAtLocation is the kept alias of placeDays", () => {
+    const trip = canadaLive();
+    expect(daysAtLocation(trip, "Lake Louise")).toEqual(placeDays(trip, "Lake Louise"));
   });
 
   it("returns [] for an unknown place", () => {
-    expect(daysAtLocation(trip, "Whistler")).toEqual([]);
+    expect(placeDays(canada(), "Whistler")).toEqual([]);
   });
 });
 
 describe("returnsToStart", () => {
-  it("is true when the first place is visited near both ends", () => {
+  it("is true when the first CHAIN stop is visited near both ends", () => {
+    // YYC opens and closes the journey; Rogers Pass being an excursion does
+    // not disturb the test — the chain, not the registry, is what repeats.
+    expect(returnsToStart(canadaLive())).toBe(true);
     expect(returnsToStart(canada())).toBe(true);
   });
 
@@ -219,34 +559,107 @@ describe("returnsToStart", () => {
     trip.days = trip.days.slice(0, 2);
     expect(returnsToStart(trip)).toBe(false);
   });
+
+  it("is false when the start is only an excursion-era memory", () => {
+    // Chile starts in Santiago and flies home from Lima — no return.
+    expect(returnsToStart(chile())).toBe(false);
+  });
 });
 
-describe("tripJourney", () => {
-  it("chains the marker registry in order and closes the loop", () => {
-    const j = tripJourney(canada());
+describe("tripJourney (#91: chain + excursions)", () => {
+  it("chains the re-base stops and carries excursions beside the chain", () => {
+    const j = tripJourney(canadaLive());
+    // stops — the ① ② ③ index — stays registry order, excursions included.
     expect(j.stops.map((s) => s.name)).toEqual([
       "YYC",
       "Banff",
       "Revelstoke",
       "Golden",
+      "Lake Louise",
       "Rogers Pass",
     ]);
+    // The chain runs airport → Banff → Revelstoke → Golden → Lake Louise and
+    // back; Rogers Pass is NOT spliced between Revelstoke and Golden.
+    expect(j.chain.map((s) => s.name)).toEqual([
+      "YYC",
+      "Banff",
+      "Revelstoke",
+      "Golden",
+      "Lake Louise",
+    ]);
+    expect(j.excursions.map((s) => s.name)).toEqual(["Rogers Pass"]);
     expect(j.loop).toBe(true);
     expect(j.legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
       "YYC→Banff",
       "Banff→Revelstoke",
       "Revelstoke→Golden",
-      "Golden→Rogers Pass",
-      "Rogers Pass→YYC",
+      "Golden→Lake Louise",
+      "Lake Louise→YYC",
     ]);
   });
 
-  it("omits the closing leg on a one-way trip", () => {
-    const trip = canada();
-    trip.days[5].blocks = [{ id: "b4", kind: "transport", mode: "flight", title: "Golden → BRU" }];
-    const j = tripJourney(trip);
+  it("never draws a leg through an excursion — structurally", () => {
+    const j = tripJourney(canadaLive());
+    const excursionNames = new Set(j.excursions.map((s) => s.name));
+    for (const leg of j.legs) {
+      expect(excursionNames.has(leg.from.name)).toBe(false);
+      expect(excursionNames.has(leg.to.name)).toBe(false);
+    }
+  });
+
+  it("every leg of the booked flagship is booked", () => {
+    const j = tripJourney(canadaLive());
+    expect(j.legs.every((l) => l.stage === "booked")).toBe(true);
+  });
+
+  it("chains chile by visit order with the multi-place chapters as single stops", () => {
+    const j = tripJourney(chile());
+    expect(j.excursions).toEqual([]); // every place is a chapter base
+    expect(j.chain.map((s) => s.name)).toEqual([
+      "Santiago",
+      "Valle Nevado",
+      "Sacred Valley",
+      "Cusco",
+      "Machu Picchu",
+      "Lima",
+    ]);
+    // Booked drive in; the overnight hop to the valley has no single speaking
+    // card; the Cusco arrival drive speaks (trip stage = planned); the train
+    // hops and the to-only Lima flight leave honest gaps.
+    expect(j.legs.map((l) => [`${l.from.name}→${l.to.name}`, l.stage])).toEqual([
+      ["Santiago→Valle Nevado", "booked"],
+      ["Valle Nevado→Sacred Valley", "provisional"],
+      ["Sacred Valley→Cusco", "planned"],
+      ["Cusco→Machu Picchu", "provisional"],
+      ["Machu Picchu→Lima", "provisional"],
+    ]);
     expect(j.loop).toBe(false);
-    expect(j.legs).toHaveLength(4);
+  });
+
+  it("keeps an excursion out of the chain however the itinerary mentions it", () => {
+    const trip = canada();
+    // A day-4 block touring the pass is more evidence it is visited — from a
+    // base. It gains its day, never a chain slot.
+    trip.days[3].blocks = [{ id: "b9", kind: "activity", title: "Tour Rogers Pass" }];
+    expect(placeDays(trip, "Rogers Pass")).toEqual([3]);
+    const j = tripJourney(trip);
+    expect(j.chain.map((s) => s.name)).toEqual(["YYC", "Banff", "Revelstoke", "Golden"]);
+    expect(j.excursions.map((s) => s.name)).toEqual(["Rogers Pass"]);
+    expect(j.legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
+      "YYC→Banff",
+      "Banff→Revelstoke",
+      "Revelstoke→Golden",
+      "Golden→YYC",
+    ]);
+  });
+
+  it("tripExcursions is the marker-order complement of journeyOrder", () => {
+    const trip = canadaLive();
+    const chain = journeyOrder(trip).map((l) => l.name);
+    const excursions = tripExcursions(trip).map((l) => l.name);
+    expect([...chain, ...excursions].sort()).toEqual(
+      trip.locations!.map((l) => l.name).sort(),
+    );
   });
 
   it("marks every leg provisional on an idea-stage trip with no leg blocks", () => {
@@ -261,49 +674,31 @@ describe("tripJourney", () => {
     expect(tripJourney(trip).stops.map((s) => s.name)).not.toContain("TBD");
   });
 
-  it("chains an excursion where the itinerary puts it, not where the registry does", () => {
-    const trip = canada();
-    // Rogers Pass sits between Revelstoke and Golden but was added to the
-    // registry last; a day-3 block naming it is the evidence that fixes the
-    // chain. Marker numbers stay registry-ordered.
-    trip.days[3].blocks = [{ id: "b9", kind: "activity", title: "Tour Rogers Pass" }];
-    expect(journeyOrder(trip).map((s) => s.name)).toEqual([
-      "YYC",
-      "Banff",
-      "Revelstoke",
-      "Rogers Pass",
-      "Golden",
-    ]);
-    expect(tripJourney(trip).legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
-      "YYC→Banff",
-      "Banff→Revelstoke",
-      "Revelstoke→Rogers Pass",
-      "Rogers Pass→Golden",
-      "Golden→YYC",
-    ]);
-    // `stops` — the list and the markers — stays registry order.
-    expect(tripJourney(trip).stops.map((s) => s.name)).toEqual([
-      "YYC",
-      "Banff",
-      "Revelstoke",
-      "Golden",
-      "Rogers Pass",
-    ]);
-  });
-
-  it("keeps registry order for places no day mentions", () => {
-    const trip = canada();
-    trip.days = trip.days.map((d) => ({ ...d, blocks: [] }));
-    trip.sections = [];
-    expect(journeyOrder(trip).map((s) => s.name)).toEqual(
-      trip.locations!.map((l) => l.name),
-    );
-  });
-
   it("produces no legs for a trip with a single place", () => {
     const trip = canada();
     trip.locations = [loc("Banff", 51.1784, -115.5708)];
     expect(tripJourney(trip).legs).toEqual([]);
+  });
+});
+
+describe("daysAtLocation (legacy shapes, alias of placeDays)", () => {
+  const trip = canada();
+
+  it("unions block references, day titles and section locationRefs", () => {
+    // Banff: the day-0 arrival drive, section 0's range (days 0-1), and the
+    // day-2 departure drive that names it — leaving a place is a day at it.
+    expect(daysAtLocation(trip, "Banff")).toEqual([0, 1, 2]);
+    // Revelstoke: the day-2 drive plus section 1's range.
+    expect(daysAtLocation(trip, "Revelstoke")).toEqual([2, 3, 4]);
+  });
+
+  it("picks up a place named only in prose", () => {
+    // YYC never appears as a `location`, only in two flight titles and a drive.
+    expect(daysAtLocation(trip, "YYC")).toEqual([0, 5]);
+  });
+
+  it("returns [] for an unknown place", () => {
+    expect(daysAtLocation(trip, "Whistler")).toEqual([]);
   });
 });
 
@@ -357,33 +752,5 @@ describe("dayRangeLabel", () => {
 
   it("is null for no days", () => {
     expect(dayRangeLabel([])).toBeNull();
-  });
-});
-
-describe("blockEndpoints", () => {
-  const trip = canada();
-
-  it("fills a missing `from` from the title's place order", () => {
-    const b = trip.days[0].blocks[1]; // to: "Banff", title "Drive YYC → Banff"
-    const e = blockEndpoints(trip, b);
-    expect([e.from?.name, e.to?.name]).toEqual(["YYC", "Banff"]);
-  });
-
-  it("has no `to` when only one place is named", () => {
-    const e = blockEndpoints(trip, { id: "x", kind: "transport", title: "Land at YYC" });
-    expect(e.from?.name).toBe("YYC");
-    expect(e.to).toBeUndefined();
-  });
-
-  it("does not hand one block to a leg it merely mentions in passing", () => {
-    // "over the pass" is prose, but a title naming three places would give a
-    // touches-both match to legs the block does not describe.
-    const t = canada();
-    t.days[2].blocks = [
-      { id: "b", kind: "transport", to: "Revelstoke", title: "Drive Banff → Revelstoke via Rogers Pass" },
-    ];
-    const [, banff, revelstoke, , rogers] = t.locations!;
-    expect(legBlock(t, banff, revelstoke)?.id).toBe("b");
-    expect(legBlock(t, revelstoke, rogers)).toBeUndefined();
   });
 });
