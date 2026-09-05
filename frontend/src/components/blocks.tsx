@@ -15,11 +15,14 @@ import {
   ListChecks,
   MapPin,
   Plane,
+  Ship,
   StickyNote,
+  Train,
   UtensilsCrossed,
 } from "lucide-react";
 import DOMPurify from "dompurify";
 import type { Block, BlockKind, BlockStatus } from "../lib/types";
+import { classifyTransportMode, type TransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
 
@@ -168,8 +171,6 @@ function TimeChip({ time }: { time?: string }) {
 
 /* ---------- per-kind renderers ---------- */
 
-const AIRPORT_CODES = /\b(BRU|FRA|YYC|LHR|SCL|CUZ|LIM|CTS|HND|NRT|KIX|AMS|CDG|MAD)\b/;
-
 const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"];
 
 /**
@@ -196,16 +197,10 @@ export function useLocationMarkers() {
 
 function TransportBlock({ b }: { b: Block }) {
   const marker = useLocationMarkers();
-  // classify: explicit `mode` beats the heuristic — e.g. a flight like
-  // "New Chitose → Brussels" has no airport code/booking code, so without
-  // mode it would wrongly render as a drive (car icon)
-  const hasDriveInfo = !!(b.distance || b.duration || b.route || b.via);
-  const isFlight =
-    b.mode === "flight" ||
-    (!hasDriveInfo &&
-      (!!b.bookingCode ||
-        AIRPORT_CODES.test(`${b.title ?? ""} ${b.description ?? ""}`) ||
-        /(flight|depart|arriv)/i.test(`${b.title ?? ""}`)));
+  // classify via the shared classifier (lib/transport) — explicit `mode` beats
+  // the heuristic; both this card and the summary glyphs derive from it, so a
+  // block carries the same transport identity on every surface (issue #88)
+  const isFlight = classifyTransportMode(b) === "flight";
   const title = b.title ?? "Transfer";
   const desc = b.description;
 
@@ -618,10 +613,29 @@ export function DayBlocks({
   );
 }
 
-export function BlockGlyph({ kind }: { kind: BlockKind }) {
-  const icons: Record<BlockKind, ReactNode> = {
+/** Summary-density glyph. For transport blocks the icon follows the block's
+ *  classified mode — one shared classifier with the day-page card
+ *  (lib/transport, issue #88): explicit `mode` wins, then drive/flight
+ *  evidence; otherwise the plain car (the historical default). */
+export function BlockGlyph({
+  kind,
+  mode,
+}: {
+  kind: BlockKind;
+  /** Transport mode for `kind: "transport"` rows (classified per block by the
+   *  caller). Undefined keeps the plain car — the pre-#88 behaviour. */
+  mode?: TransportMode;
+}) {
+  if (kind === "transport") {
+    const Icon = mode === "flight" ? Plane : mode === "train" ? Train : mode === "ferry" ? Ship : Car;
+    return (
+      <span className="text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+      </span>
+    );
+  }
+  const icons: Record<Exclude<BlockKind, "transport">, ReactNode> = {
     activity: <MapPin className="h-3.5 w-3.5" />,
-    transport: <Car className="h-3.5 w-3.5" />,
     lodging: <BedDouble className="h-3.5 w-3.5" />,
     meal: <UtensilsCrossed className="h-3.5 w-3.5" />,
     todo: <ListChecks className="h-3.5 w-3.5" />,
