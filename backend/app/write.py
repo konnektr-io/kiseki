@@ -889,10 +889,23 @@ def delete_block(trip_dtid: str, actor: dict, block_id: str) -> Trip:
     root = _trip_twin(graph, trip_dtid)
     _block_twin(graph, block_id)
     container_id = None
+    # The graph server does NOT cascade: a twin with edges refuses deletion
+    # ("Cannot delete a vertex that has edge(s)"), so every edge touching the
+    # block goes first — the incoming hasBlock (sourced at its container) and
+    # any block-sourced edges (atLocation pins). FakeGraph cascades; the live
+    # server does not (found by the #89 live smoke) — delete in the server's
+    # order and the fake stays strict below.
     for r in graph.get("relationships", []):
-        if r.get("$relationshipName") == "hasBlock" and r.get("$targetId") == block_id:
+        if r.get("$targetId") == block_id and r.get("$relationshipName") == "hasBlock":
             container_id = r.get("$sourceId")
-            break
+            client.delete_relationship(
+                r.get("$sourceId") or trip_dtid, r["$relationshipId"],
+                x_user_id=actor["sub"],
+            )
+        elif r.get("$sourceId") == block_id:
+            client.delete_relationship(
+                block_id, r["$relationshipId"], x_user_id=actor["sub"]
+            )
     client.delete_twin(trip_dtid, block_id, x_user_id=actor["sub"])
     if container_id:
         _renumber(client, trip_dtid, container_id, _container_blocks(
@@ -1161,8 +1174,18 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     old_by_name = {locations[r.get("$targetId")]["name"]: r.get("$targetId")
                    for r in root_at if r.get("$targetId") in locations}
 
-    # Deletes: old locations no longer in the list.
+    # Deletes: old locations no longer in the list. The graph server does not
+    # cascade twin deletes, and every fetched root atLocation edge is replaced
+    # below anyway — so drop ALL of the old root edges first, then delete the
+    # removed Location twins edge-free (same no-cascade rule as delete_block,
+    # issue #89 smoke), then re-upsert the new edge set at the end.
     keep_names = set(names)
+    for r in root_at:
+        if r.get("$relationshipId"):
+            client.delete_relationship(
+                r.get("$sourceId") or trip_dtid, r["$relationshipId"],
+                x_user_id=actor["sub"],
+            )
     for name, lid in old_by_name.items():
         if name not in keep_names:
             client.delete_twin(trip_dtid, lid, x_user_id=actor["sub"])
@@ -1205,11 +1228,8 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
             if ops:
                 client.update_twin_props(trip_dtid, lid, ops, x_user_id=actor["sub"])
 
-    # Rebuild the root atLocation edges: index = position (marker order).
-    for r in root_at:
-        client.delete_relationship(
-            r.get("$sourceId") or trip_dtid, r["$relationshipId"], x_user_id=actor["sub"]
-        )
+    # (Re)create the root atLocation edges: index = position (marker order).
+    # The old edge set was deleted above (before the Location twin deletes).
     for i, entry in enumerate(entries):
         lid = current_ids[entry.name]
         client.upsert_relationship(
