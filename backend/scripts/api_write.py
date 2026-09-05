@@ -18,6 +18,11 @@ prints the API response — for writes that is the canonical trip document
     python scripts/api_write.py post /api/trips/<trip_id>/blocks \
         --json '{"kind": "lodging", "title": "Banff Inn", \
                  "container": {"type": "day", "id": "<day-id>"}}'
+    # Sections: create a chapter or move its day range (issue #89). Days are an
+    # inclusive [first, last] 0-based range; ranges must not overlap another
+    # section. A chapter split = trim the old range, then add the closing one:
+    python scripts/api_write.py put /api/trips/<trip_id>/sections/<sec_id> --json '{"days": [12, 14]}'
+    python scripts/api_write.py post /api/trips/<trip_id>/sections --json '{"title": "The way home", "days": [15, 15]}'
     python scripts/api_write.py post /api/trips/<trip_id>/practical/todos/0/toggle --json '{"done": true}'
     python scripts/api_write.py delete /api/trips/<trip_id>/blocks/<block_id>
     python scripts/api_write.py put /api/trips/<trip_id>/practical --file body.json

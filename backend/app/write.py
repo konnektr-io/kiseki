@@ -54,6 +54,7 @@ from .store import get_graph_client
 BLOCK_MODEL = "dtmi:kiseki:travel:Block;1"
 LOCATION_MODEL = "dtmi:kiseki:travel:Location;1"
 PERSON_MODEL = "dtmi:kiseki:travel:Person;1"
+SECTION_MODEL = "dtmi:kiseki:travel:TripSection;1"
 
 _STAGE_ORDER = ["idea", "options", "shortlist", "planned", "booked", "live", "archive"]
 _STAGE_IDX = {s: i for i, s in enumerate(_STAGE_ORDER)}
@@ -177,6 +178,23 @@ class DayPatch(_Strict):
 
 class SectionPatch(_Strict):
     title: Optional[str] = None
+    locationRefs: Optional[list[str]] = None
+    # days is the section's inclusive [first, last] 0-based day range (issue
+    # #89). The write service rewires the section's hasDay edges + twin
+    # ``days`` property to match; ranges must stay in trip bounds and must not
+    # overlap another section (a day renders under exactly one section).
+    days: Optional[list[int]] = None
+
+
+class SectionCreate(_Strict):
+    """POST /sections body (issue #89): a brand-new chapter over trip days.
+
+    ``days`` optional — omit for a pure ideation section (unscheduled blocks
+    can join later via POST /blocks with a section container).
+    """
+
+    title: str = Field(min_length=1)
+    days: Optional[list[int]] = None
     locationRefs: Optional[list[str]] = None
 
 
@@ -501,6 +519,147 @@ def update_day(trip_dtid: str, actor: dict, day_id: str, patch: DayPatch) -> Tri
 
 
 # ---------------------------------------------------------------- sections
+def _trip_day_ids_by_index(graph: dict, root_id: str) -> list[str]:
+    """Ordered day twin ``$dtId``s for a trip, in calendar (day-index) order.
+
+    The canonical day order is the trip's ``hasDay`` edge ``index`` property
+    (falling back to the day's ISO ``date``), so index i in the returned list
+    is trip day i — the day a section's range entry refers to.
+    """
+    rows = []
+    for r in graph.get("relationships", []):
+        if r.get("$sourceId") == root_id and r.get("$relationshipName") == "hasDay":
+            t = _twin(graph, r.get("$targetId"))
+            if t is None or _model_kind(t) != "Day":
+                continue
+            idx = r.get("index")
+            rows.append((idx if isinstance(idx, int) else 10**9, t.get("date") or "", t["$dtId"]))
+    rows.sort(key=lambda x: (x[0], x[1]))
+    return [tid for _, _, tid in rows]
+
+
+def _section_day_indices(graph: dict, section_id: str, day_ids: list[str]) -> list[int]:
+    """0-based trip-day indices a section's ``hasDay`` edges cover, sorted."""
+    idx_of = {tid: i for i, tid in enumerate(day_ids)}
+    out = []
+    for r in graph.get("relationships", []):
+        if r.get("$sourceId") == section_id and r.get("$relationshipName") == "hasDay":
+            i = idx_of.get(r.get("$targetId"))
+            if i is not None:
+                out.append(i)
+    return sorted(out)
+
+
+def _validate_section_days(days: Any, n_days: int) -> tuple[int, int]:
+    """Validate an inclusive [first, last] 0-based range against the trip."""
+    if (not isinstance(days, list) or len(days) != 2
+            or not all(isinstance(x, int) and not isinstance(x, bool) for x in days)):
+        raise WriteError(422, "Section days must be an inclusive [first, last] pair of day indices")
+    first, last = days
+    if first < 0 or last >= n_days or first > last:
+        raise WriteError(422, f"Section days {days} out of range — trip has {n_days} days (0..{n_days - 1})")
+    return first, last
+
+
+def _sync_section_location_refs(
+    client: Any, trip_dtid: str, graph: dict, section_id: str, names: list[str], x_user_id: str
+) -> None:
+    """Make a section's ``atLocation`` edges exactly ``names`` (registry names)."""
+    locations = {
+        t.get("name"): t["$dtId"]
+        for t in graph.get("twins", []) if _model_kind(t) == "Location"
+    }
+    for n in names:
+        if n not in locations:
+            raise WriteError(422, f"Unknown location {n!r} — add it to the trip first")
+    cur = {
+        r.get("$targetId") for r in graph.get("relationships", [])
+        if r.get("$sourceId") == section_id and r.get("$relationshipName") == "atLocation"
+    }
+    keep = {locations[n] for n in names if locations[n] in cur}
+    for target in cur - keep:
+        # Edges are sourced at the SECTION, not the trip (issue #89).
+        client.delete_relationship(
+            section_id, _rel_id(section_id, "atLocation", target), x_user_id=x_user_id
+        )
+    for n in names:
+        target = locations[n]
+        if target not in cur:
+            client.upsert_relationship(
+                trip_dtid,
+                {
+                    "$relationshipId": _rel_id(section_id, "atLocation", target),
+                    "$sourceId": section_id,
+                    "$relationshipName": "atLocation",
+                    "$targetId": target,
+                },
+                x_user_id=x_user_id,
+            )
+
+
+def _sync_section_days(
+    client: Any, trip_dtid: str, graph: dict, root: dict, section_id: str,
+    days: Optional[list[int]], x_user_id: str,
+) -> list[int]:
+    """Rewrite a section's hasDay edges (and twin ``days`` property) to ``days``.
+
+    Returns the twin ``days`` property to store ([first, last] or [] for an
+    ideation section). ``days`` may also be None/[] — that clears the section's
+    day coverage (pure ideation). Overlap with any OTHER section is a 422.
+    """
+    day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
+    n_days = len(day_ids)
+    day_id_for = {i: tid for i, tid in enumerate(day_ids)}
+
+    if days is None:
+        new_indices: set[int] = set()
+        first_last: Optional[list[int]] = None
+    elif not days:
+        new_indices = set()
+        first_last = []
+    else:
+        first, last = _validate_section_days(days, n_days)
+        new_indices = set(range(first, last + 1))
+        first_last = [first, last]
+
+    # Overlap guard: a day renders under exactly one section.
+    if new_indices:
+        for r in graph.get("relationships", []):
+            if (r.get("$sourceId") == root["$dtId"]
+                    and r.get("$relationshipName") == "hasSection"
+                    and r.get("$targetId") != section_id):
+                other = _twin(graph, r["$targetId"])
+                if other is None or _model_kind(other) != "TripSection":
+                    continue
+                covered = set(_section_day_indices(graph, r["$targetId"], day_ids))
+                clash = sorted(new_indices & covered)
+                if clash:
+                    raise WriteError(
+                        422,
+                        f"Section days {days} overlap '{other.get('title')}' "
+                        f"(already covers day {clash[0]}) — sections must not share days",
+                    )
+
+    cur = set(_section_day_indices(graph, section_id, day_ids))
+    for i in sorted(cur - new_indices):
+        client.delete_relationship(
+            section_id, _rel_id(section_id, "hasDay", day_id_for[i]), x_user_id=x_user_id
+        )
+    for i in sorted(new_indices - cur):
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(section_id, "hasDay", day_id_for[i]),
+                "$sourceId": section_id,
+                "$relationshipName": "hasDay",
+                "$targetId": day_id_for[i],
+                "index": i,
+            },
+            x_user_id=x_user_id,
+        )
+    return list(first_last) if first_last is not None else []
+
+
 def update_section(trip_dtid: str, actor: dict, section_id: str, patch: SectionPatch) -> Trip:
     client = _client()
     graph = _fetch(client, trip_dtid)
@@ -517,38 +676,96 @@ def update_section(trip_dtid: str, actor: dict, section_id: str, patch: SectionP
     if "title" in patch.model_fields_set:
         ops += _scalar_ops(twin, [("title", patch.title)])
 
+    if "days" in patch.model_fields_set:
+        days_prop = _sync_section_days(
+            client, trip_dtid, graph, root, section_id, patch.days, actor["sub"]
+        )
+        ops += [{"op": "replace", "path": "/days", "value": days_prop}]
+
     if "locationRefs" in patch.model_fields_set:
-        names = patch.locationRefs or []
-        # Every referenced place must exist in the trip's location registry.
-        locations = {
-            t.get("name"): t["$dtId"]
-            for t in graph.get("twins", []) if _model_kind(t) == "Location"
-        }
-        for n in names:
-            if n not in locations:
-                raise WriteError(422, f"Unknown location {n!r} — add it to the trip first")
-        cur = {
-            r.get("$targetId") for r in graph.get("relationships", [])
-            if r.get("$sourceId") == section_id and r.get("$relationshipName") == "atLocation"
-        }
-        keep = {locations[n] for n in names if locations[n] in cur}
-        for target in cur - keep:
-            client.delete_relationship(
-                trip_dtid, _rel_id(section_id, "atLocation", target), x_user_id=actor["sub"]
+        _sync_section_location_refs(
+            client, trip_dtid, graph, section_id, patch.locationRefs or [], actor["sub"]
+        )
+
+    if ops:
+        client.update_twin_props(trip_dtid, section_id, ops, x_user_id=actor["sub"])
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
+    )
+    return _rebuild(client, trip_dtid)
+
+
+def create_section(trip_dtid: str, actor: dict, payload: SectionCreate) -> Trip:
+    """Create a new TripSection chapter over trip days (issue #89).
+
+    The section twin gets a ``days`` property AND hasDay edges (kept in sync,
+    matching the seed); locationRefs become atLocation edges. All edges are
+    sourced at the section twin.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+    section_id = _new_id()
+
+    props: dict[str, Any] = {
+        "$dtId": section_id,
+        "$metadata": {"$model": SECTION_MODEL},
+        "title": payload.title,
+        "days": [],
+        "fold": [],
+    }
+    client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+    client.upsert_relationship(
+        trip_dtid,
+        {
+            "$relationshipId": _rel_id(trip_dtid, "hasSection", section_id),
+            "$sourceId": trip_dtid,
+            "$relationshipName": "hasSection",
+            "$targetId": section_id,
+        },
+        x_user_id=actor["sub"],
+    )
+
+    ops: list[dict[str, Any]] = []
+    if payload.days is not None:
+        day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
+        n_days = len(day_ids)
+        first, last = _validate_section_days(payload.days, n_days)
+        # Overlap guard against every existing section (the new one has none yet).
+        for r in graph.get("relationships", []):
+            if (r.get("$sourceId") == root["$dtId"]
+                    and r.get("$relationshipName") == "hasSection"):
+                other = _twin(graph, r["$targetId"])
+                if other is None or _model_kind(other) != "TripSection":
+                    continue
+                covered = set(_section_day_indices(graph, r["$targetId"], day_ids))
+                clash = sorted(set(range(first, last + 1)) & covered)
+                if clash:
+                    raise WriteError(
+                        422,
+                        f"Section days {payload.days} overlap '{other.get('title')}' "
+                        f"(already covers day {clash[0]}) — sections must not share days",
+                    )
+        day_id_for = {i: tid for i, tid in enumerate(day_ids)}
+        for i in range(first, last + 1):
+            client.upsert_relationship(
+                trip_dtid,
+                {
+                    "$relationshipId": _rel_id(section_id, "hasDay", day_id_for[i]),
+                    "$sourceId": section_id,
+                    "$relationshipName": "hasDay",
+                    "$targetId": day_id_for[i],
+                    "index": i,
+                },
+                x_user_id=actor["sub"],
             )
-        for n in names:
-            target = locations[n]
-            if target not in cur:
-                client.upsert_relationship(
-                    trip_dtid,
-                    {
-                        "$relationshipId": _rel_id(section_id, "atLocation", target),
-                        "$sourceId": section_id,
-                        "$relationshipName": "atLocation",
-                        "$targetId": target,
-                    },
-                    x_user_id=actor["sub"],
-                )
+        ops.append({"op": "replace", "path": "/days", "value": [first, last]})
+
+    if payload.locationRefs:
+        _sync_section_location_refs(
+            client, trip_dtid, graph, section_id, payload.locationRefs, actor["sub"]
+        )
 
     if ops:
         client.update_twin_props(trip_dtid, section_id, ops, x_user_id=actor["sub"])
@@ -712,7 +929,8 @@ def move_block(trip_dtid: str, actor: dict, block_id: str, payload: BlockMove) -
 
     same_container = src_id == target_id
     if not same_container:
-        client.delete_relationship(trip_dtid, rel_id, x_user_id=actor["sub"])
+        # hasBlock edges are sourced at the CONTAINER (day/section), not the trip.
+        client.delete_relationship(src_id, rel_id, x_user_id=actor["sub"])
         client.upsert_relationship(
             trip_dtid,
             {
@@ -811,7 +1029,7 @@ def patch_crew(trip_dtid: str, actor: dict, person_id: str, patch: CrewPatch) ->
         if actor["role"] != "owner":
             raise WriteError(403, "Only the trip owner can change crew roles")
         client.update_relationship_props(
-            trip_dtid, edge["$relationshipId"],
+            edge.get("$sourceId") or trip_dtid, edge["$relationshipId"],
             [{"op": "replace", "path": "/role", "value": patch.role}],
             x_user_id=actor["sub"],
         )
@@ -829,7 +1047,8 @@ def patch_crew(trip_dtid: str, actor: dict, person_id: str, patch: CrewPatch) ->
             })
         if ops:
             client.update_relationship_props(
-                trip_dtid, edge["$relationshipId"], ops, x_user_id=actor["sub"]
+                edge.get("$sourceId") or trip_dtid, edge["$relationshipId"], ops,
+                x_user_id=actor["sub"],
             )
     if "contact" in patch.model_fields_set:
         client.update_twin_props(
@@ -906,7 +1125,9 @@ def remove_crew(trip_dtid: str, actor: dict, person_id: str) -> Trip:
     twin, edge = _crew_member(graph, trip_dtid, person_id)
     if actor["role"] != "owner":
         raise WriteError(403, "Only the trip owner can remove crew")
-    client.delete_relationship(trip_dtid, edge["$relationshipId"], x_user_id=actor["sub"])
+    client.delete_relationship(
+        edge.get("$sourceId") or trip_dtid, edge["$relationshipId"], x_user_id=actor["sub"]
+    )
     if _model_kind(twin) == "Person":
         client.delete_twin(trip_dtid, person_id, x_user_id=actor["sub"])
     client.update_twin_props(
@@ -987,7 +1208,7 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     # Rebuild the root atLocation edges: index = position (marker order).
     for r in root_at:
         client.delete_relationship(
-            trip_dtid, r["$relationshipId"], x_user_id=actor["sub"]
+            r.get("$sourceId") or trip_dtid, r["$relationshipId"], x_user_id=actor["sub"]
         )
     for i, entry in enumerate(entries):
         lid = current_ids[entry.name]

@@ -271,15 +271,29 @@ class FakeGraph:
     def update_relationship_props(self, trip_dtid: str, rel_id: str, patch_ops: list[dict],
                                   x_user_id: str | None = None) -> None:
         self._note(trip_dtid, x_user_id)
-        existing = self.rel(rel_id)
-        if existing is None:
-            raise FakeGraphError(f"no relationship {rel_id}")
+        existing = self._rel_under(rel_id, trip_dtid)
         _apply_patch_ops(existing, patch_ops)
 
     def delete_relationship(self, trip_dtid: str, rel_id: str,
                             x_user_id: str | None = None) -> None:
+        """Delete by (source, id) — mirrors the real server, which scopes a
+        relationship under its SOURCE twin. ``trip_dtid`` here is the edge's
+        ``$sourceId`` (the trip for hasCrew/root atLocation; the section/day/
+        block for their outgoing edges); passing the trip for an edge that is
+        sourced elsewhere must fail exactly like the live graph 404s (issue
+        #89: the old wrapper passed the trip for every edge and every such
+        delete died live while tests stayed green)."""
         self._note(trip_dtid, x_user_id)
+        existing = self._rel_under(rel_id, trip_dtid)
+        self.rels.remove(existing)
+
+    def _rel_under(self, rel_id: str, source_dtid: str) -> dict:
         existing = self.rel(rel_id)
         if existing is None:
             raise FakeGraphError(f"no relationship {rel_id}")
-        self.rels.remove(existing)
+        if existing.get("$sourceId") != source_dtid:
+            raise FakeGraphError(
+                f"relationship {rel_id} is not sourced at {source_dtid} "
+                f"(source is {existing.get('$sourceId')})"
+            )
+        return existing
