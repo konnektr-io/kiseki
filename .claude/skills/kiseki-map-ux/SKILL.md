@@ -8,8 +8,11 @@ description: How Kiseki designs and builds map surfaces — map-as-canvas layout
 Rationale and the full picture: [`DESIGN.md`](../../../DESIGN.md) §2, §7, §8.
 
 **The thesis:** place is the organizing fact of a trip, so the map should be a *surface*, not
-a thumbnail. But Kiseki is also a printable booklet, and a booklet is document-shaped. Those
-two facts don't merge — they coexist as separate surface classes.
+a thumbnail. But Kiseki is also a printable booklet, and a booklet is document-shaped. The
+2026-09 resolution (#90/#92/#93): map surfaces **embed inside the document pages** — the
+itinerary trip map and the day map live on the hybrid contract of DESIGN.md §7.6, the
+standalone route *page* is retired, and print parity is served by the single MapLibre renderer
+(#37), not by surface apartheid.
 
 **Cartographic principle:** *quiet basemap, loud trip.* The basemap is desaturated and
 low-contrast; the trip's own color is the only saturated thing on screen.
@@ -24,7 +27,9 @@ Google any more.
   chip on single-leg maps. Fixed height, one shot, and the PDF renders through it — leave it alone
   unless you mean to change the booklet.
 - `components/RouteMap.tsx` — the SURFACE map (#39). Fills its container, driven from outside by
-  selection and camera padding, legs styled per state, never printed. Both share
+  selection and camera padding, legs styled per state. Its standalone page (`RouteMapPage`,
+  `/t/<id>/map`) is retired (2026-09, #93); the component feeds the embedded itinerary map
+  (#92), the day map (#90) and the whole-route expandable. Both share
   `lib/maplibre.ts` (`loadMapLibre` — `setWorkerUrl` must run exactly once, before the first
   `Map`) and `lib/maps.ts` (`CHROME_PADDING`, `clampPadding`, `prefersReducedMotion`).
 - `components/Sheet.tsx` + `components/SplitView.tsx` + `lib/sheet.ts` — the sheet primitive and
@@ -34,22 +39,17 @@ Google any more.
   the option if a THIRD surface makes it hurt.
 - `lib/terrain.ts` — the shared `raster-dem` source (Mapterhorn), hillshade, runtime contours,
   and the `TERRAIN_3D` seam (#38).
-- `StaticMapImg` — server-proxied Google Static Maps, still the print path. Retiring it is #37.
-- `TripMap` — switches between the two: MapLibre on screen (`print:hidden`), static in print
-  (`hidden print:block`). **This dual-rendering contract is the deal.** Any new map component
-  provides both halves or it isn't done.
-- `lib/maps.ts` — `findLocation` (name/alias), `staticMapUrl`, `locatedPlaces`, `markerNumber`,
+- `TripMap` — thin wrapper over `MapView`: the single MapLibre renderer serves screen **and**
+  the PDF booklet (#37). `StaticMapImg` and the `/api/maps/static` proxy are deleted — never
+  reintroduce a static raster path.
+- `lib/maps.ts` — `findLocation` (name/alias), `locatedPlaces`, `markerNumber`,
   `fetchRouteLegs`, `hasWebGL2`, and `MAP_STYLE_URL`.
 - Data: `trip.locations[{name, marker?, alias[], lat, lng}]` is the **single source** for all
   maps and all marker numbers. No per-trip hardcoding — never break this.
 
-**The map proxies are the API key.** `/api/maps/route/{trip_param}` and
-`/api/maps/static/{trip_param}` take a `$dtId` **or** a share token, shape-branched like
-`GET /api/trips/{trip_param}`. Send the id: it is one graph read where a token costs two
-(`find_trip_dtid_by_token` → `fetch_graph`), and a private trip has `token: ""` so the token
-form cannot address one at all. Neither form is authenticated — a static map is an `<img>` and
-an `<img>` cannot carry a bearer token — so the rate limiter in `app/ratelimit.py` is the
-bound. **Never reintroduce a client-side Google key.**
+**The map proxy is the API key.** `/api/maps/route/{trip_id}` takes the trip `$dtId`
+(id-based since #64). It is not authenticated — the bounds are the rate limiter in
+`app/ratelimit.py` and the unguessable trip id. **Never reintroduce a client-side Google key.**
 
 ## The marker system is the trip's index
 
@@ -75,6 +75,11 @@ Spec for the marker component (one component, every surface, plus print):
 - Visual ~28px, **hit target 44px** via transparent padding.
 - Selected: scale 1.15 + accent ring. Off-focus day: 45% opacity — dimmed, never hidden.
 - Cluster below the zoom where pins collide; clusters show a count, not a range.
+- **Two marker roles (2026-09, #90/#92)**: the numbered pin is the *place* marker (stays,
+  gateways, stops). The day map adds *letter chips* (A, B, C… in day order, matching the card)
+  for activities — a different glyph shape from the round pins, never a second numbering
+  system. Excursions (#91) render as secondary markers, never chain stops. Full spec in
+  DESIGN.md §8.3.
 
 ## Route rendering
 
@@ -223,21 +228,16 @@ both behind `/api/maps/*` with the key in the backend.
 
 ## Print parity — never skip
 
-- A map surface's print form is a **static raster image** of the same view. Interactive maps
-  never enter the PDF.
-- `TripMap`'s `print:hidden` / `hidden print:block` split is the contract. Any new map
-  component provides both halves or it isn't done.
-- The static map must use the **same** marker numbering, route color, and basemap tone as
-  the screen version, or the booklet stops looking like the app.
-- The API key stays server-side (`/api/maps/static/...`). Never inline a key in the client
-  for the print path.
-- `app/pdf.py` calls `page.emulate_media(media="print")` **before** navigating, not just at
-  `page.pdf()`. That is what makes the loaded DOM the printed one, so the dynamic maps never
-  mount during a render — no WebGL contexts, and no vector-tile traffic holding `networkidle`
-  open.
-- Google Static Maps has known quirks with styled markers and encoded polylines — those are
-  documented in `AGENTS.md` and the `kiseki-trip-content` skill. Check there before
-  debugging a print map.
+- **One renderer, screen and paper**: the booklet renders the SAME MapLibre maps live (#37).
+  Headless Chromium runs with `--use-gl=angle --use-angle=swiftshader` (WebGL2 via software);
+  `app/pdf.py` waits for `document.fonts.ready` and every `[data-maplibre]` to reach
+  `data-map-ready` (or `data-map-failed`) before `page.pdf()`. There is no static raster path.
+- **An embedded map on a document page** (itinerary trip map, day map — §7.6) is `no-print`:
+  the booklet is its own route (`BookletPage`) with its own map layout — drive-leg maps today,
+  one map per day planned (#94). Never make a web page printable to give the booklet a map.
+- `data-map-ready` / `data-map-failed` are the renderer's contract with the PDF waiter; never
+  remove them. Markers, route colors and basemap are identical on screen and paper because the
+  components are identical.
 
 ## Accessibility on maps
 
@@ -254,11 +254,13 @@ A WebGL canvas is not accessible. Therefore:
 
 ## Map surfaces worth building (in order)
 
-1. ~~**Trip route**~~ — **shipped** (#39): `/t/<id>/map`. The whole journey, numbered markers,
-   legs by state. It sits ALONGSIDE the overview's route card — #39 added a surface, it did not
-   convert a document page.
-2. **Day on map** — the active day's blocks pinned, other days dimmed to 45%. Pairs with
-   `DayPage`.
+1. ~~**Trip route (standalone page)**~~ — shipped (#39), then **retired as a page** (2026-09,
+   #93): the whole-journey view survives as an *expandable* from the itinerary map (#92).
+   Itinerary and day now host **embedded** map surfaces (§7.6). Markers/legs derive from
+   `lib/route-surface.ts`, whose leaky spots (excursions as chain stops — Rogers Pass —
+   prose-mention day attribution) are #91, fed by the content authoring rules in #89.
+2. **Day map (#90, backlog)** — that day's places + drive legs, numbered place pins + lettered
+   activity markers, tap↔card. Pairs with `DayPage`.
 3. **Discovery** — public trips / trips from people you follow, as clustered pins. This is a
    §2.2 map surface end-to-end; don't build it until the sheet and marker primitives exist.
 4. **Things to do nearby** — POI search around a location, results in the sheet.

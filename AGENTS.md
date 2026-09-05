@@ -161,10 +161,22 @@ writeup; in short:
 
 - **Data**: `trip.locations` `[{name, marker?, alias[], lat?, lng?}]` is the single source for ALL maps — marker numbers (① ② …) derive from it (`useLocationMarkers`), and every map renders from its coordinates. No per-trip hardcoding.
 - **Web (dynamic map)**: `MapView` — **MapLibre GL JS v6** (#18) over a keyless basemap, rendering numbered markers + the real driving route for a set of places. Used inside drive cards (`from`/`to` → the exact leg), the route feature (`"map": true`), and block card thumbnails (single pin, `compact`). Route geometry comes from `GET /api/maps/route/<id>?places=A,B` (backend calls Google Directions; `duration` is the live `duration_in_traffic` behind the drive-time chip).
-- **Web (map surface, #39)**: `RouteMapPage` at `/t/<id>/map` — the trip route as a full surface, not a card. `SplitView` picks the rung of the ratio ladder (bottom `Sheet` on a phone, side panel on a short viewport, 40/60 split on a tablet, 400px rail on desktop) and hands the map its camera padding; `RouteMap` draws every located place as a numbered pin and every leg by its own state (solid+wide when booked, dashed and dim when provisional — `lib/route-surface.ts` derives that from the leg's transport block, falling back to the trip stage). Selecting a pin moves the sheet to `half` and lists that place's days. The list beside the map is the **accessible path**, not a fallback: a WebGL canvas gives keyboard users nothing. **Never printed** — the booklet's route map is still `MapView`'s.
+- **Map surfaces (2026-09 direction, #93)**: the standalone route *page* (`RouteMapPage` at
+  `/t/<id>/map`) is **retired** — the maps live inside the itinerary and day pages (DESIGN.md
+  §7.6). The #39 primitives are reused: `SplitView` (ratio ladder: bottom `Sheet` on a phone,
+  side sheet on short viewports, 40/60 split on tablet, 400px rail on desktop) + `RouteMap`
+  (numbered pins, legs styled by their own state) + `lib/route-surface.ts` (journey
+  derivation: chain order, `legStage` from the leg's transport block falling back to the trip
+  stage, `daysAtLocation`). Embedded surfaces: itinerary trip map (#92), day map (#90),
+  whole-route expandable. **Known derivation leaks** — excursions (Rogers Pass) becoming chain
+  stops with phantom legs, prose/`via` mentions counting as visits — are #91; the matching
+  content authoring rules are #89. Embedded maps are `no-print`; the booklet renders its own
+  maps through `MapView` (#37).
 - **Basemap tiles**: OpenFreeMap `positron` — no key, no proxy, desaturated ("quiet basemap, loud trip", DESIGN.md §8.5). One constant, `MAP_STYLE_URL` in `lib/maps.ts`, overridable via `VITE_MAP_STYLE_URL` — that is the seam for self-hosted PMTiles on Garage or per-trip styling (#40).
 - **No Google in the browser (#27)**: `GET /api/maps/key` is **gone** (explicit 404 — the SPA catch-all would otherwise answer 200 with the index shell). Directions stays server-side (MapLibre renders, it does not route); the client only ever talks to `/api/maps/route`. **Never reintroduce a client-side key.** There is no traffic layer: `TrafficLayer` is exclusive to the Google JS API, and loading that API is what exposed the key.
-- **Addressing**: `/api/maps/route` takes a **`$dtId` or a share token**, shape-branched exactly like `GET /api/trips/{trip_param}`. The frontend sends `trip.id` — in graph mode that is ONE read (`fetch_graph`) where a token costs two (`find_trip_dtid_by_token` → `fetch_graph`) — and it is what makes maps work on **private** trips (`token: ""`). Trade-off: rotating a share token no longer revokes map-proxy access to anyone holding the `$dtId`. Neither form is authenticated — the bound is the rate limiter (60/min, `app/ratelimit.py`, per pod) plus the fact that both params are unguessable. Loopback is exempt nowhere now (the PDF no longer pulls a burst of static images). 
+- **Addressing**: `/api/maps/route` takes the trip **`$dtId`** (id-based since #64 — no share
+  tokens remain). Public trips are reachable anonymously; the unguessable id and the rate
+  limiter (60/min, `app/ratelimit.py`, per pod) are the bounds.
 - **PDF/booklet (#37)**: the SAME `MapView` renders live in the booklet via Playwright+SwiftShader — basemap, marker numbering and route colours are identical on screen and on paper. Headless Chromium launches with `--use-gl=angle --use-angle=swiftshader` (WebGL2 via software) and the renderer waits for `document.fonts.ready` + every `[data-maplibre]` to reach `data-map-ready` (MapLibre `idle`) before `page.pdf()`. `TripMap` is now a thin wrapper around `MapView` — the old `print:hidden` / `hidden print:block` split and the `GET /api/maps/static` proxy are deleted.
 - **Terrain (#38)**: `lib/terrain.ts` adds a shared `raster-dem` source (Mapterhorn, terrarium, keyless), an `igor` hillshade and runtime contours (`maplibre-contour`, minzoom 10) BELOW the basemap's roads and labels — found by layer *type*, not id, so a style swap (#40) does not break the ordering. `DEM_MAXZOOM = 12` is deliberate: global GLO-30 coverage stops there (Sahara/Outback/Andes 404 at z13; BC reaches z15), so capping upscales instead of leaving holes. 3D terrain attaches lazily on `pitchstart` (invisible at pitch 0, so the flat view pays nothing) behind `TERRAIN_3D`; the compass reveals itself only when the map is off north or tilted, and resets both. #40 wires the per-trip switch. Failures are swallowed: no hillshade beats no route.
 - **WebGL2 is mandatory** in MapLibre v6 (no WebGL1 fallback) — `MapView` shows a styled placeholder when WebGL2 is absent or the style/tiles fail (`data-map-failed="true"` so the PDF waiter can resolve). Never an empty grey box.
@@ -179,6 +191,12 @@ writeup; in short:
 - The **booklet** is a print stylesheet in the frontend (`BookletPage`, A4). Keep it A4-friendly — it becomes the PDF.
 - Tailwind v4 theme tokens are CSS variables in `frontend/src/index.css` (`@theme inline`); per-trip theming injects `--trip-*` vars at runtime. Colors always behind tokens.
 - **UI work follows [`DESIGN.md`](DESIGN.md)**: every component is a *document*, *map*, or *chrome* surface (they obey different rules and different print behavior); no hex literals in components; a11y floor (focus rings, 44px targets, reduced motion) is not optional.
+- **Authoring rules for map truth (2026-09, #89)**: a transport block whose endpoint is a trip
+  place sets `from`/`to` to the location name/alias — flights included (trip-side airport
+  gateways get explicit endpoints; out-of-region origins like BRU are NOT registry locations).
+  A section's `days` range ends on the last day the place actually anchors; a pure travel/home
+  day gets its own slim section with no `locationRefs`. Map day labels, pills and legs are all
+  *derived* — content that follows these rules keeps the derivations honest (#91).
 
 ## Auth (Auth0 SPA — issue #5 groundwork)
 
