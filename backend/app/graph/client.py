@@ -169,14 +169,18 @@ RETURN collect(DISTINCT n) AS nodes
 
 # All relationships whose source is in the trip's component. AGE rejects a `$`
 # map key (even quoted), so we collect each edge as a plain LIST
-# [sourceId, relationshipName, targetId, role, index, note] and map it to the ADT
-# relationship shape in Python. `type(r)` is the edge name.
+# [sourceId, relationshipName, targetId, relationshipId, role, index, note] and
+# map it to the ADT relationship shape in Python. `type(r)` is the edge name;
+# the edge's own `$relationshipId` property is included because it is the
+# server's handle for get/delete-by-id (ADT scopes relationship ids per source
+# twin) — without it the fetched bundle cannot drive relationship writes
+# (issue #89: every relationship read back as id-less).
 _Q_RELS = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
 MATCH (trip)-[*0..{max_hops}]->(a:Twin)
 MATCH (a)-[r]->(b:Twin)
-RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.role, r.index, r.note]) AS rels
+RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.role, r.index, r.note]) AS rels
 """.format(max_hops=MAX_HOPS)
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
@@ -503,24 +507,26 @@ class GraphReadClient:
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
-        """Map a [src, name, tgt, role, index, note] row into an ADT relationship.
+        """Map a [src, name, tgt, relId, role, index, note] row into an ADT relationship.
 
         ``_Q_RELS`` returns each edge as a plain list (AGE rejects `$`-prefixed
         map keys), so we assemble the canonical ``$sourceId`` /
-        ``$relationshipName`` / ``$targetId`` keys plus any edge properties
-        (``role`` / ``index`` / ``note``) here. Shorter rows (pre-note edges)
-        simply omit the missing properties.
+        ``$relationshipName`` / ``$targetId`` / ``$relationshipId`` keys plus any
+        edge properties (``role`` / ``index`` / ``note``) here. Shorter rows
+        (pre-id or pre-note edges) simply omit the missing properties.
         """
         if not isinstance(r, (list, tuple)):
             return dict(r) if isinstance(r, dict) else {}
-        src, name, tgt = (list(r) + [None, None, None])[:3]
+        src, name, tgt, rel_id = (list(r) + [None, None, None, None])[:4]
         out: dict[str, Any] = {
             "$sourceId": src,
             "$relationshipName": name,
             "$targetId": tgt,
         }
-        # edge properties ride in positions 3..n
-        for k, v in zip(("role", "index", "note"), r[3:]):
+        if rel_id is not None:
+            out["$relationshipId"] = rel_id
+        # edge properties ride in positions 4..n
+        for k, v in zip(("role", "index", "note"), r[4:]):
             if v is not None:
                 out[k] = v
         return out
@@ -678,28 +684,38 @@ class GraphWriteClient(GraphReadClient):
 
     def update_relationship_props(
         self,
-        trip_dtid: str,
+        source_dtid: str,
         rel_id: str,
         patch_ops: list[dict[str, Any]],
         x_user_id: str | None = None,
     ) -> None:
-        """Apply a JSON Patch to one relationship's properties (e.g. crew role/note)."""
-        self._guard_content(trip_dtid, trip_dtid, x_user_id)  # rel lives off trip
+        """Apply a JSON Patch to one relationship's properties (e.g. crew role/note).
+
+        ADT scopes a relationship under its SOURCE twin — ``source_dtid`` must be
+        the edge's ``$sourceId`` (the trip for ``hasCrew``/root ``atLocation``,
+        the section/day/block for their outgoing edges), not merely the trip.
+        """
+        self._guard_content(source_dtid, source_dtid, x_user_id)
         self._run(
             lambda: self._client.update_relationship(  # type: ignore[union-attr]
-                trip_dtid, rel_id, patch_ops, headers={"x-user-id": x_user_id or ""}
+                source_dtid, rel_id, patch_ops, headers={"x-user-id": x_user_id or ""}
             ),
-            trip_dtid, f"relationship patch {rel_id}",
+            source_dtid, f"relationship patch {rel_id}",
         )
 
-    def delete_relationship(self, trip_dtid: str, rel_id: str, x_user_id: str | None = None) -> None:
-        """Delete a relationship by its ``<src>__<name>__<tgt>`` id."""
-        self._guard_content(trip_dtid, trip_dtid, x_user_id)
+    def delete_relationship(self, source_dtid: str, rel_id: str, x_user_id: str | None = None) -> None:
+        """Delete a relationship by its ``<src>__<name>__<tgt>`` id.
+
+        ``source_dtid`` must be the edge's ``$sourceId`` — the server only knows
+        the relationship under its source twin (issue #89: passing the trip for a
+        section/day-sourced edge makes every delete 404 → 500).
+        """
+        self._guard_content(source_dtid, source_dtid, x_user_id)
         self._run(
             lambda: self._client.delete_relationship(  # type: ignore[union-attr]
-                trip_dtid, rel_id, headers={"x-user-id": x_user_id or ""}
+                source_dtid, rel_id, headers={"x-user-id": x_user_id or ""}
             ),
-            trip_dtid, f"relationship delete {rel_id}",
+            source_dtid, f"relationship delete {rel_id}",
         )
 
     # ---------------------------------------------------------------- helpers

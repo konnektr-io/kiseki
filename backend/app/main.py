@@ -35,6 +35,7 @@ from .write import (
     DayPatch,
     LocationsPut,
     PracticalPut,
+    SectionCreate,
     SectionPatch,
     TodoAdd,
     TodoToggle,
@@ -318,6 +319,19 @@ def put_section(
 ) -> dict:
     trip = _write(write_svc.update_section, trip_dtid=trip_id.lower(), actor=actor,
                   section_id=section_id.lower(), patch=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/sections", status_code=201)
+def post_section(
+    trip_id: str,
+    body: SectionCreate,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Create a new section chapter (issue #89) — title + optional days range +
+    locationRefs. Days must stay in trip bounds and must not overlap another
+    section; locationRefs must be registry locations."""
+    trip = _write(write_svc.create_section, trip_dtid=trip_id.lower(), actor=actor, payload=body)
     return _public_trip(trip, my_role=actor["role"])
 
 

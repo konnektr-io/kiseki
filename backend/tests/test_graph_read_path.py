@@ -186,24 +186,28 @@ def test_client_uses_parameterized_queries(monkeypatch) -> None:
 
 
 def test_rel_from_list_maps_note_and_tolerates_legacy_rows() -> None:
-    """_Q_RELS rows carry [src, name, tgt, role, index, note]; pre-note
-    5-element rows keep working (note simply absent)."""
+    """_Q_RELS rows carry [src, name, tgt, relId, role, index, note] (issue #89:
+    the edge's own $relationshipId is included so fetched bundles can drive
+    relationship writes); shorter/legacy rows keep working (fields absent)."""
     full = graph_client_mod.GraphReadClient._rel_from_list(
-        ["t1", "hasCrew", "p1", "owner", 2, "Skis — Elan Playmaker 111"]
+        ["t1", "hasCrew", "p1", "t1__hasCrew__p1", "owner", 2, "Skis — Elan Playmaker 111"]
     )
     assert full == {
         "$sourceId": "t1",
         "$relationshipName": "hasCrew",
         "$targetId": "p1",
+        "$relationshipId": "t1__hasCrew__p1",
         "role": "owner",
         "index": 2,
         "note": "Skis — Elan Playmaker 111",
     }
+    # A row from an edge WITHOUT a stored $relationshipId (None in its slot)
+    # must not fabricate one — role/index still parse from their fixed slots.
     legacy = graph_client_mod.GraphReadClient._rel_from_list(
-        ["t1", "hasCrew", "p1", "owner", 2]
+        ["t1", "hasCrew", "p1", None, "owner", 2, None]
     )
     assert legacy["role"] == "owner" and legacy["index"] == 2
-    assert "note" not in legacy
+    assert "note" not in legacy and "$relationshipId" not in legacy
 
 
 def test_crew_read_sorts_by_edge_index_not_storage_order() -> None:

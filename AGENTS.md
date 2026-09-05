@@ -64,7 +64,8 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | POST | `/api/trips/{trip_id}/practical/todos` | append todo |
 | POST | `/api/trips/{trip_id}/practical/todos/{i}/toggle` | per-item `{"done": bool}` |
 | PUT | `/api/trips/{trip_id}/days/{day_id}` | title/notes/meta/map (date immutable) |
-| PUT | `/api/trips/{trip_id}/sections/{section_id}` | title + `locationRefs` |
+| PUT | `/api/trips/{trip_id}/sections/{section_id}` | title, `locationRefs`, or `days` (inclusive `[first, last]` 0-based; rewires the section's `hasDay` edges + twin property; in-bounds + no overlap with another section — a day renders under exactly one section) |
+| POST | `/api/trips/{trip_id}/sections` | create a section chapter — `title` (+ optional `days` range, `locationRefs`); no `days` = pure ideation section |
 | POST | `/api/trips/{trip_id}/blocks` | create — `container: {"type": "day"\|"section", "id"}` |
 | PUT | `/api/trips/{trip_id}/blocks/{block_id}` | edit fields (kind immutable; transport fields only on `transport`) |
 | DELETE | `/api/trips/{trip_id}/blocks/{block_id}` | |
@@ -78,6 +79,29 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
 <path> [--json '…'|--file -]`.
+
+**Relationship writes are scoped under the edge's SOURCE twin (issue #89).**
+The Konnektr Graph stores every relationship with a `$relationshipId`
+(unique per source twin) and only knows an edge *under its source* — so
+deleting/updating a relationship requires passing the edge's `$sourceId`, not
+the trip. Trip-sourced edges (`hasCrew`, root `atLocation`, `hasSection`,
+trip `hasDay`) take the trip id; section/day/block-sourced edges
+(`atLocation`/`hasDay` on a section, `hasBlock` on a day/section) take that
+container's id. The fetched trip bundle now carries every relationship's
+`$relationshipId`, so server round-trips always agree. Chapter splits are two
+calls — trim the old range, then add the closing chapter:
+
+```bash
+python scripts/api_write.py put /api/trips/<trip_id>/sections/<sec_id> --json '{"days": [12, 14]}'
+python scripts/api_write.py post /api/trips/<trip_id>/sections --json '{"title": "The way home", "days": [15, 15]}'
+```
+
+**Live smoke after any write-path deploy**: unit tests run against
+`FakeGraph`, which cannot prove the HTTP layer talks to the graph — #89's
+relationship-write breakage passed CI. Run the reversible live smoke
+(`backend/scripts/smoke_write_path.py --trip <id>`, editor+ token) which
+exercises block create/move/delete + section locationRefs + section day-range
+writes against the real graph and restores every mutation.
 
 **Identity model (#46)**: the agent has no identity of its own in the graph.
 Three modes, in order of preference:

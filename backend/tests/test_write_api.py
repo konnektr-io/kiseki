@@ -16,6 +16,8 @@ with a role to stage that permission for the request.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -507,6 +509,119 @@ def test_put_day_and_section(client, rsa_keypair, graph) -> None:
     r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
                json={"locationRefs": ["Nopeville"]})
     assert r.status_code == 422
+
+
+def _section_days_of(s: Any) -> list[int]:
+    d = s.days if hasattr(s, "days") else s["days"]
+    return list(d)
+
+
+def _section_by_days(doc_sections: list[Any], days: list[int]) -> Any:
+    return next(s for s in doc_sections if _section_days_of(s) == days)
+
+
+def test_section_location_refs_removal(client, rsa_keypair, graph) -> None:
+    """Regression for issue #89's live 500: removing a section's locationRef
+    deletes the atLocation edge UNDER THE SECTION (not the trip). The strict
+    FakeGraph now enforces source scoping exactly like the real server."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    section = _section_by_days(trip.sections, [0, 1])  # Arrival & First Turns
+    assert section.locationRefs  # fixture has at least one ref
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"locationRefs": []})
+    assert r.status_code == 200
+    s = next(x for x in r.json()["sections"] if x["id"] == section.id)
+    assert s["locationRefs"] == []
+
+
+def test_section_days_trim_and_restore(client, rsa_keypair, graph) -> None:
+    """PUT /sections now accepts days: rewiring hasDay edges (issue #89).
+    Lake Louise [12, 15] -> [12, 14] must drop day 15 (Mar 2) from the chapter."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    section = _section_by_days(trip.sections, [12, 15])
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"days": [12, 14]})
+    assert r.status_code == 200
+    s = next(x for x in r.json()["sections"] if x["id"] == section.id)
+    assert s["days"] == [12, 14]
+    # restore
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"days": [12, 15]})
+    assert r.status_code == 200
+    s = next(x for x in r.json()["sections"] if x["id"] == section.id)
+    assert s["days"] == [12, 15]
+
+
+def test_section_days_validation(client, rsa_keypair, graph) -> None:
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    section = _section_by_days(trip.sections, [12, 15])
+    for bad in ([12], [15, 12], [0, 99], [-1, 2], ["a", "b"], [12, None]):
+        r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+                   json={"days": bad})
+        assert r.status_code == 422, f"days={bad} should be a 422"
+    # overlap with the Kicking Horse section ([9, 11]) -> 422
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"days": [11, 14]})
+    assert r.status_code == 422
+    assert "overlap" in r.json()["detail"].lower()
+
+
+def test_post_section_creates_closing_chapter(client, rsa_keypair, graph) -> None:
+    """POST /sections (issue #89): the Canada 'The way home' scenario — trim
+    Lake Louise to its last real day, then add the slim Mar-2 chapter so every
+    trip day stays covered by exactly one section."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    ll = _section_by_days(trip.sections, [12, 15])
+    assert _authz(client, "put", f"/api/trips/{trip.id}/sections/{ll.id}", token,
+                  json={"days": [12, 14]}).status_code == 200
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/sections", token,
+               json={"title": "The way home", "days": [15, 15]})
+    assert r.status_code == 201
+    secs = r.json()["sections"]
+    new = next(s for s in secs if s["title"] == "The way home")
+    assert new["days"] == [15, 15]
+    assert new["locationRefs"] == []
+    # tiling invariant: every one of the 16 days covered exactly once
+    covered: list[int] = []
+    for s in secs:
+        covered += list(range(s["days"][0], s["days"][1] + 1))
+    assert sorted(covered) == list(range(16))
+
+
+def test_post_section_validation_and_roles(client, rsa_keypair, graph) -> None:
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/sections"
+    # out-of-bounds + overlap + unknown location + empty title
+    assert _authz(client, "post", url, token,
+                  json={"title": "x", "days": [15, 16]}).status_code == 422
+    assert _authz(client, "post", url, token,
+                  json={"title": "x", "days": [5, 6]}).status_code == 422
+    assert _authz(client, "post", url, token,
+                  json={"title": "x", "locationRefs": ["Nopeville"]}).status_code == 422
+    assert _authz(client, "post", url, token, json={"title": ""}).status_code == 422
+    # ideation section (no days) is allowed
+    r = _authz(client, "post", url, token, json={"title": "Ideas"})
+    assert r.status_code == 201
+    assert next(s for s in r.json()["sections"] if s["title"] == "Ideas")["days"] == []
+    # viewer cannot create/edit sections
+    gv = graph(role="viewer")
+    tripv = _trip_of(gv)
+    tv = _token_of(rsa_keypair)
+    assert _authz(client, "post", f"/api/trips/{tripv.id}/sections", tv,
+                  json={"title": "x", "days": [0, 1]}).status_code == 403
+    assert _authz(client, "put", f"/api/trips/{tripv.id}/sections/{tripv.sections[0].id}", tv,
+                  json={"days": [0, 0]}).status_code == 403
 
 
 # ---------------------------------------------------------------- crew
