@@ -251,13 +251,23 @@ class FakeGraph:
         self.twins.append(copy.deepcopy(twin))
 
     def delete_twin(self, trip_dtid: str, dtid: str, x_user_id: str | None = None) -> None:
+        """Delete a twin — mirrors the real server, which does NOT cascade:
+        deleting a vertex that still has relationships fails (Postgres
+        "Cannot delete a vertex that has edge(s)"), so callers must remove the
+        twin's edges first (issue #89 live smoke found delete_block relying on
+        a cascade the server refuses)."""
         self._note(trip_dtid, x_user_id)
         t = self.twin(dtid)
         if t is None:
             raise FakeGraphError(f"no twin {dtid}")
+        touching = [r for r in self.rels
+                    if r.get("$sourceId") == dtid or r.get("$targetId") == dtid]
+        if touching:
+            raise FakeGraphError(
+                f"cannot delete twin {dtid}: still has {len(touching)} "
+                f"relationship(s) — delete the edges first (server refuses non-cascade deletes)"
+            )
         self.twins.remove(t)
-        self.rels = [r for r in self.rels
-                     if r.get("$sourceId") != dtid and r.get("$targetId") != dtid]
 
     def upsert_relationship(self, trip_dtid: str, rel: dict,
                             x_user_id: str | None = None) -> None:
