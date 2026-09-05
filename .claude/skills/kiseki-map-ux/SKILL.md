@@ -9,10 +9,10 @@ Rationale and the full picture: [`DESIGN.md`](../../../DESIGN.md) §2, §7, §8.
 
 **The thesis:** place is the organizing fact of a trip, so the map should be a *surface*, not
 a thumbnail. But Kiseki is also a printable booklet, and a booklet is document-shaped. The
-2026-09 resolution (#90/#92/#93): map surfaces **embed inside the document pages** — the
-itinerary trip map and the day map live on the hybrid contract of DESIGN.md §7.6, the
-standalone route *page* is retired, and print parity is served by the single MapLibre renderer
-(#37), not by surface apartheid.
+2026-09 resolution (#90/#92/#93): Itinerary and Day ARE one map surface with two levels —
+scan (whole trip) and read (the day) — on DESIGN.md §7.6. The standalone route *page* is
+retired and the map stays alive between levels. Print parity is served by the single MapLibre
+renderer (#37); block minimaps print, the web hides them.
 
 **Cartographic principle:** *quiet basemap, loud trip.* The basemap is desaturated and
 low-contrast; the trip's own color is the only saturated thing on screen.
@@ -28,8 +28,9 @@ Google any more.
   unless you mean to change the booklet.
 - `components/RouteMap.tsx` — the SURFACE map (#39). Fills its container, driven from outside by
   selection and camera padding, legs styled per state. Its standalone page (`RouteMapPage`,
-  `/t/<id>/map`) is retired (2026-09, #93); the component feeds the embedded itinerary map
-  (#92), the day map (#90) and the whole-route expandable. Both share
+  `/t/<id>/map`) is retired (2026-09, #93); the component feeds the itinerary/day map surface —
+  scan level (#92), day level (#90). There is no separate expandable: the scan level IS the
+  whole-route view. Both share
   `lib/maplibre.ts` (`loadMapLibre` — `setWorkerUrl` must run exactly once, before the first
   `Map`) and `lib/maps.ts` (`CHROME_PADDING`, `clampPadding`, `prefersReducedMotion`).
 - `components/Sheet.tsx` + `components/SplitView.tsx` + `lib/sheet.ts` — the sheet primitive and
@@ -232,9 +233,10 @@ both behind `/api/maps/*` with the key in the backend.
   Headless Chromium runs with `--use-gl=angle --use-angle=swiftshader` (WebGL2 via software);
   `app/pdf.py` waits for `document.fonts.ready` and every `[data-maplibre]` to reach
   `data-map-ready` (or `data-map-failed`) before `page.pdf()`. There is no static raster path.
-- **An embedded map on a document page** (itinerary trip map, day map — §7.6) is `no-print`:
-  the booklet is its own route (`BookletPage`) with its own map layout — drive-leg maps today,
-  one map per day planned (#94). Never make a web page printable to give the booklet a map.
+- **The itinerary/day surface prints nothing** (§7.6): the booklet is its own route
+  (`BookletPage`) and prints the same block content through `DayBlocks`, **with the block
+  minimaps kept in print** (print-only rule — the web hides them; per-day booklet maps are
+  declined, #94). Never make a web page printable to give the booklet a map.
 - `data-map-ready` / `data-map-failed` are the renderer's contract with the PDF waiter; never
   remove them. Markers, route colors and basemap are identical on screen and paper because the
   components are identical.
@@ -255,12 +257,13 @@ A WebGL canvas is not accessible. Therefore:
 ## Map surfaces worth building (in order)
 
 1. ~~**Trip route (standalone page)**~~ — shipped (#39), then **retired as a page** (2026-09,
-   #93): the whole-journey view survives as an *expandable* from the itinerary map (#92).
-   Itinerary and day now host **embedded** map surfaces (§7.6). Markers/legs derive from
+   #93). Itinerary and Day are now ONE map surface (§7.6): the **scan level** (#92) is the
+   whole-trip view with the itinerary in the rail/sheet; the **day level** (#90) shows that
+   day's world. The map stays alive between levels. Markers/legs derive from
    `lib/route-surface.ts`, whose leaky spots (excursions as chain stops — Rogers Pass —
-   prose-mention day attribution) are #91, fed by the content authoring rules in #89.
-2. **Day map (#90, backlog)** — that day's places + drive legs, numbered place pins + lettered
-   activity markers, tap↔card. Pairs with `DayPage`.
+   prose-mention day attribution) are #91.
+2. **Day level (#90, backlog)** — that day's places + drive legs, numbered place pins +
+   lettered activity markers, tap↔card. Pairs with `DayPage` content in the rail/sheet.
 3. **Discovery** — public trips / trips from people you follow, as clustered pins. This is a
    §2.2 map surface end-to-end; don't build it until the sheet and marker primitives exist.
 4. **Things to do nearby** — POI search around a location, results in the sheet.

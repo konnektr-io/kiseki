@@ -185,17 +185,18 @@ writeup; in short:
 
 - **Data**: `trip.locations` `[{name, marker?, alias[], lat?, lng?}]` is the single source for ALL maps — marker numbers (① ② …) derive from it (`useLocationMarkers`), and every map renders from its coordinates. No per-trip hardcoding.
 - **Web (dynamic map)**: `MapView` — **MapLibre GL JS v6** (#18) over a keyless basemap, rendering numbered markers + the real driving route for a set of places. Used inside drive cards (`from`/`to` → the exact leg), the route feature (`"map": true`), and block card thumbnails (single pin, `compact`). Route geometry comes from `GET /api/maps/route/<id>?places=A,B` (backend calls Google Directions; `duration` is the live `duration_in_traffic` behind the drive-time chip).
-- **Map surfaces (2026-09 direction, #93)**: the standalone route *page* (`RouteMapPage` at
-  `/t/<id>/map`) is **retired** — the maps live inside the itinerary and day pages (DESIGN.md
-  §7.6). The #39 primitives are reused: `SplitView` (ratio ladder: bottom `Sheet` on a phone,
-  side sheet on short viewports, 40/60 split on tablet, 400px rail on desktop) + `RouteMap`
-  (numbered pins, legs styled by their own state) + `lib/route-surface.ts` (journey
-  derivation: chain order, `legStage` from the leg's transport block falling back to the trip
-  stage, `daysAtLocation`). Embedded surfaces: itinerary trip map (#92), day map (#90),
-  whole-route expandable. **Known derivation leaks** — excursions (Rogers Pass) becoming chain
-  stops with phantom legs, prose/`via` mentions counting as visits — are #91; the matching
-  content authoring rules are #89. Embedded maps are `no-print`; the booklet renders its own
-  maps through `MapView` (#37).
+- **Map surface (2026-09 direction, #92/#90/#93)**: the standalone route *page*
+  (`RouteMapPage` at `/t/<id>/map`) is **retired** (redirects to `/itinerary`). **Itinerary
+  and Day are ONE map surface** with two levels on the #39 layout (DESIGN.md §7.6): the scan
+  level (#92) shows the whole trip with the existing itinerary content in the rail/sheet; the
+  day level (#90) shows that day's world — **the map stays alive between levels** (state
+  transitions + history sync; never remount in-app). The #39 primitives are reused: `SplitView`
+  (ratio ladder), `RouteMap` (numbered pins, legs styled by state), `lib/route-surface.ts`
+  (journey derivation: chain order, `legStage`, `daysAtLocation`). **Known derivation leaks** —
+  excursions (Rogers Pass) becoming chain stops with phantom legs, prose/`via` mentions
+  counting as visits — are #91. Minimap policy: block-card minimaps are **hidden on the web**
+  and **kept in the PDF** (print-only rule; booklet unchanged — #94 declined). The booklet
+  renders its own maps through `MapView` (#37).
 - **Basemap tiles**: OpenFreeMap `positron` — no key, no proxy, desaturated ("quiet basemap, loud trip", DESIGN.md §8.5). One constant, `MAP_STYLE_URL` in `lib/maps.ts`, overridable via `VITE_MAP_STYLE_URL` — that is the seam for self-hosted PMTiles on Garage or per-trip styling (#40).
 - **No Google in the browser (#27)**: `GET /api/maps/key` is **gone** (explicit 404 — the SPA catch-all would otherwise answer 200 with the index shell). Directions stays server-side (MapLibre renders, it does not route); the client only ever talks to `/api/maps/route`. **Never reintroduce a client-side key.** There is no traffic layer: `TrafficLayer` is exclusive to the Google JS API, and loading that API is what exposed the key.
 - **Addressing**: `/api/maps/route` takes the trip **`$dtId`** (id-based since #64 — no share
@@ -215,7 +216,7 @@ writeup; in short:
 - The **booklet** is a print stylesheet in the frontend (`BookletPage`, A4). Keep it A4-friendly — it becomes the PDF.
 - Tailwind v4 theme tokens are CSS variables in `frontend/src/index.css` (`@theme inline`); per-trip theming injects `--trip-*` vars at runtime. Colors always behind tokens.
 - **UI work follows [`DESIGN.md`](DESIGN.md)**: every component is a *document*, *map*, or *chrome* surface (they obey different rules and different print behavior); no hex literals in components; a11y floor (focus rings, 44px targets, reduced motion) is not optional.
-- **Authoring rules for map truth (2026-09, #89)**: a transport block whose endpoint is a trip
+- **Authoring rules for map truth (2026-09)**: a transport block whose endpoint is a trip
   place sets `from`/`to` to the location name/alias — flights included (trip-side airport
   gateways get explicit endpoints; out-of-region origins like BRU are NOT registry locations).
   A section's `days` range ends on the last day the place actually anchors; a pure travel/home
