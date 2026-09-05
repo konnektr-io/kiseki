@@ -192,11 +192,41 @@ writeup; in short:
   day level (#90) shows that day's world — **the map stays alive between levels** (state
   transitions + history sync; never remount in-app). The #39 primitives are reused: `SplitView`
   (ratio ladder), `RouteMap` (numbered pins, legs styled by state), `lib/route-surface.ts`
-  (journey derivation: chain order, `legStage`, `daysAtLocation`). **Known derivation leaks** —
-  excursions (Rogers Pass) becoming chain stops with phantom legs, prose/`via` mentions
-  counting as visits — are #91. Minimap policy: block-card minimaps are **hidden on the web**
-  and **kept in the PDF** (print-only rule; booklet unchanged — #94 declined). The booklet
-  renders its own maps through `MapView` (#37).
+  (journey derivation — semantics below). Minimap policy: block-card minimaps are **hidden on
+  the web** and **kept in the PDF** (print-only rule; booklet unchanged — #94 declined). The
+  booklet renders its own maps through `MapView` (#37).
+- **Route-surface derivation semantics (#91)** — what `lib/route-surface.ts` reports is
+  *derived*, so it must never invent content. Four rules, each enforced in code and pinned
+  by `route-surface.test.ts` (fixtures `canadaLive` + `chile` are live-shaped and assert the
+  calendar-truth labels — if a future edit changes them, the derivation drifted):
+  1. **Stop vs excursion (`placeRole`)**: a place is a journey STOP iff the trip re-bases
+     there — a section `locationRefs` base, an endpoint of a transport block (explicit
+     `from`/`to` fields only), or a flight gateway (flight titles count — flights often
+     carry no endpoint fields). Anything merely toured from a base elsewhere (Rogers Pass
+     from Revelstoke) is an EXCURSION: excluded from `journeyOrder` entirely, carried in
+     `Journey.excursions`, rendered as a secondary diamond marker (no number — it must not
+     claim a slot in the ① ② ③ index). Exclusion is structural: only chain members are
+     paired into legs, so a phantom through-leg cannot exist.
+  2. **Road facts vs visits (`blockPlaces`)**: day attribution scans only explicit
+     `from`/`to`/`location` fields, the block title, and the day title. `via`/`route` are
+     deliberately NOT scanned ("into Banff NP", "Via Banff, Canmore" describe the road) —
+     under the old derivation Banff grew phantom days 13/15 and the pass drew solid legs
+     nobody travels. `blockEndpoints` STILL reads via/route to fill a transport's missing
+     endpoints (leg matching needs that leniency) — do not "fix" the asymmetry, it is the
+     point.
+  3. **Clamped section refs (`placeDays`)**: a place's days = its explicitly located days
+     PLUS section `locationRefs` ranges, clamped — a ref-day is granted only when the day
+     carries no located content for a different place AND falls within the place's own
+     [first, last] located span (a chapter that trails past the drive-out is the chapter
+     outliving the stay). A place with no located days trusts its ref over the full range.
+  4. **Leg stages (`legStage`)**: a leg the derivation joins but nobody authored (no
+     transport block) is PROVISIONAL, full stop — it never inherits the trip's stage. On a
+     booked trip that is dashed-and-dim, not a solid leg with a status it was never given.
+     Trip-stage fallback applies only when a speaking block exists but carries no status.
+  Scaffold fallback: when NO place has any re-base evidence (curated locations, no
+  transports/sections — a trip still being sketched), the registry itself chains in marker
+  order (`isRegistryScaffold`) instead of exiling every place to excursion.
+  `daysAtLocation` remains as an alias of `placeDays` for existing callers.
 - **Basemap tiles**: OpenFreeMap `positron` — no key, no proxy, desaturated ("quiet basemap, loud trip", DESIGN.md §8.5). One constant, `MAP_STYLE_URL` in `lib/maps.ts`, overridable via `VITE_MAP_STYLE_URL` — that is the seam for self-hosted PMTiles on Garage or per-trip styling (#40).
 - **No Google in the browser (#27)**: `GET /api/maps/key` is **gone** (explicit 404 — the SPA catch-all would otherwise answer 200 with the index shell). Directions stays server-side (MapLibre renders, it does not route); the client only ever talks to `/api/maps/route`. **Never reintroduce a client-side key.** There is no traffic layer: `TrafficLayer` is exclusive to the Google JS API, and loading that API is what exposed the key.
 - **Addressing**: `/api/maps/route` takes the trip **`$dtId`** (id-based since #64 — no share
