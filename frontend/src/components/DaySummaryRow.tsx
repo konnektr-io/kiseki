@@ -36,11 +36,14 @@ export function DaySummaryRow({
   idx,
   dayNo,
   isToday,
+  active,
 }: {
   day: Day;
   idx: number;
   dayNo: number;
   isToday?: boolean;
+  /** The day currently open in the day level (map surface, #92). */
+  active?: boolean;
 }) {
   const { tripId } = useParams();
   const thumbs = dayThumbnails(day);
@@ -51,8 +54,9 @@ export function DaySummaryRow({
   return (
     <article
       data-today={isToday ? "true" : undefined}
+      data-day-idx={idx}
       className={`overflow-hidden rounded-xl border bg-card shadow-card ${
-        isToday ? "border-primary ring-1 ring-primary/30" : "border-border"
+        isToday ? "border-primary ring-1 ring-primary/30" : active ? "border-primary/60" : "border-border"
       }`}
     >
       <Link
@@ -168,12 +172,14 @@ export function FoldedDayCard({
   title,
   startNo,
   isToday,
+  active,
 }: {
   days: Day[];
   title: string;
   /** Trip-day number of the first folded day (array position + 1). */
   startNo: number;
   isToday?: boolean;
+  active?: boolean;
 }) {
   const first = days[0];
   const last = days[days.length - 1];
@@ -193,8 +199,9 @@ export function FoldedDayCard({
   return (
     <article
       data-today={isToday ? "true" : undefined}
+      data-day-idx={String(startNo - 1)}
       className={`overflow-hidden rounded-xl border bg-card shadow-card ${
-        isToday ? "border-primary ring-1 ring-primary/30" : "border-border"
+        isToday ? "border-primary ring-1 ring-primary/30" : active ? "border-primary/60" : "border-border"
       }`}
     >
       <div className="block p-3">

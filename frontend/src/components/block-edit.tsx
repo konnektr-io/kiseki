@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Check, Pencil, Trash2 } from "lucide-react";
 import { BlockView } from "./blocks";
+import type { BlockCardProps } from "./blocks";
 import { Button } from "./ui";
 import { useTripState } from "./theme";
 import { useTripWrite } from "../lib/useTripWrite";
@@ -46,10 +47,16 @@ const iconBtn =
 export function EditableBlockList({
   blocks,
   containerId,
+  letters,
+  cardProps,
 }: {
   blocks: Block[];
   /** The day twin id whose block list this is — the block-order target. */
   containerId: string;
+  /** Day-level letters (§8.3/#90), blockId → letter — passed straight to
+   *  BlockView so editors on the map surface keep the tap↔card wiring. */
+  letters?: Map<string, string>;
+  cardProps?: (b: Block) => BlockCardProps;
 }) {
   const { trip } = useTripState();
   const { busy, error, run } = useTripWrite();
@@ -66,7 +73,7 @@ export function EditableBlockList({
     return (
       <div className="space-y-2.5">
         {sorted.map((b) => (
-          <BlockView key={b.id} block={b} />
+          <BlockView key={b.id} block={b} letter={letters?.get(b.id)} cardProps={cardProps?.(b)} />
         ))}
       </div>
     );

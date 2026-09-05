@@ -4,9 +4,7 @@ import { JoinPage } from "./pages/JoinPage";
 import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
 import { TodayPage } from "./pages/TodayPage";
-import { ItineraryPage } from "./pages/ItineraryPage";
-import { RouteMapPage } from "./pages/RouteMapPage";
-import { DayPage } from "./pages/DayPage";
+import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
 import { BookletPage } from "./pages/BookletPage";
@@ -27,6 +25,14 @@ function SectionRedirect() {
   return <Navigate to={`/t/${tripId}/itinerary${hash}`} replace />;
 }
 
+/** /map was the standalone route surface (#39) — retired by #93: the
+ *  Itinerary/Day pair IS the map surface now (DESIGN.md §7.6), so the old URL
+ *  redirects (replace) to the itinerary scan level. */
+function MapRedirect() {
+  const { tripId = "" } = useParams();
+  return <Navigate to={`/t/${tripId}/itinerary`} replace />;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -35,12 +41,14 @@ export default function App() {
       <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
         <Route path="today" element={<TodayPage />} />
-        <Route path="itinerary" element={<ItineraryPage />} />
-        {/* The first MAP surface (#39) — a sibling of the document pages, not a
-            replacement for any of them. */}
-        <Route path="map" element={<RouteMapPage />} />
+        {/* ONE persistent map surface (DESIGN.md §7.6): the itinerary is the
+            scan level (#92) and /day/<idx> the day level (#90). Both render
+            TripMapSurface — level is derived from the URL, the map instance
+            stays alive between them. */}
+        <Route path="itinerary" element={<TripMapSurface />} />
+        <Route path="day/:idx" element={<TripMapSurface />} />
+        <Route path="map" element={<MapRedirect />} />
         <Route path="s/:n" element={<SectionRedirect />} />
-        <Route path="day/:idx" element={<DayPage />} />
         <Route path="practical" element={<PracticalsPage />} />
         <Route path="crew" element={<CrewPage />} />
         <Route path="booklet" element={<BookletPage />} />

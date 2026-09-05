@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { useTrip } from "./theme";
 import { MapView, TripMap } from "./MapView";
 import { findLocation } from "../lib/maps";
@@ -119,7 +119,10 @@ function mapsLink(b: Block) {
   };
 }
 
-/** Card media strip: an image, or a mini MapLibre map centered on `location`. */
+/** Card media strip: an image, or a mini MapLibre map centered on `location`.
+ *  The MAP branch is the "minimap": on the trip map surface (#92) it is hidden
+ *  — the surface map right beside the card is the spatial context — while the
+ *  booklet keeps it (one component, a print-scope CSS rule serves both). */
 function CardMedia({ b }: { b: Block }) {
   const trip = useTrip();
   if (b.images?.length) {
@@ -136,7 +139,7 @@ function CardMedia({ b }: { b: Block }) {
     const loc = findLocation(trip, b.location);
     if (loc?.lat != null && loc.lng != null) {
       return (
-        <div className="mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
+        <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
           <MapView places={[b.location]} compact className="h-full w-full rounded-none border-0" />
         </div>
       );
@@ -145,9 +148,43 @@ function CardMedia({ b }: { b: Block }) {
   return null;
 }
 
-function BlockCard({ children, className = "" }: { children: ReactNode; className?: string }) {
+/** The day level's letter badge (§8.3, #90) — the same square chip glyph the
+ *  map draws, stamped on the card it answers. Static: the card root carries
+ *  the tap handler, and a tap on the badge bubbles to it. */
+function LetterBadge({ letter }: { letter: string }) {
   return (
-    <div className={`booklet-keep rounded-xl border border-border bg-card p-4 shadow-card ${className}`}>{children}</div>
+    <span
+      aria-hidden="true"
+      className="route-chip-badge absolute right-3 top-3 grid h-6 w-6 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card"
+    >
+      {letter}
+    </span>
+  );
+}
+
+/** Extra props a card root can carry from the map surface (data hooks + the
+ *  tap↔card handler). Booklet/today/summary never pass them. */
+export type BlockCardProps = HTMLAttributes<HTMLDivElement> & Record<string, unknown>;
+
+function BlockCard({
+  children,
+  className = "",
+  letter,
+  cardProps,
+}: {
+  children: ReactNode;
+  className?: string;
+  letter?: string;
+  cardProps?: BlockCardProps;
+}) {
+  return (
+    <div
+      {...cardProps}
+      className={`booklet-keep relative rounded-xl border border-border bg-card p-4 shadow-card ${className}`}
+    >
+      {letter && <LetterBadge letter={letter} />}
+      {children}
+    </div>
   );
 }
 
@@ -195,7 +232,15 @@ export function useLocationMarkers() {
   };
 }
 
-function TransportBlock({ b }: { b: Block }) {
+function TransportBlock({
+  b,
+  letter,
+  cardProps,
+}: {
+  b: Block;
+  letter?: string;
+  cardProps?: BlockCardProps;
+}) {
   const marker = useLocationMarkers();
   // classify via the shared classifier (lib/transport) — explicit `mode` beats
   // the heuristic; both this card and the summary glyphs derive from it, so a
@@ -207,7 +252,11 @@ function TransportBlock({ b }: { b: Block }) {
   if (isFlight) {
     // flight card — dark, like the booklet's flight treatment
     return (
-      <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-card">
+      <div
+        {...cardProps}
+        className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-card"
+      >
+        {letter && <LetterBadge letter={letter} />}
         <div className="flex items-start gap-3 p-4">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Plane className="h-4 w-4" />
@@ -252,7 +301,11 @@ function TransportBlock({ b }: { b: Block }) {
 
   // drive card — dark, like the booklet's drive treatment (distance / time / route / directions)
   return (
-    <div className="booklet-keep overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm">
+    <div
+      {...cardProps}
+      className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm"
+    >
+      {letter && <LetterBadge letter={letter} />}
       <div className="flex items-start gap-3 p-4">
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
           <Car className="h-4 w-4" />
@@ -326,11 +379,19 @@ function TransportBlock({ b }: { b: Block }) {
   );
 }
 
-function ActivityBlock({ b }: { b: Block }) {
+function ActivityBlock({
+  b,
+  letter,
+  cardProps,
+}: {
+  b: Block;
+  letter?: string;
+  cardProps?: BlockCardProps;
+}) {
   const gm = mapsLink(b);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard>
+    <BlockCard letter={letter} cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<MapPin className="h-4 w-4" />} tone="primary" />
@@ -353,11 +414,19 @@ function ActivityBlock({ b }: { b: Block }) {
   );
 }
 
-function LodgingBlock({ b }: { b: Block }) {
+function LodgingBlock({
+  b,
+  letter,
+  cardProps,
+}: {
+  b: Block;
+  letter?: string;
+  cardProps?: BlockCardProps;
+}) {
   const gm = mapsLink(b);
   const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
-    <BlockCard>
+    <BlockCard letter={letter} cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<BedDouble className="h-4 w-4" />} tone="muted" />
@@ -382,11 +451,19 @@ function LodgingBlock({ b }: { b: Block }) {
   );
 }
 
-function MealBlock({ b }: { b: Block }) {
+function MealBlock({
+  b,
+  letter,
+  cardProps,
+}: {
+  b: Block;
+  letter?: string;
+  cardProps?: BlockCardProps;
+}) {
   const gm = mapsLink(b);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard>
+    <BlockCard letter={letter} cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<UtensilsCrossed className="h-4 w-4" />} tone="muted" />
@@ -553,21 +630,27 @@ export function BlockView({
   block,
   editable = false,
   onToggleItem,
+  letter,
+  cardProps,
 }: {
   block: Block;
   /** Interactive affordances (currently: todo-item checkboxes). */
   editable?: boolean;
   onToggleItem?: (itemIndex: number, done: boolean) => void;
+  /** The day-level letter (§8.3/#90) to stamp on mapped cards. */
+  letter?: string;
+  /** Map-surface card hooks (data-block-id, tap↔card click). */
+  cardProps?: BlockCardProps;
 }) {
   switch (block.kind) {
     case "transport":
-      return <TransportBlock b={block} />;
+      return <TransportBlock b={block} letter={letter} cardProps={cardProps} />;
     case "activity":
-      return <ActivityBlock b={block} />;
+      return <ActivityBlock b={block} letter={letter} cardProps={cardProps} />;
     case "lodging":
-      return <LodgingBlock b={block} />;
+      return <LodgingBlock b={block} letter={letter} cardProps={cardProps} />;
     case "meal":
-      return <MealBlock b={block} />;
+      return <MealBlock b={block} letter={letter} cardProps={cardProps} />;
     case "todo":
       return <TodoBlock b={block} editable={editable} onToggleItem={onToggleItem} />;
     case "note":
@@ -589,6 +672,8 @@ export function DayBlocks({
   blocks,
   editable = false,
   containerId,
+  letters,
+  cardProps,
 }: {
   blocks: Block[];
   /** Editor mode (issue #46): inline chrome per block. Requires the owning
@@ -596,6 +681,11 @@ export function DayBlocks({
    *  never set it, so the print output stays byte-identical. */
   editable?: boolean;
   containerId?: string;
+  /** Day-level letters (§8.3/#90), blockId → letter. When present, mapped
+   *  cards carry the badge; when absent (booklet/today) nothing changes. */
+  letters?: Map<string, string>;
+  /** Map-surface card hooks, per block (tap↔card). */
+  cardProps?: (b: Block) => BlockCardProps;
 }) {
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
@@ -607,7 +697,12 @@ export function DayBlocks({
       {[...blocks]
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         .map((b) => (
-          <BlockView key={b.id} block={b} />
+          <BlockView
+            key={b.id}
+            block={b}
+            letter={letters?.get(b.id)}
+            cardProps={cardProps?.(b)}
+          />
         ))}
     </div>
   );

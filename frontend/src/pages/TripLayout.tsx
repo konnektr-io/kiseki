@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, Map } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
@@ -11,12 +11,13 @@ import { TripProvider, tripStyle } from "../components/theme";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
-/** Four items is the mobile cap (DESIGN.md §7.5) — this is exactly four. The
- *  itinerary gives up the `Map` icon to the actual map surface (#39). */
+/** Under the §7.5 mobile cap of four — three base items, Today swaps in for
+ *  Overview on live trips. The standalone Map item is retired (#93): the
+ *  itinerary IS the map surface now (DESIGN.md §7.6), so the day level lives
+ *  one tap deeper on the same nav item. */
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
   { to: "", label: "Overview", icon: Home, end: true },
   { to: "itinerary", label: "Itinerary", icon: CalendarDays },
-  { to: "map", label: "Map", icon: Map },
   { to: "practical", label: "Practical", icon: ListChecks },
 ];
 
@@ -263,8 +264,10 @@ export function TripLayout() {
   // A MAP surface is viewport-shaped, a document surface is column-shaped, and
   // they cannot share a wrapper (DESIGN.md §2): the reading column would crop
   // the map to 768px and `pb-24` would leave a dead strip under the sheet. So
-  // the shell drops the column for the one route that is a map.
-  const onMapSurface = pathname === `/t/${tripId}/map`;
+  // the shell drops the column for the map surface — the itinerary and day
+  // routes both render TripMapSurface (#92/#90); /map is a redirect (#93).
+  const onMapSurface =
+    pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
   const isOwner = trip.myRole === "owner";
 
   const handleDownloadPdf = async () => {
@@ -378,7 +381,7 @@ export function TripLayout() {
           </main>
         )}
 
-        {/* Mobile bottom nav (hidden on day pages — DayPage has its own bar) */}
+        {/* Mobile bottom nav (hidden on day pages — the day level has its own bar) */}
         {!onDayPage && (() => {
           const NAV = navForTrip(trip);
           return (
