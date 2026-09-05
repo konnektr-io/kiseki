@@ -716,6 +716,12 @@ def create_section(trip_dtid: str, actor: dict, payload: SectionCreate) -> Trip:
         "fold": [],
     }
     client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+    # hasSection edges carry `index` (chapter position) — the read path sorts
+    # sections by it, defaulting a missing index to 0. Append = existing count.
+    next_index = sum(
+        1 for r in graph.get("relationships", [])
+        if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasSection"
+    )
     client.upsert_relationship(
         trip_dtid,
         {
@@ -723,6 +729,7 @@ def create_section(trip_dtid: str, actor: dict, payload: SectionCreate) -> Trip:
             "$sourceId": trip_dtid,
             "$relationshipName": "hasSection",
             "$targetId": section_id,
+            "index": next_index,
         },
         x_user_id=actor["sub"],
     )
