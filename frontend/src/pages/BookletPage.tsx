@@ -2,6 +2,7 @@ import { useTrip } from "../components/theme";
 import { DayBlocks, BlockGlyph, useLocationMarkers } from "../components/blocks";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
+import { classifyTransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { expandSectionDays, sectionRange } from "../lib/sections";
@@ -215,7 +216,7 @@ export function BookletPage() {
                   <td className="py-1.5 pr-3 font-heading font-semibold tabular-nums">{dayNo}</td>
                   <td className="py-1.5 pr-3">
                     <span className="mr-1.5 inline-flex align-middle">
-                      <BlockGlyph kind={block.kind} />
+                      <BlockGlyph kind={block.kind} mode={classifyTransportMode(block)} />
                     </span>
                     {block.title ?? "—"}
                   </td>

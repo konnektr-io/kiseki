@@ -2,8 +2,9 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "./ui";
 import { BlockGlyph, MetaChips } from "./blocks";
+import { classifyTransportMode } from "../lib/transport";
 import { formatDay } from "../lib/dates";
-import type { BlockKind, Day } from "../lib/types";
+import type { Block, Day } from "../lib/types";
 /** Photo images referenced by a day's blocks (block `images` + `gallery` items),
  *  capped at 2 — the summary-density thumbnail strip. Map images are excluded:
  *  no maps inline in the itinerary list (DESIGN.md §7.5). */
@@ -100,7 +101,7 @@ export function DaySummaryRow({
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
               .map((b, i) => (
                 <li key={i} className="flex items-center gap-2 text-sm">
-                  <BlockGlyph kind={b.kind} />
+                  <BlockGlyph kind={b.kind} mode={classifyTransportMode(b)} />
                   <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
                   {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
                   {b.status && (
@@ -137,11 +138,20 @@ export function DaySummaryRow({
 }
 
 /** One unscheduled block at summary density (glyph + title + time) — used for
- *  sections that have blocks but no days yet (the ideation pool). */
-export function BlockSummaryRow({ block }: { block: { kind: BlockKind; title?: string; time?: string } }) {
+ *  sections that have blocks but no days yet (the ideation pool). The glyph is
+ *  mode-aware like every other summary row (issue #88), so the prop carries
+ *  the transport evidence fields, not just kind/title/time. */
+export function BlockSummaryRow({
+  block,
+}: {
+  block: Pick<
+    Block,
+    "kind" | "title" | "time" | "mode" | "bookingCode" | "description" | "distance" | "duration" | "route" | "via"
+  >;
+}) {
   return (
     <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-sm shadow-card">
-      <BlockGlyph kind={block.kind} />
+      <BlockGlyph kind={block.kind} mode={classifyTransportMode(block)} />
       <span className="min-w-0 flex-1 truncate">{block.title || "—"}</span>
       {block.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{block.time}</span>}
     </div>
@@ -221,7 +231,7 @@ export function FoldedDayCard({
           <ul className="mt-2.5 space-y-1.5">
             {blocks.map((b, i) => (
               <li key={i} className="flex items-center gap-2 text-sm">
-                <BlockGlyph kind={b.kind} />
+                <BlockGlyph kind={b.kind} mode={classifyTransportMode(b)} />
                 <span className="min-w-0 flex-1 truncate">{b.title || "—"}</span>
                 {b.time && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{b.time}</span>}
                 {b.status && (
