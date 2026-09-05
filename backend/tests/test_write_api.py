@@ -590,6 +590,9 @@ def test_post_section_creates_closing_chapter(client, rsa_keypair, graph) -> Non
     new = next(s for s in secs if s["title"] == "The way home")
     assert new["days"] == [15, 15]
     assert new["locationRefs"] == []
+    # the closing chapter must come LAST — hasSection edges carry an `index`
+    # (chapter position); a missing index sorts first (default 0)
+    assert secs[-1]["title"] == "The way home"
     # tiling invariant: every one of the 16 days covered exactly once
     covered: list[int] = []
     for s in secs:
