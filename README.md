@@ -7,7 +7,7 @@ Kiseki turns a trip plan into a responsive web experience with a printable PDF b
 - **Living documents** — plans change; the trip updates in place. No more stale PDFs.
 - **Access that matches the trip** — public trips are readable by anyone with the id link; private trips are crew-only behind Auth0. Each crew member claims their own identity via a join link and gets a role (owner / editor / viewer / follower) that drives what the app lets them do (editors get inline write affordances — the write path, #46).
 - **PDF booklet export** — one click, print-ready, matches the on-screen design; gated by the trip's visibility.
-- **Maps that mean something** — real driving routes (Directions API) and live drive times in the web app; the PDF renders the same MapLibre maps, so screen and paper agree. Maps are embedded in the itinerary and day pages (DESIGN.md §7.6), not a separate tab. All generated from trip data — no per-trip hardcoding.
+- **Maps that mean something** — real driving routes (Directions API) and live drive times in the web app; the PDF renders the same MapLibre maps, so screen and paper agree. Itinerary and Day run on one map surface — the map stays alive between the scan and the day (DESIGN.md §7.6); there is no separate map tab. All generated from trip data — no per-trip hardcoding.
 
 ## Stack
 
@@ -80,7 +80,7 @@ cd backend && uv run pytest
 - **Design foundation (done)** — [`DESIGN.md`](DESIGN.md) is the visual and interaction law; token layer + accessibility floor shipped (#36, #41).
 - **Information architecture (done)** — continuous itinerary with sections as a first-class unit (#43); the Today surface reaches today's plan in one tap (#42).
 - **Map stack (done)** — MapLibre GL JS replaces the Google Maps JS API with no key in the client (#18, #27); the booklet PDF renders the same MapLibre maps via Playwright, so screen and paper agree (#37); hillshade and runtime contours from a keyless Mapterhorn DEM (#38).
-- **Map primitives (done) — surfaces now embed (2026-09)** — the `Sheet` (three detents) and `SplitView` ratio ladder shipped with the route map (#39); the standalone route *page* is then **retired from the nav** — the maps live inside the itinerary and day pages instead (DESIGN.md §7.6), with per-day booklet maps, calendar-true derivations and Places photos on the backlog (#88–#95).
+- **Map primitives (done) — the map surface (2026-09)** — the `Sheet` (three detents) and `SplitView` ratio ladder shipped with the route map (#39); the standalone route *page* is then **retired** — Itinerary and Day run on one map surface with the map staying alive between levels (DESIGN.md §7.6, #90/#92/#93). The booklet keeps its block minimaps (#94 declined). Backlog: route-surface semantics (#91), Places photos (#95).
 - **Media (done)** — trip media lives in Garage object storage, namespaced by trip `$dtId`, out of the repo (#47).
 
 ### Order of work
@@ -93,7 +93,7 @@ The backlog is sequenced by dependency, not by issue number. Each line is indepe
 | 2 | ~~#65 — Non-crew followers via `claimToken`~~ | **Done.** |
 | 3 | ~~#46 — Write-path (edit a trip in the UI)~~ | **Done** (v0.18, milestone C). |
 | 4 | #40 — Per-trip theme presets | Next. Also owns per-**marker** stage (DESIGN.md §8.3): legs are stage-coloured, pins are not. |
-| 5 | Map surfaces IA (2026-09) — #88–#95 | Maps embed in the itinerary and day pages; the standalone route tab is retired (DESIGN.md §7.6). #88 (mode glyphs) is a fast bug; #89 (content round) and #91 (derivations) feed the map surfaces #90/#92; #93 retires the tab; #94 (booklet per-day maps) follows the media change; #95 (Places photos) is independent. |
+| 5 | Map surface IA (2026-09) — #90–#93 | Itinerary and Day become ONE map surface (DESIGN.md §7.6): scan level #92, day level #90, tab/nav retirement #93. #88 (mode glyphs) and the #89 write-API enablers shipped (#97–#100); #91 (route-surface semantics) feeds the levels; #95 (Places photos) is independent; #94 (per-day booklet maps) declined — the booklet keeps its minimaps. |
 | 6 | #21 — Analytics | Cheap, and much cheaper after #64 retired the secret-link URL. **Required before #14.** |
 | 7 | #15 — Google Places suggestions | The embedded maps' sheets are where results will land; the photo pipeline is #95. Re-derive the cost model first — the write-up predates Google retiring the universal credit. |
 | 8 | #48 — Live capture during travel | Unblocked: #42 (timezone) and #47 (media) are closed. |

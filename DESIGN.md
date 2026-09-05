@@ -48,16 +48,18 @@ different rules, and mixing them is how this design falls apart.
 
 ### 2.1 Document surfaces — *booklet-faithful*
 
-Overview, itinerary, day detail, practicals, crew, booklet.
+Overview, practicals, crew, booklet — plus the *content* of Itinerary and Day, which is
+authored in the same cards/blocks but is presented on the map surface (§7.6) and printed via
+the booklet.
 
 - Constrained reading column (`max-w-3xl` today; see §7 for the target ladder).
 - Editorial typography, real paragraphs, markdown, generous vertical rhythm.
 - **Must survive print.** Every document component renders in the PDF booklet or is explicitly
   `no-print`.
 - Opaque surfaces (`bg-card` on `bg-background`), hairline borders, minimal elevation.
-- **May host embedded map components** (§7.6): a bounded, `no-print` map region inside a
-  document page (the itinerary trip map, the day map) is document-safe — the booklet renders
-  its own maps through `DayBlocks`, it does not print the web page.
+- Itinerary and Day are not document *pages*: their content is re-hosted on the map surface
+  (§7.6). The booklet stays document-shaped and prints that same block content — including the
+  block minimaps, which the web hides.
 
 ### 2.2 Map surfaces — *the map is the canvas*
 
@@ -71,14 +73,14 @@ Discovery, the whole-trip route at full screen, "things to do around here". A ma
 - Print: map content renders through the **same MapLibre map live in the PDF** (§12, #37) —
   never a static raster.
 
-**2026-09 direction — maps live inside the documents.** The standalone route *page* shipped by
-#39 (`/t/<id>/map`, a viewport-shaped surface of its own) proved redundant with the itinerary
-and is retired from the nav (#93). The `Sheet`/`SplitView`/`RouteMap` primitives it built are
-repurposed: a map surface can now be **embedded in a document page** — the itinerary hosts the
-trip map (§7.6, #92), the day page hosts its own day map (#90) — and the whole-route view
-survives as an *expandable* from the itinerary map for the trips that need it (Japan 2028).
-The hybrid contract is §7.6. The remaining true viewport-shaped surfaces (discovery, follow
-feeds) still use this section verbatim.
+**2026-09 direction — Itinerary and Day ARE the map surface.** The standalone route *page*
+shipped by #39 (`/t/<id>/map`) proved redundant with the itinerary and is retired (#93). The
+`Sheet`/`SplitView`/`RouteMap` primitives it built are repurposed into ONE persistent map
+surface with two levels (§7.6): the **itinerary (scan)** level shows the whole trip with the
+itinerary content in the rail/sheet, and the **day (read)** level shows that day's world when
+you drill in — **the map stays alive between levels** (#92/#90). The scan level is the
+whole-route view; there is no separate expandable. The remaining true viewport-shaped
+surfaces (discovery, follow feeds) still use this section verbatim.
 
 ### 2.3 Chrome — *shared*
 
@@ -388,13 +390,15 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 ```
 /t/<id>               Overview    stage-aware home; redirects to /today while live
 /t/<id>/today         Today       the travel surface                          (TARGET)
-/t/<id>/itinerary     Itinerary   one scroll, sticky sections, days inline; hosts the
-                                  embedded trip map (§7.6, #92)
-/t/<id>/itinerary#s-<n>           a section — an ANCHOR, not a page (see below)
+/t/<id>/itinerary     Itinerary   the map surface, scan level — whole trip on the map, the
+                                  itinerary in the rail/sheet (§7.6, #92)
+/t/<id>/itinerary#s-<n>           a section — an ANCHOR into the scan list (see below)
 /t/<id>/s/<n>         →           redirect to /itinerary#s-<n> (legacy links)
-/t/<id>/day/<i>       Day         full detail, swipe prev/next; hosts the day map (§7.6, #90)
-/t/<id>/map           →           retired (#93) — the whole-route view is an expandable from
-                                  the itinerary's embedded map
+/t/<id>/day/<i>       Day         the map surface, read level — that day on the map, its
+                                  blocks in the rail/sheet; the map stays alive from scan
+                                  (§7.6, #90)
+/t/<id>/map           →           retired (#93) — redirects to /itinerary; the scan level IS
+                                  the whole-route view
 /t/<id>/practical     Practical
 /t/<id>/crew          Crew
 ```
@@ -482,34 +486,39 @@ A table of contents and the thing itself are not duplication — a third full re
 content that exists nowhere else. If a candidate page is a filtered view of its parent, it is a
 *filter* or an *anchor*, not a page.
 
-### 7.6 Maps inside documents — the embedded map surface (2026-09)
+### 7.6 The itinerary & day map surface (2026-09)
 
-A document page may host a **map component as a first-class layout region**. This is the
-2026-09 direction (#90/#92/#93): the standalone route page is retired, and the map the #39
-primitives were built for now lives inside the itinerary and the day page.
+**Itinerary and Day are one map surface, not document pages** (decision 2026-09-05, #92/#90).
+Both levels use the #39 layout: the map is the canvas and the *content* — the itinerary scan
+list and the day's blocks, rendered exactly as they render today — lives in the rail/sheet and
+interacts with the map. Navigating scan ↔ day (and day ↔ day) **keeps the map alive**: the
+same MapLibre instance stays mounted; only the content and the map data/camera change. The
+scan level shows the whole trip — there is no separate route page (#93) and no expandable
+beyond it. The remaining document pages are Overview, Practical, Today and Crew; the booklet
+is a document route (`BookletPage`).
 
-- **The document wins.** The content stays the same document — same cards, same anchors, same
-  density — and the map is the *added* surface. Rail/sheet/hero regions come from `SplitView`
-  and `Sheet`; exactly one scroll container at every size (§7.2); the map never scrolls with
-  the page.
-- **Print.** A map region on a document page is `no-print` on the web. The booklet is NOT that
-  page — it renders block content through `DayBlocks` with its own map layout (drive-leg maps
-  today; one map per day once the mini-maps are dropped, #94). Nothing document-shaped may turn
-  `position: fixed` or `100vh` to feed the map.
-- **Camera padding tracks occlusion** (§7.2/§7.3); markers never land under the sheet or rail.
-- **Selection is bidirectional with the document**: marker ↔ card/pill (scroll, pulse, flyTo),
-  and scroll-spy keeps the in-view chapter's markers raised while the rest dim to 45% (never
-  hidden).
-- **Two marker roles** (§8.3): numbered place pins (registry) for stays, gateways and journey
-  stops; lettered activity markers on the day map. Excursions from a base render as secondary
-  markers, never chain stops (#91).
+Contract:
 
-Surfaces on this contract: the **itinerary trip map** (#92 — rail/sheet hosting the existing
-itinerary, interactive pills, scroll-spy) · the **day map** (#90 — that day's places and legs,
-tap↔card, image-first media) · the **whole-route expandable** (#93 — full-screen `SplitView`
-from the itinerary map, for Japan-scale trips). Derivation honesty — no phantom legs,
-calendar-true day attribution — is #89 (content round) + #91 (derivation); Places photos feed
-the image-first cards (#95).
+- **The content is the source of truth for the rail/sheet.** Cards render exactly as they do
+  today; only the media minimaps differ — **hidden in the web app** (the surface map is the
+  context) and **kept in print** (the booklet is unchanged; per-day booklet maps are declined,
+  #94). One shared component + a print-only rule.
+- **Exactly one scroll container** (the rail/sheet); the map never scrolls; camera padding
+  tracks the occlusion (§7.2/§7.3).
+- **Level changes are state transitions with URL sync** (history pushState): `/itinerary` and
+  `/day/<i>` deep-link to the right level; browser back/forward walks levels **without
+  remounting the map**. Typed/external navigation may mount fresh.
+- **Two marker roles** (§8.3): numbered place pins for stops/gateways/stays; letter chips for
+  that day's activities on the day level. Excursions render as secondary markers (#91), never
+  chain stops.
+- **Print parity** is unchanged in spirit: the booklet prints the block content (minimaps and
+  images included) through `DayBlocks`; map-surface chrome is `no-print`.
+
+Surfaces on this contract: the **scan level** (#92 — the itinerary in the rail/sheet beside
+the whole-trip map, interactive pills, scroll-spy) and the **day level** (#90 — the day's
+blocks in the rail/sheet with that day's markers/legs, tap↔card, extensible to future overlays
+like Strava). Honest derivations come from the content authoring rules and the route-surface
+semantics (#91); real images for web cards come from #95.
 
 ---
 
@@ -563,7 +572,8 @@ idea.** Formalize it:
 - Cluster below the zoom where pins collide; the cluster shows a count, not a number range.
 
 **Two marker roles (2026-09, #90/#92).** The numbered pin stays the *place* marker — stays,
-gateways and journey stops — on every surface, print included. The **day map** adds a second
+gateways and journey stops — on every surface, print included. The **day level** of the map
+surface adds a second
 role for *things that happen*: activities get a **letter chip** (A, B, C… in day order) with the
 matching letter on its card — a visibly different glyph shape from the round numbered pins, so
 the two roles can never be confused and no second numbering system appears on the map. Same hit
@@ -706,10 +716,12 @@ The PDF is a product, not an export. It constrains the design system upstream.
 | Map | Renders live via the same MapLibre map as on screen (#37) — same basemap, marker numbering and route colours. The booklet is a faithful rendering of the app. |
 | Chrome | `no-print`. |
 
-**2026-09:** a document page that hosts a map region (itinerary trip map, day map — §7.6)
-prints the document *without* that map: the booklet is its own route (`BookletPage`) and keeps
-its own map layout — block drive-leg maps today, one map per day planned (#94). The contract
-above is unchanged: wherever the booklet includes map content, it prints live via MapLibre.
+**2026-09:** the itinerary/day web surface (§7.6) prints nothing by itself — the booklet is
+its own route (`BookletPage`) and prints the same block content through `DayBlocks`,
+**including the block minimaps** (print-only: the web hides them because the surface map is the
+context). Per-day booklet maps were considered (#94) and declined — minimaps print well.
+Map-surface chrome is `no-print`; wherever the booklet includes map content it prints live via
+MapLibre.
 
 Additional rules:
 
@@ -737,7 +749,7 @@ CSS in a shape where a second `@page` size (square album, e.g. 210×210mm) is a 
 ([`ui.tsx`](frontend/src/components/ui.tsx)), the ten block renderers
 ([`blocks.tsx`](frontend/src/components/blocks.tsx)), `MapView` / `TripMap` (screen + PDF,
 #37), and the map-surface primitives `RouteMap` / `Sheet` / `SplitView` (#39 — repurposed into
-the embedded surfaces of §7.6).
+the itinerary/day map surface of §7.6).
 
 ### 13.2 Debt found in the v0.12.3 audit
 
@@ -814,9 +826,9 @@ Don't do this as one redesign. Suggested order, each independently shippable:
    colours from tokens. No layout change yet. *(§8)*
 7. ~~**The `Sheet` primitive + first map surface**~~ — done (#39): `Sheet`, `SplitView`, and the
    trip route surface. **Repurposed 2026-09** (#93): the standalone route *page* is retired —
-   the primitives now build the embedded surfaces of §7.6, the itinerary trip map (#92) and the
-   day map (#90), fed by the derivation/content fixes (#91/#89) and the Places-photo pipeline
-   (#95), with booklet per-day maps (#94) following the media change. *(§7.3, §7.6)*
+   the primitives now build the single itinerary/day map surface of §7.6 — scan level #92, day
+   level #90 — fed by the route-surface semantics (#91) and the Places-photo pipeline (#95).
+   The booklet is unchanged: block minimaps stay in print (#94 declined). *(§7.3, §7.6)*
 8. **Preset system** — `theme.preset`, 8–12 presets, validation, lazy fonts, map style per preset.
    *(§6)*
 9. **Dark mode.** *(§3.3)*

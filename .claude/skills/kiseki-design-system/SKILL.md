@@ -17,9 +17,10 @@ like a SaaS dashboard, it's wrong.
 1. **Identify the surface class.** Every component is exactly one of three (DESIGN.md §2):
    - **Document** — reading column, opaque, editorial, **must print** in the booklet.
    - **Map** — floats over a map canvas, translucent, never printed **as chrome**; map
-     *content* prints live via the same MapLibre renderer (#37). A document page may host a
-     bounded embedded map region (itinerary trip map, day map — DESIGN.md §7.6): that region
-     is `no-print`; the booklet renders its own maps through `DayBlocks`.
+     *content* prints live via the same MapLibre renderer (#37). Itinerary and Day are NOT
+     document pages — they are one map surface (DESIGN.md §7.6) whose rail/sheet hosts the
+     content; the surface is `no-print`. The booklet prints the same block content (with the
+     block minimaps) through `DayBlocks`.
    - **Chrome** — header/nav/sheets/controls, must survive both paper-white and a satellite
      photo, always `no-print`.
 
@@ -82,8 +83,8 @@ only day level (`TripSection.blocks` — the unscheduled pool for a multi-night 
 unit changes with stage: section while planning, **today** while `live`, section again in the
 archive. Mobile bottom nav caps at **four** items. Before adding a page or a nav entry, read
 DESIGN.md §7.5 — the surface list there is the intended IA, not a suggestion. There is **no Map
-nav item** (2026-09, #93): the maps live inside the Itinerary and Day pages (§7.6), so a nav
-entry for a map is itself a sign the design has drifted.
+nav item** (2026-09, #93): Itinerary and Day ARE the map surface (§7.6) — the Itinerary item
+opens it. A nav entry for a map is itself a sign the design has drifted.
 
 **Sections are a grouping, not a level** (§7.5, corrected 2026-09-01): there are exactly two
 navigational levels — Itinerary (scan, sections as sticky anchored chapters `#s-<n>`) and Day
