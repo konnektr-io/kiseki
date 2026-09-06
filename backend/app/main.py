@@ -23,7 +23,13 @@ from starlette.background import BackgroundTask
 from .acl import authorize_trip_path, require_trip_role
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
-from .config import LISTEN_PORT, MAPS_KEY, STATIC_DIR
+from .config import (
+    HERE_ACCESS_KEY_ID,
+    HERE_ACCESS_KEY_SECRET,
+    HERE_TOKEN_ENDPOINT_URL,
+    LISTEN_PORT,
+    STATIC_DIR,
+)
 from . import write as write_svc
 from .write import (
     BlockCreate,
@@ -43,6 +49,7 @@ from .write import (
     WriteError,
 )
 from .maps import resolve_places, route_legs
+from .here import get_here_token
 from .media import (
     get_media_store,
     is_valid_media_path,
@@ -69,10 +76,38 @@ _PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
 # globally at one and let the rest queue behind it.
 _PDF_RENDER_SLOT = asyncio.Semaphore(1)
 
-# Directions results, keyed on (trip_id, places, loop) -> (expiry, legs). Every
-# map view would otherwise be one Google call per leg, on every mount.
+# Route results, keyed on (trip_id, places, loop) -> (expiry, legs). Every
+# map view would otherwise be one HERE call per leg, on every mount.
 _route_cache: dict[tuple, tuple[float, list[dict]]] = {}
 _ROUTE_TTL = 300.0
+
+# HERE OAuth2 bearer token, minted once and reused (valid ~24 h; refreshed
+# lazily when under 15 minutes remain). RFC 5849 client_credentials — the
+# token endpoint rejects Basic/body auth, see app/here.get_here_token.
+_here_bearer_cache: tuple[str, float] | None = None
+
+
+def here_bearer_token() -> str | None:
+    """Return a valid HERE bearer token, minting/refreshing as needed.
+
+    None when HERE is not configured or the token could not be minted — the
+    caller then serves straight dashed lines (maps simply don't render).
+    """
+    global _here_bearer_cache
+    if not (HERE_ACCESS_KEY_ID and HERE_ACCESS_KEY_SECRET):
+        return None
+    now = time.monotonic()
+    if _here_bearer_cache and _here_bearer_cache[1] - now > 900:
+        return _here_bearer_cache[0]
+    status, data = get_here_token(
+        HERE_ACCESS_KEY_ID, HERE_ACCESS_KEY_SECRET, HERE_TOKEN_ENDPOINT_URL
+    )
+    if status != 200 or not data.get("access_token"):
+        _here_bearer_cache = None
+        return None
+    ttl = min(int(data.get("expires_in", 86_400)), 86_400)
+    _here_bearer_cache = (data["access_token"], now + ttl)
+    return _here_bearer_cache[0]
 
 
 def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
@@ -497,10 +532,11 @@ async def booklet_pdf(
 # --- Map proxy (#18/#27/#37) ------------------------------------------------
 #
 # The browser renders MapLibre over keyless tiles; only the driving route still
-# needs Google (Directions), served server-side so the key never leaves the
-# backend. Static Maps proxy is GONE (#37): the booklet renders the SAME
-# MapLibre map live via Playwright (Chromium + SwiftShader), so screen and
-# paper share basemap / marker numbering / route colours. #27 removed the
+# needs a provider (HERE Routing v8, #15), served server-side so the HERE token
+# never leaves the backend. Static Maps proxy is GONE (#37): the booklet
+# renders the SAME MapLibre map live via Playwright (Chromium + SwiftShader),
+# so screen and paper share basemap / marker numbering / route colours. #27
+# removed the
 # client-side key; #37 removed the last server-side static-map surface.
 #
 # Loopback is our own headless PDF renderer (app/pdf.py). Nothing else can
@@ -546,7 +582,7 @@ def _trip_for_map(trip_id: str) -> Trip:
 
 @app.get("/api/maps/key")
 def maps_key() -> Response:
-    """Gone (#27) — the Google key is server-side only now.
+    """Gone (#27) — the routing token is server-side only now.
 
     Kept as an explicit 404 rather than deleted: without it the SPA catch-all
     would answer this path with a 200 and the index shell, which reads like the
@@ -565,13 +601,14 @@ def maps_route(
     """Real driving route as GeoJSON — what the MapLibre map draws (#18).
 
     One leg per consecutive pair (the loop closes back to the start), exactly
-    the shape the Google JS map produced client-side. `duration` is the live
-    `duration_in_traffic` value behind the drive-time chip; a leg with no road
+    the shape the frontend expects. `duration` is the HERE live (time-aware)
+    value behind the drive-time chip; a leg with no road
     route comes back `road: false` with a straight line for the client to dash.
     """
     _rate_limit(request, "route", 60)
     trip = _trip_for_map(trip_id)
-    if not MAPS_KEY:
+    token = here_bearer_token()
+    if not token:
         raise HTTPException(status_code=404, detail="Maps not configured")
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
@@ -581,7 +618,7 @@ def maps_route(
     now = time.monotonic()
     if hit and hit[0] > now:
         return {"legs": hit[1]}
-    legs = route_legs(resolved, MAPS_KEY, loop=bool(loop))
+    legs = route_legs(resolved, token, loop=bool(loop))
     if len(_route_cache) > 512:
         _route_cache.clear()
     # Short TTL: the geometry is stable but `duration` is live traffic, and a
