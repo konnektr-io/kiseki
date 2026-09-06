@@ -151,10 +151,10 @@ function DayNav({
         size="auto"
         onClick={() => go(target)}
         aria-label={`${d === "prev" ? "Previous" : "Next"} day — day ${target + 1}, ${trip.days[target].title || formatDay(trip.days[target].date)}`}
-        className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2.5 text-left md:px-3"
+        className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2.5 text-left md:px-3 @container"
       >
         {d === "prev" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-        <span className="min-w-0 flex flex-col @container">
+        <span className="min-w-0 flex flex-col">
           <span className="block truncate text-sm font-medium leading-tight">
             {trip.days[target].title || formatDay(trip.days[target].date)}
           </span>
@@ -527,6 +527,20 @@ export function TripMapSurface() {
     </div>
   );
 
+  /* #109 follow-up: a scroller's sticky constraint rect is the scrollport
+     INSET BY ITS PADDING (SplitView rail/split = px-5/py-4, side = px-4/py-3,
+     sheet body = px-4). Left alone, the pinned chapter bar hangs 16px down
+     and scrolled content slides visibly through the gap above it — and an
+     inset wider than the scroller's own padding overhangs the panel edge
+     (4px on the sheet, poking past its rounded corners). Both get
+     mode-matched values: a compensating negative `top` pins the bar flush,
+     and the inset matches the scroller's padding exactly. */
+  const stickyChrome = surfaceMode === "sheet"
+    ? { top: "0px", inset: "-mx-4 px-4" }
+    : surfaceMode === "side"
+      ? { top: "-12px", inset: "-mx-4 px-4" }
+      : { top: "-16px", inset: "-mx-5 px-5" };
+
   /* ---------------- the rail/sheet content, per level ---------------- */
   const content = isDayRoute ? (
     <DayRail
@@ -548,8 +562,8 @@ export function TripMapSurface() {
     />
   ) : (
     <ItineraryList
-      stickyTop="0px"
-      stickyInset="-mx-5 px-5"
+      stickyTop={stickyChrome.top}
+      stickyInset={stickyChrome.inset}
       anchorMargin="8px"
       rootRef={listRef}
       onSelectPlace={(name) => setSelected(name ? (findLocation(trip, name) ?? null) : null)}

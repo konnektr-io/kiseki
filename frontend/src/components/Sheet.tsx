@@ -186,7 +186,10 @@ export function Sheet({ detent, onDetentChange, label, header, children, classNa
       const bodyTop =
         surfaceH - sheetH + body.offsetTop; // body's settled top in surface coords
       const visibleBottom = Math.min(surfaceTop + finalBottom, window.innerHeight);
-      setBodyHeightPx(Math.max(0, Math.round(visibleBottom - (surfaceTop + bodyTop))));
+      // Ceil, not round: the body must always reach the sheet's visible
+      // floor. A rounded-down half-pixel shows ~1.5 device px of map above
+      // the content on a 3x phone — "a few pixels of padding" (#109).
+      setBodyHeightPx(Math.max(0, Math.ceil(visibleBottom - (surfaceTop + bodyTop))));
     };
     measure();
     const ro = new ResizeObserver(measure);
