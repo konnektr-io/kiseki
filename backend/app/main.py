@@ -85,6 +85,12 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     obtainable via the owner-only ``/join-link`` endpoint. ``my_role`` (the
     caller's crew role on this trip) is attached for authenticated responses.
 
+    ``practical.tricount`` (#111) is stripped for non-crew readers: the
+    registry key in a public trip document would hand anonymous visitors and
+    followers the sharing key and, with it, the crew's expense registry in
+    the Tricount app. Crew roles (viewer/editor/owner) keep it — the snapshot
+    endpoint re-checks the role server-side.
+
     Media fields are stored as BARE filenames in the data (trip.json / graph);
     the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
     only ever see full URLs, namespaced by the trip's durable id — never the
@@ -92,6 +98,9 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     """
     data = trip.model_dump(by_alias=True)
     data.pop("claimToken", None)
+    practical = data.get("practical")
+    if my_role not in ("viewer", "editor", "owner") and isinstance(practical, dict):
+        practical.pop("tricount", None)
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role

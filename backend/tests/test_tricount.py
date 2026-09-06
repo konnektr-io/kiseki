@@ -398,3 +398,39 @@ def test_practical_put_preserves_tricount(client, rsa_keypair, graph) -> None:
     assert r.status_code == 200
     assert r.json()["practical"]["tricount"]["registryKey"] == CANADA_KEY
     assert g.twin(g.root)["practical"]["tricount"]["registryKey"] == CANADA_KEY
+
+
+def test_trip_doc_strips_tricount_for_non_crew(client, rsa_keypair, graph) -> None:
+    """The registry key in a PUBLIC trip document would hand anonymous
+    visitors and followers the crew's expense registry — stripped, exactly
+    like claimToken. Crew roles (viewer+) keep it."""
+    g = graph(role="owner")
+    # One graph, several identities (a fresh graph() would be unwired).
+    g.add_user_role(g.root, "google-oauth2|follower", "follower")
+    g.add_user_role(g.root, "google-oauth2|viewer", "viewer")
+    _connect(g)
+    url = f"/api/trips/{g.root}"
+
+    # Anonymous (public trip, no auth) → no tricount in the doc
+    body = client.get(url).json()
+    assert body["visibility"] == "public"
+    assert "tricount" not in body["practical"]
+
+    # Follower → stripped too (non-crew by design, #65)
+    token = _token_of(rsa_keypair, sub="google-oauth2|follower")
+    body = client.get(url, headers=_auth(token)).json()
+    assert body["myRole"] == "follower"
+    assert "tricount" not in body["practical"]
+
+    # Crew viewer → present (panel needs the key to build the app link)
+    token = _token_of(rsa_keypair, sub="google-oauth2|viewer")
+    body = client.get(url, headers=_auth(token)).json()
+    assert body["myRole"] == "viewer"
+    assert body["practical"]["tricount"]["registryKey"] == CANADA_KEY
+
+    # Owner → present
+    body = client.get(url, headers=_auth(_token_of(rsa_keypair))).json()
+    assert body["practical"]["tricount"]["registryKey"] == CANADA_KEY
+
+    # The connection itself is untouched in the graph
+    assert g.twin(g.root)["practical"]["tricount"]["registryKey"] == CANADA_KEY
