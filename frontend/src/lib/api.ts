@@ -1,4 +1,4 @@
-import type { Trip, TripSummary } from "./types";
+import type { Trip, TripSummary, TricountSnapshot } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -278,6 +278,57 @@ export async function putContainerOrder(
     `/api/trips/${encodeURIComponent(tripId)}/containers/${encodeURIComponent(containerId)}/block-order`,
     accessToken,
     { block_ids: blockIds },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+/* ---------------- #111 Tricount (crew-only) ---------------- */
+
+/** Live (TTL-cached) expense snapshot from the trip's connected Tricount
+ *  registry. Requires viewer+ (crew); the panel never renders for others. */
+export async function fetchTricountSnapshot(
+  tripId: string,
+  accessToken: string,
+  refresh = false,
+): Promise<TricountSnapshot> {
+  const res = await fetch(
+    `/api/trips/${encodeURIComponent(tripId)}/practical/tricount${refresh ? "?refresh=true" : ""}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  return (await res.json()) as TricountSnapshot;
+}
+
+/** Owner-only: connect the trip to a Tricount registry (sharing URL or bare
+ *  key). Returns the canonical trip doc; the panel keys off
+ *  `practical.tricount`. */
+export async function connectTricount(
+  tripId: string,
+  registryKey: string,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "POST",
+    `/api/trips/${encodeURIComponent(tripId)}/practical/tricount/connect`,
+    accessToken,
+    { registryKey },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+/** Owner-only: remove the Tricount connection (idempotent). */
+export async function disconnectTricount(
+  tripId: string,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "DELETE",
+    `/api/trips/${encodeURIComponent(tripId)}/practical/tricount`,
+    accessToken,
   );
   cacheTrip(tripId, doc);
   return doc;

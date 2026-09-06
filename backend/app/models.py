@@ -221,6 +221,56 @@ class Practical(BaseModel):
     links: list[Link] = Field(default_factory=list, description="Useful external links (docs, bookings).")
     notes: Optional[str] = Field(default=None, description="Free-form practical notes (markdown).")
     contacts: list[Contact] = Field(default_factory=list, description="At-a-glance contacts.")
+    tricount: Optional["TricountConfig"] = Field(default=None, description="Optional TriCount expense-sharing integration (issue #111). Holds the registry's public key only — Tricount credentials live in app secrets, never in the graph.")
+
+
+class TricountConfig(BaseModel):
+    """Connection to a Tricount (bunq) expense registry — the crew's shared
+    expense pot. Only the PUBLIC registry key is stored here (the key from
+    the sharing link, same secrecy class as the trip id link). Auth with the
+    Tricount API happens server-side via app-level device credentials."""
+
+    registryKey: str = Field(..., description="The Tricount registry's public_identifier_token (e.g. 'twOQZFDbXxZzipcjXG' — the part after /t in tricount.com/tXXXXX). Public to anyone with the sharing link; NOT a secret.")
+
+
+class TricountExpense(BaseModel):
+    """One expense in the connected Tricount registry (read-only snapshot)."""
+
+    id: str = Field(..., description="Tricount transaction id.")
+    date: Optional[str] = Field(default=None, description="Expense date, ISO YYYY-MM-DD (local part of the Tricount timestamp).")
+    whoPaid: str = Field(..., description="Display name of the member who paid.")
+    amount: float = Field(..., description="Positive amount paid (the API stores expenses negative; sign normalized here).")
+    currency: str = Field(default="EUR", description="ISO currency code.")
+    description: Optional[str] = Field(default=None, description="Expense description, e.g. 'Vluchten'.")
+    category: Optional[str] = Field(default=None, description="Tricount category label ('UNCATEGORIZED' when unset; category_custom wins over the builtin enum).")
+    involved: list[str] = Field(default_factory=list, description="Display names of members the expense is split among (zero-amount allocations excluded).")
+    shareFor: dict[str, float] = Field(default_factory=dict, description="Per-involved-member share, positive, same currency — what each member owes for this expense.")
+    type: str = Field(default="NORMAL", description="Transaction type: NORMAL (expense) | INCOME | BALANCE (reimbursement).")
+
+
+class TricountBalance(BaseModel):
+    """A member's net position in the connected Tricount registry."""
+
+    member: str = Field(..., description="Display name of the member.")
+    amount: float = Field(..., description="Net balance: positive = is owed money, negative = owes the group.")
+    currency: str = Field(default="EUR", description="ISO currency code.")
+
+
+class TricountSnapshot(BaseModel):
+    """Live read of a Tricount registry, served crew-only. Fetched on demand
+    (never persisted in the graph) with a short in-memory TTL to stay friendly
+    to the bunq API."""
+
+    registryKey: str = Field(..., description="The connected registry's public key (mirrors practical.tricount.registryKey).")
+    title: Optional[str] = Field(default=None, description="Registry title, e.g. 'Canada 2027'.")
+    currency: str = Field(default="EUR", description="Registry currency.")
+    members: list[str] = Field(default_factory=list, description="Registry member display names (ACTIVE only).")
+    expenses: list[TricountExpense] = Field(default_factory=list, description="All transactions, oldest first.")
+    balances: list[TricountBalance] = Field(default_factory=list, description="Net balance per member, positive = is owed money.")
+    fetchedAt: str = Field(..., description="ISO UTC timestamp of the fetch (drives the UI's stale indicator).")
+
+
+Practical.model_rebuild()  # resolve the forward ref to TricountConfig (defined above)
 
 
 class Theme(BaseModel):

@@ -911,6 +911,18 @@
                   ]
                 }
               }
+            },
+            {
+              "name": "tricount",
+              "schema": {
+                "@type": "Object",
+                "fields": [
+                  {
+                    "name": "registryKey",
+                    "schema": "string"
+                  }
+                ]
+              }
             }
           ]
         },

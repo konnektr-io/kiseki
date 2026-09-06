@@ -168,6 +168,41 @@ export interface Practical {
   todos?: TodoItem[];
   links?: Link[];
   notes?: string;
+  contacts?: Contact[];
+  tricount?: TricountConfig;
+}
+
+export interface TricountConfig {
+  registryKey: string;
+}
+
+export interface TricountExpense {
+  id: string;
+  date?: string;
+  whoPaid: string;
+  amount: number;
+  currency: string;
+  description?: string;
+  category?: string;
+  involved: string[];
+  shareFor: Record<string, number>;
+  type: string;
+}
+
+export interface TricountBalance {
+  member: string;
+  amount: number;
+  currency: string;
+}
+
+export interface TricountSnapshot {
+  registryKey: string;
+  title?: string;
+  currency: string;
+  members: string[];
+  expenses: TricountExpense[];
+  balances: TricountBalance[];
+  fetchedAt: string;
 }
 
 export interface Trip {
@@ -192,7 +227,7 @@ export interface Trip {
   features?: Feature[];
   sections?: TripSection[];
   crew: Person[];
-  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; contacts?: Contact[] };
+  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; contacts?: Contact[]; tricount?: TricountConfig };
   days: Day[];
   updated?: string;
 }
