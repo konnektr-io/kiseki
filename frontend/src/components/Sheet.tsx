@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { twMerge } from "tailwind-merge";
 import { ChevronUp } from "lucide-react";
 import {
@@ -161,6 +161,43 @@ export function Sheet({ detent, onDetentChange, label, header, children, classNa
     if (!scrollable && bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [scrollable]);
 
+  // The body must end exactly where the sheet's VISIBLE region ends (#109).
+  // The sheet element is translated to its detent — so live rects lie twice
+  // over: its box can extend past the viewport, and during the 200ms snap the
+  // rect is mid-animation. Everything below is therefore read transform-
+  // immune: layout offsets (`offsetTop`, `offsetHeight`, parent client box)
+  // plus the PARENT's viewport rect (the parent never transforms). Body
+  // height = min(final sheet bottom, viewport bottom) − final body top.
+  // An element-height body would let the last rows (the day nav) scroll into
+  // the hidden region and become unreachable — at `half` that hid the nav
+  // entirely; at `full` it left it hanging below the floor.
+  const [bodyHeightPx, setBodyHeightPx] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const sheet = sheetRef.current;
+    const body = bodyRef.current;
+    const surface = sheet?.parentElement;
+    if (!sheet || !body || !surface) return;
+    const measure = () => {
+      const surfaceTop = surface.getBoundingClientRect().top; // stable
+      const surfaceH = surface.clientHeight;
+      const sheetH = sheet.offsetHeight; // layout height, transform-immune
+      const finalBottom =
+        surfaceH - (detentOffsetPct(detent) / 100) * sheetH; // sheet's settled bottom in surface coords
+      const bodyTop =
+        surfaceH - sheetH + body.offsetTop; // body's settled top in surface coords
+      const visibleBottom = Math.min(surfaceTop + finalBottom, window.innerHeight);
+      setBodyHeightPx(Math.max(0, Math.round(visibleBottom - (surfaceTop + bodyTop))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(surface!);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [detent]);
+
   // `dragPx` is only ever set once a gesture is active, so it doubles as the
   // "finger is down" flag — no ref read during render.
   const dragging = dragPx != null;
@@ -266,7 +303,8 @@ export function Sheet({ detent, onDetentChange, label, header, children, classNa
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerCancel}
-          className={`min-h-0 flex-1 overscroll-contain px-4 ${
+          style={bodyHeightPx != null ? { height: bodyHeightPx } : undefined}
+          className={`min-h-0 shrink-0 grow-0 overscroll-contain px-4 ${
             scrollable ? "overflow-y-auto" : "overflow-hidden"
           }`}
         >

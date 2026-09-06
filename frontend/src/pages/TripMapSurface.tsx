@@ -154,12 +154,19 @@ function DayNav({
         className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2.5 text-left md:px-3"
       >
         {d === "prev" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-        <span className="min-w-0">
+        <span className="min-w-0 flex flex-col @container">
           <span className="block truncate text-sm font-medium leading-tight">
             {trip.days[target].title || formatDay(trip.days[target].date)}
           </span>
-          <span className="block whitespace-nowrap text-[10px] uppercase tracking-wide tabular-nums text-muted-foreground">
-            Day {target + 1} · {formatDay(trip.days[target].date).replace(",", "")}
+          {/* #109: the date drops out via container query before it can
+              overflow — on a narrow rail or phone the button fits "Day 2"
+              alone; ellipsis on the meta line is only the last resort. */}
+          <span className="block truncate text-[10px] uppercase tracking-wide tabular-nums text-muted-foreground">
+            Day {target + 1}
+            <span className="@max-[140px]:hidden">
+              {" · "}
+              {formatDay(trip.days[target].date).replace(",", "")}
+            </span>
           </span>
         </span>
         {d === "next" ? <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
@@ -233,7 +240,7 @@ function DayRail({
   });
 
   return (
-    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined}>
+    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined} className="flex h-full flex-col">
       <div className="space-y-5 pb-2">
         <div>
           <p className="kicker tabular-nums">
@@ -264,7 +271,11 @@ function DayRail({
           cardProps={cardProps}
         />
       </div>
-      {sheetNav && <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />}
+      {sheetNav && (
+        <div className="mt-auto">
+          <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />
+        </div>
+      )}
     </div>
   );
 }
