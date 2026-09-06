@@ -154,12 +154,19 @@ function DayNav({
         className="h-11 min-w-0 flex-1 justify-start gap-2 rounded-lg px-2.5 text-left md:px-3"
       >
         {d === "prev" ? <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
-        <span className="min-w-0">
+        <span className="min-w-0 flex flex-col @container">
           <span className="block truncate text-sm font-medium leading-tight">
             {trip.days[target].title || formatDay(trip.days[target].date)}
           </span>
-          <span className="block whitespace-nowrap text-[10px] uppercase tracking-wide tabular-nums text-muted-foreground">
-            Day {target + 1} · {formatDay(trip.days[target].date).replace(",", "")}
+          {/* #109: the date drops out via container query before it can
+              overflow — on a narrow rail or phone the button fits "Day 2"
+              alone; ellipsis on the meta line is only the last resort. */}
+          <span className="block truncate text-[10px] uppercase tracking-wide tabular-nums text-muted-foreground">
+            Day {target + 1}
+            <span className="@max-[140px]:hidden">
+              {" · "}
+              {formatDay(trip.days[target].date).replace(",", "")}
+            </span>
           </span>
         </span>
         {d === "next" ? <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
@@ -207,6 +214,7 @@ function DayRail({
   onCardTap,
   scrollRootRef,
   sheetNav,
+  sheetSticky,
 }: {
   dayIdx: number;
   surface: DaySurface;
@@ -215,6 +223,11 @@ function DayRail({
   scrollRootRef?: React.RefObject<HTMLElement | null>;
   /** Phone sheet only: the prev/up/next bar rides INSIDE the scroll flow. */
   sheetNav?: boolean;
+  /** Phone sheet at `full` only (#109): pin the bar to the sheet's bottom
+   *  edge (sticky). At `half` it stays in flow — scrolling down to reach the
+   *  nav is the intended behavior there (it would eat too much of the small
+   *  sheet otherwise), and the correctly-sized body makes it reachable. */
+  sheetSticky?: boolean;
 }) {
   const trip = useTrip();
   const { tripId = "" } = useParams();
@@ -233,7 +246,7 @@ function DayRail({
   });
 
   return (
-    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined}>
+    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined} className="flex h-full flex-col">
       <div className="space-y-5 pb-2">
         <div>
           <p className="kicker tabular-nums">
@@ -264,7 +277,18 @@ function DayRail({
           cardProps={cardProps}
         />
       </div>
-      {sheetNav && <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />}
+      {sheetNav && (
+        /* #109: at `full` the WRAPPER is sticky so the bar lifts to the sheet
+           floor even with short content or slight overflow (a bar-sized
+           wrapper would pin the inner bar to its flow position forever —
+           measured 35px below the floor). At `half` the bar stays IN FLOW:
+           scrolling down to reach the nav is the intended behavior there
+           (pinned would eat ~70px of the small sheet), and the visible-region
+           body fix makes the flow position reachable. */
+        <div className={sheetSticky ? "sticky bottom-0 mt-auto" : "mt-auto"}>
+          <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />
+        </div>
+      )}
     </div>
   );
 }
@@ -513,6 +537,7 @@ export function TripMapSurface() {
       onCardTap={tapCard}
       scrollRootRef={listRef}
       sheetNav={surfaceMode === "sheet"}
+      sheetSticky={surfaceMode === "sheet" && detent === "full"}
     />
   ) : selected ? (
     <PlacePanel

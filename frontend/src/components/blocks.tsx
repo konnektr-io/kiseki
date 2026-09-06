@@ -156,7 +156,7 @@ function LetterBadge({ letter }: { letter: string }) {
   return (
     <span
       aria-hidden="true"
-      className="route-chip-badge inline-flex h-6 w-6 shrink-0 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card"
+      className="route-chip-badge inline-grid h-6 w-6 shrink-0 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card"
     >
       {letter}
     </span>

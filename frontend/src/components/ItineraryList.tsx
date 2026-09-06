@@ -1,10 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLocation, useParams } from "react-router-dom";
-import { MapPin } from "lucide-react";
 import { useTrip } from "./theme";
 import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "./DaySummaryRow";
-import { useLocationMarkers } from "./blocks";
-import { findLocation } from "../lib/maps";
+import { findLocation, markerNumber } from "../lib/maps";
 import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
 import { itineraryItems, sectionRange } from "../lib/sections";
 import { roleAtLeast } from "../lib/editing";
@@ -59,34 +57,46 @@ function SectionLocations({
   onSelectPlace?: (name: string) => void;
 }) {
   const trip = useTrip();
-  const marker = useLocationMarkers();
   const refs = (section.locationRefs ?? []).filter((ref) => findLocation(trip, ref));
   if (!refs.length) return null;
   const Pill = onSelectPlace ? "button" : "span";
   return (
     <ul className="flex flex-wrap gap-1.5 pt-3">
-      {refs.map((ref) => (
-        <li key={ref}>
-          <Pill
-            {...(onSelectPlace
-              ? {
-                  type: "button" as const,
-                  "aria-pressed": undefined,
-                  onClick: () => onSelectPlace(ref),
-                  "aria-label": `Show ${ref} on the map`,
-                }
-              : {})}
-            data-place-pill={ref}
-            className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground ${
-              onSelectPlace ? "transition-colors hover:border-primary/40 hover:bg-muted cursor-pointer" : ""
-            }`}
-          >
-            <MapPin className="h-3 w-3 text-primary" aria-hidden />
-            <span aria-hidden>{marker(ref) !== "•" ? `${marker(ref)} ` : ""}</span>
-            {ref}
-          </Pill>
-        </li>
-      ))}
+      {refs.map((ref) => {
+        const loc = findLocation(trip, ref);
+        const n = loc ? markerNumber(trip, loc) : null;
+        return (
+          <li key={ref}>
+            <Pill
+              {...(onSelectPlace
+                ? {
+                    type: "button" as const,
+                    "aria-pressed": undefined,
+                    onClick: () => onSelectPlace(ref),
+                    "aria-label": `Show ${ref} on the map`,
+                  }
+                : {})}
+              data-place-pill={ref}
+              className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 text-xs font-medium text-foreground ${
+                onSelectPlace ? "transition-colors hover:border-primary/40 hover:bg-muted cursor-pointer" : ""
+              }`}
+            >
+              {/* #109: the pill's marker IS the map's numbered pin — same
+                  circle, same --map-marker colour, same digit — instead of a
+                  bare ② glyph. The number is the through-line (§8.3). */}
+              {n != null && (
+                <span
+                  aria-hidden
+                  className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker text-[10px] font-bold leading-none text-marker-fg"
+                >
+                  {n}
+                </span>
+              )}
+              {ref}
+            </Pill>
+          </li>
+        );
+      })}
     </ul>
   );
 }
