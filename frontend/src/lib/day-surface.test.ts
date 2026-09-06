@@ -97,6 +97,42 @@ describe("daySurface", () => {
     expect(s.markers.filter((m) => m.role === "place")).toHaveLength(0);
   });
 
+  it("a title may name a place through its alias (#104 prod: Sunshine full day)", () => {
+    const places: TripLocation[] = [
+      loc("Banff", 51.1784, -115.5708),
+      { ...loc("Sunshine Village", 51.0786, -115.7822), alias: ["Sunshine", "Banff Sunshine"] },
+    ];
+    const t = trip({
+      locations: places,
+      days: [
+        day([
+          // No explicit location — the title names the place via its alias.
+          block({ id: "s1", kind: "activity", title: "Sunshine full day", order: 0 }),
+          block({ id: "s2", kind: "lodging", title: "Stay: Banff (2nd night)", order: 1, location: "Banff" }),
+        ]),
+      ],
+    });
+    const s = daySurface(t, 0)!;
+    expect(s.letters.get("s1")).toBe("A");
+    expect(s.letters.get("s2")).toBe("B");
+    const chips = s.markers.filter((m) => m.role === "activity");
+    expect(chips.map((c) => (c as { place: { name: string } }).place.name)).toEqual([
+      "Sunshine Village",
+      "Banff",
+    ]);
+  });
+
+  it("title matching stays exact-name and never invents places (#91)", () => {
+    const t = trip({
+      days: [
+        day([block({ id: "x1", kind: "activity", title: "Wander around town", order: 0 })]),
+      ],
+    });
+    const s = daySurface(t, 0)!;
+    expect(s.letters.size).toBe(0);
+    expect(s.markers).toHaveLength(0);
+  });
+
   it("transport days: numbered pins only; flights mark resolved endpoints without arcs", () => {
     const t = trip({
       days: [

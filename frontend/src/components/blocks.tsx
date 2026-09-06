@@ -695,7 +695,14 @@ export function DayBlocks({
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
   if (editable && containerId) {
-    return <EditableBlockList blocks={blocks} containerId={containerId} />;
+    return (
+      <EditableBlockList
+        blocks={blocks}
+        containerId={containerId}
+        letters={letters}
+        cardProps={cardProps}
+      />
+    );
   }
   return (
     <div className="space-y-2.5">
