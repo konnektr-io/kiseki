@@ -45,6 +45,7 @@ from .write import (
     SectionPatch,
     TodoAdd,
     TodoToggle,
+    TricountConnect,
     TripPatch,
     WriteError,
 )
@@ -60,6 +61,7 @@ from .media import (
 from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
+from .tricount import TriCountError, fetch_snapshot
 from .store import get_trip_by_id as get_trip_by_id_store
 from .store import list_trips_for_user
 
@@ -118,6 +120,12 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     obtainable via the owner-only ``/join-link`` endpoint. ``my_role`` (the
     caller's crew role on this trip) is attached for authenticated responses.
 
+    ``practical.tricount`` (#111) is stripped for non-crew readers: the
+    registry key in a public trip document would hand anonymous visitors and
+    followers the sharing key and, with it, the crew's expense registry in
+    the Tricount app. Crew roles (viewer/editor/owner) keep it — the snapshot
+    endpoint re-checks the role server-side.
+
     Media fields are stored as BARE filenames in the data (trip.json / graph);
     the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
     only ever see full URLs, namespaced by the trip's durable id — never the
@@ -125,6 +133,9 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     """
     data = trip.model_dump(by_alias=True)
     data.pop("claimToken", None)
+    practical = data.get("practical")
+    if my_role not in ("viewer", "editor", "owner") and isinstance(practical, dict):
+        practical.pop("tricount", None)
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
@@ -284,10 +295,14 @@ def get_trip(
 # trip. ``claimToken`` is not accepted by any payload model and never returned.
 
 def _write(fn, **kwargs):
-    """Run a write-service call, mapping WriteError to HTTP."""
+    """Run a write-service call, mapping WriteError to HTTP.
+
+    TriCountError is mapped too: the tricount connect path (#111) validates
+    the registry key inside the write service, and a bad key must surface as
+    its HTTP status (404/502/503), never a 500."""
     try:
         return fn(**kwargs)
-    except WriteError as exc:
+    except (WriteError, TriCountError) as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
 
 
@@ -330,6 +345,49 @@ def toggle_todo(
 ) -> dict:
     trip = _write(write_svc.toggle_todo, trip_dtid=trip_id.lower(), actor=actor,
                   index=index, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+# ------------------------------------------------------------------ tricount (#111)
+# CREW-only expense integration: read requires viewer+ (crew = viewer/editor/
+# owner; followers are non-crew by design #65 and never see the money picture).
+# Connect/disconnect are owner-only (same gate as visibility and crew roles).
+# The graph never stores a snapshot — reads fetch live with a short in-process TTL.
+
+@app.get("/api/trips/{trip_id}/practical/tricount")
+def get_tricount_snapshot(
+    trip_id: str,
+    refresh: bool = Query(default=False, description="Bypass the snapshot cache"),
+    actor: dict = Depends(require_trip_role("viewer")),
+) -> dict:
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if trip.practical.tricount is None:
+        raise HTTPException(status_code=404, detail="This trip has no Tricount connection")
+    try:
+        snapshot = fetch_snapshot(trip.practical.tricount.registryKey, refresh=refresh)
+    except TriCountError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return snapshot.model_dump()
+
+
+@app.post("/api/trips/{trip_id}/practical/tricount/connect")
+def connect_tricount(
+    trip_id: str,
+    body: TricountConnect,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.connect_tricount, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.delete("/api/trips/{trip_id}/practical/tricount")
+def disconnect_tricount(
+    trip_id: str,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.disconnect_tricount, trip_dtid=trip_id.lower(), actor=actor)
     return _public_trip(trip, my_role=actor["role"])
 
 

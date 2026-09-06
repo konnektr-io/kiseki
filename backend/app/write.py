@@ -48,6 +48,7 @@ from .models import (
     Visibility,
 )
 from .store import get_graph_client
+from . import tricount as tricount_svc
 
 # DTMI of the interfaces this service creates/patches (client.py exports the
 # trip/user/person ones; the rest are needed verbatim here).
@@ -106,7 +107,12 @@ class TripPatch(_Strict):
 
 
 class PracticalPut(_Strict):
-    """Whole-object replace of the trip's practical value object."""
+    """Whole-object replace of the trip's practical value object.
+
+    ``tricount`` is owner-only and structurally unwritable through this
+    payload (ignored + rejected like ``claimToken``) — use the dedicated
+    connect/disconnect endpoints (#111), which fetch and validate the
+    registry before writing anything."""
 
     todos: list[TodoItem] = Field(default_factory=list)
     links: list[Link] = Field(default_factory=list)
@@ -116,6 +122,32 @@ class PracticalPut(_Strict):
 
 class TodoToggle(_Strict):
     done: bool
+
+
+class TricountConnect(_Strict):
+    """Owner-only payload for POST /practical/tricount/connect (#111).
+
+    Accepts the full sharing URL (tricount.com/tXXXX) or the bare key —
+    the crew's actual workflow is pasting the link they have."""
+
+    registryKey: str
+
+    def normalized_key(self) -> str:
+        key = self.registryKey.strip()
+        if "/" in key:
+            key = key.rstrip("/").rsplit("/", 1)[-1]
+        if key.lower().startswith("t") and len(key) > 16:
+            key = key[1:]  # tolerate a copied "tXXXX" URL slug as-is
+        return key
+
+
+def connect_and_validate(practical_dict: dict, registry_key: str) -> dict:
+    """Pure helper: practical dict with the (already-validated) tricount key
+    merged in. The snapshot validation happens in the service before this is
+    reached; kept separate so write tests exercise the merge without network."""
+    practical = dict(practical_dict or {})
+    practical["tricount"] = {"registryKey": registry_key.strip()}
+    return practical
 
 
 class TodoAdd(_Strict):
@@ -449,6 +481,49 @@ def put_practical(trip_dtid: str, actor: dict, body: PracticalPut) -> Trip:
     graph = _fetch(client, trip_dtid)
     trip_twin = _trip_twin(graph, trip_dtid)
     value = Practical.model_validate(body.model_dump()).model_dump(exclude_none=True)
+    # tricount is managed by the dedicated connect/disconnect endpoints (#111):
+    # a practical PUT must never clobber (or forge) the connection.
+    current = graph_to_trip(graph).practical
+    if current.tricount is not None:
+        value["tricount"] = current.tricount.model_dump(exclude_none=True)
+    ops = _scalar_ops(trip_twin, [("practical", value)])
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    return _rebuild(client, trip_dtid)
+
+
+def connect_tricount(trip_dtid: str, actor: dict, body: TricountConnect) -> Trip:
+    """Owner-only: link the trip to a Tricount registry (issue #111).
+
+    The registry is fetched and validated BEFORE anything is written — an
+    unresolvable key is a 502/404, never a stored bad key. Editor+ could see
+    the panel; only the owner decides what the trip is connected to (same
+    gate as visibility / crew roles)."""
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can connect Tricount")
+    snapshot = tricount_svc.validate_registry_key(body.normalized_key())  # 404/502 on a bad key
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    practical = graph_to_trip(graph).practical
+    value = connect_and_validate(practical.model_dump(exclude_none=True), snapshot.registryKey)
+    ops = _scalar_ops(trip_twin, [("practical", value)])
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    return _rebuild(client, trip_dtid)
+
+
+def disconnect_tricount(trip_dtid: str, actor: dict) -> Trip:
+    """Owner-only: remove the trip's Tricount connection (idempotent)."""
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can disconnect Tricount")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    practical = graph_to_trip(graph).practical
+    if practical.tricount is None:
+        return _rebuild(client, trip_dtid)  # already disconnected — no write
+    value = tricount_svc.disconnect_ops(practical.model_dump(exclude_none=True))
     ops = _scalar_ops(trip_twin, [("practical", value)])
     ops += _scalar_ops(trip_twin, [("updated", _today())])
     client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])

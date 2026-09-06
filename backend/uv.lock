@@ -790,6 +790,7 @@ dependencies = [
     { name = "playwright" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "tricount-api" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -807,6 +808,7 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.49.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.0" },
+    { name = "tricount-api", specifier = ">=0.1.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
 
@@ -1336,6 +1338,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz", hash = "sha256:d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b", size = 2716969, upload-time = "2026-08-08T18:27:57.512Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/cb/6a6a47d5b464bd08695d254f3da6e7986cc70c9fa5d778eda57538edfe56/starlette-1.6.0-py3-none-any.whl", hash = "sha256:a86dd39d14bb45f85a3d18525215a9ef0cfd1f192ac793220e72598c90335f0c", size = 75969, upload-time = "2026-08-08T18:27:56.196Z" },
+]
+
+[[package]]
+name = "tricount-api"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c9/f5/4a220cc86b0992ec42b1b4508ff6242ef1a99c013c4ac193be22bf977ba0/tricount_api-0.1.2.tar.gz", hash = "sha256:eaf9056d99546004ba8514074f0bd2baa871e67185590d6f47967a683f9ced99", size = 19800, upload-time = "2026-04-30T19:07:19.595Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/aa/d727cc8c73136c16127bc26f2367bbf8a98d6bae7923203025b99f3d56ca/tricount_api-0.1.2-py3-none-any.whl", hash = "sha256:6300fa8e7cbd7d2f8205c7bcd130464dd3399d4aa153576c201d11518b195518", size = 20483, upload-time = "2026-04-30T19:07:20.654Z" },
 ]
 
 [[package]]

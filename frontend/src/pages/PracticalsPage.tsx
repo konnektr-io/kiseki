@@ -1,6 +1,7 @@
 import { ExternalLink, ListChecks, Phone, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
+import { TricountPanel } from "../components/TricountPanel";
 import { Markdown } from "../lib/markdown";
 import { toggleTodoItem } from "../lib/api";
 import { roleAtLeast, withTodoDone } from "../lib/editing";
@@ -24,6 +25,7 @@ export function PracticalsPage() {
 
   return (
     <div className="space-y-5">
+      <TricountPanel />
       {todos.length > 0 && (
         <Card className="p-5">
           <div className="flex items-center justify-between">

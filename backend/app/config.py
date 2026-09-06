@@ -85,3 +85,13 @@ KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
 # Either way NOTHING is provisioned in the graph — no User twin, no edge.
 KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
 KISEKI_AGENT_ACT_AS = os.environ.get("KISEKI_AGENT_ACT_AS", "")
+
+# TriCount (bunq) expense integration (issue #111). Tricount device
+# credentials are NOT secrets (anonymous installation registration: an app
+# GUID + an RSA *public* key — the private key never leaves the generator),
+# so the service self-generates them per process. Point
+# KISEKI_TRICOUNT_CREDS_FILE at a JSON file ({"app_id", "public_key_pem"})
+# to pin a stable installation across restarts; snapshot reads are cached
+# for KISEKI_TRICOUNT_TTL seconds to stay friendly to the bunq API.
+KISEKI_TRICOUNT_CREDS_FILE = os.environ.get("KISEKI_TRICOUNT_CREDS_FILE", "")
+KISEKI_TRICOUNT_TTL = int(os.environ.get("KISEKI_TRICOUNT_TTL", "600"))

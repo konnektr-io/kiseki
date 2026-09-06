@@ -74,6 +74,7 @@ OBJECT_MODELS = {
     "Contact",
     "Theme",
     "Practical",
+    "TricountConfig",
     "BlockItem",
     "SectionFold",
 }
