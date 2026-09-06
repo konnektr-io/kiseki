@@ -148,14 +148,15 @@ function CardMedia({ b }: { b: Block }) {
   return null;
 }
 
-/** The day level's letter badge (§8.3, #90) — the same square chip glyph the
- *  map draws, stamped on the card it answers. Static: the card root carries
- *  the tap handler, and a tap on the badge bubbles to it. */
+/** The day level's letter badge (§8.3, #90/#104) — the same square chip glyph
+ *  the map draws, INLINE next to the card's title (the floating corner badge
+ *  was easy to miss — "I can not see that the hotel is A"). Static: the card
+ *  root carries the tap handler, and a tap on the badge bubbles to it. */
 function LetterBadge({ letter }: { letter: string }) {
   return (
     <span
       aria-hidden="true"
-      className="route-chip-badge absolute right-3 top-3 grid h-6 w-6 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card"
+      className="route-chip-badge inline-flex h-6 w-6 shrink-0 place-items-center rounded-md bg-marker font-heading text-[13px] font-semibold leading-none text-marker-fg shadow-card"
     >
       {letter}
     </span>
@@ -169,12 +170,10 @@ export type BlockCardProps = HTMLAttributes<HTMLDivElement> & Record<string, unk
 function BlockCard({
   children,
   className = "",
-  letter,
   cardProps,
 }: {
   children: ReactNode;
   className?: string;
-  letter?: string;
   cardProps?: BlockCardProps;
 }) {
   return (
@@ -182,7 +181,6 @@ function BlockCard({
       {...cardProps}
       className={`booklet-keep relative rounded-xl border border-border bg-card p-4 shadow-card ${className}`}
     >
-      {letter && <LetterBadge letter={letter} />}
       {children}
     </div>
   );
@@ -256,13 +254,13 @@ function TransportBlock({
         {...cardProps}
         className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-card"
       >
-        {letter && <LetterBadge letter={letter} />}
         <div className="flex items-start gap-3 p-4">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Plane className="h-4 w-4" />
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {letter && <LetterBadge letter={letter} />}
               <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
               <TimeChip time={b.time} />
             </div>
@@ -305,19 +303,19 @@ function TransportBlock({
       {...cardProps}
       className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm"
     >
-      {letter && <LetterBadge letter={letter} />}
       <div className="flex items-start gap-3 p-4">
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
           <Car className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
             <TimeChip time={b.time} />
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
           {b.from && b.to && (
-            <div className="mt-2.5">
+            <div className="minimap mt-2.5 overflow-hidden rounded-lg">
               <TripMap places={[b.from, b.to]} />
             </div>
           )}
@@ -391,12 +389,13 @@ function ActivityBlock({
   const gm = mapsLink(b);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard letter={letter} cardProps={cardProps}>
+    <BlockCard cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<MapPin className="h-4 w-4" />} tone="primary" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Activity"}</h4>
             <TimeChip time={b.time} />
             {b.cost != null && <Cost cost={b.cost} currency={b.currency} />}
@@ -426,13 +425,16 @@ function LodgingBlock({
   const gm = mapsLink(b);
   const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
-    <BlockCard letter={letter} cardProps={cardProps}>
+    <BlockCard cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<BedDouble className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
           <Kicker>Stay</Kicker>
-          <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {letter && <LetterBadge letter={letter} />}
+            <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
+          </div>
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               <Markdown>{b.description}</Markdown>
@@ -463,13 +465,16 @@ function MealBlock({
   const gm = mapsLink(b);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard letter={letter} cardProps={cardProps}>
+    <BlockCard cardProps={cardProps}>
       <CardMedia b={b} />
       <div className="flex items-start gap-3">
         <IconBadge icon={<UtensilsCrossed className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
           <Kicker>Eat</Kicker>
-          <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {letter && <LetterBadge letter={letter} />}
+            <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
+          </div>
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
           <Links links={shown} />
         </div>

@@ -261,6 +261,7 @@ export function Sheet({ detent, onDetentChange, label, header, children, classNa
 
         <div
           ref={bodyRef}
+          data-scroll-root=""
           onPointerDown={(e) => onPointerDown(e, false)}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

@@ -33,7 +33,7 @@ function SectionHeader({
   const range = sectionRange(section.days);
   return (
     <div
-      className={`sticky z-10 flex items-center gap-3 border-b border-border bg-background/90 py-2.5 backdrop-blur ${inset}`}
+      className={`sticky z-10 flex items-center gap-3 border-b border-border bg-background py-2.5 ${inset}`}
       style={{ top }}
     >
       <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" aria-hidden />

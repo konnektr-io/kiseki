@@ -369,22 +369,23 @@ h4 {
   opacity: 0.45;
 }
 
-/* Tap↔card (#90): the card a letter chip answers pulses — a quiet ring-breath,
-   not a bounce. One card at a time, so a box-shadow animation is an acceptable
-   paint cost here (§10 governs scroll/interaction transitions); the global
-   reduced-motion guard covers it. The attribute is set only by the map
-   surface's rail, so booklet/today/summary cards are untouched. */
+/* Tap↔card (#90, #104): the card a letter chip answers is unmistakable — a
+   persistent accent ring (you asked "I would expect the hotel to get
+   highlighted") plus a quiet ring-breath while it stays active. The attribute
+   is set only by the map surface's rail, so booklet/today/summary cards are
+   untouched; the global reduced-motion guard covers the animation. */
 @keyframes card-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-accent) 0%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 45%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 45%, transparent);
+    box-shadow: 0 0 0 7px color-mix(in oklab, var(--color-accent) 28%, transparent);
   }
 }
 [data-active-block="true"] {
   animation: card-pulse 1.6s ease-in-out infinite;
+  border-color: var(--color-accent);
 }
 
 /* Minimap suppression (#92): inside the map surface the day panel sits right
@@ -439,6 +440,17 @@ h4 {
 .map-surface[data-sheet-detent="full"] .maplibregl-ctrl-top-left,
 .map-surface[data-sheet-detent="full"] .map-chip-btn {
   visibility: hidden;
+}
+
+/* Split-view divider (#105): the drag affordance lives in a 12px strip, the
+   visible grip is a hairline inside it. Focus ring on the grip (the same
+   "chip inside the hit target" trick as the map markers), not a 12px×full
+   rectangle around the strip. */
+.split-divider:focus-visible {
+  outline: none;
+}
+.split-divider:focus-visible .split-divider-grip {
+  @apply focus-ring;
 }
 
 /* A small visible chip inside a transparent 44px hit target — the same trick
