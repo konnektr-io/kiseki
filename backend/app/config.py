@@ -33,9 +33,18 @@ KISEKI_S3_REGION = os.environ.get("KISEKI_S3_REGION", "us-east-1")
 # Built SPA (frontend/dist copied here by the Dockerfile or manually).
 STATIC_DIR = Path(os.environ.get("KISEKI_STATIC_DIR", Path(__file__).resolve().parent / "static"))
 
-# Google Maps — dynamic JS map (served to the private SPA) + static map proxy (PDF/print).
-# Set in the container via the kiseki-maps secret; absent → maps simply don't render.
-MAPS_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+# HERE Location Services — Routing v8 (server-side geometry + live drive time,
+# issue #15, 2026-09: replaces Google Directions — MapLibre is HERE-official and
+# HERE has no non-Google-map restriction; creds set in the container via the
+# kiseki-here secret; absent → routes simply don't render).
+HERE_ACCESS_KEY_ID = os.environ.get("HERE_ACCESS_KEY_ID", "")
+HERE_ACCESS_KEY_SECRET = os.environ.get("HERE_ACCESS_KEY_SECRET", "")
+HERE_TOKEN_ENDPOINT_URL = os.environ.get(
+    "HERE_TOKEN_ENDPOINT_URL", "https://account.api.here.com/oauth2/token"
+)
+HERE_ROUTES_URL = os.environ.get(
+    "HERE_ROUTES_URL", "https://router.hereapi.com/v8/routes"
+)
 
 # Port the app listens on (used to build the base URL for Playwright).
 # NOTE: deliberately NOT named KISEKI_PORT — Kubernetes injects

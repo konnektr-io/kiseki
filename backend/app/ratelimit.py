@@ -1,7 +1,7 @@
 """A very small in-process rate limiter for the map proxies (#27).
 
-Once the Google key lives only on the backend, `/api/maps/*` IS the key: anyone
-holding a share link could otherwise pump our Directions/Geocoding quota. Every
+Once routing credentials live only on the backend, `/api/maps/*` IS the key:
+anyone holding a share link could otherwise pump our routing quota. Every
 map endpoint is already scoped to a valid trip token; this bounds how hard a
 holder of one can hit it.
 

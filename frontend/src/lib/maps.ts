@@ -56,10 +56,10 @@ export function markerNumber(trip: Trip, loc: TripLocation): number {
 /**
  * Real driving route for a set of places, from the backend (#27).
  *
- * Google Directions still produces the geometry — MapLibre renders, it does not
- * route — but the call happens server-side, so no key reaches the browser.
- * Returns null when maps are unconfigured or the request fails; callers
- * degrade rather than blow up.
+ * HERE Routing v8 still produces the geometry — MapLibre renders, it does not
+ * route — but the call happens server-side (app/here.py, #15), so no credential
+ * reaches the browser. Returns null when maps are unconfigured or the request
+ * fails; callers degrade rather than blow up.
  */
 export async function fetchRouteLegs(
   trip: Trip,
