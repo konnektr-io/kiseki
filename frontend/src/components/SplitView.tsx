@@ -23,8 +23,10 @@ import { Sheet } from "./Sheet";
 export type SurfaceMode = "sheet" | "side" | "split" | "rail";
 
 /** Default rail width, user-draggable between the clamps (#105). */
-const RAIL_DEFAULT_PX = 480;
+const RAIL_DEFAULT_PX = 520;
 const RAIL_MIN_PX = 320;
+/** Split mode's first-run column — the ladder's ~340px tablet panel. */
+const SPLIT_DEFAULT_PX = 340;
 /** Never swallow the map: viewport minus this is the map's floor. */
 const RAIL_MAX_VIEWPORT_RESERVE_PX = 480;
 const SIDE_PX = 340;
@@ -97,12 +99,16 @@ interface SplitViewProps {
 
 /**
  * The user's rail width, clamped — read once per mount (a drag updates state
- * directly; the store is the persistence, not the truth).
+ * directly; the store is the persistence, not the truth). `defaultPx` is the
+ * mode's first-run width (rail 520, split 340). Careful with the empty store:
+ * `Number(null)` is 0, which is finite — treat 0 as "nothing saved" or every
+ * fresh session would open at the 320px MIN instead of the default (#104 bug
+ * found in prod: the rail always opened narrow).
  */
-function readRailWidth(): number {
-  if (typeof window === "undefined") return RAIL_DEFAULT_PX;
+function readRailWidth(defaultPx: number): number {
+  if (typeof window === "undefined") return defaultPx;
   const raw = Number(window.sessionStorage.getItem(RAIL_WIDTH_KEY));
-  if (!Number.isFinite(raw)) return RAIL_DEFAULT_PX;
+  if (!raw) return defaultPx;
   return Math.min(Math.max(raw, RAIL_MIN_PX), Math.max(RAIL_MIN_PX, window.innerWidth - RAIL_MAX_VIEWPORT_RESERVE_PX));
 }
 
@@ -128,11 +134,15 @@ export function SplitView({
 
   // #105 — draggable left panel (rail + split). Live during the drag, clamped
   // against the viewport so the map keeps at least its reserve; persisted per
-  // session. `side` keeps its fixed float (no room to drag on a landscape
-  // phone), `sheet` is detent-driven already.
-  const [railWidth, setRailWidth] = useState<number>(() => (mode === "rail" ? readRailWidth() : 0));
+  // session. Each mode starts at its own default (rail 520, split 340) and a
+  // saved width applies to both. `side` keeps its fixed float (no room to
+  // drag on a landscape phone), `sheet` is detent-driven already.
+  const [railWidth, setRailWidth] = useState<number>(() =>
+    mode === "rail" ? readRailWidth(RAIL_DEFAULT_PX) : mode === "split" ? readRailWidth(SPLIT_DEFAULT_PX) : 0,
+  );
   useEffect(() => {
-    if (mode === "rail") setRailWidth(readRailWidth());
+    if (mode === "rail") setRailWidth(readRailWidth(RAIL_DEFAULT_PX));
+    else if (mode === "split") setRailWidth(readRailWidth(SPLIT_DEFAULT_PX));
   }, [mode]);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const railClamp = (w: number) =>
@@ -211,19 +221,25 @@ export function SplitView({
   } as React.CSSProperties;
 
   if (mode === "split" || mode === "rail") {
-    // rail: px column the user can drag; split: the fr ladder, also draggable
-    // (drag sets an explicit px column, same mechanism both modes).
-    const firstCol = mode === "rail" ? `${railWidth || RAIL_DEFAULT_PX}px` : `minmax(0, ${railWidth || 40}fr)`;
-    const draggable = mode === "rail";
+    // Both desktop modes are draggable (#105 + #104 prod fix): rail = px
+    // column; split = the fr ladder until a drag settles it into an explicit
+    // px column (same mechanism both modes). Split's un-dragged ladder keeps
+    // the §7.2 2fr:3fr content/map ratio around the divider column.
+    const draggable = true;
+    const firstCol =
+      mode === "rail"
+        ? `${railWidth || RAIL_DEFAULT_PX}px`
+        : railWidth
+          ? `${railWidth}px`
+          : "minmax(0, 2fr)";
+    const mapCol = mode === "rail" || railWidth ? "minmax(0, 1fr)" : "minmax(0, 3fr)";
     return (
       <div
         className="grid h-full w-full overflow-hidden"
         style={{
           // #105: rail | 12px divider | map — the divider is a grid CHILD, so it
           // must have its own column or the map falls to an implicit second row.
-          gridTemplateColumns: draggable
-            ? `${firstCol} 12px minmax(0, 1fr)`
-            : "minmax(0, 2fr) minmax(0, 3fr)",
+          gridTemplateColumns: `${firstCol} 12px ${mapCol}`,
         }}
       >
         {/* The rail is the only scroll container; the map never scrolls. */}
@@ -255,7 +271,7 @@ export function SplitView({
             }}
             className="split-divider group relative z-10 -ml-1.5 w-3 shrink-0 cursor-col-resize touch-none"
           >
-            <span className="split-divider-grip absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-border transition-colors group-hover:bg-accent/60" />
+            <span className="split-divider-grip absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-foreground/20 transition-colors group-hover:bg-accent group-focus-visible:bg-accent" />
           </div>
         )}
         <div ref={mapBoxRef} className="map-surface relative h-full min-w-0">

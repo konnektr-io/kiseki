@@ -138,6 +138,8 @@ export function EditableBlockList({
                 onToggleItem={
                   isTodo ? (itemIndex, done) => void toggleItem(b, itemIndex, done) : undefined
                 }
+                letter={letters?.get(b.id)}
+                cardProps={cardProps?.(b)}
               />
             )}
             {!isEditing && (

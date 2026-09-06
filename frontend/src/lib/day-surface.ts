@@ -143,15 +143,27 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
 
     if (!LETTER_KINDS.has(b.kind) || !b.id) continue;
     // Anchor place: the explicit `location` field, then a place the block's
-    // own fields/title name. A block with no resolvable place is not on the
-    // map — no invented marker.
+    // own fields/title name. The title pass is a CONTAINS match over the
+    // registry — exact name first, then aliases (#104 prod: "Sunshine full
+    // day" never matched "Sunshine Village" until its alias "Sunshine"
+    // existed; a title can name a place through its alias). Longest name
+    // wins so "Lake Louise" beats "Louise" when both could match.
+    const titleAnchor = b.title
+      ? (trip.locations ?? [])
+          .filter((l) => {
+            const t = b.title!.toLowerCase();
+            return (
+              t.includes(l.name.toLowerCase()) ||
+              (l.alias ?? []).some((a) => a.length >= 3 && t.includes(a.toLowerCase()))
+            );
+          })
+          .sort((x, y) => y.name.length - x.name.length)[0]
+      : undefined;
     const anchor =
       (b.location ? findLocation(trip, b.location) : undefined) ??
       (b.from ? findLocation(trip, b.from) : undefined) ??
       (b.to ? findLocation(trip, b.to) : undefined) ??
-      (b.title
-        ? (trip.locations ?? []).find((l) => b.title!.toLowerCase().includes(l.name.toLowerCase()))
-        : undefined);
+      titleAnchor;
     if (!anchor || anchor.lat == null || anchor.lng == null) continue;
 
     const existing = chipByPlace.get(anchor);
