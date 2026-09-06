@@ -332,7 +332,7 @@ def test_connect_owner_only_persists_key(client, rsa_keypair, graph, monkeypatch
     r = client.post(
         url,
         headers=_auth(_token_of(rsa_keypair)),
-        json={"registryKey": f"https://tricount.com/t{CANADA_KEY}"},
+        json={"registryKey": f"https://tricount.com/{CANADA_KEY}"},
     )
     assert r.status_code == 200, r.text
     assert r.json()["practical"]["tricount"]["registryKey"] == CANADA_KEY
@@ -350,6 +350,32 @@ def test_connect_rejects_non_owner(client, rsa_keypair, graph, monkeypatch) -> N
             json={"registryKey": CANADA_KEY},
         )
         assert r.status_code == 403, role
+
+
+def test_connect_key_survives_normalization(client, rsa_keypair, graph, monkeypatch) -> None:
+    """A bare key (always starts with 't', ~17-18 chars) must be taken
+    VERBATIM — the removed length heuristic stripped its real leading 't'
+    and bunq answered 404/502 for a perfectly valid key (live: Canada)."""
+    g = graph(role="owner")
+    seen: dict[str, str] = {}
+
+    def _validate(key: str):
+        seen["key"] = key
+        return TricountSnapshot(
+            registryKey=key, title="Canada 2027", currency="EUR",
+            members=[], expenses=[], balances=[],
+            fetchedAt="2026-09-07T00:00:00+00:00",
+        )
+
+    monkeypatch.setattr("app.tricount.validate_registry_key", _validate)
+    r = client.post(
+        f"/api/trips/{g.root}/practical/tricount/connect",
+        headers=_auth(_token_of(rsa_keypair)),
+        json={"registryKey": CANADA_KEY},
+    )
+    assert r.status_code == 200, r.text
+    assert seen["key"] == CANADA_KEY  # not CANADA_KEY[1:]
+    assert r.json()["practical"]["tricount"]["registryKey"] == CANADA_KEY
 
 
 def test_connect_bad_key_never_persists(client, rsa_keypair, graph, monkeypatch) -> None:

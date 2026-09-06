@@ -13,7 +13,7 @@ import { roleAtLeast } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import type { TricountSnapshot } from "../lib/types";
 
-const tricountAppUrl = (key: string) => `https://tricount.com/t${key}`;
+const tricountAppUrl = (key: string) => `https://tricount.com/${key}`;
 
 const fmt = (v: number, currency: string) =>
   new Intl.NumberFormat("nl-BE", { style: "currency", currency }).format(v);

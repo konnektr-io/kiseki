@@ -133,11 +133,16 @@ class TricountConnect(_Strict):
     registryKey: str
 
     def normalized_key(self) -> str:
+        """URL → bare key, nothing else.
+
+        A bare Tricount key ALWAYS starts with 't' (the ``/t`` path in
+        tricount.com/tXXXX) — there is no URL-slug prefix to strip, and a
+        length heuristic cannot tell them apart. Anything that still
+        contains a '/' is treated as a URL (last segment); anything else is
+        taken verbatim and validated against bunq before it is stored."""
         key = self.registryKey.strip()
         if "/" in key:
             key = key.rstrip("/").rsplit("/", 1)[-1]
-        if key.lower().startswith("t") and len(key) > 16:
-            key = key[1:]  # tolerate a copied "tXXXX" URL slug as-is
         return key
 
 
