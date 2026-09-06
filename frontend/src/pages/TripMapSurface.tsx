@@ -214,6 +214,7 @@ function DayRail({
   onCardTap,
   scrollRootRef,
   sheetNav,
+  sheetSticky,
 }: {
   dayIdx: number;
   surface: DaySurface;
@@ -222,6 +223,11 @@ function DayRail({
   scrollRootRef?: React.RefObject<HTMLElement | null>;
   /** Phone sheet only: the prev/up/next bar rides INSIDE the scroll flow. */
   sheetNav?: boolean;
+  /** Phone sheet at `full` only (#109): pin the bar to the sheet's bottom
+   *  edge (sticky). At `half` it stays in flow — scrolling down to reach the
+   *  nav is the intended behavior there (it would eat too much of the small
+   *  sheet otherwise), and the correctly-sized body makes it reachable. */
+  sheetSticky?: boolean;
 }) {
   const trip = useTrip();
   const { tripId = "" } = useParams();
@@ -272,7 +278,14 @@ function DayRail({
         />
       </div>
       {sheetNav && (
-        <div className="mt-auto">
+        /* #109: at `full` the WRAPPER is sticky so the bar lifts to the sheet
+           floor even with short content or slight overflow (a bar-sized
+           wrapper would pin the inner bar to its flow position forever —
+           measured 35px below the floor). At `half` the bar stays IN FLOW:
+           scrolling down to reach the nav is the intended behavior there
+           (pinned would eat ~70px of the small sheet), and the visible-region
+           body fix makes the flow position reachable. */
+        <div className={sheetSticky ? "sticky bottom-0 mt-auto" : "mt-auto"}>
           <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />
         </div>
       )}
@@ -524,6 +537,7 @@ export function TripMapSurface() {
       onCardTap={tapCard}
       scrollRootRef={listRef}
       sheetNav={surfaceMode === "sheet"}
+      sheetSticky={surfaceMode === "sheet" && detent === "full"}
     />
   ) : selected ? (
     <PlacePanel
