@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
 import { ItineraryList } from "../components/ItineraryList";
-import { SplitView } from "../components/SplitView";
+import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
@@ -16,7 +16,7 @@ import { dayRangeLabel, placeDays, tripJourney } from "../lib/route-surface";
 import { daySurface, type DaySurface } from "../lib/day-surface";
 import { usePageTitle } from "../lib/seo";
 import type { Detent } from "../lib/sheet";
-import type { Block, TripLocation } from "../lib/types";
+import type { Block, Trip, TripLocation } from "../lib/types";
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -114,45 +114,34 @@ function PlacePanel({
 }
 
 /**
- * The day level's rail/sheet content (#90): the day's blocks EXACTLY as the
- * day page renders them (`DayBlocks`), with the letter chips stamped on the
- * mapped cards and the tap↔card wiring. Prev/next/up live after the content —
- * the old day bar's role, now inside the surface.
+ * DayNav (#104): the day level's prev / up / next bar, rendered OUTSIDE the
+ * scroll flow — TripMapSurface passes it to SplitView's `footer` slot, so it
+ * pins flush to the rail's bottom edge at every scroll position (an in-flow
+ * sticky bar inside a padded scroller always ends ~24px above the edge).
+ * The phone sheet has no footer row — its height is detent-controlled — so
+ * there the SAME bar renders in-flow sticky at the scroller's floor instead
+ * (DayRail mounts it via `variant="sheet"`).
  */
-function DayRail({
+function DayNav({
+  trip,
+  tripId,
   dayIdx,
-  surface,
-  activeBlock,
-  onCardTap,
+  variant = "footer",
 }: {
+  trip: Trip;
+  tripId: string;
   dayIdx: number;
-  surface: DaySurface;
-  activeBlock: string | null;
-  onCardTap: (blockId: string | null) => void;
+  /** "footer": SplitView's pinned footer slot (desktop rail/split, landscape
+   *  side panel). "sheet": in-flow sticky at the phone sheet's scroll floor. */
+  variant?: "footer" | "sheet";
 }) {
-  const trip = useTrip();
-  const { tripId = "" } = useParams();
   const navigate = useNavigate();
-  const day = trip.days[dayIdx];
-  const letters = surface.letters;
   const sectionIdx = sectionIndexForDay(trip.sections, dayIdx);
 
   const go = (i: number) => navigate(`/t/${tripId}/day/${i}`);
   const up = () => navigate(sectionIdx != null ? `/t/${tripId}/itinerary#s-${sectionIdx}` : `/t/${tripId}/itinerary`);
-
   const prev = dayIdx > 0 ? dayIdx - 1 : null;
   const next = dayIdx < trip.days.length - 1 ? dayIdx + 1 : null;
-
-  /** Card → map: tapping the card body (not its links/buttons) toggles the
-   *  letter-chip focus on the map. The active card pulses. */
-  const cardProps = (b: Block) => ({
-    "data-block-id": b.id,
-    "data-active-block": activeBlock === b.id ? "true" : undefined,
-    onClick: (e: React.MouseEvent<HTMLDivElement>) => {
-      if ((e.target as HTMLElement).closest("a,button,select,textarea,input")) return;
-      onCardTap(activeBlock === b.id ? null : b.id);
-    },
-  });
 
   const dayNav = (target: number | null, d: "prev" | "next") => {
     if (target == null) return <span className="flex-1" />;
@@ -179,8 +168,73 @@ function DayRail({
   };
 
   return (
-    <div className="pb-2">
-      <div className="space-y-5">
+    <div
+      className={
+        variant === "sheet"
+          ? // Phone: in-flow sticky at the scroll floor — full-bleed over the
+            // sheet body's px-4, opaque so cards scroll under it, safe-area pad.
+            "no-print sticky bottom-0 z-10 -mx-4 flex items-center gap-1.5 border-t border-border bg-background px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
+          : "flex items-center gap-1.5 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
+      }
+    >
+      {dayNav(prev, "prev")}
+      <button
+        type="button"
+        onClick={up}
+        aria-label={`Back to the itinerary${sectionIdx != null && trip.sections?.[sectionIdx] ? ` — ${trip.sections[sectionIdx].title}` : ""}`}
+        className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:focus-ring"
+      >
+        <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <span className="hidden max-w-[10rem] truncate sm:inline">
+          {(sectionIdx != null && trip.sections?.[sectionIdx]?.title) || "Itinerary"}
+        </span>
+      </button>
+      {dayNav(next, "next")}
+    </div>
+  );
+}
+
+/**
+ * The day level's rail/sheet content (#90): the day's blocks EXACTLY as the
+ * day page renders them (`DayBlocks`), with the letter chips stamped on the
+ * mapped cards and the tap↔card wiring. Prev/up/next live in the `DayNav`
+ * footer (desktop) — never inside this scroll flow.
+ */
+function DayRail({
+  dayIdx,
+  surface,
+  activeBlock,
+  onCardTap,
+  scrollRootRef,
+  sheetNav,
+}: {
+  dayIdx: number;
+  surface: DaySurface;
+  activeBlock: string | null;
+  onCardTap: (blockId: string | null) => void;
+  scrollRootRef?: React.RefObject<HTMLElement | null>;
+  /** Phone sheet only: the prev/up/next bar rides INSIDE the scroll flow. */
+  sheetNav?: boolean;
+}) {
+  const trip = useTrip();
+  const { tripId = "" } = useParams();
+  const day = trip.days[dayIdx];
+  const letters = surface.letters;
+
+  /** Card → map: tapping the card body (not its links/buttons) toggles the
+   *  letter-chip focus on the map. The active card pulses. */
+  const cardProps = (b: Block) => ({
+    "data-block-id": b.id,
+    "data-active-block": activeBlock === b.id ? "true" : undefined,
+    onClick: (e: React.MouseEvent<HTMLDivElement>) => {
+      if ((e.target as HTMLElement).closest("a,button,select,textarea,input")) return;
+      onCardTap(activeBlock === b.id ? null : b.id);
+    },
+  });
+
+  return (
+    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined}>
+      <div className="space-y-5 pb-2">
         <div>
           <p className="kicker tabular-nums">
             Day {dayIdx + 1} of {trip.days.length} · {formatDay(day.date)}
@@ -209,23 +263,8 @@ function DayRail({
           letters={letters}
           cardProps={cardProps}
         />
-
-        <div className="flex items-center gap-1.5 pt-1">
-          {dayNav(prev, "prev")}
-          <button
-            type="button"
-            onClick={up}
-            aria-label={`Back to the itinerary${sectionIdx != null && trip.sections?.[sectionIdx] ? ` — ${trip.sections[sectionIdx].title}` : ""}`}
-            className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground focus-visible:focus-ring"
-          >
-            <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
-            <span className="hidden max-w-[10rem] truncate sm:inline">
-              {(sectionIdx != null && trip.sections?.[sectionIdx]?.title) || "Itinerary"}
-            </span>
-          </button>
-          {dayNav(next, "next")}
-        </div>
       </div>
+      {sheetNav && <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />}
     </div>
   );
 }
@@ -242,6 +281,7 @@ export function TripMapSurface() {
   const { tripId = "" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const surfaceMode = useSurfaceMode();
 
   /* ---- the level IS the URL ---- */
   const isDayRoute = /\/day\/\d+$/.test(location.pathname);
@@ -295,7 +335,11 @@ export function TripMapSurface() {
     // panel is shorter and always in view at half).
   };
 
-  /** Day level, map → rail: a chip tap raises and pulses its card. */
+  /** Day level, map → rail: a chip tap raises, scrolls to and pulses its card.
+   *  (#104): the scroll root IS the DayRail root element (`listRef` — scan
+   *  level attaches the same ref to `ItineraryList`'s root). `scrollIntoView`
+   *  with `block: "center"` walks the ancestor chain itself, which the rail's
+   *  nested scroller handles correctly. */
   const tapBlockFromMap = (blockId: string) => {
     if (!blockId) {
       setActiveBlock(null);
@@ -467,6 +511,8 @@ export function TripMapSurface() {
       surface={day ?? { markers: [], legs: [], endpoints: [], letters: new Map() }}
       activeBlock={activeBlock}
       onCardTap={tapCard}
+      scrollRootRef={listRef}
+      sheetNav={surfaceMode === "sheet"}
     />
   ) : selected ? (
     <PlacePanel
@@ -497,6 +543,14 @@ export function TripMapSurface() {
         }
         header={header}
         content={content}
+        /* #104: the day level's prev/up/next bar rides OUTSIDE the scroller
+           (desktop + landscape-phone footer slot) so it pins flush to the rail
+           edge; the phone sheet keeps the bar in-flow sticky instead. */
+        footer={
+          isDayRoute && dayIdx != null && surfaceMode !== "sheet" ? (
+            <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} />
+          ) : undefined
+        }
         detent={detent}
         onDetentChange={setDetent}
         map={(padding) => (

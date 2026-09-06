@@ -10,6 +10,7 @@ import {
   markerNumber,
   prefersReducedMotion,
   type MapPadding,
+  type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { greatCircle, placeRole, type Journey } from "../lib/route-surface";
@@ -136,6 +137,75 @@ export function RouteMap({
   /** Journey leg geometry from the backend (scan level). `undefined` = still
    *  fetching, `null` = nothing to fetch (no legs / maps unconfigured). */
   const [legsData, setLegsData] = useState<LegFeature[] | null | undefined>(undefined);
+  /** Day leg geometry (#104): real road route per declared day leg, same
+   *  fetch pathway as the scan level. `undefined` = fetching, `null` = the
+   *  fetch answered unusable (maps unconfigured / API miss) — the day map
+   *  then falls back to the straight pair, drawn DASHED so it never poses as
+   *  a road. Keyed on the day's leg pair list so a day→day level change
+   *  refetches only when the pairs actually differ. */
+  const [dayLegsData, setDayLegsData] = useState<Map<string, LegFeature> | null | undefined>(undefined);
+  const dayLegKey = day?.legs.map((l) => `${l.from.name}>${l.to.name}`).join("|") ?? "";
+
+  useEffect(() => {
+    // Only the day level fetches here; the scan fetch is the mount effect's.
+    if (!isDay || !webgl2 || !ready) return;
+    const legs = day?.legs ?? [];
+    if (!legs.length) {
+      setDayLegsData(null);
+      return;
+    }
+    let cancelled = false;
+    const abort = new AbortController();
+    (async () => {
+      try {
+        // One backend call per unique ordered pair (the endpoint routes a
+        // comma-separated place list; a single A→B call is exactly one leg).
+        // Unique-ified because a day can repeat a pair (out-and-back).
+        const pairs = [...new Set(legs.map((l) => [l.from.name, l.to.name] as const).map((p) => p.join(">")))];
+        const fetchedLists = await Promise.all(
+          pairs.map((p) => {
+            const [a, b] = p.split(">");
+            return fetchRouteLegs(trip, [a, b], false, abort.signal);
+          }),
+        );
+        if (cancelled) return;
+        const byPair = new Map<string, RouteLeg | null>();
+        pairs.forEach((p, i) => byPair.set(p, fetchedLists[i]?.[0] ?? null));
+        const anyUsable = [...byPair.values()].some((h) => h && h.road);
+        if (!anyUsable) {
+          // Maps unconfigured or every leg missed — the DASHED straight-pair
+          // fallback below, never a fake solid road.
+          setDayLegsData(null);
+          return;
+        }
+        setDayLegsData(
+          new Map(
+            legs.map((l) => {
+              const hit = byPair.get(`${l.from.name}>${l.to.name}`) ?? null;
+              return [
+                `${l.from.name}>${l.to.name}`,
+                {
+                  stage: l.stage,
+                  road: hit?.road ?? false,
+                  coordinates:
+                    (hit?.geometry.coordinates as [number, number][]) ??
+                    greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
+                } satisfies LegFeature,
+              ] as const;
+            }),
+          ),
+        );
+      } catch {
+        if (!cancelled) setDayLegsData(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+    // `trip` is stable across a level change; the day's pair list is the key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDay, ready, webgl2, dayLegKey]);
 
   const journeyKey =
     journey.legs.map((l) => `${l.from.name}>${l.to.name}:${l.stage}`).join("|") +
@@ -473,21 +543,42 @@ export function RouteMap({
         }
       }
       if (surface.legs.length) {
+        // #104: real road geometry when the backend gave it; while the fetch
+        // is in flight the straight pair draws (the fit must not wait on the
+        // network). A leg whose hit came back non-road — or the whole fetch
+        // unusable — draws its straight pair DASHED (the `road:false` branch
+        // in `addLineLayers`), so a straight line never poses as a road.
+        const geo = dayLegsData;
         addLineLayers(
           "day",
-          surface.legs.map((l) => ({
-            coordinates: [
-              [l.from.lng!, l.from.lat!],
-              [l.to.lng!, l.to.lat!],
-            ],
-            stage: l.stage,
-            // Day legs run between the block's endpoints — the straight pair
-            // IS the geometry (§7.6); dashed only when the leg is provisional.
-            road: l.stage !== "provisional",
-          })),
+          surface.legs.map((l) => {
+            const hit = geo?.get(`${l.from.name}>${l.to.name}`);
+            return {
+              coordinates:
+                hit && hit.road
+                  ? hit.coordinates
+                  : ([
+                      [l.from.lng!, l.from.lat!],
+                      [l.to.lng!, l.to.lat!],
+                    ] as [number, number][]),
+              stage: l.stage,
+              // road=true only when REAL geometry is in hand — everything
+              // else (fallback pair, provisional leg, fetch miss) dashes.
+              road: !!hit && hit.road && l.stage !== "provisional",
+            };
+          }),
         );
       }
       surface.markers.forEach((m) => extend(m.place));
+      // #104: the fit must include the ROAD, not just the endpoints — a real
+      // route swings well outside the straight line (Rogers Pass rides north
+      // of the ②→③ pair), and endpoint-only bounds clip the pin it exists to
+      // frame. The `dayLegsData` dep re-runs this build when the fetch lands.
+      if (dayLegsData) {
+        for (const f of dayLegsData.values()) {
+          f.coordinates.forEach((c) => bounds.extend(c));
+        }
+      }
       fitDayRef.current = () => {
         if (!mapRef.current || surface.markers.length === 0) return;
         if (surface.markers.length === 1) {
@@ -523,7 +614,7 @@ export function RouteMap({
     // `trip` is read for marker numbers/roles and IS a dep: a content write
     // that changes the registry must restyle the pins.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trip, ready, legsData, isDay, dayIdx]);
+  }, [trip, ready, legsData, dayLegsData, isDay, dayIdx]);
 
   /* Selection visuals + the camera that follows it. Level-aware: the scan
      selection moves to a place; the day selection moves to a letter chip. */
