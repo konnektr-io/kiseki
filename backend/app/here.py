@@ -180,50 +180,35 @@ def route_leg_v8(
     b: tuple[str, float, float],
     token: str,
     *,
-    routes_url: str | None = None,
+    transport_mode: str = "car",
 ) -> dict | None:
-    """One HERE Routing v8 leg: decoded geometry + live duration/distance.
+    """Single HERE Routing v8 leg — road geometry when available, else None.
 
-    Returns ``None`` on any failure so the caller can fall back to a straight
-    line rather than dropping the leg. ``summary.duration`` is the time-aware
-    (live) duration — the counterpart of Google's ``duration_in_traffic``;
-    ``typicalDuration``/``baseDuration`` are the fallbacks.
+    Returns a dict with keys the route-surface consumer expects
+    (``points`` = flat [(lat, lng), ...] so callers don't reshape), or None
+    when there is no road route (flight/ferry) or the request fails.
+
+    ``transport_mode`` overrides the default ``car`` — pass ``"train"`` for
+    rail legs so HERE can return real rail geometry where it exists (Japan,
+    future trips) and honest ``road: False`` where it doesn't (Peru).
     """
     params = {
-        "transportMode": "car",
+        "apiKey": token,
+        "transportMode": transport_mode,
         "routingMode": "fast",
-        "origin": f"{a[1]:.6f},{a[2]:.6f}",
-        "destination": f"{b[1]:.6f},{b[2]:.6f}",
-        "return": "summary,typicalDuration,polyline",
+        "origin": f"{a[1]},{a[2]}",
+        "destination": f"{b[1]},{b[2]}",
+        "return": "polyline,summary",
     }
-    url = (routes_url or HERE_ROUTES_URL) + "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {token}"}
-    )
+    url = HERE_ROUTES_URL + "?" + urllib.parse.urlencode(params)
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.load(resp)
-    except Exception:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            js = json.load(resp)
+        route = js["routes"][0]
+        return {
+            "points": decode_flexpolyline(route["sections"][0]["polyline"]),
+            "summary": route["sections"][0]["summary"],
+        }
+    except (urllib.error.HTTPError, KeyError, IndexError, ValueError):
         return None
-    routes = data.get("routes") or []
-    if not routes:
-        return None
-    sections = routes[0].get("sections") or []
-    if not sections:
-        return None
-    sec = sections[0]
-    summary = sec.get("summary") or {}
-    poly = sec.get("polyline") or ""
-    coords = decode_flexpolyline(poly)
-    if len(coords) < 2:
-        return None
-    duration = (
-        summary.get("duration")
-        or summary.get("typicalDuration")
-        or summary.get("baseDuration")
-    )
-    return {
-        "points": coords,
-        "duration": _fmt_duration(duration),
-        "distance": _fmt_distance(summary.get("length")),
-    }
