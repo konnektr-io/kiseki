@@ -268,8 +268,9 @@ def build_interface(model_cls) -> dict:
             contents.append(edge)
             continue
         # Person.role/note are trip-relative -> carried on the hasCrew edge, not on the node.
-        # Strip from Person AND any derived model (User extends Person).
-        if issubclass(model_cls, M.Person) and name in ("role", "note"):
+        # `claimed` is read-only metadata derived from the twin's model kind,
+        # never a graph property. Strip all three from Person and User.
+        if issubclass(model_cls, M.Person) and name in ("role", "note", "claimed"):
             continue
         # plain property (primitive / enum / inline value object)
         schema = _schema_for_scalar(inner, fld.annotation)

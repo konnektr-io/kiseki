@@ -240,3 +240,48 @@ def test_crew_read_sorts_by_edge_index_not_storage_order() -> None:
     crew = graph_to_trip(graph).crew
     assert [c.name for c in crew] == ["Niko", "Nick"]
     assert [c.role for c in crew] == ["owner", "viewer"]
+
+
+def test_crew_claimed_flag_reflects_twin_model_kind() -> None:
+    """``crew[].claimed`` derives from the twin's model kind: User twin → True
+    (has an account), Person twin → False (unclaimed placeholder — the Crew
+    page shows the invite affordance)."""
+    graph = {
+        "$dtId": "trip-1",
+        "twins": [
+            {"$dtId": "trip-1", "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+             "id": "trip-1", "slug": "x", "title": "T"},
+            {"$dtId": "u1", "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
+             "id": "u1", "name": "Niko"},
+            {"$dtId": "u2", "$metadata": {"$model": "dtmi:kiseki:travel:Person;1"},
+             "id": "u2", "name": "Nick", "contact": "+32 1 23 45 67"},
+        ],
+        "relationships": [
+            {"$relationshipId": "r0", "$sourceId": "trip-1",
+             "$relationshipName": "hasCrew", "$targetId": "u1",
+             "role": "owner", "index": 0},
+            {"$relationshipId": "r1", "$sourceId": "trip-1",
+             "$relationshipName": "hasCrew", "$targetId": "u2",
+             "role": "viewer", "index": 1, "note": "gear"},
+        ],
+    }
+    crew = graph_to_trip(graph).crew
+    assert crew[0].claimed is True   # User twin behind the edge
+    assert crew[1].claimed is False  # placeholder Person twin
+    # view-only: the note still rides the edge, the flag is not a twin prop
+    assert crew[1].note == "gear"
+
+
+def test_crew_claimed_never_reaches_the_graph() -> None:
+    """``claimed`` is a read-path convenience — trip_to_graph must not write
+    it onto the twin (it is the model kind, not a property)."""
+    from scripts.trip_to_graph import trip_to_graph
+
+    trip = _load_trip("canada-2027")
+    for p in trip.crew:
+        p.claimed = p.id.startswith("user")  # force both values
+    g = trip_to_graph(trip)
+    for t in g["twins"]:
+        assert "claimed" not in t
+    for r in g["relationships"]:
+        assert "claimed" not in r

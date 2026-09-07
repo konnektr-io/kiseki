@@ -7,6 +7,7 @@ import {
   swapContainerBlocks,
   withBlockFields,
   withBlockItems,
+  withCrewMember,
   withTodoDone,
 } from "./editing";
 import type { Trip } from "./types";
@@ -129,5 +130,45 @@ describe("removeBlock", () => {
     expect(next.days[0].blocks.map((b) => b.id)).toEqual(["b1"]);
     const sec = removeBlock(t, "b3");
     expect(sec.sections?.[0]?.blocks ?? []).toEqual([]);
+  });
+});
+
+describe("withCrewMember", () => {
+  it("patches note and role of one member only", () => {
+    const t: Trip = {
+      ...fixture(),
+      crew: [
+        { id: "p1", name: "Niko", role: "owner", claimed: true },
+        { id: "p2", name: "Nick", role: "viewer", claimed: false, note: "old gear" },
+      ],
+    };
+    const next = withCrewMember(t, "p2", { note: "new gear", role: "editor" });
+    expect(next.crew[0]).toEqual({ id: "p1", name: "Niko", role: "owner", claimed: true });
+    expect(next.crew[1].note).toBe("new gear");
+    expect(next.crew[1].role).toBe("editor");
+    expect(next.crew[1].claimed).toBe(false);
+  });
+
+  it("null clears the note, others untouched", () => {
+    const t: Trip = {
+      ...fixture(),
+      crew: [
+        { id: "p1", name: "Niko", role: "owner", claimed: true },
+        { id: "p2", name: "Nick", role: "viewer", claimed: false, note: "old gear" },
+      ],
+    };
+    const next = withCrewMember(t, "p2", { note: null });
+    expect(next.crew[1].note).toBeUndefined();
+    expect(next.crew[1].role).toBe("viewer");
+    expect(next.crew[0].note).toBeUndefined();
+  });
+
+  it("returns the same reference when nothing changes", () => {
+    const t: Trip = {
+      ...fixture(),
+      crew: [{ id: "p1", name: "Niko", role: "owner", claimed: true }],
+    };
+    expect(withCrewMember(t, "p1", {})).toBe(t);
+    expect(withCrewMember(t, "p1", { note: undefined, role: "owner" })).toBe(t);
   });
 });

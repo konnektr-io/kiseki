@@ -187,5 +187,24 @@ export function removeBlock(trip: Trip, blockId: string): Trip {
   };
 }
 
+/** Patch the trip-scoped fields of one crew member (note/role — the server
+ *  enforces role owner-only). Returns the same reference when nothing
+ *  changed (helps memoization). `note: null` clears the note. */
+export function withCrewMember(
+  trip: Trip,
+  personId: string,
+  patch: { note?: string | null; role?: Role },
+): Trip {
+  const crew = trip.crew.map((p) => {
+    if (p.id !== personId) return p;
+    const note = patch.note === undefined ? p.note : (patch.note ?? undefined);
+    const role = patch.role ?? p.role;
+    if (note === p.note && role === p.role) return p; // no-op → same ref
+    return { ...p, note, role };
+  });
+  if (crew.every((p, i) => p === trip.crew[i])) return trip;
+  return { ...trip, crew };
+}
+
 /** Block ids: Block carries `id` from the graph document. */
 export type { TodoItem };

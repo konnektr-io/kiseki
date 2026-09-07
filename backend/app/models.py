@@ -212,6 +212,7 @@ class Person(BaseModel):
     role: Role = Field(default="viewer", description="TRIP-RELATIVE crew role (owner|editor|viewer|follower). Carried on the hasCrew edge, not on this node.")
     note: Optional[str] = Field(default=None, description="TRIP-RELATIVE free-text note about this person on this trip (e.g. gear). Carried on the hasCrew edge, not on this node — the node is shared across trips after claim.")
     contact: Optional[str] = Field(default=None, description="Phone/email when available.")
+    claimed: bool = Field(default=False, description="VIEW-ONLY (not stored): whether the twin behind this crew entry is a claimed User (True) or an unclaimed placeholder Person (False). Set by graph_to_trip from the twin's $model; stripped by trip_to_graph (it is the model kind, not a property). Drives the Crew page's invite affordance.")
 
 
 class Practical(BaseModel):

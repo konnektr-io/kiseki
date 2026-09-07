@@ -138,6 +138,10 @@ def graph_to_trip(graph: dict) -> M.Trip:
         # Trip-relative note lives on the edge (the Person/User node is shared
         # across trips after claim); missing on old edges -> None.
         d["note"] = r.get("note")
+        # Placeholder-vs-claimed is the twin's model kind (Person vs User) —
+        # surfaced as a view-only flag so the Crew page can show the invite
+        # affordance exactly where a claim is still possible.
+        d["claimed"] = _kind(t.get("$metadata", {}).get("$model", "")) == "User"
         crew.append(M.Person.model_validate(d))
 
     # ---- days + their blocks ---------------------------------------------

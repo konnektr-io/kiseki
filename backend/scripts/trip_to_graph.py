@@ -104,9 +104,11 @@ def _strip_rel_fields(model_name: str, data: dict) -> dict:
     # there in DTDL), not the Person/User node — strip them from node props to
     # avoid a "Property '...' is not defined in the model" validation error.
     # (The node is shared across trips after claim; the edge belongs to the trip.)
+    # `claimed` is likewise view-only (it IS the model kind) — never a property.
     if model_name in ("Person", "User"):
         data.pop("role", None)
         data.pop("note", None)
+        data.pop("claimed", None)
     return data
 
 

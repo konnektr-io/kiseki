@@ -1,4 +1,4 @@
-import type { Trip, TripSummary, TricountSnapshot } from "./types";
+import type { Role, Trip, TripSummary, TricountSnapshot } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -209,6 +209,29 @@ export async function toggleTodoItem(
     `/api/trips/${encodeURIComponent(tripId)}/practical/todos/${index}/toggle`,
     accessToken,
     { done },
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+export interface CrewPatch {
+  role?: Role;
+  note?: string | null;
+}
+
+/** Patch a crew member's trip-scoped fields (role/note — role owner-only on
+ *  the server, note editor+). Returns the canonical trip doc. */
+export async function patchCrewMember(
+  tripId: string,
+  personId: string,
+  patch: CrewPatch,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PATCH",
+    `/api/trips/${encodeURIComponent(tripId)}/crew/${encodeURIComponent(personId)}`,
+    accessToken,
+    patch as JsonBody,
   );
   cacheTrip(tripId, doc);
   return doc;
