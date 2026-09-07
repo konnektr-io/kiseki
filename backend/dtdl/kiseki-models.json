@@ -576,6 +576,13 @@
         "schema": "string",
         "writable": true,
         "description": "Phone/email when available."
+      },
+      {
+        "@type": "Property",
+        "name": "claimed",
+        "schema": "boolean",
+        "writable": true,
+        "description": "VIEW-ONLY (not stored): whether the twin behind this crew entry is a claimed User (True) or an unclaimed placeholder Person (False). Set by graph_to_trip from the twin's $model; stripped by trip_to_graph (it is the model kind, not a property). Drives the Crew page's invite affordance."
       }
     ],
     "description": "Base identity (placeholder crew OR real person). `User` EXTENDS this."
