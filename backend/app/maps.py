@@ -87,11 +87,7 @@ def route_legs(
                 }
             )
             continue
-        tmode: str | None
-        if mode in (None, "drive"):
-            tmode = "car"  # undeclared legs travel like the historical default
-        else:
-            tmode = _MODE_TRANSPORT.get(mode)
+        tmode = _MODE_TRANSPORT.get(mode or "drive", "car")  # undeclared → historical car default
         hit = route_leg_v8(a, b, token, transport_mode=tmode) if token else None
         if hit:
             coords = [[lng, lat] for lat, lng in hit["points"]]
