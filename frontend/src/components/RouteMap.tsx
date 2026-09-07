@@ -160,12 +160,20 @@ export function RouteMap({
       try {
         // One backend call per unique ordered pair (the endpoint routes a
         // comma-separated place list; a single A→B call is exactly one leg).
-        // Unique-ified because a day can repeat a pair (out-and-back).
+        // Unique-ified because a day can repeat a pair (out-and-back). Each
+        // call carries that pair's declared transport mode — flight/ferry legs
+        // are answered with straight geometry (road: false), never a car
+        // route; drive/train/unclassified ride as the historical default.
         const pairs = [...new Set(legs.map((l) => [l.from.name, l.to.name] as const).map((p) => p.join(">")))];
+        const modeByPair = new Map<string, string | null>();
+        for (const l of legs) {
+          const key = `${l.from.name}>${l.to.name}`;
+          if (!modeByPair.has(key)) modeByPair.set(key, l.mode ?? null);
+        }
         const fetchedLists = await Promise.all(
           pairs.map((p) => {
             const [a, b] = p.split(">");
-            return fetchRouteLegs(trip, [a, b], false, abort.signal);
+            return fetchRouteLegs(trip, [a, b], false, abort.signal, [modeByPair.get(p) ?? null]);
           }),
         );
         if (cancelled) return;
