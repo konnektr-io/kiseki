@@ -12,6 +12,7 @@ import {
   markerNumber,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
+import { legModes } from "../lib/route-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
@@ -195,7 +196,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
         let legs: Awaited<ReturnType<typeof fetchRouteLegs>> = null;
         if (!single) {
-          legs = await fetchRouteLegs(trip, places, loop, abort.signal);
+          legs = await fetchRouteLegs(trip, places, loop, abort.signal, legModes(trip, places, loop));
         }
         if (cancelled || !map) return;
 

@@ -15,8 +15,12 @@ from __future__ import annotations
 from .here import route_leg_v8
 
 # mode → HERE transportMode when a leg has a declared transport block.
-# Flights/ferries never car-route (they draw great-circle, dashed).
-_MODE_TRANSPORT: dict[str, str] = {"drive": "car", "train": "train"}
+# Flights/ferries never car-route (they draw great-circle, dashed). A train
+# stays on the car default: HERE Routing v8 has no `train` transportMode
+# (only car/truck/pedestrian/bicycle/scooter/taxi/bus/privateBus/transit),
+# and a rail card is better served by the access-road geometry than by a
+# 400 and a blank.
+_MODE_TRANSPORT: dict[str, str] = {"drive": "car"}
 
 
 def resolve_places(trip, places: list[str]) -> list[tuple[str, float, float]]:
@@ -83,7 +87,11 @@ def route_legs(
                 }
             )
             continue
-        tmode = _MODE_TRANSPORT.get(mode, "car") if mode else None
+        tmode: str | None
+        if mode in (None, "drive"):
+            tmode = "car"  # undeclared legs travel like the historical default
+        else:
+            tmode = _MODE_TRANSPORT.get(mode)
         hit = route_leg_v8(a, b, token, transport_mode=tmode) if token else None
         if hit:
             coords = [[lng, lat] for lat, lng in hit["points"]]

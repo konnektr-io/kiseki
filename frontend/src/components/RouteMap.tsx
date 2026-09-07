@@ -13,7 +13,7 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { greatCircle, placeRole, type Journey } from "../lib/route-surface";
+import { greatCircle, legModes, placeRole, type Journey } from "../lib/route-surface";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -285,6 +285,7 @@ export function RouteMap({
             j.chain.map((s) => s.name),
             j.loop,
             abort.signal,
+            legModes(trip, j.chain.map((s) => s.name), j.loop),
           );
           if (cancelled) return;
           const resolved: LegFeature[] | null =

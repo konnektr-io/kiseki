@@ -654,6 +654,7 @@ def maps_route(
     request: Request,
     trip_id: str,
     places: str = Query(..., description="comma-separated place names"),
+    modes: str = Query("", description="comma-separated transport mode per leg (drive/train/flight/ferry)"),
     loop: int = Query(0, description="1 = close the loop back to the start"),
 ) -> dict:
     """Real driving route as GeoJSON — what the MapLibre map draws (#18).
@@ -662,21 +663,28 @@ def maps_route(
     the shape the frontend expects. `duration` is the HERE live (time-aware)
     value behind the drive-time chip; a leg with no road
     route comes back `road: false` with a straight line for the client to dash.
+
+    `modes` (optional, parallel to `places`) names the declared transport per
+    leg — a `flight`/`ferry` leg skips the HERE query entirely and returns
+    straight `road: false` geometry, so an SCL→CUZ flight never renders as a
+    drive down the Pan-American Highway. Modes shorter than the resolved
+    place list simply don't cover the tail legs.
     """
     _rate_limit(request, "route", 60)
     trip = _trip_for_map(trip_id)
     token = here_bearer_token()
     if not token:
         raise HTTPException(status_code=404, detail="Maps not configured")
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()] if modes else []
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    cache_key = (trip.id, tuple(resolved), bool(loop))
+    cache_key = (trip.id, tuple(resolved), bool(loop), tuple(mode_list))
     hit = _route_cache.get(cache_key)
     now = time.monotonic()
     if hit and hit[0] > now:
         return {"legs": hit[1]}
-    legs = route_legs(resolved, token, loop=bool(loop))
+    legs = route_legs(resolved, token, loop=bool(loop), modes=mode_list)
     if len(_route_cache) > 512:
         _route_cache.clear()
     # Short TTL: the geometry is stable but `duration` is live traffic, and a

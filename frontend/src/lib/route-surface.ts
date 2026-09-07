@@ -446,6 +446,26 @@ export const LEG_STAGE_LABELS: Record<LegStage, string> = {
 };
 
 /**
+ * The declared transport mode per leg of a place chain — the value the
+ * backend's `modes` parameter wants (same order as the pairs `places` produce,
+ * including the closing leg when `loop`).
+ *
+ * The matched transport block's own `mode` is the intent (a `flight` leg must
+ * never be car-routed down a highway — SCL→CUZ is a plane, not the
+ * Pan-American); `undefined` when no block describes the pair, so the backend
+ * keeps its road default for chain gaps and drives. Unresolvable pairs ride
+ * along as `undefined` so positions stay aligned.
+ */
+export function legModes(trip: Trip, places: string[], loop: boolean): (string | undefined)[] {
+  const names = places.map((p) => findLocation(trip, p));
+  const pairs: [TripLocation | undefined, TripLocation | undefined][] = names
+    .slice(0, -1)
+    .map((loc, i) => [loc, names[i + 1]]);
+  if (loop && names.length > 1) pairs.push([names[names.length - 1], names[0]]);
+  return pairs.map(([a, b]) => (a && b ? legBlock(trip, a, b)?.mode ?? undefined : undefined));
+}
+
+/**
  * Great-circle points between two coordinates.
  *
  * Used for the fallback geometry when the backend has no route to give (maps

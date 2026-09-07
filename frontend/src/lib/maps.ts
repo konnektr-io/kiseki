@@ -66,11 +66,19 @@ export async function fetchRouteLegs(
   places: string[],
   loop = false,
   signal?: AbortSignal,
+  modes?: (string | null | undefined)[],
 ): Promise<RouteLeg[] | null> {
   if (!trip.id) return null;
   const resolvable = places.filter((p) => findLocation(trip, p));
   if (resolvable.length < 2) return null;
-  const url = `/api/maps/route/${trip.id}?places=${encodeURIComponent(resolvable.join(","))}${loop ? "&loop=1" : ""}`;
+  // Per-leg transport declaration (parallel to `places`) — the backend skips
+  // the HERE car query for flight/ferry legs instead of returning a road
+  // route for a plane. Nulls/undefined ride along as empty slots so the
+  // positions stay aligned.
+  const modeParam = modes?.length
+    ? `&modes=${encodeURIComponent(modes.map((m) => m ?? "").join(","))}`
+    : "";
+  const url = `/api/maps/route/${trip.id}?places=${encodeURIComponent(resolvable.join(","))}${modeParam}${loop ? "&loop=1" : ""}`;
   try {
     const resp = await fetch(url, { signal });
     if (!resp.ok) return null;

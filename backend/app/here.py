@@ -188,9 +188,10 @@ def route_leg_v8(
     (``points`` = flat [(lat, lng), ...] so callers don't reshape), or None
     when there is no road route (flight/ferry) or the request fails.
 
-    ``transport_mode`` overrides the default ``car`` — pass ``"train"`` for
-    rail legs so HERE can return real rail geometry where it exists (Japan,
-    future trips) and honest ``road: False`` where it doesn't (Peru).
+    ``transport_mode`` overrides the default ``car``. HERE Routing v8 has no
+    ``train`` mode (car/truck/pedestrian/bicycle/scooter/taxi/bus/
+    privateBus/transit are the set) — rail legs keep the car default, which
+    at least follows the access road.
     """
     params = {
         "apiKey": token,

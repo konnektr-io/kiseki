@@ -72,8 +72,8 @@ def test_route_returns_geojson_legs(monkeypatch, trip_token: str) -> None:
 
     calls: list[tuple] = []
 
-    def fake_route_legs(places, key, *, loop=False):
-        calls.append((tuple(p[0] for p in places), key, loop))
+    def fake_route_legs(places, key, *, loop=False, modes=None):
+        calls.append((tuple(p[0] for p in places), key, loop, tuple(modes or ())))
         return [
             {
                 "from": places[0][0],
@@ -138,7 +138,7 @@ def test_route_accepts_the_trip_dtid(monkeypatch, trip_id: str) -> None:
     monkeypatch.setattr(
         main_mod,
         "route_legs",
-        lambda places, key, *, loop=False: [
+        lambda places, key, *, loop=False, modes=None: [
             {"from": places[0][0], "to": places[1][0], "road": True, "duration": None,
              "distance": None, "geometry": {"type": "LineString", "coordinates": [[2.0, 1.0], [4.0, 3.0]]}}
         ],
@@ -156,7 +156,7 @@ def test_id_forms_cache_entry(monkeypatch, trip_id: str, trip_token: str) -> Non
         pytest.skip("first trip has fewer than two located places")
     calls: list[int] = []
 
-    def fake_route_legs(places, key, *, loop=False):
+    def fake_route_legs(places, key, *, loop=False, modes=None):
         calls.append(1)
         return [{"from": places[0][0], "to": places[1][0], "road": True, "duration": None,
                  "distance": None, "geometry": {"type": "LineString", "coordinates": [[2.0, 1.0], [4.0, 3.0]]}}]
