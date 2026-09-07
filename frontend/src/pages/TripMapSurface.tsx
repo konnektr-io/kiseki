@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CalendarDays, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, ExternalLink, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
 import { ItineraryList } from "../components/ItineraryList";
@@ -12,6 +12,7 @@ import { formatDay } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
 import { roleAtLeast } from "../lib/editing";
 import { markerNumber, findLocation } from "../lib/maps";
+import { gmapsSearchUrl } from "../lib/gmaps";
 import { dayRangeLabel, placeDays, tripJourney } from "../lib/route-surface";
 import { daySurface, type DaySurface } from "../lib/day-surface";
 import { usePageTitle } from "../lib/seo";
@@ -44,8 +45,15 @@ function expandDays(days: number[] | undefined): number[] {
  * map temporarily swaps it for this panel (the marker → days interaction the
  * surface exists for), with a way back. Days open the day level — an in-app
  * state transition, the map stays alive.
+ *
+ * Below the day list it surfaces the Location metadata the v0.23.12 model
+ * carries (placeId/address/website/types/summary): the Google Maps link is
+ * always rendered (place_id deep link when present, name search otherwise),
+ * every other row only when the field is set — absence IS the empty state.
+ * Exported for the SSR panel tests; the tree stays auth-agnostic (no role
+ * branching — pitfall 16).
  */
-function PlacePanel({
+export function PlacePanel({
   place,
   days,
   onClear,
@@ -102,6 +110,48 @@ function PlacePanel({
           ))}
         </ul>
       )}
+      {/* Location metadata, between the day list and the back button: the
+          user action first (Maps link), then the facts (address / website /
+          types), then the agent-authored summary last. Panel-scoped to the
+          itinerary/day routes — BookletPage is a separate route/tree, so this
+          never prints and needs no no-print wrapper. */}
+      <div className="mb-3 ml-9 mt-2 space-y-1.5">
+        <a
+          href={gmapsSearchUrl(place.name, { placeId: place.placeId })}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:focus-ring"
+        >
+          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          Open in Google Maps
+        </a>
+        {place.address && <p className="text-sm text-muted-foreground">{place.address}</p>}
+        {place.website && (
+          <a
+            href={place.website}
+            className="block truncate text-sm text-accent hover:underline focus-visible:focus-ring"
+          >
+            {place.website}
+          </a>
+        )}
+        {place.types && place.types.length > 0 && (
+          <ul aria-label="Place types" className="flex flex-wrap gap-1">
+            {place.types.map((t) => (
+              <li
+                key={t}
+                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+              >
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
+        {place.summary && (
+          <div className="text-sm leading-relaxed text-muted-foreground">
+            <Markdown>{place.summary}</Markdown>
+          </div>
+        )}
+      </div>
       <button
         type="button"
         onClick={onClear}
