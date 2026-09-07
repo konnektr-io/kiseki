@@ -63,10 +63,10 @@ def test_decode_flexpolyline_survives_truncated_input():
     assert (round(pts[0][0], 5), round(pts[0][1], 5)) == (50.10228, 8.69821)
 
 
-def _legs_with_stub(monkeypatch, points=None, loop=False):
+def _legs_with_stub(monkeypatch, points=None, loop=False, modes=None):
     from app import maps as maps_mod
 
-    def fake_leg(a, b, token):
+    def fake_leg(a, b, token, *, transport_mode="car"):
         assert token == "k"
         return (
             {"points": points, "duration": "1 hour 35 mins", "distance": "143 km"}
@@ -76,7 +76,23 @@ def _legs_with_stub(monkeypatch, points=None, loop=False):
 
     monkeypatch.setattr(maps_mod, "route_leg_v8", fake_leg)
     places = [("A", 1.0, 2.0), ("B", 3.0, 4.0), ("C", 5.0, 6.0)]
-    return maps_mod.route_legs(places, "k", loop=loop)
+    return maps_mod.route_legs(places, "k", loop=loop, modes=modes)
+
+
+def test_route_legs_flight_leg_skips_the_car_query(monkeypatch):
+    """A declared flight leg never routes as a road — SCL→CUZ is a plane (#15)."""
+    from app import maps as maps_mod
+
+    def failing_leg(a, b, token, *, transport_mode="car"):
+        raise AssertionError(f"HERE was called for a flight leg: {a[0]}→{b[0]}")
+
+    monkeypatch.setattr(maps_mod, "route_leg_v8", failing_leg)
+    places = [("Santiago", -33.4, -70.6), ("Cusco", -13.5, -72.0)]
+    legs = maps_mod.route_legs(places, "k", modes=["flight"])
+    assert len(legs) == 1
+    assert legs[0]["road"] is False
+    assert legs[0]["duration"] is None
+    assert legs[0]["geometry"]["coordinates"] == [[-70.6, -33.4], [-72.0, -13.5]]
 
 
 def test_route_legs_one_leg_per_consecutive_pair(monkeypatch):
