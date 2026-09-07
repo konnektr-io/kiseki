@@ -1,7 +1,7 @@
 import { useTrip } from "../components/theme";
-import { DayBlocks, BlockGlyph, useLocationMarkers } from "../components/blocks";
+import { DayBlocks, BlockGlyph } from "../components/blocks";
 import { TripMap } from "../components/MapView";
-import { locatedPlaces } from "../lib/maps";
+import { locatedPlaces, markerNumber, findLocation } from "../lib/maps";
 import { classifyTransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
@@ -21,7 +21,6 @@ function SectionHeading({ title, part, range }: { title: string; part?: string; 
 }
 
 function FeatureBlock({ f }: { f: Feature }) {
-  const marker = useLocationMarkers();
   const trip = useTrip();
   const all = locatedPlaces(trip);
   return (
@@ -60,7 +59,7 @@ function FeatureBlock({ f }: { f: Feature }) {
               {c.image && <img src={c.image} alt="" className="h-24 w-full object-cover" />}
               <div className="p-2.5">
                 <p className="font-heading text-sm font-semibold uppercase leading-tight">
-                  {marker(c.title) !== "•" ? `${marker(c.title)} ` : ""}
+                  {findLocation(trip, c.title) ? `${markerNumber(trip, findLocation(trip, c.title)!)} ` : ""}
                   {c.title}
                 </p>
                 {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
