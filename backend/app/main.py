@@ -452,6 +452,22 @@ def put_day(
     return _public_trip(trip, my_role=actor["role"])
 
 
+@app.delete("/api/trips/{trip_id}/days/{day_id}")
+def delete_day(
+    trip_id: str,
+    day_id: str,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Remove a day (the complement of POST /days). The day's blocks go with
+    it, the trip's hasDay edges re-index around the gap and every section
+    range that spans or sits after the removed index shrinks/shifts, so the
+    tiling invariant — every remaining day under exactly one section —
+    survives the delete. The last remaining day cannot be deleted."""
+    trip = _write(write_svc.delete_day, trip_dtid=trip_id.lower(), actor=actor,
+                  day_id=day_id.lower())
+    return _public_trip(trip, my_role=actor["role"])
+
+
 @app.put("/api/trips/{trip_id}/sections/{section_id}")
 def put_section(
     trip_id: str,

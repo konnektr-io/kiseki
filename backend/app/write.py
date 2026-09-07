@@ -804,6 +804,129 @@ def create_day(trip_dtid: str, actor: dict, payload: DayCreate) -> Trip:
     return _rebuild(client, trip_dtid)
 
 
+def delete_day(trip_dtid: str, actor: dict, day_id: str) -> Trip:
+    """Remove a Day twin at its 0-based position (the complement of create_day).
+
+    The day's blocks go with it (no orphan twins), the trip's ``hasDay`` edge
+    is dropped and every later day re-indexes -1, and every section range that
+    spans or sits after the removed index shrinks/shifts -1/-1 so the same
+    surviving days stay covered and the tiling invariant — every day under
+    exactly one section — survives the delete. A section left with no days
+    becomes an ideation section (``days`` = []). ``locationRefs`` /
+    ``atLocation`` edges are place references, never day references, and are
+    left untouched. Deleting the last remaining day is a 422.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+    day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
+    n_days = len(day_ids)
+
+    if day_id not in set(day_ids):
+        raise WriteError(404, "Day not found on this trip")
+    if n_days <= 1:
+        raise WriteError(422, "A trip must keep at least one day")
+
+    index = day_ids.index(day_id)
+    sub = actor["sub"]
+
+    # The day's blocks go with it (the graph server does not cascade —
+    # a twin with edges refuses deletion, same no-cascade rule as
+    # delete_block/put_locations): drop the day-sourced hasBlock edge +
+    # any block-sourced edges first, then the block twin.
+    day_blocks = _container_blocks(graph, day_id)
+    for bid in day_blocks:
+        client.delete_relationship(
+            day_id, _rel_id(day_id, "hasBlock", bid), x_user_id=sub
+        )
+    for bid in day_blocks:
+        for r in [r for r in graph.get("relationships", [])
+                  if r.get("$sourceId") == bid]:
+            client.delete_relationship(
+                bid, r["$relationshipId"], x_user_id=sub
+            )
+    for bid in day_blocks:
+        client.delete_twin(trip_dtid, bid, x_user_id=sub)
+
+    # Section hasDay edges pointing at the doomed day (each sourced at its
+    # section) + the trip's own hasDay edge (sourced at the trip).
+    sections = [
+        (r.get("$targetId"), _twin(graph, r.get("$targetId")))
+        for r in graph.get("relationships", [])
+        if r.get("$sourceId") == root["$dtId"] and r.get("$relationshipName") == "hasSection"
+    ]
+    for sid, _ in sections:
+        if sid is None:
+            continue
+        if day_id in {
+            r.get("$targetId")
+            for r in graph.get("relationships", [])
+            if r.get("$sourceId") == sid and r.get("$relationshipName") == "hasDay"
+        }:
+            client.delete_relationship(
+                sid, _rel_id(sid, "hasDay", day_id), x_user_id=sub
+            )
+    client.delete_relationship(
+        trip_dtid, _rel_id(trip_dtid, "hasDay", day_id), x_user_id=sub
+    )
+    client.delete_twin(trip_dtid, day_id, x_user_id=sub)
+
+    # Re-index the surviving trip hasDay edges so index props stay contiguous.
+    new_order = day_ids[:index] + day_ids[index + 1:]
+    for i, tid in enumerate(new_order):
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(trip_dtid, "hasDay", tid),
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasDay",
+                "$targetId": tid,
+                "index": i,
+            },
+            x_user_id=sub,
+        )
+
+    # Re-tile sections: drop the removed index, shift later days -1, rewrite
+    # the twin ``days`` property and the surviving edges' index props.
+    pos_of = {tid: i for i, tid in enumerate(new_order)}
+    for sid, stwin in sections:
+        if sid is None or stwin is None or _model_kind(stwin) != "TripSection":
+            continue
+        covered = _section_day_indices(graph, sid, day_ids)
+        if not covered:
+            continue  # ideation section — no days to shift
+        new_covered = sorted(
+            (i - 1 if i > index else i) for i in covered if i != index
+        )
+        days_prop: list[int] = [min(new_covered), max(new_covered)] if new_covered else []
+        client.update_twin_props(
+            trip_dtid, sid,
+            _scalar_ops(stwin, [("days", days_prop)]),
+            x_user_id=sub,
+        )
+        for i in covered:
+            if i == index:
+                continue
+            tgt = day_ids[i]
+            client.upsert_relationship(
+                trip_dtid,
+                {
+                    "$relationshipId": _rel_id(sid, "hasDay", tgt),
+                    "$sourceId": sid,
+                    "$relationshipName": "hasDay",
+                    "$targetId": tgt,
+                    "index": pos_of[tgt],
+                },
+                x_user_id=sub,
+            )
+
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=sub,
+    )
+    return _rebuild(client, trip_dtid)
+
+
 # ---------------------------------------------------------------- sections
 def _trip_day_ids_by_index(graph: dict, root_id: str) -> list[str]:
     """Ordered day twin ``$dtId``s for a trip, in calendar (day-index) order.
