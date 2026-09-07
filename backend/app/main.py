@@ -38,6 +38,7 @@ from .write import (
     BlockOrder,
     CrewAdd,
     CrewPatch,
+    DayCreate,
     DayPatch,
     LocationsPut,
     PracticalPut,
@@ -422,6 +423,20 @@ def disconnect_tricount(
     actor: dict = Depends(require_trip_role("editor")),
 ) -> dict:
     trip = _write(write_svc.disconnect_tricount, trip_dtid=trip_id.lower(), actor=actor)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.post("/api/trips/{trip_id}/days", status_code=201)
+def post_day(
+    trip_id: str,
+    body: DayCreate,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Insert a new day at ``index`` (default = append). The trip's hasDay
+    edges are re-indexed around the insert and every section range that spans
+    or sits after the insertion index shifts +1, so the same days stay covered
+    and the new day joins the chapter it lands in."""
+    trip = _write(write_svc.create_day, trip_dtid=trip_id.lower(), actor=actor, payload=body)
     return _public_trip(trip, my_role=actor["role"])
 
 

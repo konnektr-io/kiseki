@@ -53,6 +53,7 @@ from . import tricount as tricount_svc
 # DTMI of the interfaces this service creates/patches (client.py exports the
 # trip/user/person ones; the rest are needed verbatim here).
 BLOCK_MODEL = "dtmi:kiseki:travel:Block;1"
+DAY_MODEL = "dtmi:kiseki:travel:Day;1"
 LOCATION_MODEL = "dtmi:kiseki:travel:Location;1"
 PERSON_MODEL = "dtmi:kiseki:travel:Person;1"
 SECTION_MODEL = "dtmi:kiseki:travel:TripSection;1"
@@ -211,6 +212,18 @@ class DayPatch(_Strict):
     meta: Optional[list[dict[str, str]]] = None
     # date is calendar truth — not editable through the write API (see plan §10)
     date: Optional[str] = None
+
+
+class DayCreate(_Strict):
+    """POST /days body: insert a new day at ``index`` (the 0-based position
+    the new day takes; omit/None = append after the last day). ``date`` is
+    calendar truth for the new day — explicit ISO date, or a neighbor-based
+    default (previous day + 1, first day − 1 when prepending, trip startDate /
+    today on an empty trip). ``title`` defaults to untitled ("")."""
+
+    index: Optional[int] = Field(default=None, ge=0)
+    date: Optional[str] = None
+    title: Optional[str] = None
 
 
 class SectionPatch(_Strict):
@@ -591,6 +604,199 @@ def update_day(trip_dtid: str, actor: dict, day_id: str, patch: DayPatch) -> Tri
     ops = _scalar_ops(twin, pairs)
     if ops:
         client.update_twin_props(trip_dtid, day_id, ops, x_user_id=actor["sub"])
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
+    )
+    return _rebuild(client, trip_dtid)
+
+
+def _default_day_date(graph: dict, day_ids: list[str], index: int, root: dict) -> str:
+    """Neighbor-based default date for an inserted day.
+
+    A day's date is immutable after creation (update_day rejects edits), so
+    the default guesses the most plausible: previous day + 1 when inserting
+    after it (duplicating the next day's date mid-trip when days run
+    consecutive — the caller should pass an explicit date then), first day
+    − 1 when prepending, trip startDate / today on an empty trip.
+    """
+    by_id = {t["$dtId"]: t for t in graph.get("twins", [])}
+
+    def _shift(iso: Any, delta: int) -> str | None:
+        if not isinstance(iso, str) or not iso:
+            return None
+        try:
+            return (_dt.date.fromisoformat(iso) + _dt.timedelta(days=delta)).isoformat()
+        except ValueError:
+            return None
+
+    if day_ids and index > 0:
+        shifted = _shift((by_id.get(day_ids[index - 1]) or {}).get("date"), 1)
+        if shifted:
+            return shifted
+    if day_ids and index == 0:
+        shifted = _shift((by_id.get(day_ids[0]) or {}).get("date"), -1)
+        if shifted:
+            return shifted
+    shifted = _shift(root.get("startDate"), 0)
+    return shifted or _today()
+
+
+def create_day(trip_dtid: str, actor: dict, payload: DayCreate) -> Trip:
+    """Insert a new Day twin at 0-based position ``index`` (default = append).
+
+    Day identity is the opaque twin id (never the position), so the insert
+    re-indexes the trip's ``hasDay`` edges: the new day takes ``index``, every
+    day at/after it moves +1 (upsert under the stable deterministic edge id).
+    Section ranges follow the insert so the same days stay covered:
+
+    - chapter starts strictly after the insert (``first > index``) → ``+1``;
+    - chapter spans the insert or ends exactly on it (``last >= index``) →
+      the end moves ``+1`` — the chapter grows to swallow the new day;
+    - chapter ends before the insert → untouched.
+
+    Appending past every chapter extends the chapter covering the old last
+    day (when one exists), so the tiling invariant — every day under exactly
+    one section — survives the insert at any position. ``locationRefs`` /
+    ``atLocation`` edges are place references, never day references, and are
+    left untouched.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+    day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
+    n_days = len(day_ids)
+
+    index = n_days if payload.index is None else payload.index
+    if (not isinstance(index, int) or isinstance(index, bool)
+            or not 0 <= index <= n_days):
+        raise WriteError(
+            422,
+            f"Day index {payload.index!r} out of range — trip has {n_days} days (0..{n_days})",
+        )
+
+    if payload.date is not None:
+        _validate_iso_date(payload.date, "date")
+        date = payload.date
+    else:
+        date = _default_day_date(graph, day_ids, index, root)
+
+    day_id = _new_id()
+    client.upsert_twin(
+        trip_dtid,
+        {
+            "$dtId": day_id,
+            "$metadata": {"$model": DAY_MODEL},
+            "date": date,
+            "title": payload.title or "",
+        },
+        x_user_id=actor["sub"],
+    )
+    client.upsert_relationship(
+        trip_dtid,
+        {
+            "$relationshipId": _rel_id(trip_dtid, "hasDay", day_id),
+            "$sourceId": trip_dtid,
+            "$relationshipName": "hasDay",
+            "$targetId": day_id,
+            "index": index,
+        },
+        x_user_id=actor["sub"],
+    )
+    for i in range(index, n_days):
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(trip_dtid, "hasDay", day_ids[i]),
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasDay",
+                "$targetId": day_ids[i],
+                "index": i + 1,
+            },
+            x_user_id=actor["sub"],
+        )
+
+    # Section ranges follow the insert. Edges point at day twin ids (stable
+    # across the insert — the read path derives section days from the trip's
+    # day order), so only the twin ``days`` property and the edges'
+    # seed-canonical ``index`` props (trip-day position) are rewritten.
+    new_order = day_ids[:index] + [day_id] + day_ids[index:]
+    pos_of = {tid: i for i, tid in enumerate(new_order)}
+    sections = [
+        (r.get("$targetId"), _twin(graph, r.get("$targetId")))
+        for r in graph.get("relationships", [])
+        if r.get("$sourceId") == root["$dtId"] and r.get("$relationshipName") == "hasSection"
+    ]
+    claimed = False
+    for sid, stwin in sections:
+        if stwin is None or _model_kind(stwin) != "TripSection":
+            continue
+        covered = _section_day_indices(graph, sid, day_ids)
+        if not covered:
+            continue  # ideation section — no days to shift
+        first, last = min(covered), max(covered)
+        new_first = first + 1 if first > index else first
+        new_last = last + 1 if last >= index else last
+        if (new_first, new_last) == (first, last):
+            continue
+        client.update_twin_props(
+            trip_dtid, sid,
+            _scalar_ops(stwin, [("days", [new_first, new_last])]),
+            x_user_id=actor["sub"],
+        )
+        for i in covered:
+            tgt = day_ids[i]
+            client.upsert_relationship(
+                trip_dtid,
+                {
+                    "$relationshipId": _rel_id(sid, "hasDay", tgt),
+                    "$sourceId": sid,
+                    "$relationshipName": "hasDay",
+                    "$targetId": tgt,
+                    "index": pos_of[tgt],
+                },
+                x_user_id=actor["sub"],
+            )
+        if new_first <= index <= new_last:
+            client.upsert_relationship(
+                trip_dtid,
+                {
+                    "$relationshipId": _rel_id(sid, "hasDay", day_id),
+                    "$sourceId": sid,
+                    "$relationshipName": "hasDay",
+                    "$targetId": day_id,
+                    "index": index,
+                },
+                x_user_id=actor["sub"],
+            )
+            claimed = True
+
+    if index == n_days and not claimed:
+        # Appending past every chapter: extend the chapter covering the old
+        # last day (when one exists) so the new final day stays chaptered.
+        for sid, stwin in sections:
+            if stwin is None or _model_kind(stwin) != "TripSection":
+                continue
+            covered = _section_day_indices(graph, sid, day_ids)
+            if covered and max(covered) == n_days - 1:
+                client.update_twin_props(
+                    trip_dtid, sid,
+                    _scalar_ops(stwin, [("days", [min(covered), n_days])]),
+                    x_user_id=actor["sub"],
+                )
+                client.upsert_relationship(
+                    trip_dtid,
+                    {
+                        "$relationshipId": _rel_id(sid, "hasDay", day_id),
+                        "$sourceId": sid,
+                        "$relationshipName": "hasDay",
+                        "$targetId": day_id,
+                        "index": index,
+                    },
+                    x_user_id=actor["sub"],
+                )
+                break
+
     client.update_twin_props(
         trip_dtid, trip_dtid,
         _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
