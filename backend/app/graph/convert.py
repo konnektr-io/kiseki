@@ -21,12 +21,19 @@ round-trip tests), so the P0 API contract is preserved.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from typing import Any, Optional
 
 from app import models as M
+from app.time import utcnow
 
 _MODEL_RE = re.compile(r"dtmi:kiseki:travel:([A-Za-z0-9_]+);\d+$")
+
+# Google rating snapshots are short-lived data (#15 storage rule: ≤30 days).
+# A trip whose `updated` is older than this keeps every other Location field
+# but loses `rating` on the way out.
+RATING_TTL_DAYS = 30
 
 
 def _kind(dtmi: str) -> str:
@@ -58,6 +65,22 @@ def _bydict(twin: dict) -> dict:
     d = {k: v for k, v in twin.items() if k not in ("$dtId", "$metadata", "$etag")}
     d["id"] = twin["$dtId"]
     return d
+
+
+def _rating_expired(updated: Any) -> bool:
+    """True when the trip's `updated` stamp is older than the rating TTL.
+
+    `updated` is an ISO date (YYYY-MM-DD) written by the write path. Missing
+    or unparseable stamps fail OPEN (keep the rating) — never strip data we
+    cannot age.
+    """
+    if not isinstance(updated, str) or not updated:
+        return False
+    try:
+        stamped = _dt.date.fromisoformat(updated[:10])
+    except ValueError:
+        return False
+    return (utcnow().date() - stamped).days > RATING_TTL_DAYS
 
 
 def graph_to_trip(graph: dict) -> M.Trip:
@@ -185,6 +208,12 @@ def graph_to_trip(graph: dict) -> M.Trip:
         sections.append(M.TripSection.model_validate(d))
 
     # ---- assemble ---------------------------------------------------------
+    # Rating maturity (#15): a stale trip's location ratings have outlived
+    # their ≤30-day retention — strip them from the response (the twins are
+    # untouched; a fresh write re-stamps `updated` and ratings flow again).
+    if _rating_expired(base.get("updated")):
+        for loc in locations:
+            loc.rating = None
     return M.Trip.model_validate(
         {
             "id": base["id"],

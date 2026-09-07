@@ -159,8 +159,8 @@ def _unwrap(ann):
     origin = typing.get_origin(ann)
     if origin is typing.Union:  # Optional[X] = Union[X, None]
         args = [a for a in typing.get_args(ann) if a is not type(None)]
-        inner, _, _ = _unwrap(args[0])
-        return inner, False, False
+        inner, _, is_list = _unwrap(args[0])
+        return inner, False, is_list
     if origin in (list, typing.List):
         (elem,) = typing.get_args(ann)
         inner, _, _ = _unwrap(elem)

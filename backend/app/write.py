@@ -185,6 +185,7 @@ class BlockFields(_Strict):
     mode: Optional[str] = None
     location: Optional[str] = None
     mapsQuery: Optional[str] = None
+    googlePlaceId: Optional[str] = None
     images: Optional[list[str]] = None
 
 
@@ -268,6 +269,43 @@ class LocationWrite(_Strict):
     alias: list[str] = Field(default_factory=list)
     lat: Optional[float] = None
     lng: Optional[float] = None
+    placeId: Optional[str] = None
+    address: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    openingHours: Optional[list[str]] = None
+    types: Optional[list[str]] = None
+    wheelchairAccessible: Optional[bool] = None
+    rating: Optional[float] = None
+    summary: Optional[str] = None
+
+
+# Location twin props managed by put_locations (diff-by-name). lat/lng stay;
+# every durable place-metadata field (#15/#95) rides along.
+_LOCATION_PROPS = (
+    "marker", "alias", "lat", "lng", "placeId", "address", "website",
+    "phone", "openingHours", "types", "wheelchairAccessible", "rating",
+    "summary",
+)
+
+
+def _location_pairs(entry: LocationWrite) -> list[tuple[str, Any]]:
+    """(prop, value) pairs to write for a registry entry.
+
+    Same contract as before: absent/empty fields are left untouched (a full
+    replace that only names a place keeps its stored metadata); provided
+    values are patched. `rating` is a short-lived snapshot — accepted here,
+    aged out by the read path once the trip goes stale.
+    """
+    pairs = []
+    for prop in _LOCATION_PROPS:
+        value = getattr(entry, prop)
+        if value is None:
+            continue
+        if isinstance(value, list) and not value:
+            continue
+        pairs.append((prop, list(value) if isinstance(value, list) else value))
+    return pairs
 
 
 class LocationsPut(_Strict):
@@ -1618,29 +1656,14 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
                 "$metadata": {"$model": LOCATION_MODEL},
                 "name": entry.name,
             }
-            if entry.marker is not None:
-                props["marker"] = entry.marker
-            if entry.alias:
-                props["alias"] = list(entry.alias)
-            if entry.lat is not None:
-                props["lat"] = entry.lat
-            if entry.lng is not None:
-                props["lng"] = entry.lng
+            for prop, value in _location_pairs(entry):
+                props[prop] = value
             client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
             current_ids[entry.name] = lid
         else:
             lid = twin["$dtId"]
             current_ids[entry.name] = lid
-            pairs = []
-            if entry.marker is not None:
-                pairs.append(("marker", entry.marker))
-            if entry.alias:
-                pairs.append(("alias", list(entry.alias)))
-            if entry.lat is not None:
-                pairs.append(("lat", entry.lat))
-            if entry.lng is not None:
-                pairs.append(("lng", entry.lng))
-            ops = _scalar_ops(twin, pairs)
+            ops = _scalar_ops(twin, _location_pairs(entry))
             if ops:
                 client.update_twin_props(trip_dtid, lid, ops, x_user_id=actor["sub"])
 
