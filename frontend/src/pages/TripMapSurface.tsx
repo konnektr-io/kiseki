@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CalendarDays, ExternalLink, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
 import { ItineraryList } from "../components/ItineraryList";
@@ -11,9 +11,8 @@ import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
 import { roleAtLeast } from "../lib/editing";
-import { markerNumber, findLocation } from "../lib/maps";
-import { gmapsSearchUrl } from "../lib/gmaps";
-import { dayRangeLabel, placeDays, tripJourney } from "../lib/route-surface";
+import { markerNumber, findLocation, prefersReducedMotion } from "../lib/maps";
+import { tripJourney } from "../lib/route-surface";
 import { daySurface, type DaySurface } from "../lib/day-surface";
 import { usePageTitle } from "../lib/seo";
 import type { Detent } from "../lib/sheet";
@@ -40,127 +39,57 @@ function expandDays(days: number[] | undefined): number[] {
 }
 
 /**
- * The scan level's PLACE panel — what a marker tap opens in the rail/sheet.
- * The itinerary list is the rail's normal content; selecting a place on the
- * map temporarily swaps it for this panel (the marker → days interaction the
- * surface exists for), with a way back. Days open the day level — an in-app
- * state transition, the map stays alive.
- *
- * Below the day list it surfaces the Location metadata the v0.23.12 model
- * carries (placeId/address/website/types/summary): the Google Maps link is
- * always rendered (place_id deep link when present, name search otherwise),
- * every other row only when the field is set — absence IS the empty state.
- * Exported for the SSR panel tests; the tree stays auth-agnostic (no role
- * branching — pitfall 16).
+ * Scan-level selection toggle: tapping the already-selected pin clears the
+ * selection (ring off, pill highlight off), tapping another pin moves it.
+ * Pure so the pin-tap contract is unit-testable (node env has no DOM taps).
  */
-export function PlacePanel({
-  place,
-  days,
-  onClear,
-  onOpenDay,
-}: {
-  place: TripLocation;
-  days: number[];
-  onClear: () => void;
-  onOpenDay: (idx: number) => void;
-}) {
-  const trip = useTrip();
-  return (
-    <div className="pb-6">
-      <div className="flex items-center gap-2.5">
-        <span
-          aria-hidden="true"
-          className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg"
-        >
-          {markerNumber(trip, place)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-heading text-base font-semibold leading-tight">{place.name}</p>
-          <p className="text-xs tabular-nums text-muted-foreground">
-            {dayRangeLabel(days) ?? "No days scheduled here yet"}
-          </p>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={`Clear the selected place, ${place.name}`}
-          onClick={onClear}
-          className="h-11 w-11 shrink-0 rounded-full"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </Button>
-      </div>
-      {days.length > 0 && (
-        <ul className="mb-3 ml-9 mt-1 space-y-0.5 border-l border-border pl-3">
-          {days.map((d) => (
-            <li key={d}>
-              <button
-                type="button"
-                onClick={() => onOpenDay(d)}
-                className="flex w-full items-baseline gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted focus-visible:focus-ring"
-              >
-                <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide tabular-nums text-muted-foreground">
-                  Day {d + 1}
-                </span>
-                <span className="min-w-0 flex-1 truncate">
-                  {trip.days[d]?.title || formatDay(trip.days[d]?.date ?? "")}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* Location metadata, between the day list and the back button: the
-          user action first (Maps link), then the facts (address / website /
-          types), then the agent-authored summary last. Panel-scoped to the
-          itinerary/day routes — BookletPage is a separate route/tree, so this
-          never prints and needs no no-print wrapper. */}
-      <div className="mb-3 ml-9 mt-2 space-y-1.5">
-        <a
-          href={gmapsSearchUrl(place.name, { placeId: place.placeId })}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:focus-ring"
-        >
-          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          Open in Google Maps
-        </a>
-        {place.address && <p className="text-sm text-muted-foreground">{place.address}</p>}
-        {place.website && (
-          <a
-            href={place.website}
-            className="block truncate text-sm text-accent hover:underline focus-visible:focus-ring"
-          >
-            {place.website}
-          </a>
-        )}
-        {place.types && place.types.length > 0 && (
-          <ul aria-label="Place types" className="flex flex-wrap gap-1">
-            {place.types.map((t) => (
-              <li
-                key={t}
-                className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-              >
-                {t}
-              </li>
-            ))}
-          </ul>
-        )}
-        {place.summary && (
-          <div className="text-sm leading-relaxed text-muted-foreground">
-            <Markdown>{place.summary}</Markdown>
-          </div>
-        )}
-      </div>
-      <button
-        type="button"
-        onClick={onClear}
-        className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline focus-visible:focus-ring"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> Back to the route
-      </button>
-    </div>
-  );
+export function togglePlaceSelection(
+  prev: TripLocation | null,
+  loc: TripLocation,
+): TripLocation | null {
+  return prev?.name === loc.name ? null : loc;
+}
+
+/**
+ * The scan level's place-selection model — what a marker tap DOES in the
+ * rail/sheet.
+ *
+ * Selection is highlight + scroll-to-pill, never a content swap: the
+ * itinerary list stays mounted, the selected place's pin gets its ring on the
+ * map, its pills highlight in the rail, and the rail scrolls the first
+ * matching pill into view with a brief flash. Days open the day level — an
+ * in-app state transition, the map stays alive. Place facts (Maps link,
+ * address, website, types, summary) live on the day-view blocks that resolve
+ * to the place (`PlaceFacts`), not here.
+ *
+ * Exported for the scroll-helper unit tests; the tree stays auth-agnostic
+ * (no role branching — pitfall 16).
+ */
+export function scrollToPlacePill(root: ParentNode | null, name: string): boolean {
+  if (!root) return false;
+  // Match on the attribute value rather than a `[data-place-pill="<name>"]`
+  // selector — place names carry quotes/parens (no CSS.escape needed, no
+  // selector-injection shape to worry about).
+  const pills = Array.from(root.querySelectorAll("[data-place-pill]"));
+  const target = pills.find((el) => el.getAttribute("data-place-pill") === name) as
+    | HTMLElement
+    | undefined;
+  // No matching pill anywhere (the place is in no section's locationRefs):
+  // ring only, no scroll — not an error.
+  if (!target) return false;
+  // jsdom/node has no scrollIntoView — guard so unit tests don't explode.
+  if (typeof target.scrollIntoView === "function") {
+    // The rail/sheet body is its own scroller (SplitView) — scrollIntoView
+    // walks the ancestor chain itself, never window.scrollTo.
+    target.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }
+  // Flash the pill so the eye lands on it; state change only under
+  // prefers-reduced-motion (the global CSS guard covers the animation too).
+  if (!prefersReducedMotion() && target.classList) {
+    target.classList.add("place-pill-flash");
+    setTimeout(() => target.classList.remove("place-pill-flash"), 1200);
+  }
+  return true;
 }
 
 /**
@@ -393,21 +322,29 @@ export function TripMapSurface() {
     setSpySection(null);
   }, [dayIdx]);
 
-  /** The selected place's days — the scan place panel's list. */
-  const dayIndex = useMemo(
-    () => new Map(journey.stops.map((s) => [s.name, placeDays(trip, s.name)])),
-    [trip, journey.stops],
-  );
-  const selectedDays = selected ? (dayIndex.get(selected.name) ?? []) : [];
-
-  /** Marker tap at scan level: select the place and raise the sheet. */
+  /** Marker tap at scan level: toggle the place and raise the sheet. The
+   *  rail list stays mounted — the scroll effect below brings the place's
+   *  pill into view. */
   const selectFromMap = (loc: TripLocation) => {
-    setSelected(loc);
+    setSelected((prev) => togglePlaceSelection(prev, loc));
     setDetent("half");
-    // The place panel replaces the list, so the old data-stop target is gone;
-    // the panel itself is the answer (RouteMapPage scrolled the list; the
-    // panel is shorter and always in view at half).
   };
+
+  /* Scan-level pin tap → pill scroll: when a place becomes selected on the
+     itinerary route, scroll its pill into view inside the rail/sheet scroller
+     and flash it (scrollToPlacePill — ring only when no pill matches). Day
+     level has no pills: pin tap there keeps the existing behavior only (pin
+     ring + card pulse via cardProps). The cleanup clears a lingering flash
+     when the selection moves on before its timeout fired. */
+  useEffect(() => {
+    if (isDayRoute || !selected) return;
+    scrollToPlacePill(listRef.current, selected.name);
+    return () => {
+      listRef.current
+        ?.querySelectorAll(".place-pill-flash")
+        .forEach((el) => el.classList.remove("place-pill-flash"));
+    };
+  }, [selected, isDayRoute]);
 
   /** Day level, map → rail: a chip tap raises, scrolls to and pulses its card.
    *  (#104): the scroll root IS the DayRail root element (`listRef` — scan
@@ -434,7 +371,6 @@ export function TripMapSurface() {
   const tapCard = (blockId: string | null) => setActiveBlock(blockId);
 
   /** In-app level transitions — navigate() keeps the surface mounted. */
-  const showDay = (i: number) => navigate(`/t/${tripId}/day/${i}`);
   const showScan = (hash = "") => navigate(`/t/${tripId}/itinerary${hash}`);
 
   /* Day → day: the content swaps; bring the rail/sheet back to the top. */
@@ -549,7 +485,7 @@ export function TripMapSurface() {
       <div className="min-w-0 flex-1">
         <p className="truncate font-heading text-base font-semibold leading-tight">{selected.name}</p>
         <p className="text-xs tabular-nums text-muted-foreground">
-          {dayRangeLabel(selectedDays) ?? "No days scheduled here yet"}
+          On the map — its pill is highlighted below
         </p>
       </div>
       <Button
@@ -603,22 +539,16 @@ export function TripMapSurface() {
       sheetNav={surfaceMode === "sheet"}
       sheetSticky={surfaceMode === "sheet" && detent === "full"}
     />
-  ) : selected ? (
-    <PlacePanel
-      place={selected}
-      days={selectedDays}
-      onClear={() => setSelected(null)}
-      onOpenDay={showDay}
-    />
   ) : (
+    /* Scan level: the itinerary list stays mounted whether or not a place is
+       selected — selection is highlight + scroll-to-pill, never a swap. */
     <ItineraryList
       stickyTop={stickyChrome.top}
       stickyInset={stickyChrome.inset}
       anchorMargin="8px"
       rootRef={listRef}
       onSelectPlace={(name) => setSelected(name ? (findLocation(trip, name) ?? null) : null)}
-      /* This branch only renders when no place is selected. */
-      selectedPlace={null}
+      selectedPlace={selected?.name ?? null}
     />
   );
 

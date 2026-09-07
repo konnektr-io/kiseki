@@ -1,27 +1,48 @@
 import { createElement } from "react";
+import * as React from "react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-/* PlacePanel renders the v0.23.12 Location metadata (placeId / address /
- * website / types / summary) between the day list and the back button.
+/* The scan-level place-selection model: selecting a place NEVER swaps the
+ * rail content — the itinerary list stays mounted, the pin gets its ring on
+ * the map, the pill highlights in the rail, and the rail scrolls the pill
+ * into view with a flash (`scrollToPlacePill`). Place facts live on the
+ * day-view blocks (`PlaceFacts`), not here.
  *
- * Render the REAL PlacePanel through SSR with a minimal TripProvider — no
- * DOM, no router needed (the panel itself takes plain props). The module
- * pulls the map chain (RouteMap → maplibre-gl, blocks → MapView), which
- * doesn't resolve under node-env vitest, so both are stubbed — the panel
- * under test touches neither.
+ * Render the REAL TripMapSurface through SSR inside a MemoryRouter on the
+ * itinerary route with a minimal TripProvider — no DOM, no map needed. The
+ * module pulls the map chain (RouteMap → maplibre-gl, blocks → MapView) plus
+ * the window-reading SplitView, which don't resolve/run under node-env
+ * vitest, so all three are stubbed — the selection model under test touches
+ * none of their internals (the SplitView stub renders header+content
+ * straight through, which is exactly the "list stays mounted" contract).
  *
- * Pitfall 16 (editor-mode blind spot): the panel tree is auth-agnostic (no
- * role branching), pinned here by rendering one case as editor and one as
+ * Pitfall 16 (editor-mode blind spot): the surface tree is auth-agnostic (no
+ * role branching), pinned here by rendering the scan level as editor and as
  * viewer with the same expectations on the shared content. */
 vi.mock("../components/RouteMap", () => ({ RouteMap: () => null }));
 vi.mock("../components/MapView", () => ({ MapView: () => null, TripMap: () => null }));
+// ItineraryList owns the editor "schedule to day" select via useTripWrite,
+// which reads the Auth0 session — stub the hook so no provider is needed
+// (writes never fire in a server render).
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({
+    isAuthenticated: false,
+    getAccessTokenSilently: async () => "test-token",
+  }),
+}));
+vi.mock("../components/SplitView", () => ({
+  useSurfaceMode: () => "rail",
+  SplitView: ({ header, content }: { header: React.ReactNode; content: React.ReactNode }) =>
+    createElement("div", null, header, content),
+}));
 
-import { PlacePanel } from "./TripMapSurface";
+import { scrollToPlacePill, togglePlaceSelection, TripMapSurface } from "./TripMapSurface";
 import { TripProvider } from "../components/theme";
 import type { Trip, TripLocation } from "../lib/types";
 
-function tripWith(place: TripLocation, myRole = "viewer"): Trip {
+function tripWith(myRole = "viewer"): Trip {
   return {
     id: "t1",
     slug: "test",
@@ -31,75 +52,143 @@ function tripWith(place: TripLocation, myRole = "viewer"): Trip {
     myRole,
     crew: [],
     practical: {},
-    locations: [place],
+    locations: [
+      {
+        name: "Banff",
+        lat: 51.18,
+        lng: -115.57,
+        placeId: "ChIJN1t_tDeuEmsRUsoyG83frY4",
+        address: "123 Mountain Ave, Banff AB",
+        summary: "Home of the **powder**.",
+      },
+    ],
+    sections: [
+      { id: "s0", title: "Mountains", days: [0, 0], locationRefs: ["Banff"] },
+    ],
     days: [{ id: "d0", date: "2027-03-01", title: "Arrival", blocks: [] }],
   } as unknown as Trip;
 }
 
-function renderPanel(trip: Trip): string {
-  const place = trip.locations![0];
-  const children = createElement(PlacePanel, {
-    place,
-    days: [0],
-    onClear: () => {},
-    onOpenDay: () => {},
-  });
+function renderSurface(trip: Trip): string {
+  const children = createElement(
+    MemoryRouter,
+    { initialEntries: ["/t/t1/itinerary"] },
+    createElement(
+      Routes,
+      null,
+      createElement(Route, {
+        path: "/t/:tripId/itinerary",
+        element: createElement(TripMapSurface),
+      }),
+    ),
+  );
   return renderToString(
     createElement(TripProvider, { trip, apply: () => {}, children }),
   );
 }
 
-const fullPlace: TripLocation = {
-  name: "Banff",
-  lat: 51.18,
-  lng: -115.57,
-  placeId: "ChIJN1t_tDeuEmsRUsoyG83frY4",
-  address: "123 Mountain Ave, Banff AB",
-  website: "https://banff.example.com",
-  types: ["ski_area", "park"],
-  summary: "Home of the **powder**.",
-};
+describe("scan-level place selection (no panel swap)", () => {
+  it.each(["editor", "viewer"] as const)(
+    "keeps the itinerary list mounted with the place pill (as %s)",
+    (myRole) => {
+      const html = renderSurface(tripWith(myRole));
+      // The rail content IS the itinerary list — no PlacePanel swap.
+      expect(html).toContain("data-itinerary-list");
+      expect(html).toContain('data-place-pill="Banff"');
+      // … and none of the panel chrome replaced it.
+      expect(html).not.toContain("Back to the route");
+      // Place facts live on day-view blocks now — the scan rail carries no
+      // Maps deep link for the (unselected) place.
+      expect(html).not.toContain("Open in Google Maps");
+      expect(html).not.toContain("query_place_id=");
+    },
+  );
 
-describe("PlacePanel location metadata", () => {
-  it("renders link + address + website + types + summary when all fields are present", () => {
-    const html = renderPanel(tripWith(fullPlace, "editor"));
-    // Google Maps link uses the place_id deep-link form …
-    expect(html).toContain("Open in Google Maps");
-    expect(html).toContain("query_place_id=");
-    expect(html).toContain("ChIJN1t_tDeuEmsRUsoyG83frY4");
-    expect(html).toContain('target="_blank"');
-    // … then the facts …
-    expect(html).toContain("123 Mountain Ave, Banff AB");
-    expect(html).toContain('href="https://banff.example.com"');
-    expect(html).toContain("ski_area");
-    expect(html).toContain("park");
-    // … then the agent-authored summary, rendered as markdown.
-    expect(html).toContain("<strong>powder</strong>");
-    // Existing chrome survives: marker pill, day list, back button.
-    expect(html).toContain("Back to the route");
-    expect(html).toContain("Day 1");
+  it("toggles the selection: same pin tap clears, another pin moves it", () => {
+    const banff = { name: "Banff" } as TripLocation;
+    const lake = { name: "Lake Louise" } as TripLocation;
+    expect(togglePlaceSelection(null, banff)).toBe(banff);
+    expect(togglePlaceSelection(banff, banff)).toBeNull();
+    expect(togglePlaceSelection(banff, lake)).toBe(lake);
+  });
+});
+
+function fakePill(name: string, withScroll = true) {
+  const calls: unknown[] = [];
+  const classes = new Set<string>();
+  const el = {
+    getAttribute: (k: string) => (k === "data-place-pill" ? name : null),
+    classList: {
+      add: (c: string) => void classes.add(c),
+      remove: (c: string) => void classes.delete(c),
+    },
+    ...(withScroll
+      ? { scrollIntoView: (...args: unknown[]) => void calls.push(args) }
+      : {}),
+  };
+  return { el, calls, classes };
+}
+
+function fakeRoot(names: string[], withScroll = true) {
+  const pills = names.map((n) => fakePill(n, withScroll));
+  return {
+    pills,
+    root: {
+      querySelectorAll: (_sel: string) => pills.map((p) => p.el),
+    },
+  };
+}
+
+describe("scrollToPlacePill", () => {
+  it("scrolls the matching pill into view and flashes it", () => {
+    vi.useFakeTimers();
+    try {
+      const { pills, root } = fakeRoot(["Banff", "Lake Louise"]);
+      expect(scrollToPlacePill(root as never, "Lake Louise")).toBe(true);
+      // Only the matching pill scrolled …
+      expect(pills[0].calls).toHaveLength(0);
+      expect(pills[1].calls).toHaveLength(1);
+      expect(pills[1].calls[0]).toEqual([{ block: "nearest", behavior: "smooth" }]);
+      // … and flashed, then unflashed after ~1.2s.
+      expect(pills[1].classes.has("place-pill-flash")).toBe(true);
+      vi.advanceTimersByTime(1300);
+      expect(pills[1].classes.has("place-pill-flash")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("still renders a name-only Maps link with no metadata at all (pre-v0.23.12 trips)", () => {
-    const html = renderPanel(tripWith({ name: "Banff", lat: 51.18, lng: -115.57 }, "viewer"));
-    expect(html).toContain("Open in Google Maps");
-    expect(html).toContain("query=Banff");
-    expect(html).not.toContain("query_place_id=");
-    // Absence IS the empty state — no placeholder rows. The single https://
-    // in the tree is the name-only Maps link itself (no website row).
-    expect(html).not.toContain("Place types");
-    expect(html.match(/https:\/\//g)).toHaveLength(1);
-    expect(html).toContain("Back to the route");
+  it("rings only (false, no throw) when no pill matches the place", () => {
+    const { pills, root } = fakeRoot(["Banff"]);
+    expect(scrollToPlacePill(root as never, "Nowhere")).toBe(false);
+    expect(pills[0].calls).toHaveLength(0);
+    expect(scrollToPlacePill(null, "Banff")).toBe(false);
   });
 
-  it("renders only the summary when that is the sole field set", () => {
-    const html = renderPanel(
-      tripWith({ name: "Banff", lat: 51.18, lng: -115.57, summary: "A quiet *valley* town." }),
-    );
-    expect(html).toContain("Open in Google Maps");
-    expect(html).toContain("query=Banff");
-    expect(html).toContain("<em>valley</em>");
-    expect(html).not.toContain("Place types");
-    expect(html).toContain("Back to the route");
+  it("still resolves without scrollIntoView (guard for non-DOM envs)", () => {
+    const { pills, root } = fakeRoot(["Banff"], false);
+    expect(scrollToPlacePill(root as never, "Banff")).toBe(true);
+    expect(pills[0].classes.has("place-pill-flash")).toBe(true);
+  });
+
+  it("skips the flash under prefers-reduced-motion (state change only)", () => {
+    const prevWindow = (globalThis as Record<string, unknown>).window;
+    (globalThis as Record<string, unknown>).window = {
+      matchMedia: () => ({ matches: true }),
+    };
+    try {
+      const { pills, root } = fakeRoot(["Banff"]);
+      expect(scrollToPlacePill(root as never, "Banff")).toBe(true);
+      // The scroll itself still lands (instant) — only the flash is skipped.
+      expect(pills[0].calls[0]).toEqual([{ block: "nearest", behavior: "auto" }]);
+      expect(pills[0].classes.has("place-pill-flash")).toBe(false);
+    } finally {
+      if (prevWindow === undefined) delete (globalThis as Record<string, unknown>).window;
+      else (globalThis as Record<string, unknown>).window = prevWindow;
+    }
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 });
