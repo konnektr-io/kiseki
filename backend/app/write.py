@@ -263,10 +263,18 @@ class CrewAdd(_Strict):
 
 
 class LocationWrite(_Strict):
+    """One registry entry for PUT /locations (full-array replace, diff-by-name).
+
+    Explicit-clear contract: only fields PRESENT in the payload are written.
+    A present ``null`` (or ``[]`` for a list field) clears that field on the
+    twin; an absent field leaves the stored value alone. ``marker: null``
+    clears to the positional default (marker is optional, never rejected).
+    """
+
     id: Optional[str] = None
     name: str = Field(min_length=1)
     marker: Optional[int] = None
-    alias: list[str] = Field(default_factory=list)
+    alias: Optional[list[str]] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
     placeId: Optional[str] = None
@@ -292,18 +300,19 @@ _LOCATION_PROPS = (
 def _location_pairs(entry: LocationWrite) -> list[tuple[str, Any]]:
     """(prop, value) pairs to write for a registry entry.
 
-    Same contract as before: absent/empty fields are left untouched (a full
-    replace that only names a place keeps its stored metadata); provided
-    values are patched. `rating` is a short-lived snapshot — accepted here,
-    aged out by the read path once the trip goes stale.
+    Explicit-clear contract (``model_fields_set``): absent fields are left
+    untouched (a full replace that only names a place keeps its stored
+    metadata); a present ``null`` emits ``(prop, None)`` so ``_scalar_ops``
+    removes the prop from the twin; a present list — including ``[]`` — is
+    written verbatim (an explicit ``[]`` clears a list field to empty).
+    `rating` is a short-lived snapshot — accepted here, aged out by the
+    read path once the trip goes stale.
     """
     pairs = []
     for prop in _LOCATION_PROPS:
+        if prop not in entry.model_fields_set:
+            continue
         value = getattr(entry, prop)
-        if value is None:
-            continue
-        if isinstance(value, list) and not value:
-            continue
         pairs.append((prop, list(value) if isinstance(value, list) else value))
     return pairs
 
@@ -317,7 +326,8 @@ class LocationUpsert(_Strict):
 
     Matched by ``id`` when supplied, otherwise by ``name``. Only the fields
     present in the payload are patched — everything else on the twin keeps
-    its stored value. New names are appended to the registry (marker order
+    its stored value. A present ``null`` (or ``[]`` for a list field) clears
+    that field. New names are appended to the registry (marker order
     = root ``atLocation`` edge index); unmentioned locations are untouched.
     """
 
@@ -330,6 +340,15 @@ class LocationUpsert(_Strict):
     alias: Optional[list[str]] = Field(default=None, description="Alternate names that resolve to this location.")
     lat: Optional[float] = Field(default=None, description="Latitude (enables map generation).")
     lng: Optional[float] = Field(default=None, description="Longitude (enables map generation).")
+    placeId: Optional[str] = Field(default=None, description="Google place_id — the only third-party place key persisted indefinitely (#15 storage rule).")
+    address: Optional[str] = Field(default=None, description="Formatted display address.")
+    website: Optional[str] = Field(default=None, description="Official website URL of the place.")
+    phone: Optional[str] = Field(default=None, description="Phone in international format.")
+    openingHours: Optional[list[str]] = Field(default=None, description="Weekday opening-hours lines.")
+    types: Optional[list[str]] = Field(default=None, description="Place types, e.g. ['ski_resort', 'lodging'].")
+    wheelchairAccessible: Optional[bool] = Field(default=None, description="Whether the place is wheelchair accessible.")
+    rating: Optional[float] = Field(default=None, description="Google rating snapshot (short-lived; aged out by the read path).")
+    summary: Optional[str] = Field(default=None, description="Editorial summary of the place (markdown OK).")
 
 
 class LocationsPatch(_Strict):
@@ -1651,7 +1670,9 @@ def remove_crew(trip_dtid: str, actor: dict, person_id: str) -> Trip:
 def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     """Full-array replace of the trip's location registry (marker order = list
     position). Diff by name: kept locations are patched, gone ones deleted,
-    new ones created, root atLocation edges rebuilt with index = position."""
+    new ones created, root atLocation edges rebuilt with index = position.
+    Explicit-clear: a present ``null`` (or ``[]``) clears that field on a kept
+    location; absent fields keep their stored value."""
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -1700,7 +1721,8 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
                 "name": entry.name,
             }
             for prop, value in _location_pairs(entry):
-                props[prop] = value
+                if value is not None:
+                    props[prop] = value
             client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
             current_ids[entry.name] = lid
         else:
@@ -1733,28 +1755,25 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     return _rebuild(client, trip_dtid)
 
 
-# Location twin props the incremental PATCH may touch. Deliberately small:
-# coordinates + display keys only (no durable place metadata, no rating) —
-# anything else goes through the full PUT /locations replace.
-_LOCATION_PATCH_PROPS = ("marker", "alias", "lat", "lng")
+# Location twin props the incremental PATCH may touch — the full registry
+# field set (same as PUT): coordinates, display keys, durable place metadata
+# (#15/#95) and the short-lived rating. Anything else is not a Location prop.
+_LOCATION_PATCH_PROPS = _LOCATION_PROPS
 
 
 def _location_upsert_pairs(entry: LocationUpsert) -> list[tuple[str, Any]]:
     """(prop, value) pairs to patch for one upsert entry.
 
     Only fields PRESENT in the payload are returned (exclude_unset
-    semantics); absent fields keep their stored value and empty alias lists
-    are left untouched (same contract as the PUT diff).
+    semantics); absent fields keep their stored value. A present ``null``
+    emits ``(prop, None)`` so ``_scalar_ops`` removes the prop from the
+    twin; a present list — including ``[]`` — is written verbatim.
     """
     pairs = []
     for prop in _LOCATION_PATCH_PROPS:
         if prop not in entry.model_fields_set:
             continue
         value = getattr(entry, prop)
-        if value is None:
-            continue
-        if isinstance(value, list) and not value:
-            continue
         pairs.append((prop, list(value) if isinstance(value, list) else value))
     return pairs
 
@@ -1817,7 +1836,8 @@ def patch_locations(trip_dtid: str, actor: dict, body: LocationsPatch) -> Trip:
                     "name": entry.name,
                 }
                 for prop, value in _location_upsert_pairs(entry):
-                    props[prop] = value
+                    if value is not None:
+                        props[prop] = value
                 client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
                 client.upsert_relationship(
                     trip_dtid,

@@ -74,7 +74,8 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | PATCH | `/api/trips/{trip_id}/crew/{person_id}` | `note` editor+ · `role` owner |
 | POST | `/api/trips/{trip_id}/crew` | add placeholder person (they claim later) |
 | DELETE | `/api/trips/{trip_id}/crew/{person_id}` | owner-only |
-| PUT | `/api/trips/{trip_id}/locations` | replace registry (`locations: [...]`, incl. durable place metadata `placeId`/`address`/`website`/`phone`/`openingHours`/`types`/`wheelchairAccessible` + short-lived `rating`) |
+| PUT | `/api/trips/{trip_id}/locations` | replace registry (`locations: [...]`, incl. durable place metadata `placeId`/`address`/`website`/`phone`/`openingHours`/`types`/`wheelchairAccessible` + short-lived `rating`); explicit null clears the field, `[]` clears a list field, absent fields untouched |
+| PATCH | `/api/trips/{trip_id}/locations` | named upserts only (match by `id` else `name`; new names append, nothing deleted); explicit null clears the field, absent fields untouched |
 
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
