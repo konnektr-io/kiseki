@@ -312,6 +312,32 @@ class LocationsPut(_Strict):
     locations: list[LocationWrite]
 
 
+class LocationUpsert(_Strict):
+    """One incremental location edit for PATCH /locations (named upsert).
+
+    Matched by ``id`` when supplied, otherwise by ``name``. Only the fields
+    present in the payload are patched — everything else on the twin keeps
+    its stored value. New names are appended to the registry (marker order
+    = root ``atLocation`` edge index); unmentioned locations are untouched.
+    """
+
+    id: Optional[str] = Field(
+        default=None,
+        description="Location twin id ($dtId). When supplied, the entry matches that twin (unknown id = 404); otherwise matching is by `name`.",
+    )
+    name: str = Field(min_length=1, description="Place name (the canonical key). New names are appended.")
+    marker: Optional[int] = Field(default=None, description="Explicit ① ② … loop-marker number.")
+    alias: Optional[list[str]] = Field(default=None, description="Alternate names that resolve to this location.")
+    lat: Optional[float] = Field(default=None, description="Latitude (enables map generation).")
+    lng: Optional[float] = Field(default=None, description="Longitude (enables map generation).")
+
+
+class LocationsPatch(_Strict):
+    """Incremental location edits — named upserts only, never a replace."""
+
+    locations: list[LocationUpsert]
+
+
 # ---------------------------------------------------------------- validation
 def _validate_block_kind_fields(kind: str, fields: set[str]) -> None:
     """Cross-field rules by block kind (the model is coarse on purpose)."""
@@ -960,7 +986,7 @@ def delete_day(trip_dtid: str, actor: dict, day_id: str) -> Trip:
 
     client.update_twin_props(
         trip_dtid, trip_dtid,
-        _scalar_ops(root, [("updated", _today())]), x_user_id=sub,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
     )
     return _rebuild(client, trip_dtid)
 
@@ -1699,6 +1725,122 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
             },
             x_user_id=actor["sub"],
         )
+
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
+    )
+    return _rebuild(client, trip_dtid)
+
+
+# Location twin props the incremental PATCH may touch. Deliberately small:
+# coordinates + display keys only (no durable place metadata, no rating) —
+# anything else goes through the full PUT /locations replace.
+_LOCATION_PATCH_PROPS = ("marker", "alias", "lat", "lng")
+
+
+def _location_upsert_pairs(entry: LocationUpsert) -> list[tuple[str, Any]]:
+    """(prop, value) pairs to patch for one upsert entry.
+
+    Only fields PRESENT in the payload are returned (exclude_unset
+    semantics); absent fields keep their stored value and empty alias lists
+    are left untouched (same contract as the PUT diff).
+    """
+    pairs = []
+    for prop in _LOCATION_PATCH_PROPS:
+        if prop not in entry.model_fields_set:
+            continue
+        value = getattr(entry, prop)
+        if value is None:
+            continue
+        if isinstance(value, list) and not value:
+            continue
+        pairs.append((prop, list(value) if isinstance(value, list) else value))
+    return pairs
+
+
+def patch_locations(trip_dtid: str, actor: dict, body: LocationsPatch) -> Trip:
+    """Named upserts only — the safe incremental complement to put_locations.
+
+    Each entry matches by ``id`` when supplied, otherwise by ``name``. Only
+    the supplied fields are patched; locations not mentioned are untouched
+    (no deletes, no edge rebuild — marker order of existing locations never
+    moves). New names are appended to the registry in payload order.
+    Duplicate names (or duplicate ids) in the payload are a 409; an
+    unknown ``id`` is a 404; renaming onto another location's name is a 409.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+
+    entries = body.locations
+    names = [e.name for e in entries]
+    if len(names) != len(set(names)):
+        raise WriteError(409, "Location names must be unique")
+    given_ids = [e.id for e in entries if e.id is not None]
+    if len(given_ids) != len(set(given_ids)):
+        raise WriteError(409, "Location ids must be unique")
+
+    by_id = {
+        t["$dtId"]: t for t in graph.get("twins", []) if _model_kind(t) == "Location"
+    }
+    by_name = {t.get("name"): t for t in by_id.values()}
+    root_at = [
+        r for r in graph.get("relationships", [])
+        if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "atLocation"
+    ]
+    used = [r.get("index") for r in root_at if isinstance(r.get("index"), int)]
+    next_index = (max(used) + 1) if used else 0
+
+    for entry in entries:
+        if entry.id is not None:
+            twin = by_id.get(entry.id)
+            if twin is None:
+                raise WriteError(404, f"Unknown location id {entry.id!r}")
+            if entry.name != twin.get("name") and entry.name in by_name:
+                raise WriteError(409, f"{entry.name!r} is already a location on this trip")
+            ops = _scalar_ops(twin, [("name", entry.name)] if entry.name != twin.get("name") else [])
+            ops += _scalar_ops(twin, _location_upsert_pairs(entry))
+            if ops:
+                client.update_twin_props(trip_dtid, twin["$dtId"], ops, x_user_id=actor["sub"])
+            old_name = twin.get("name")
+            if entry.name != old_name:
+                del by_name[old_name]
+                by_name[entry.name] = twin
+        else:
+            twin = by_name.get(entry.name)
+            if twin is None:
+                lid = _new_id()
+                props: dict[str, Any] = {
+                    "$dtId": lid,
+                    "$metadata": {"$model": LOCATION_MODEL},
+                    "name": entry.name,
+                }
+                for prop, value in _location_upsert_pairs(entry):
+                    props[prop] = value
+                client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+                client.upsert_relationship(
+                    trip_dtid,
+                    {
+                        "$relationshipId": _rel_id(trip_dtid, "atLocation", lid),
+                        "$sourceId": trip_dtid,
+                        "$relationshipName": "atLocation",
+                        "$targetId": lid,
+                        "index": next_index,
+                    },
+                    x_user_id=actor["sub"],
+                )
+                next_index += 1
+                # Keep the in-memory maps in sync so a later entry in the
+                # same payload matching this name patches instead of re-creating.
+                # (Duplicate payload names are a 409 above, so this only
+                # matters for id-matched renames onto a just-created name.)
+                by_name[entry.name] = {"$dtId": lid, "name": entry.name}
+                by_id[lid] = by_name[entry.name]
+            else:
+                ops = _scalar_ops(twin, _location_upsert_pairs(entry))
+                if ops:
+                    client.update_twin_props(trip_dtid, twin["$dtId"], ops, x_user_id=actor["sub"])
 
     client.update_twin_props(
         trip_dtid, trip_dtid,
