@@ -67,6 +67,40 @@ from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
 
+
+class _RawPathTraversalGuard:
+    """Reject encoded traversal before routing (pre-existing test failures).
+
+    Starlette decodes ``%2F`` into a real ``/`` BEFORE route matching, so
+    ``/media/<uuid>/..%2F..%2Fsecret.jpg`` arrives at the SPA catch-all as
+    ``media/<uuid>/../../secret.jpg`` and the catch-all answers with the
+    index shell (200). ``request.url.path`` is already decoded by then, so
+    no in-handler check can see the attack — the guard must run on the raw
+    ASGI ``scope["raw_path"]`` (bytes, still encoded), ahead of routing.
+    Pure ASGI (not BaseHTTPMiddleware) so nothing re-decodes the path.
+    """
+
+    # Raw (still-encoded) markers that never appear in a legitimate request
+    # under these prefixes: encoded slash / backslash / NUL.
+    _ENCODED_MARKERS = (b"%2f", b"%5c", b"%00")
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http":
+            raw = bytes(scope.get("raw_path", b"") or b"").lower()
+            if raw.startswith((b"/media", b"/api/maps/static")) and any(
+                m in raw for m in self._ENCODED_MARKERS
+            ):
+                response = JSONResponse({"detail": "Not Found"}, status_code=404)
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(_RawPathTraversalGuard)
+
 # One render at a time per trip (booklet.pdf). Two concurrent renders double
 # the SwiftShader/WebGL memory and the loser comes out with grey maps.
 _PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
@@ -649,6 +683,18 @@ def maps_key() -> Response:
     raise HTTPException(status_code=404, detail="Removed — the Maps key is server-side only")
 
 
+@app.get("/api/maps/static/{rest:path}", include_in_schema=False)
+def maps_static_gone(rest: str) -> Response:
+    """Gone (#37) — the static Maps proxy was replaced by live MapLibre renders.
+
+    Kept as an explicit 404 (mirroring ``/api/maps/key`` above) so the SPA
+    catch-all never answers the path with a 200 + the index shell, which reads
+    like the deleted endpoint is still here. The path param exists only so
+    ``/api/maps/static/anything`` matches this route before the SPA catch-all.
+    """
+    raise HTTPException(status_code=404, detail="Removed — the static Maps proxy is gone")
+
+
 @app.get("/api/maps/route/{trip_id}")
 def maps_route(
     request: Request,
@@ -775,6 +821,20 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
+        # History-mode fallback ONLY for real SPA routes (App.tsx: "/" +
+        # "/join/:claimToken" + "/t/:tripId/*"). Anything else — a normalized
+        # "/media/../pic.jpg" (-> "/pic.jpg"), a decoded traversal that missed
+        # the media route, a deleted endpoint — must 404, never the index
+        # shell (a 200 shell reads like the path exists and masks 404s).
+        is_spa_route = (
+            full_path == ""
+            or full_path == "t"
+            or full_path.startswith("t/")
+            or full_path == "join"
+            or full_path.startswith("join/")
+        )
+        if not is_spa_route:
+            raise HTTPException(status_code=404, detail="Not Found")
         # SPA shell — trip routes get a noindex robots meta + header (private links)
         is_trip = full_path.startswith("t/") or full_path == "t"
         headers = {}
