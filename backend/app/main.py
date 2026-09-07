@@ -40,6 +40,7 @@ from .write import (
     CrewPatch,
     DayCreate,
     DayPatch,
+    LocationsPatch,
     LocationsPut,
     PracticalPut,
     SectionCreate,
@@ -590,6 +591,24 @@ def put_locations(
     actor: dict = Depends(require_trip_role("editor")),
 ) -> dict:
     trip = _write(write_svc.put_locations, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.patch("/api/trips/{trip_id}/locations")
+def patch_locations(
+    trip_id: str,
+    body: LocationsPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Incremental location edits — named upserts only (never a replace).
+
+    Each entry matches by ``id`` when supplied, otherwise by ``name``; only
+    the supplied fields are patched and unmentioned locations are untouched,
+    so a partial payload can never delete a location the way PUT does. New
+    names are appended to the registry in payload order. Duplicate names in
+    the payload are a 409; an unknown ``id`` is a 404.
+    """
+    trip = _write(write_svc.patch_locations, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])
 
 

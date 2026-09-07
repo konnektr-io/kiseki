@@ -854,3 +854,91 @@ def test_put_locations_reconciles_by_name(client, rsa_keypair, graph) -> None:
         {"name": "A"}, {"name": "A"}
     ]})
     assert r.status_code == 422
+
+
+# ------------------------------------------------------- PATCH /locations
+def test_patch_locations_upserts_by_name_without_touching_others(
+    client, rsa_keypair, graph
+) -> None:
+    """The reorder-pass regression: a PATCH that omits a location must leave
+    it (and its coordinates) intact — only supplied fields on mentioned
+    locations change, new names append."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/locations"
+
+    old_by_name = {loc.name: loc for loc in trip.locations}
+    kept = trip.locations[0].name
+    untouched = trip.locations[1].name
+
+    r = _authz(client, "patch", url, token, json={"locations": [
+        {"name": kept, "lat": 51.2, "lng": -115.5},
+        {"name": "New Place", "alias": ["NP"], "marker": 9},
+    ]})
+    assert r.status_code == 200, r.text
+    locs = r.json()["locations"]
+    # nothing deleted: every old name still present, in its old order, plus
+    # the newcomer appended last
+    assert [l["name"] for l in locs] == [loc.name for loc in trip.locations] + ["New Place"]
+    kept_out = next(l for l in locs if l["name"] == kept)
+    assert kept_out["lat"] == 51.2 and kept_out["lng"] == -115.5
+    # untouched location keeps its stored coordinates
+    left = next(l for l in locs if l["name"] == untouched)
+    assert left["lat"] == old_by_name[untouched].lat
+    assert left["lng"] == old_by_name[untouched].lng
+    new_out = next(l for l in locs if l["name"] == "New Place")
+    assert new_out["alias"] == ["NP"] and new_out["marker"] == 9
+
+
+def test_patch_locations_matches_by_id(client, rsa_keypair, graph) -> None:
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/locations"
+
+    target = trip.locations[0]
+    r = _authz(client, "patch", url, token, json={"locations": [
+        {"id": target.id, "name": target.name, "marker": 7},
+    ]})
+    assert r.status_code == 200, r.text
+    out = next(l for l in r.json()["locations"] if l["id"] == target.id)
+    assert out["marker"] == 7
+    # supplied-field-only: coordinates survive the marker patch
+    assert out["lat"] == target.lat and out["lng"] == target.lng
+
+    # unknown id -> 404
+    r = _authz(client, "patch", url, token, json={"locations": [
+        {"id": "00000000-0000-4000-8000-000000000000", "name": "Ghost"},
+    ]})
+    assert r.status_code == 404
+
+
+def test_patch_locations_rejects_duplicates(client, rsa_keypair, graph) -> None:
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/locations"
+
+    r = _authz(client, "patch", url, token, json={"locations": [
+        {"name": "A"}, {"name": "A"},
+    ]})
+    assert r.status_code == 409
+
+
+def test_patch_locations_acl(client, rsa_keypair, graph) -> None:
+    """PATCH /locations is an editor+ write like PUT: 401 anonymous,
+    403 viewer/follower, 200 editor."""
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}/locations"
+    body = {"locations": [{"name": trip.locations[0].name}]}
+
+    assert client.patch(url, json=body).status_code == 401
+    for low_role in ("viewer", "follower"):
+        g.add_user_role(trip.id, SUB, low_role)
+        low = _token_of(rsa_keypair)
+        assert _authz(client, "patch", url, low, json=body).status_code == 403
+        g.add_user_role(trip.id, SUB, "owner")
+    g.add_user_role(trip.id, SUB, "editor")
+    assert _authz(client, "patch", url, _token_of(rsa_keypair), json=body).status_code == 200
