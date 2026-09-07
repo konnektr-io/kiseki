@@ -274,7 +274,8 @@ writeup; in short:
 2. Verify the tag exists: `gh api "/orgs/konnektr-io/packages/container/kiseki/versions?per_page=5" --jq '.[].metadata.container.tags'`.
 3. In `home-k8s`: edit `konnektr/kiseki/deployment.yaml` image tag (**no `v` prefix** — metadata-action strips it).
 4. `kubectl apply` + `rollout status` (KUBECONFIG = `home-k8s/kubeconfig`).
-5. Verify: `curl -s https://kiseki.konnektr.io/api/health`.
+5. **Post-deploy DTDL check — MANDATORY when the PR diff touched `app/models.py` or `scripts/gen_dtdl.py`** (any property add/rename): run `cd backend && ./scripts/release.sh` (verify → auto-reload on drift → re-verify; read-only when in sync) BEFORE any live write or smoke that touches the new property. Symptom if skipped: the first live write 500s with `Property '<name>' is not defined in the model` (GraphWriteError) while pytest stays green — code and graph models deploy independently. See `docs/post-deploy-dtdl-check.md`.
+6. Verify: `curl -s https://kiseki.konnektr.io/api/health`.
 
 ## Notes for coding agents
 
