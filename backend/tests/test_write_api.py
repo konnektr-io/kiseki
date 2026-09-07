@@ -109,6 +109,7 @@ def test_write_requires_graph_role(client, rsa_keypair) -> None:
     ("put", "/practical", {"todos": [], "links": [], "notes": "n", "contacts": []}),
     ("post", "/practical/todos", {"label": "Book lift passes"}),
     ("put", "/days/DAY", {"title": "New day title"}),
+    ("post", "/days", {"index": 0, "date": "2027-02-14"}),
     ("put", "/sections/SEC", {"title": "New section title"}),
     ("post", "/blocks", {"kind": "note", "title": "n", "container": {"type": "day", "id": "DAY"}}),
     ("put", "/blocks/BLK", {"title": "edited"}),
