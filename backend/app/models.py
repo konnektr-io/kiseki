@@ -105,6 +105,7 @@ class Block(BaseModel):
     mode: Optional[str] = Field(default=None, description="Explicit transport mode: flight | drive | train | ferry (beats the heuristic).")
     location: Optional[str] = Field(default=None, description="Place name/alias → auto Google Maps link + map thumbnail.")
     mapsQuery: Optional[str] = Field(default=None, description="Precise query for the ACTUAL place (hotel/restaurant) — overrides `location` for the link + thumbnail pin.")
+    googlePlaceId: Optional[str] = Field(default=None, description="Google place_id for THE specific venue (hotel/restaurant, not just the town) — preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch). Indefinitely cacheable per the #15/#95 storage rule.")
     images: list[str] = Field(default_factory=list, description="Card media strip — bare media filenames, served by the API at /media/<trip_id>/<file>.")
 
 
@@ -191,7 +192,13 @@ class Contact(BaseModel):
 class Location(BaseModel):
     """A place on the trip — the source for loop markers AND future map
     generation. Marker number = position in trip.locations (1-based) unless
-    `marker` is set explicitly."""
+    `marker` is set explicitly.
+
+    Durable place metadata (issues #15/#95): only `placeId` may be persisted
+    indefinitely; `lat`/`lng` for ≤30 days of routing use; photos/reviews are
+    NEVER stored. `rating` follows the same ≤30-day rule — the read path
+    strips it once the trip's `updated` is older than 30 days. `summary` is
+    the agent's own editorial content (markdown OK), never Google text."""
 
     id: str = Field(..., description="Opaque unique id (GUID), stored in trip.json. Used verbatim as the twin $dtId. Re-seed replaces by id (no drift).")
     name: str = Field(..., description="Place name (the canonical key).")
@@ -199,6 +206,15 @@ class Location(BaseModel):
     alias: list[str] = Field(default_factory=list, description="Alternate names that resolve to this location, e.g. 'Hillcrest' → Revelstoke.")
     lat: Optional[float] = Field(default=None, description="Latitude (enables map generation).")
     lng: Optional[float] = Field(default=None, description="Longitude (enables map generation).")
+    placeId: Optional[str] = Field(default=None, description="Google place_id — the only third-party place key that may be persisted indefinitely (#15 storage rule). Drives the keyless Google Maps deep link.")
+    address: Optional[str] = Field(default=None, description="Formatted display address, e.g. '1-1 Niseko Hirafu…'.")
+    website: Optional[str] = Field(default=None, description="Official website URL of the place.")
+    phone: Optional[str] = Field(default=None, description="Phone in international format, e.g. '+81 136-21-1234'.")
+    openingHours: Optional[list[str]] = Field(default=None, description="Weekday opening-hours lines, e.g. 'Monday: 09:00–17:00'.")
+    types: Optional[list[str]] = Field(default=None, description="Place types, e.g. ['ski_resort', 'lodging', 'restaurant'].")
+    wheelchairAccessible: Optional[bool] = Field(default=None, description="Whether the place is wheelchair accessible.")
+    rating: Optional[float] = Field(default=None, description="Google rating snapshot — NOT stored long-term. The read path strips it once the trip's `updated` is older than 30 days (≤30-day retention, #15 rule).")
+    summary: Optional[str] = Field(default=None, description="Editorial summary of the place (markdown OK). The agent's own content — never Google review/summary text.")
 
 
 class Person(BaseModel):

@@ -57,6 +57,9 @@ export interface Block {
   mode?: "flight" | "drive" | "train" | "ferry";
   location?: string;
   mapsQuery?: string;
+  /** Google place_id for THE specific venue — preferred deep-link key for the
+   *  Google Maps link (keyless URL form; indefinitely cacheable, #15 rule). */
+  googlePlaceId?: string;
   images?: string[];
 }
 
@@ -78,6 +81,20 @@ export interface TripLocation {
   alias?: string[];
   lat?: number;
   lng?: number;
+  /** Google place_id — the only third-party place key persisted indefinitely
+   *  (#15 storage rule). Drives the keyless Google Maps deep link. */
+  placeId?: string;
+  address?: string;
+  website?: string;
+  phone?: string;
+  openingHours?: string[];
+  types?: string[];
+  wheelchairAccessible?: boolean;
+  /** Google rating snapshot — short-lived (≤30 days). The server strips it
+   *  once the trip's `updated` is older than 30 days. */
+  rating?: number;
+  /** Editorial summary (the agent's own content, never Google text). */
+  summary?: string;
 }
 
 export interface FeatureCard {

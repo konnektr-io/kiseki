@@ -233,6 +233,13 @@
       },
       {
         "@type": "Property",
+        "name": "googlePlaceId",
+        "schema": "string",
+        "writable": true,
+        "description": "Google place_id for THE specific venue (hotel/restaurant, not just the town) — preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch). Indefinitely cacheable per the #15/#95 storage rule."
+      },
+      {
+        "@type": "Property",
         "name": "images",
         "schema": {
           "@type": "Array",
@@ -553,6 +560,75 @@
         "schema": "double",
         "writable": true,
         "description": "Longitude (enables map generation)."
+      },
+      {
+        "@type": "Property",
+        "name": "placeId",
+        "schema": "string",
+        "writable": true,
+        "description": "Google place_id — the only third-party place key that may be persisted indefinitely (#15 storage rule). Drives the keyless Google Maps deep link."
+      },
+      {
+        "@type": "Property",
+        "name": "address",
+        "schema": "string",
+        "writable": true,
+        "description": "Formatted display address, e.g. '1-1 Niseko Hirafu…'."
+      },
+      {
+        "@type": "Property",
+        "name": "website",
+        "schema": "string",
+        "writable": true,
+        "description": "Official website URL of the place."
+      },
+      {
+        "@type": "Property",
+        "name": "phone",
+        "schema": "string",
+        "writable": true,
+        "description": "Phone in international format, e.g. '+81 136-21-1234'."
+      },
+      {
+        "@type": "Property",
+        "name": "openingHours",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true,
+        "description": "Weekday opening-hours lines, e.g. 'Monday: 09:00–17:00'."
+      },
+      {
+        "@type": "Property",
+        "name": "types",
+        "schema": {
+          "@type": "Array",
+          "elementSchema": "string"
+        },
+        "writable": true,
+        "description": "Place types, e.g. ['ski_resort', 'lodging', 'restaurant']."
+      },
+      {
+        "@type": "Property",
+        "name": "wheelchairAccessible",
+        "schema": "boolean",
+        "writable": true,
+        "description": "Whether the place is wheelchair accessible."
+      },
+      {
+        "@type": "Property",
+        "name": "rating",
+        "schema": "double",
+        "writable": true,
+        "description": "Google rating snapshot — NOT stored long-term. The read path strips it once the trip's `updated` is older than 30 days (≤30-day retention, #15 rule)."
+      },
+      {
+        "@type": "Property",
+        "name": "summary",
+        "schema": "string",
+        "writable": true,
+        "description": "Editorial summary of the place (markdown OK). The agent's own content — never Google review/summary text."
       }
     ],
     "description": "A place on the trip — the source for loop markers AND future map"

@@ -371,6 +371,28 @@ def test_update_block_fields_and_kind_rules(client, rsa_keypair, graph) -> None:
     assert r.status_code == 422
 
 
+def test_put_block_accepts_google_place_id(client, rsa_keypair, graph) -> None:
+    """#15/#95 wiring: a block can pin THE venue (not just the town) via
+    `googlePlaceId` — stored leniently, returned verbatim for the deep link."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    block = trip.days[0].blocks[0]
+    url = f"/api/trips/{trip.id}/blocks/{block.id}"
+
+    r = _authz(client, "put", url, token,
+               json={"googlePlaceId": "ChIJN1t_tDeuEmsRUsoyG83frY4"})
+    assert r.status_code == 200
+    day = next(d for d in r.json()["days"]
+               if any(b["id"] == block.id for b in d["blocks"]))
+    edited = next(b for b in day["blocks"] if b["id"] == block.id)
+    assert edited["googlePlaceId"] == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+    # persisted on the twin, not just echoed
+    got = _trip_of(g)
+    stored = next(b for d in got.days for b in d.blocks if b.id == block.id)
+    assert stored.googlePlaceId == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+
+
 def test_concurrent_block_edits_do_not_clobber(client, rsa_keypair, graph) -> None:
     """#46 acceptance: two crew editing DIFFERENT blocks of one day keep both
     edits (per-twin writes; the day is never replaced as a whole)."""
@@ -803,7 +825,12 @@ def test_put_locations_reconciles_by_name(client, rsa_keypair, graph) -> None:
     body = {
         "locations": [
             {"name": kept, "lat": 51.2, "lng": -115.5},          # kept + coords
-            {"name": "New Place", "alias": ["NP"], "marker": 9},  # brand new
+            {"name": "New Place", "alias": ["NP"], "marker": 9,  # brand new
+             "placeId": "ChIJN1t_tDeuEmsRUsoyG83frY4",
+             "website": "https://example.test/new-place",
+             "phone": "+81 136-21-1234",
+             "types": ["lodging"],
+             "rating": 4.8},
         ]
     }
     r = _authz(client, "put", url, token, json=body)
@@ -814,6 +841,13 @@ def test_put_locations_reconciles_by_name(client, rsa_keypair, graph) -> None:
     assert kept_out["lat"] == 51.2 and kept_out["lng"] == -115.5
     new_out = next(l for l in locs if l["name"] == "New Place")
     assert new_out["alias"] == ["NP"] and new_out["marker"] == 9
+    # durable place metadata (#15/#95) round-trips through the write path
+    assert new_out["placeId"] == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+    assert new_out["website"] == "https://example.test/new-place"
+    assert new_out["phone"] == "+81 136-21-1234"
+    assert new_out["types"] == ["lodging"]
+    # the write re-stamps `updated`, so the short-lived rating is still fresh
+    assert new_out["rating"] == 4.8
     assert dropped not in [l["name"] for l in locs]
     # duplicate names -> 422
     r = _authz(client, "put", url, token, json={"locations": [
