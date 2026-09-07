@@ -2,6 +2,7 @@ import { useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { useTrip } from "./theme";
 import { MapView, TripMap } from "./MapView";
 import { findLocation, markerNumber } from "../lib/maps";
+import { gmapsSearchUrl } from "../lib/gmaps";
 import {
   BedDouble,
   Car,
@@ -108,14 +109,15 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
   );
 }
 
-/** Auto Google Maps link for a place — precise query when given (mapsQuery),
+/** Auto Google Maps link for a place — the venue's `googlePlaceId` wins when
+ *  set (keyless deep link, #15/#95), else the precise query (`mapsQuery`),
  *  else the location name/alias. */
 function mapsLink(b: Block) {
-  const q = b.mapsQuery || b.location;
-  if (!q) return null;
+  const q = b.mapsQuery || b.location || b.title || "";
+  if (!q && !b.googlePlaceId) return null;
   return {
     label: "Google Maps",
-    url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`,
+    url: gmapsSearchUrl(q, { placeId: b.googlePlaceId, query: b.mapsQuery }),
   };
 }
 
