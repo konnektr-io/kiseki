@@ -15,16 +15,21 @@
  *   round pin); the matching letter is stamped on the block card, and card ↔
  *   chip are interactive both ways.
  *
- * Transport: drive/train legs draw as polylines between the block's resolved
- * endpoints. Flights and ferries draw NOTHING — endpoint pins only; the card's
- * plane/ship chip carries the mode (#90: "flights as endpoint markers only —
- * no arc"). A drive leg's state comes from its own block (`status`), falling
- * back to the trip stage exactly as `legStage` does for chain legs.
+ * Transport: every transport block with BOTH endpoints on the registry
+ * draws a leg between them. Drive/train (and unclassified — the historical
+ * car default, #88) legs draw as route polylines; flight and ferry legs draw
+ * as a dashed straight (great-circle) line and must never be road-routed —
+ * each leg carries the block's declared `mode` so the renderer can skip the
+ * road query for them, exactly as the scan level's `legModes` does. A block
+ * with only one resolved endpoint (an off-registry gateway like BRU) marks
+ * just that end; the card's plane/ship chip still carries the mode (#90).
+ * A leg's state comes from its own block (`status`), falling back to the
+ * trip stage exactly as `legStage` does for chain legs.
  */
 
 import { findLocation } from "./maps";
 import { blockEndpoints, stageToLegStage, type LegStage } from "./route-surface";
-import { classifyTransportMode } from "./transport";
+import { classifyTransportMode, type TransportMode } from "./transport";
 import type { Block, Trip, TripLocation } from "./types";
 
 /** Blocks that happen AT a place and therefore earn a letter chip. Transport
@@ -56,12 +61,16 @@ export interface DayLeg {
   to: TripLocation;
   block: Block;
   stage: LegStage;
+  /** The block's declared mode — flight/ferry legs skip the road query and
+   *  draw as a dashed straight (great-circle) line, never a car route. */
+  mode?: TransportMode;
 }
 
 export interface DaySurface {
   /** Numbered pins + letter chips, in day order (pins appear where first touched). */
   markers: DayMarker[];
-  /** Drive/train legs to draw; flights/ferries stay out (endpoints only). */
+  /** Legs to draw — road legs as route polylines, flight/ferry legs as
+   *  dashed straight lines between their resolved endpoints. */
   legs: DayLeg[];
   /** Places a transport block travels between — keep their pins visible even
    *  on a pure travel day with no letter chips at all. */
@@ -116,19 +125,21 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
       );
       if (resolved.length) {
         const mode = classifyTransportMode(b);
-        // A leg needs both ends on the registry. An UNCLASSIFIED transport
-        // block travels like the historical default — a car (#88): it draws
-        // the same leg a chain drive would. Only an explicit flight/ferry is
-        // endpoint-only, never an arc (#90).
-        const roadLike = mode === undefined || mode === "drive" || mode === "train";
+        // A leg needs both ends on the registry with coordinates. An
+        // UNCLASSIFIED transport block travels like the historical default —
+        // a car (#88): it draws the same leg a chain drive would. Flight and
+        // ferry blocks join the legs too, carrying their mode so the renderer
+        // skips the road query and draws a dashed straight line between the
+        // resolved endpoints instead of a car route (#90 follow-up).
         if (
-          roadLike &&
           from &&
           to &&
           from.lat != null &&
-          to.lat != null
+          from.lng != null &&
+          to.lat != null &&
+          to.lng != null
         ) {
-          legs.push({ from, to, block: b, stage: blockLegStage(trip, b) });
+          legs.push({ from, to, block: b, stage: blockLegStage(trip, b), mode });
         }
         // One-sided tolerance: a flight gateway (BRU → YYC with Brussels off
         // the registry) still marks the end it DID resolve (#90 endpoint

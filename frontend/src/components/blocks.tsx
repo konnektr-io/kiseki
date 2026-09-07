@@ -1,7 +1,7 @@
 import { useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { useTrip } from "./theme";
 import { MapView, TripMap } from "./MapView";
-import { findLocation } from "../lib/maps";
+import { findLocation, markerNumber } from "../lib/maps";
 import {
   BedDouble,
   Car,
@@ -206,12 +206,14 @@ function TimeChip({ time }: { time?: string }) {
 
 /* ---------- per-kind renderers ---------- */
 
-const CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩", "⑪", "⑫", "⑬", "⑭", "⑮", "⑯", "⑰", "⑱", "⑲", "⑳"];
-
 /**
  * Location markers derived from trip.locations — marker number = position in the
  * array (or the explicit `marker` field). The same location data feeds the future
  * map generation / Google Maps embed, so markers never need hardcoding per trip.
+ *
+ * #109: renders the REDESIGNED pill (plain number in a --map-marker circle,
+ * same shape/colour as the location pills in the itinerary) — the old ①-style
+ * circled glyph is retired. No live callers left; kept for compatibility.
  */
 export function useLocationMarkers() {
   const trip = useTrip();
@@ -226,7 +228,7 @@ export function useLocationMarkers() {
   }, [trip.locations]);
   return (place: string) => {
     const n = map.get(place.toLowerCase());
-    return n != null ? (CIRCLED[n - 1] ?? `(${n})`) : "•";
+    return n != null ? String(n) : "•";
   };
 }
 
@@ -239,7 +241,7 @@ function TransportBlock({
   letter?: string;
   cardProps?: BlockCardProps;
 }) {
-  const marker = useLocationMarkers();
+  const trip = useTrip();
   // classify via the shared classifier (lib/transport) — explicit `mode` beats
   // the heuristic; both this card and the summary glyphs derive from it, so a
   // block carries the same transport identity on every surface (issue #88)
@@ -353,7 +355,28 @@ function TransportBlock({
               rel="noreferrer"
               className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
             >
-              <ExternalLink className="h-3 w-3" /> {marker(b.from)} {b.from} → {marker(b.to)} {b.to} — directions
+              <ExternalLink className="h-3 w-3" />
+              {(() => {
+                const from = findLocation(trip, b.from);
+                const to = findLocation(trip, b.to);
+                const pill = (loc?: ReturnType<typeof findLocation>) =>
+                  loc ? (
+                    <span
+                      aria-hidden
+                      className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker align-[-2px] text-[10px] font-bold leading-none text-marker-fg"
+                    >
+                      {markerNumber(trip, loc)}
+                    </span>
+                  ) : (
+                    <span aria-hidden className="text-white/50">•</span>
+                  );
+                return (
+                  <>
+                    {pill(from)} <span className="ml-1">{b.from}</span> → {pill(to)}{" "}
+                    <span className="ml-1">{b.to}</span> — directions
+                  </>
+                );
+              })()}
             </a>
           )}
           {b.links?.length ? (
