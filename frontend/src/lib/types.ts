@@ -143,6 +143,9 @@ export interface Person {
   role: Role;
   note?: string;
   contact?: string;
+  /** True when this crew entry is a claimed User (has an account), False for
+   *  an unclaimed placeholder Person — drives the invite affordance. */
+  claimed?: boolean;
 }
 
 export interface TripSummary {

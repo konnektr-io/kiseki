@@ -1,4 +1,5 @@
-import { ExternalLink, ListChecks, Phone, Users } from "lucide-react";
+import { ExternalLink, ListChecks, Phone, Users, ArrowRight } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
 import { TricountPanel } from "../components/TricountPanel";
@@ -9,6 +10,7 @@ import { useTripWrite } from "../lib/useTripWrite";
 
 export function PracticalsPage() {
   const trip = useTrip();
+  const { tripId } = useParams();
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const { busy, error, run } = useTripWrite();
   const todos = trip.practical.todos ?? [];
@@ -123,7 +125,15 @@ export function PracticalsPage() {
 
       {trip.crew.length > 0 && (
         <Card className="p-5">
-          <p className="kicker mb-3">Group</p>
+          <div className="mb-3 flex items-center justify-between">
+            <p className="kicker">Group</p>
+            <Link
+              to={`/t/${tripId}/crew`}
+              className="no-print inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+            >
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
           <ul className="space-y-3">
             {trip.crew.map((p) => (
               <li key={p.name} className="flex items-start gap-3">
