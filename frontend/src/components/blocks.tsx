@@ -353,27 +353,45 @@ function TransportBlock({
               href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.from)}&destination=${encodeURIComponent(b.to)}&travelmode=driving`}
               target="_blank"
               rel="noreferrer"
-              className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+              className="mt-2.5 inline-flex w-full max-w-full items-center gap-1.5 rounded-full bg-white/15 py-1 pl-2 pr-2.5 text-xs font-medium hover:bg-white/25"
             >
-              <ExternalLink className="h-3 w-3" />
+              <ExternalLink className="h-3 w-3 shrink-0" />
               {(() => {
                 const from = findLocation(trip, b.from);
                 const to = findLocation(trip, b.to);
+                // Pill row + a trailing "directions" tag. Each name is in a
+                // min-w-0 truncate so a long place ("Santiago Airport") can
+                // never push the trailing tag onto its own line — the row
+                // flexes to fit, the names ellipsize, "directions" stays put.
                 const pill = (loc?: ReturnType<typeof findLocation>) =>
                   loc ? (
                     <span
                       aria-hidden
-                      className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker align-[-2px] text-[10px] font-bold leading-none text-marker-fg"
+                      className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker text-[10px] font-bold leading-none text-marker-fg"
                     >
                       {markerNumber(trip, loc)}
                     </span>
                   ) : (
-                    <span aria-hidden className="text-white/50">•</span>
+                    <span aria-hidden className="shrink-0 text-white/50">•</span>
                   );
+                const Place = ({
+                  name,
+                  loc,
+                }: {
+                  name: string;
+                  loc?: ReturnType<typeof findLocation>;
+                }) => (
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    {pill(loc)}
+                    <span className="truncate">{name}</span>
+                  </span>
+                );
                 return (
                   <>
-                    {pill(from)} <span className="ml-1">{b.from}</span> → {pill(to)}{" "}
-                    <span className="ml-1">{b.to}</span> — directions
+                    <Place name={b.from} loc={from} />
+                    <span className="shrink-0 opacity-70">→</span>
+                    <Place name={b.to} loc={to} />
+                    <span className="ml-auto shrink-0 pl-2 text-white/70">directions</span>
                   </>
                 );
               })()}
