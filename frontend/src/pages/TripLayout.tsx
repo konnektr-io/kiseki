@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
@@ -81,7 +81,6 @@ const PDF_RENDER = typeof window !== "undefined" && window.__KISEKI_PDF_RENDER__
 export function TripLayout() {
   const { tripId = "" } = useParams();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
@@ -96,6 +95,17 @@ export function TripLayout() {
   // change (slow + hammering the graph).
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
+  // Same latest-ref trick for the two callbacks the fetch effect reads:
+  // `getAccessTokenSilently` and `useNavigate` can both receive a fresh
+  // identity on route transitions (auth0-react re-creates the context value;
+  // the router hands out a new navigate fn per location), and keeping them in
+  // the dep array re-ran the WHOLE trip fetch on every day→day navigation.
+  // setTrip(null) mid-navigation then swapped the route subtree for the
+  // loading screen and back — remounting TripMapSurface, rebuilding the map,
+  // and resetting the sheet detent (full → half) on every day change (v0.23.x
+  // mobile regression: the sheet collapsed while walking day nav).
+  const getTokenRef = useRef(getAccessTokenSilently);
+  getTokenRef.current = getAccessTokenSilently;
 
   usePageTitle(trip?.title ?? null);
 
@@ -143,7 +153,7 @@ export function TripLayout() {
         let at: string | undefined;
         if (isAuthenticated) {
           try {
-            at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getAccessTokenSilently());
+            at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getTokenRef.current());
           } catch {
             // Session expired or renewal blocked (third-party cookies). A
             // public trip still reads anonymously; a private one falls through
@@ -169,7 +179,7 @@ export function TripLayout() {
     return () => {
       cancelled = true;
     };
-  }, [tripId, authReady, isAuthenticated, getAccessTokenSilently, navigate]);
+  }, [tripId, authReady, isAuthenticated]);
 
   // Expose the app chrome's live heights as --kiseki-header-h /
   // --kiseki-nav-h. The sticky itinerary chapter headers dock below the

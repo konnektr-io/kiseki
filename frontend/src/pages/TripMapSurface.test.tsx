@@ -38,7 +38,7 @@ vi.mock("../components/SplitView", () => ({
     createElement("div", null, header, content),
 }));
 
-import { scrollToPlacePill, togglePlaceSelection, TripMapSurface } from "./TripMapSurface";
+import { scrollToPlacePill, scrollWithinScroller, togglePlaceSelection, TripMapSurface } from "./TripMapSurface";
 import { TripProvider } from "../components/theme";
 import type { Trip, TripLocation } from "../lib/types";
 
@@ -190,5 +190,98 @@ describe("scrollToPlacePill", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+});
+
+describe("scrollWithinScroller", () => {
+  /** A fake DOM tree: scroller[data-scroll-root] → list → el, with enough
+   *  geometry for the helper to compute a scroll target. jsdom getBoundingClientRect
+   *  returns all-zero rects by default, so every rect is a plain object. */
+  function fakeTree(opts: {
+    scrollTop?: number;
+    scrollerH?: number;
+    elTop?: number; // element top relative to scroller's viewport top
+    elH?: number;
+    noScrollRoot?: boolean;
+  }) {
+    const calls: { scrollTo?: unknown[]; scrollIntoView?: unknown[] } = {};
+    const scrollTop = opts.scrollTop ?? 0;
+    const scrollerH = opts.scrollerH ?? 500;
+    const elH = opts.elH ?? 80;
+    const sRect = { top: 100, height: scrollerH };
+    // Element top in VIEWPORT coords: scroller viewport top + rel position.
+    const eRect = { top: sRect.top + (opts.elTop ?? 0), height: elH };
+    const el = {
+      closest: (_sel: string) => (opts.noScrollRoot ? null : scroller),
+      getBoundingClientRect: () => eRect,
+      scrollIntoView: (...a: unknown[]) => void (calls.scrollIntoView ??= []).push(a),
+    } as unknown as HTMLElement;
+    const scroller = {
+      scrollTop,
+      getBoundingClientRect: () => sRect,
+      scrollTo: (...a: unknown[]) => void (calls.scrollTo ??= []).push(a),
+    } as unknown as HTMLElement;
+    return { el, scroller, calls };
+  }
+
+  it("centers the element via the scroller only — never scrollIntoView", () => {
+    // relTop = 700-100+0 = 600; center = 600 - (500-80)/2 = 390.
+    const { el, calls } = fakeTree({ elTop: 600 });
+    scrollWithinScroller(el, "center", "smooth");
+    expect(calls.scrollTo).toHaveLength(1);
+    expect(calls.scrollTo![0]).toEqual([{ top: 390, behavior: "smooth" }]);
+    expect(calls.scrollIntoView).toBeUndefined();
+  });
+
+  it("center with auto behavior writes scrollTop directly on the scroller", () => {
+    // relTop = 20; center target = 20 - 210 = -190 (browsers clamp negatives —
+    // the point here is the WRITE goes to the scroller, nothing else moves).
+    const { el, scroller, calls } = fakeTree({ elTop: 20 });
+    scrollWithinScroller(el, "center", "auto");
+    expect(scroller.scrollTop).toBe(-190);
+    expect(calls.scrollTo).toBeUndefined();
+    expect(calls.scrollIntoView).toBeUndefined();
+  });
+
+  it("nearest: no-ops when the element is already fully visible", () => {
+    // relTop = 100-100+50 = 50; visible box [58, 542] → 50 < 58 → actually
+    // above the pad, so use a clearly-inside position instead.
+    const { el, scroller, calls } = fakeTree({ elTop: 200, scrollTop: 50, scrollerH: 500, elH: 80 });
+    scrollWithinScroller(el, "nearest", "auto");
+    // relTop = 150; box [58, 542]; 150+80=230 < 542 → no scroll.
+    expect(scroller.scrollTop).toBe(50);
+    expect(calls.scrollTo).toBeUndefined();
+    expect(calls.scrollIntoView).toBeUndefined();
+  });
+
+  it("nearest: scrolls up to the top pad when the element is above the viewport", () => {
+    // elTop = -30 → eRect.top = 70 → relTop = 70-100+120 = 90, above the
+    // visible box [120, 620] → target = 90-8 = 82.
+    const { el, scroller, calls } = fakeTree({ elTop: -30, scrollTop: 120 });
+    scrollWithinScroller(el, "nearest", "auto");
+    expect(scroller.scrollTop).toBe(82);
+    expect(calls.scrollTo).toBeUndefined();
+    expect(calls.scrollIntoView).toBeUndefined();
+  });
+
+  it("falls back to scrollIntoView when no [data-scroll-root] ancestor exists", () => {
+    const { el, calls } = fakeTree({ noScrollRoot: true });
+    scrollWithinScroller(el, "center", "auto");
+    expect(calls.scrollIntoView).toHaveLength(1);
+    expect(calls.scrollIntoView![0]).toEqual([{ block: "center", behavior: "auto" }]);
+  });
+
+  it("keeps the pill tests' contract: scrollToPlacePill still scrolls its pill", () => {
+    // The pill path now routes through scrollWithinScroller → with no
+    // [data-scroll-root] in the fake, it lands on the same scrollIntoView
+    // fallback with identical args as before the refactor.
+    vi.useFakeTimers();
+    try {
+      const { pills, root } = fakeRoot(["Lake Louise"]);
+      expect(scrollToPlacePill(root as never, "Lake Louise")).toBe(true);
+      expect(pills[0].calls[0]).toEqual([{ block: "nearest", behavior: "smooth" }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
