@@ -52,7 +52,7 @@ from .write import (
     WriteError,
 )
 from .maps import resolve_places, route_legs
-from .here import get_here_token
+from .here import get_here_token, route_leg_v8
 from .media import (
     get_media_store,
     is_valid_media_path,
@@ -787,6 +787,56 @@ def maps_route(
     # chip labelled "live" should not be quarter-hour-old.
     _route_cache[cache_key] = (now + _ROUTE_TTL, legs)
     return {"legs": legs}
+
+
+# Live drive time for drive cards (card polish): HERE-backed, key server-side.
+# The browser never sees the HERE key — it passes a lat/lng pair (the
+# frontend already holds registry coordinates) and gets back formatted
+# summary text in the same strings the map legs serve. Short-TTL cache;
+# any HERE error/timeout answers {"available": false} (HTTP 200) so the
+# card silently keeps its static values.
+_directions_cache: dict[tuple[float, float, float, float], tuple[float, dict]] = {}
+_DIRECTIONS_TTL = 600.0
+
+
+@app.get("/api/maps/directions")
+def maps_directions(
+    request: Request,
+    from_lat: float = Query(..., ge=-90.0, le=90.0, alias="fromLat"),
+    from_lng: float = Query(..., ge=-180.0, le=180.0, alias="fromLng"),
+    to_lat: float = Query(..., ge=-90.0, le=90.0, alias="toLat"),
+    to_lng: float = Query(..., ge=-180.0, le=180.0, alias="toLng"),
+) -> dict:
+    """Live drive time + distance between two coordinates (#live-drive-time).
+
+    Thin wrapper over one HERE Routing v8 leg (``route_leg_v8``) — same
+    bearer-token plumbing and same duration/distance strings as
+    ``/api/maps/route``. Trip-agnostic on purpose: the caller already
+    resolved its places to coordinates, so no trip lookup is needed.
+    """
+    _rate_limit(request, "directions", 60)
+    key = (round(from_lat, 5), round(from_lng, 5), round(to_lat, 5), round(to_lng, 5))
+    now = time.monotonic()
+    hit = _directions_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    token = here_bearer_token()
+    if token:
+        try:
+            leg = route_leg_v8(("from", from_lat, from_lng), ("to", to_lat, to_lng), token, timeout=5)
+        except Exception:
+            leg = None
+        if leg and (leg.get("duration") or leg.get("distance")):
+            body: dict = {"available": True}
+            if leg.get("duration"):
+                body["durationText"] = leg["duration"]
+            if leg.get("distance"):
+                body["distanceText"] = leg["distance"]
+            if len(_directions_cache) > 512:
+                _directions_cache.clear()
+            _directions_cache[key] = (now + _DIRECTIONS_TTL, body)
+            return body
+    return {"available": False}
 
 
 # Trip media (covers, gallery images) — referenced as /media/<trip_id>/<file>.

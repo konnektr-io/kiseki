@@ -181,6 +181,7 @@ def route_leg_v8(
     token: str,
     *,
     transport_mode: str = "car",
+    timeout: int = 10,
 ) -> dict | None:
     """One HERE Routing v8 leg: decoded geometry + live duration/distance.
 
@@ -211,7 +212,7 @@ def route_leg_v8(
         url, headers={"Authorization": f"Bearer {token}"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.load(resp)
     except Exception:
         return None

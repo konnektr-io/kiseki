@@ -91,8 +91,11 @@ describe("DayBlocks editor mode keeps the map-surface card wiring (#104)", () =>
 /* Registry placeId wins on block Maps links + PlaceFacts render on day-view
  * cards (#place-facts): a block whose `location` (or title, via the #104
  * matcher) resolves to a registry place deep-links with that place's
- * place_id and carries the place facts below its links row — unless the
- * block pins its own googlePlaceId, which always wins.
+ * place_id and carries the place facts above its own prose — and since the
+ * card-polish pass the links-row Maps pill is SUPPRESSED when the block
+ * resolves (PlaceFacts owns the canonical deep link), so exactly ONE
+ * "Open in Google Maps" anchor renders per card. Unresolved blocks keep
+ * their own mapsQuery/googlePlaceId fallback pill.
  *
  * Pitfall 16: DayBlocks routes editors through EditableBlockList and viewers
  * through the plain list — both must render the same links + facts. */
@@ -137,21 +140,39 @@ describe("block Maps links resolve the registry place", () => {
   } as unknown as Block;
 
   it.each([true, false])(
-    "uses the registry place_id + renders facts (editable: %s)",
+    "uses the registry place_id + renders facts, with exactly ONE Maps anchor (editable: %s)",
     (editable) => {
       const html = renderWithPlaces(
         [located],
         editable ? { editable: true, containerId: "day-1" } : {},
       );
-      // The block's own Maps pill deep-links with the registry place_id …
+      // The links-row Maps pill is suppressed once the block resolves —
+      // PlaceFacts owns the canonical place_id deep link …
+      expect(html).not.toContain(">Google Maps<");
+      expect(html.match(/Open in Google Maps/g) ?? []).toHaveLength(1);
       expect(html).toContain("query_place_id");
       expect(html).toContain("REGISTRY-PLACE-ID");
-      // … and the place facts render below the links row.
-      expect(html).toContain("Open in Google Maps");
+      // … and the place facts render above the block's own prose.
       expect(html).toContain("123 Mountain Ave, Banff AB");
       expect(html).toContain("<strong>powder</strong>");
     },
   );
+
+  it("renders PlaceFacts above the block description (registry content first)", () => {
+    const html = renderWithPlaces([
+      {
+        id: "b10n",
+        kind: "activity",
+        title: "Ski day",
+        location: "Banff",
+        description: "My own **note** on the day.",
+        order: 0,
+      } as unknown as Block,
+    ]);
+    expect(html).toContain("Open in Google Maps");
+    expect(html).toContain("<strong>note</strong>");
+    expect(html.indexOf("Open in Google Maps")).toBeLessThan(html.indexOf("<strong>note</strong>"));
+  });
 
   it("keeps the query-only fallback when nothing resolves", () => {
     const html = renderWithPlaces([
@@ -176,7 +197,7 @@ describe("block Maps links resolve the registry place", () => {
     expect(html).toContain("123 Mountain Ave, Banff AB");
   });
 
-  it("prefers the block's own googlePlaceId over the registry place", () => {
+  it("suppresses the links-row Maps pill when the block resolves, even with its own googlePlaceId", () => {
     const html = renderWithPlaces([
       {
         id: "b13",
@@ -187,12 +208,33 @@ describe("block Maps links resolve the registry place", () => {
         order: 0,
       } as unknown as Block,
     ]);
-    // The block's own Maps pill deep-links with its pinned venue id …
-    expect(html).toContain("query_place_id=OWN-PLACE-ID");
+    // The resolved registry place owns the card's Maps anchor — the block's
+    // own pinned venue id no longer gets a second pill …
+    expect(html).not.toContain("OWN-PLACE-ID");
+    expect(html).not.toContain(">Google Maps<");
     // … while the resolved registry place's own facts button keeps the
     // registry id (it links the place, not the block's venue).
+    expect(html.match(/Open in Google Maps/g) ?? []).toHaveLength(1);
     expect(html).toContain("query_place_id=REGISTRY-PLACE-ID");
     expect(html).toContain("123 Mountain Ave, Banff AB");
+  });
+
+  it("keeps the block's own googlePlaceId fallback when nothing resolves", () => {
+    const html = renderWithPlaces([
+      {
+        id: "b13b",
+        kind: "activity",
+        title: "Ski day",
+        location: "Nowhereville",
+        googlePlaceId: "OWN-PLACE-ID",
+        order: 0,
+      } as unknown as Block,
+    ]);
+    // No registry match — the links-row pill stays, deep-linking the pinned venue …
+    expect(html).toContain(">Google Maps<");
+    expect(html).toContain("query_place_id=OWN-PLACE-ID");
+    // … and no PlaceFacts button renders (nothing resolved).
+    expect(html).not.toContain("Open in Google Maps");
   });
 
   it("passes place ids on the drive-card directions link when both ends resolve", () => {
@@ -213,6 +255,31 @@ describe("block Maps links resolve the registry place", () => {
     // The human-readable queries stay alongside the ids.
     expect(html).toContain("Banff");
     expect(html).toContain("Lake Louise");
+  });
+
+  it("renders from → to in the title row with a single Directions CTA (card polish)", () => {
+    const html = renderWithPlaces([
+      {
+        id: "b16",
+        kind: "transport",
+        title: "Drive to the lake",
+        from: "Banff",
+        to: "Lake Louise",
+        duration: "1 h 35",
+        order: 0,
+      } as unknown as Block,
+    ]);
+    // Endpoints moved into the title row (pills + names with the → separator) …
+    expect(html).toContain("Banff");
+    expect(html).toContain("Lake Louise");
+    expect(html).toContain("→");
+    // … and the directions link is a single-label CTA (no trailing-tag game).
+    expect(html).toContain(">Directions<");
+    expect(html).not.toContain(">directions<");
+    // SSR/print render shows the static values — live HERE time only ever
+    // swaps in on the client (effects never run here or in the booklet PDF).
+    expect(html).toContain("1 h 35");
+    expect(html).not.toContain(">live<");
   });
 
   it("sends only the resolving end's place id on directions (mixed)", () => {

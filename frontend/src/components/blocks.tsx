@@ -3,6 +3,7 @@ import { useTrip } from "./theme";
 import { MapView, TripMap } from "./MapView";
 import { findLocation, markerNumber } from "../lib/maps";
 import { gmapsDirectionsUrl, gmapsSearchUrl } from "../lib/gmaps";
+import { useLiveDirections } from "../lib/directions";
 import { matchTitlePlace } from "../lib/day-surface";
 import { PlaceFacts, placeHasFacts } from "./PlaceFacts";
 import {
@@ -318,6 +319,39 @@ function TransportBlock({
   }
 
   // drive card — dark, like the booklet's drive treatment (distance / time / route / directions)
+  // The title row carries the from → to endpoints (marker pills + names, the
+  // same letter + TimeChip pattern as every other card); the directions link
+  // below is just the CTA. Long names ellipsize, the → never does.
+  const fromLoc = b.from ? findLocation(trip, b.from) : undefined;
+  const toLoc = b.to ? findLocation(trip, b.to) : undefined;
+  // Live HERE drive time (web-only — the hook never fetches under print
+  // media, so the booklet keeps the static authored values). While loading
+  // or unavailable the static values stay, silently.
+  const live = useLiveDirections(
+    fromLoc?.lat != null && fromLoc?.lng != null ? { lat: fromLoc.lat, lng: fromLoc.lng } : null,
+    toLoc?.lat != null && toLoc?.lng != null ? { lat: toLoc.lat, lng: toLoc.lng } : null,
+  );
+  const liveDuration = live?.available ? live.durationText : undefined;
+  const liveDistance = live?.available ? live.distanceText : undefined;
+  const driveTime = liveDuration ?? b.duration;
+  const distance = b.distance ?? liveDistance;
+  const drivePill = (loc?: TripLocation) =>
+    loc ? (
+      <span
+        aria-hidden
+        className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker text-[10px] font-bold leading-none text-marker-fg"
+      >
+        {markerNumber(trip, loc)}
+      </span>
+    ) : (
+      <span aria-hidden className="shrink-0 text-white/50">•</span>
+    );
+  const DriveEndpoint = ({ name, loc }: { name: string; loc?: TripLocation }) => (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      {drivePill(loc)}
+      <span className="truncate">{name}</span>
+    </span>
+  );
   return (
     <div
       {...cardProps}
@@ -330,7 +364,15 @@ function TransportBlock({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {letter && <LetterBadge letter={letter} />}
-            <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
+            {b.from && b.to ? (
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 font-heading text-lg font-semibold leading-tight">
+                <DriveEndpoint name={b.from} loc={fromLoc} />
+                <span aria-hidden="true" className="shrink-0 opacity-70">→</span>
+                <DriveEndpoint name={b.to} loc={toLoc} />
+              </span>
+            ) : (
+              <h4 className="font-heading text-lg font-semibold leading-tight">{title}</h4>
+            )}
             <TimeChip time={b.time} />
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
@@ -343,16 +385,23 @@ function TransportBlock({
             <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
               {/* distance and drive time sit in a two-column grid across
                   stacked cards — tabular numerals so they line up (§4) */}
-              {b.distance && (
+              {distance && (
                 <div>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Distance</p>
-                  <p className="font-heading text-lg font-semibold leading-tight tabular-nums">{b.distance}</p>
+                  <p className="font-heading text-lg font-semibold leading-tight tabular-nums">{distance}</p>
                 </div>
               )}
-              {b.duration && (
+              {driveTime && (
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">Drive time</p>
-                  <p className="font-heading text-lg font-semibold leading-tight tabular-nums">{b.duration}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/50">
+                    Drive time
+                    {liveDuration && (
+                      <span className="ml-1.5 rounded-full bg-white/15 px-1.5 py-px align-middle text-[9px] font-semibold uppercase tracking-wider text-white/70">
+                        live
+                      </span>
+                    )}
+                  </p>
+                  <p aria-live="polite" className="font-heading text-lg font-semibold leading-tight tabular-nums">{driveTime}</p>
                 </div>
               )}
               {b.route && (
@@ -369,53 +418,15 @@ function TransportBlock({
           {b.from && b.to && (
             <a
               href={gmapsDirectionsUrl(b.from, b.to, {
-                originPlaceId: findLocation(trip, b.from)?.placeId,
-                destinationPlaceId: findLocation(trip, b.to)?.placeId,
+                originPlaceId: fromLoc?.placeId,
+                destinationPlaceId: toLoc?.placeId,
               })}
               target="_blank"
               rel="noreferrer"
-              className="mt-2.5 inline-flex w-full max-w-full items-center gap-1.5 rounded-full bg-white/15 py-1 pl-2 pr-2.5 text-xs font-medium hover:bg-white/25"
+              className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1.5 text-xs font-medium hover:bg-white/25"
             >
-              <ExternalLink className="h-3 w-3 shrink-0" />
-              {(() => {
-                const from = findLocation(trip, b.from);
-                const to = findLocation(trip, b.to);
-                // Pill row + a trailing "directions" tag. Each name is in a
-                // min-w-0 truncate so a long place ("Santiago Airport") can
-                // never push the trailing tag onto its own line — the row
-                // flexes to fit, the names ellipsize, "directions" stays put.
-                const pill = (loc?: ReturnType<typeof findLocation>) =>
-                  loc ? (
-                    <span
-                      aria-hidden
-                      className="inline-grid h-4 w-4 shrink-0 place-items-center rounded-full bg-marker text-[10px] font-bold leading-none text-marker-fg"
-                    >
-                      {markerNumber(trip, loc)}
-                    </span>
-                  ) : (
-                    <span aria-hidden className="shrink-0 text-white/50">•</span>
-                  );
-                const Place = ({
-                  name,
-                  loc,
-                }: {
-                  name: string;
-                  loc?: ReturnType<typeof findLocation>;
-                }) => (
-                  <span className="inline-flex min-w-0 items-center gap-1">
-                    {pill(loc)}
-                    <span className="truncate">{name}</span>
-                  </span>
-                );
-                return (
-                  <>
-                    <Place name={b.from} loc={from} />
-                    <span className="shrink-0 opacity-70">→</span>
-                    <Place name={b.to} loc={to} />
-                    <span className="ml-auto shrink-0 pl-2 text-white/70">directions</span>
-                  </>
-                );
-              })()}
+              <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+              Directions
             </a>
           )}
           {b.links?.length ? (
@@ -450,7 +461,10 @@ function ActivityBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const gm = mapsLink(b, place);
+  // The links-row Maps entry is redundant once the block resolves to a
+  // registry place — PlaceFacts renders the canonical place_id deep link.
+  // Unresolved blocks keep their own mapsQuery/googlePlaceId fallback link.
+  const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard cardProps={cardProps}>
@@ -465,13 +479,13 @@ function ActivityBlock({
             {b.cost != null && <Cost cost={b.cost} currency={b.currency} />}
             <StatusChip status={b.status} />
           </div>
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               <Markdown>{b.description}</Markdown>
             </div>
           )}
           <Links links={shown} />
-          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
@@ -489,7 +503,9 @@ function LodgingBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const gm = mapsLink(b, place);
+  // Same Maps-link dedupe as ActivityBlock (PlaceFacts owns the canonical
+  // deep link once the block resolves) — booking CTAs stay first.
+  const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
     <BlockCard cardProps={cardProps}>
@@ -502,6 +518,7 @@ function LodgingBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
           </div>
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               <Markdown>{b.description}</Markdown>
@@ -514,7 +531,6 @@ function LodgingBlock({
             </div>
           )}
           <Links links={shown} />
-          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
@@ -532,7 +548,9 @@ function MealBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const gm = mapsLink(b, place);
+  // Same Maps-link dedupe as ActivityBlock — PlaceFacts owns the canonical
+  // deep link once the block resolves.
+  const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard cardProps={cardProps}>
@@ -545,9 +563,9 @@ function MealBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
           </div>
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
           <Links links={shown} />
-          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
