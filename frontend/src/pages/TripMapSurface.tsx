@@ -394,22 +394,42 @@ export function TripMapSurface() {
       const sections = root.querySelectorAll<HTMLElement>("section[data-section-index]");
       if (!sections.length) return;
       const top = scroller ? scroller.scrollTop : window.scrollY;
-      const viewBottom = top + (scroller ? scroller.clientHeight : window.innerHeight);
-      const visible = new Set<number>();
-      sections.forEach((el) => {
+      const viewH = scroller ? scroller.clientHeight : window.innerHeight;
+      const viewBottom = top + viewH;
+      let best: number | null = null;
+      let bestOverlap = 0;
+      for (const el of sections) {
         const rect = el.getBoundingClientRect();
         const rootRect = scroller ? scroller.getBoundingClientRect() : { top: 0 };
         const relTop = scroller ? rect.top - rootRect.top + scroller.scrollTop : rect.top + window.scrollY;
         const relBottom = relTop + rect.height;
-        if (relBottom > top - 96 && relTop < viewBottom + 96) {
-          visible.add(Number(el.dataset.sectionIndex));
+        if (relBottom <= top - 96 || relTop >= viewBottom + 96) continue;
+        const overlap = Math.min(relBottom, viewBottom + 96) - Math.max(relTop, top - 96);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          best = Number(el.dataset.sectionIndex);
         }
-      });
-      setSpySections((prev) => {
-        const prevSize = prev.size;
-        const next = visible;
-        return prevSize === next.size && [...prev].every((n) => next.has(n)) ? prev : next;
-      });
+      }
+      if (best == null) {
+        // Degenerate frames (rubber-band overscroll, sticky-header bounce): keep
+        // the previous focus rather than flashing every pin.
+        return;
+      }
+      // Rail ends: before the first / after the last section, show the
+      // nearest section instead of nothing.
+      const first = Number(sections[0].dataset.sectionIndex);
+      const last = Number(sections[sections.length - 1].dataset.sectionIndex);
+      let focus = best;
+      if (best === first) {
+        const s0 = sections[0].getBoundingClientRect();
+        const r0 = scroller ? s0.top - scroller.getBoundingClientRect().top + scroller.scrollTop : s0.top + window.scrollY;
+        if (r0 >= top) focus = first;
+      } else if (best === last) {
+        const sl = sections[sections.length - 1].getBoundingClientRect();
+        const rEnd = scroller ? sl.bottom - scroller.getBoundingClientRect().top + scroller.scrollTop : sl.bottom + window.scrollY;
+        if (rEnd <= viewBottom) focus = last;
+      }
+      setSpySections((prev) => (prev.size === 1 && prev.has(focus) ? prev : new Set([focus])));
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -426,20 +446,19 @@ export function TripMapSurface() {
 
   const spyPlaces = useMemo(() => {
     if (!spySections.size) return null;
+    const si = [...spySections][0];
+    const section = trip.sections?.[si];
+    if (!section) return null;
     const places = new Map<string, TripLocation>();
-    for (const si of spySections) {
-      const section = trip.sections?.[si];
-      if (!section) continue;
-      for (const r of section.locationRefs ?? []) {
-        const l = findLocation(trip, r);
-        if (l && l.lat != null) places.set(l.name, l);
-      }
-      for (const i of expandDays(section.days)) {
-        for (const b of trip.days[i]?.blocks ?? []) {
-          for (const n of [b.from, b.to, b.location].filter((n): n is string => !!n)) {
-            const l = findLocation(trip, n);
-            if (l && l.lat != null) places.set(l.name, l);
-          }
+    for (const r of section.locationRefs ?? []) {
+      const l = findLocation(trip, r);
+      if (l && l.lat != null) places.set(l.name, l);
+    }
+    for (const i of expandDays(section.days)) {
+      for (const b of trip.days[i]?.blocks ?? []) {
+        for (const n of [b.from, b.to, b.location].filter((n): n is string => !!n)) {
+          const l = findLocation(trip, n);
+          if (l && l.lat != null) places.set(l.name, l);
         }
       }
     }
