@@ -666,8 +666,11 @@ export function RouteMap({
     }
     const spy = new Set(spyPlaces);
     container.classList.add("route-spy-active");
+    // `.is-spy` = "this pin belongs to the chapter in view" — the CSS dims
+    // `.route-pin:not(.is-spy)` (everything outside the chapter). Getting this
+    // backwards dims the chapter itself and leaves the rest bright (#92).
     markersRef.current.forEach((el, name) => {
-      el.classList.toggle("is-spy", !spy.has(name));
+      el.classList.toggle("is-spy", spy.has(name));
     });
   }, [spyPlaces, selected, isDay, ready]);
 
