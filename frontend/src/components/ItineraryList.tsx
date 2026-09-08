@@ -52,9 +52,13 @@ function SectionHeader({
 function SectionLocations({
   section,
   onSelectPlace,
+  selectedPlace,
 }: {
   section: TripSection;
   onSelectPlace?: (name: string) => void;
+  /** The map-surface selection — the matching pill highlights (both
+   *  directions of #109: pill tap selects, pin tap highlights the pill). */
+  selectedPlace?: string | null;
 }) {
   const trip = useTrip();
   const refs = (section.locationRefs ?? []).filter((ref) => findLocation(trip, ref));
@@ -65,13 +69,14 @@ function SectionLocations({
       {refs.map((ref) => {
         const loc = findLocation(trip, ref);
         const n = loc ? markerNumber(trip, loc) : null;
+        const isSelected = selectedPlace === ref;
         return (
           <li key={ref}>
             <Pill
               {...(onSelectPlace
                 ? {
                     type: "button" as const,
-                    "aria-pressed": undefined,
+                    "aria-pressed": isSelected,
                     onClick: () => onSelectPlace(ref),
                     "aria-label": `Show ${ref} on the map`,
                   }
@@ -79,7 +84,7 @@ function SectionLocations({
               data-place-pill={ref}
               className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 text-xs font-medium text-foreground ${
                 onSelectPlace ? "transition-colors hover:border-primary/40 hover:bg-muted cursor-pointer" : ""
-              }`}
+              }${isSelected ? " border-accent bg-accent/10" : ""}`}
             >
               {/* #109: the pill's marker IS the map's numbered pin — same
                   circle, same --map-marker colour, same digit — instead of a
@@ -259,6 +264,7 @@ export function ItineraryList({
                   ? (name) => onSelectPlace(selectedPlace === name ? "" : name)
                   : undefined
               }
+              selectedPlace={selectedPlace}
             />
             {items.length ? (
               <div className="space-y-2.5 pt-3">

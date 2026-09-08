@@ -88,6 +88,27 @@ export function blockLegStage(trip: Trip, b: Block): LegStage {
 }
 
 /**
+ * The title pass of the anchor match (#104): a place the block's title names
+ * via a CONTAINS match over the registry — exact name first, then aliases
+ * (#104 prod: "Sunshine full day" never matched "Sunshine Village" until its
+ * alias "Sunshine" existed; a title can name a place through its alias).
+ * Longest name wins so "Lake Louise" beats "Louise" when both could match.
+ * Returns undefined when nothing matches — it never invents a place.
+ */
+export function matchTitlePlace(trip: Trip, title: string | undefined): TripLocation | undefined {
+  if (!title) return undefined;
+  const t = title.toLowerCase();
+  return (trip.locations ?? [])
+    .filter((l) => {
+      return (
+        t.includes(l.name.toLowerCase()) ||
+        (l.alias ?? []).some((a) => a.length >= 3 && t.includes(a.toLowerCase()))
+      );
+    })
+    .sort((x, y) => y.name.length - x.name.length)[0];
+}
+
+/**
  * The day's world, derived. Every mapped thing traces to an explicit field or
  * a title-named registry place — `via`/`route` prose is road fact, not a
  * visit (#91), so it never produces a marker here either (`blockEndpoints`
@@ -154,27 +175,13 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
 
     if (!LETTER_KINDS.has(b.kind) || !b.id) continue;
     // Anchor place: the explicit `location` field, then a place the block's
-    // own fields/title name. The title pass is a CONTAINS match over the
-    // registry — exact name first, then aliases (#104 prod: "Sunshine full
-    // day" never matched "Sunshine Village" until its alias "Sunshine"
-    // existed; a title can name a place through its alias). Longest name
-    // wins so "Lake Louise" beats "Louise" when both could match.
-    const titleAnchor = b.title
-      ? (trip.locations ?? [])
-          .filter((l) => {
-            const t = b.title!.toLowerCase();
-            return (
-              t.includes(l.name.toLowerCase()) ||
-              (l.alias ?? []).some((a) => a.length >= 3 && t.includes(a.toLowerCase()))
-            );
-          })
-          .sort((x, y) => y.name.length - x.name.length)[0]
-      : undefined;
+    // own fields/title name (the title pass is the shared `matchTitlePlace`
+    // matcher — block cards resolve their registry place the same way).
     const anchor =
       (b.location ? findLocation(trip, b.location) : undefined) ??
       (b.from ? findLocation(trip, b.from) : undefined) ??
       (b.to ? findLocation(trip, b.to) : undefined) ??
-      titleAnchor;
+      matchTitlePlace(trip, b.title);
     if (!anchor || anchor.lat == null || anchor.lng == null) continue;
 
     const existing = chipByPlace.get(anchor);

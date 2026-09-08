@@ -388,6 +388,27 @@ h4 {
   border-color: var(--color-accent);
 }
 
+/* Pin-tap → pill scroll (TripMapSurface): the pill the selection scrolled to
+   flashes once so the eye lands on it — a border/background pulse in the
+   accent token family only, no hardcoded colours. The global
+   prefers-reduced-motion guard covers the animation; the JS side skips the
+   class entirely (state change only). */
+@keyframes place-pill-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-accent) 35%, transparent);
+    border-color: var(--color-accent);
+    background-color: color-mix(in oklab, var(--color-accent) 10%, transparent);
+  }
+}
+.place-pill-flash {
+  animation: place-pill-flash 1.2s ease-in-out 1;
+  border-color: var(--color-accent);
+}
+
 /* Minimap suppression (#92): inside the map surface the day panel sits right
    beside the live map, so the per-block mini maps are redundant chrome —
    hidden by a surface-scoped rule (not a print rule) and the booklet keeps

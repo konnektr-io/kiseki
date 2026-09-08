@@ -2,7 +2,9 @@ import { useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { useTrip } from "./theme";
 import { MapView, TripMap } from "./MapView";
 import { findLocation, markerNumber } from "../lib/maps";
-import { gmapsSearchUrl } from "../lib/gmaps";
+import { gmapsDirectionsUrl, gmapsSearchUrl } from "../lib/gmaps";
+import { matchTitlePlace } from "../lib/day-surface";
+import { PlaceFacts, placeHasFacts } from "./PlaceFacts";
 import {
   BedDouble,
   Car,
@@ -22,7 +24,7 @@ import {
   UtensilsCrossed,
 } from "lucide-react";
 import DOMPurify from "dompurify";
-import type { Block, BlockKind, BlockStatus } from "../lib/types";
+import type { Block, BlockKind, BlockStatus, Trip, TripLocation } from "../lib/types";
 import { classifyTransportMode, type TransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
@@ -109,16 +111,30 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
   );
 }
 
-/** Auto Google Maps link for a place — the venue's `googlePlaceId` wins when
- *  set (keyless deep link, #15/#95), else the precise query (`mapsQuery`),
- *  else the location name/alias. */
-function mapsLink(b: Block) {
+/** Auto Google Maps link for a place — the block's own `googlePlaceId` wins
+ *  when set, then the resolved registry place's `placeId` (keyless deep
+ *  links, #15/#95), else the precise query (`mapsQuery`), else the location
+ *  name/alias. Unchanged query-only fallback when nothing resolves. */
+function mapsLink(b: Block, resolvedPlace?: TripLocation) {
   const q = b.mapsQuery || b.location || b.title || "";
-  if (!q && !b.googlePlaceId) return null;
+  const placeId = b.googlePlaceId ?? resolvedPlace?.placeId;
+  if (!q && !placeId) return null;
   return {
     label: "Google Maps",
-    url: gmapsSearchUrl(q, { placeId: b.googlePlaceId, query: b.mapsQuery }),
+    url: gmapsSearchUrl(q, { placeId, query: b.mapsQuery }),
   };
+}
+
+/**
+ * The block's registry place: the explicit `location` field resolved via
+ * `findLocation`, else the shared day-surface title/alias matcher (#104 —
+ * exact name, then aliases, then containment ≥3 chars, longest-name wins).
+ * Never invents: an unknown `location` stays unresolved rather than falling
+ * through to the title pass. Exported for the maps-link tests.
+ */
+export function resolveBlockPlace(trip: Trip, b: Block): TripLocation | undefined {
+  if (b.location) return findLocation(trip, b.location);
+  return matchTitlePlace(trip, b.title);
 }
 
 /** Card media strip: an image, or a mini MapLibre map centered on `location`.
@@ -352,7 +368,10 @@ function TransportBlock({
           )}
           {b.from && b.to && (
             <a
-              href={`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(b.from)}&destination=${encodeURIComponent(b.to)}&travelmode=driving`}
+              href={gmapsDirectionsUrl(b.from, b.to, {
+                originPlaceId: findLocation(trip, b.from)?.placeId,
+                destinationPlaceId: findLocation(trip, b.to)?.placeId,
+              })}
               target="_blank"
               rel="noreferrer"
               className="mt-2.5 inline-flex w-full max-w-full items-center gap-1.5 rounded-full bg-white/15 py-1 pl-2 pr-2.5 text-xs font-medium hover:bg-white/25"
@@ -429,7 +448,9 @@ function ActivityBlock({
   letter?: string;
   cardProps?: BlockCardProps;
 }) {
-  const gm = mapsLink(b);
+  const trip = useTrip();
+  const place = resolveBlockPlace(trip, b);
+  const gm = mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard cardProps={cardProps}>
@@ -450,6 +471,7 @@ function ActivityBlock({
             </div>
           )}
           <Links links={shown} />
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
@@ -465,7 +487,9 @@ function LodgingBlock({
   letter?: string;
   cardProps?: BlockCardProps;
 }) {
-  const gm = mapsLink(b);
+  const trip = useTrip();
+  const place = resolveBlockPlace(trip, b);
+  const gm = mapsLink(b, place);
   const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
     <BlockCard cardProps={cardProps}>
@@ -490,6 +514,7 @@ function LodgingBlock({
             </div>
           )}
           <Links links={shown} />
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
@@ -505,7 +530,9 @@ function MealBlock({
   letter?: string;
   cardProps?: BlockCardProps;
 }) {
-  const gm = mapsLink(b);
+  const trip = useTrip();
+  const place = resolveBlockPlace(trip, b);
+  const gm = mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
     <BlockCard cardProps={cardProps}>
@@ -520,6 +547,7 @@ function MealBlock({
           </div>
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
           <Links links={shown} />
+          {place && placeHasFacts(place) && <PlaceFacts place={place} />}
         </div>
       </div>
     </BlockCard>
