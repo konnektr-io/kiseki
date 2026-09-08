@@ -300,8 +300,8 @@ export function TripMapSurface() {
   /* ---- scan-level state ---- */
   const [selected, setSelected] = useState<TripLocation | null>(null);
   const [detent, setDetent] = useState<Detent>("half");
-  /** The chapter in view (scroll-spy) → its places' pins stay raised. */
-  const [spySection, setSpySection] = useState<number | null>(null);
+  /** The chapters currently in view (scroll-spy) → their places' pins stay raised. */
+  const [spySections, setSpySections] = useState<Set<number>>(new Set());
   /* ---- day-level state ---- */
   const [activeBlock, setActiveBlock] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -319,7 +319,7 @@ export function TripMapSurface() {
   useEffect(() => {
     setActiveBlock(null);
     setSelected(null);
-    setSpySection(null);
+    setSpySections(new Set());
   }, [dayIdx]);
 
   /** Marker tap at scan level: toggle the place and raise the sheet. The
@@ -394,14 +394,22 @@ export function TripMapSurface() {
       const sections = root.querySelectorAll<HTMLElement>("section[data-section-index]");
       if (!sections.length) return;
       const top = scroller ? scroller.scrollTop : window.scrollY;
-      let current = 0;
+      const viewBottom = top + (scroller ? scroller.clientHeight : window.innerHeight);
+      const visible = new Set<number>();
       sections.forEach((el) => {
         const rect = el.getBoundingClientRect();
         const rootRect = scroller ? scroller.getBoundingClientRect() : { top: 0 };
-        const rel = scroller ? rect.top - rootRect.top + scroller.scrollTop : rect.top + window.scrollY;
-        if (rel - top <= 96) current = Number(el.dataset.sectionIndex);
+        const relTop = scroller ? rect.top - rootRect.top + scroller.scrollTop : rect.top + window.scrollY;
+        const relBottom = relTop + rect.height;
+        if (relBottom > top - 96 && relTop < viewBottom + 96) {
+          visible.add(Number(el.dataset.sectionIndex));
+        }
       });
-      setSpySection((prev) => (prev === current ? prev : current));
+      setSpySections((prev) => {
+        const prevSize = prev.size;
+        const next = visible;
+        return prevSize === next.size && [...prev].every((n) => next.has(n)) ? prev : next;
+      });
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -417,22 +425,26 @@ export function TripMapSurface() {
   }, [isDayRoute]);
 
   const spyPlaces = useMemo(() => {
-    if (spySection == null) return null;
-    const section = trip.sections?.[spySection];
-    if (!section) return null;
-    const refs = (section.locationRefs ?? [])
-      .map((r) => findLocation(trip, r))
-      .filter((l): l is TripLocation => !!l && l.lat != null);
-    // The chapter's days' own located blocks raise too — an activity pinned
-    // inside a chapter lights up with it.
-    const days = expandDays(section.days)
-      .flatMap((i) => trip.days[i]?.blocks ?? [])
-      .flatMap((b) => [b.from, b.to, b.location].filter((n): n is string => !!n))
-      .map((n) => findLocation(trip, n))
-      .filter((l): l is TripLocation => !!l && l.lat != null);
-    const all = [...refs, ...days];
-    return all.length ? [...new Set(all)].map((l) => l.name) : null;
-  }, [spySection, trip]);
+    if (!spySections.size) return null;
+    const places = new Map<string, TripLocation>();
+    for (const si of spySections) {
+      const section = trip.sections?.[si];
+      if (!section) continue;
+      for (const r of section.locationRefs ?? []) {
+        const l = findLocation(trip, r);
+        if (l && l.lat != null) places.set(l.name, l);
+      }
+      for (const i of expandDays(section.days)) {
+        for (const b of trip.days[i]?.blocks ?? []) {
+          for (const n of [b.from, b.to, b.location].filter((n): n is string => !!n)) {
+            const l = findLocation(trip, n);
+            if (l && l.lat != null) places.set(l.name, l);
+          }
+        }
+      }
+    }
+    return places.size ? [...places.values()].map((l) => l.name) : null;
+  }, [spySections, trip]);
 
   /* ---------------- empty trip: content-only, no map ---------------- */
   if (journey.stops.length < 1) {
