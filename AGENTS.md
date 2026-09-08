@@ -117,6 +117,16 @@ Three modes, in order of preference:
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
 
+**Agent fleet (2026-09-08, #9/#140 — see `docs/spec.md` §8):** two Hermes
+agents. The **content agent** (dedicated profile `kiseki`) edits trip content
+through this write API only and never touches code; the **code agent** (Niko's
+home profile) builds/deploys the app and stewards the content agent's profile,
+skills and backup. Content-agent code requests arrive as issues with the
+`agent` label (template in #140). Until the chat UI ships, content-agent
+writes run M2M + act-as (mode 2, Niko); afterwards the UI passes end-user
+tokens (mode 1) and act-as is dropped. The content agent's built-in memory
+holds no user facts — user/trip memory is graph nodes (#10).
+
 **Not the content path anymore**: `backend/data/trips/*/trip.json` (local
 scratch), reseed scripts (`trip_to_graph.py`, `seed_graph.py`,
 `reseed_crew_safe.py`) and PVC copies are MIGRATION-ONLY tooling. Media

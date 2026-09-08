@@ -2,7 +2,7 @@
 type: goal
 title: "Kiseki — Product Design Spec"
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-09-08
 tags:
   - goal
   - travel
@@ -125,10 +125,23 @@ The v0.1 "render-on-request Jinja" idea blurred two layers: *layout/component co
 
 ## 8. Agent architecture — Hermes ✅ (per Niko 2026-08-28)
 
-- **Until P2**: **current Hermes profile + current Honcho** — Niko generates the trips anyway. The agent is the **trip engine**: authoring, research, booking-email processing, content updates (API in P0; graph via Konnektr Graph MCP in P1), triggering PDF generation, answering questions.
-- **Real users (P2+ exit, per Niko)**: **separate Hermes profile, no Honcho** — the product must **not depend on Honcho** (don't build features on it). User learning instead comes from **querying the graph** — likely new memory node types (e.g. `UserProfile` / preference twins). Design the graph model so this is possible later.
-- **Integrations boundary** (per Niko): per-user OAuth + tokens (Google Photos, Strava, Timeline) live in the **app backend's secret store**, not in Hermes. The agent receives processed context via tools/MCP — no multi-user secret handling in the agent.
-- **Memory hygiene**: trip content lives in the graph/JSON (app data), **never** in agent memory. Agent memory (Honcho) stays Niko-personal (preferences, style). Guardrail: the agent only operates on trips it's explicitly pointed at; the app layer is the trust boundary, never the agent.
+### Two-agent fleet ✅ (2026-09-08 — issues #9, #10, #140)
+
+Kiseki agent work is split across **two Hermes agents** that hand off to each other:
+
+| | **kiseki content agent** (dedicated profile `kiseki`) | **code agent** (Niko's home profile) |
+|---|---|---|
+| Role | The **trip engine**: authoring, research, booking-email processing, content updates through the write API, answering questions | Builds/improves the app (backend, frontend, models/DTDL, releases, deploys) and **stewards** the content agent (profile, skills, backup, session review) |
+| Boundary | **Never touches code** — content is data, edited via the write API only | Never edits trip content directly (writes go through the write API under review) |
+| Handoff | Files structured code-request issues (`agent` label) when it needs an endpoint/field/UI change (#140) | Triages them on the normal backlog flow, ships them, updates content-agent skills in the same cycle, and reviews content-agent sessions for product gaps |
+
+The content profile is backed up like the work/home profiles (git mirror repo `nikoraes/kiseki-hermes`, daily `push-profile.sh` cron) and can move to a **dedicated Hermes instance** later — the handoff protocol (GitHub issues + Hermes peer DMs) is machine-independent.
+
+- **Identity**: the agent has no identity in the graph (AGENTS.md → identity model). Interim single-user: the content profile mints the M2M token and the backend `KISEKI_AGENT_ACT_AS` resolves writes as Niko. Multi-user (chat UI, #9): the UI passes the **end user's token per request** (mode 1) and act-as is dropped. Never provision agent twins/edges, never store a personal user token in a profile.
+- **User learning** (P2+, per Niko): **no Honcho dependency** — user memory lives in the **graph** as memory nodes (per user, per trip, pgvector embeddings — #10). Design the graph model so this is possible later.
+- **Agent memory hygiene**: the content profile's built-in memory holds **no user facts** — only impersonal operational knowledge (endpoints, content conventions). Per-user/per-trip facts live in graph memory nodes, queried under the acting user's scope; until #10 ships the agent is **stateless across users** (context comes from the request envelope). Cross-user isolation is a hard requirement, verified by test — never prompt discipline alone.
+- **Integrations boundary** (unchanged): per-user OAuth + tokens (Google Photos, Strava, Timeline) live in the **app backend's secret store**, not in Hermes. The agent receives processed context via tools/MCP — no multi-user secret handling in the agent. Per-profile `.env` carries service-level credentials only.
+- **Guardrail** (unchanged): the agent only operates on trips it's explicitly pointed at; the app layer is the trust boundary, never the agent.
 - **GDPR** (parked until public — trusted group now): EU data residency (home cluster), DPAs with processors, erasure incl. memory, portability = the booklet export, consent for data sources, AI Act transparency. ⚠️ Provider choice (DeepSeek/OpenRouter) is a question *only* when the product goes public — models can be swapped later.
 
 ## 9. Events & notifications (P1)
@@ -176,8 +189,9 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 
 ### P2–3 — Agent, memory, PWA, permissions
 
-- [ ] **Agent backend + chat UI** — Hermes as a library (`run_agent.AIAgent`, see hermes docs python-library guide) in the Kiseki backend; frontend chat via **Vercel ai-elements** (backend may need a protocol adapter — pydantic-ai ships one as reference).
-- [ ] **Agent memory per user / per trip** — can we store it in the graph with pgvector embeddings?
+- [ ] **Agent backend + chat UI (#9)** — dedicated **kiseki content-agent profile** (two-agent fleet, §8); `/chat` endpoint (A2A or Vercel-ai-compatible SSE) passes through with **per-user auth**; frontend chat via **Vercel ai-elements**; cross-user isolation verified by test.
+- [ ] **Agent memory per user / per trip (#10)** — graph memory nodes + pgvector embeddings (per user, per trip, ownership edges); stateless-across-users until it ships.
+- [ ] **Agent fleet ops (#140)** — content→code code-request loop, code→content skill updates on API changes, session-review pass.
 - [ ] **Installable PWA** (service worker; icon set + manifest already in place).
 - [ ] **Events & notifications** (deferred from P1): SSE live updates, web push + Telegram.
 - [ ] **Granular per-trip permissions**: public trip → magic link keeps working; private trip → login + explicit permissions.
@@ -231,4 +245,13 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 | 14 | Phase split | ✅ P0 done → **P1 infra/graph/auth/seed** → **P2–3 agent/PWA/permissions** → **P4 social**; review gates between phases |
 
 **Review gate for P1**: after CNPG + Garage + Graph chart are live (before SDK/seed work), Niko reviews.
+
+### Round 2 (2026-09-08) — agent fleet (issues #9/#10/#140)
+
+| # | Decision | Outcome |
+|---|---|---|
+| 15 | Two-agent split | ✅ **Content agent** — dedicated profile `kiseki`, content/write-API only, never code — + **code agent** (home profile: builds, releases, deploys, stewards the profile). Handoff = GitHub issues (`agent` label) + Hermes peer; see §8 |
+| 16 | Content-profile memory | ✅ Built-in agent memory holds **no user facts**; per-user/per-trip memory = graph nodes + pgvector (#10). Content agent is **stateless across users** until it ships |
+| 17 | Content-profile backup | ✅ Git mirror repo `nikoraes/kiseki-hermes` + daily `push-profile.sh` cron (same pattern as the work/home profiles); move-ready for a dedicated Hermes instance |
+| 18 | Credentials | ✅ Per-profile `.env` = service-level only; end-user OAuth stays in the app backend secret store (§8 unchanged) |
 
