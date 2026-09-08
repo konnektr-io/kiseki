@@ -46,6 +46,16 @@ HERE_ROUTES_URL = os.environ.get(
     "HERE_ROUTES_URL", "https://router.hereapi.com/v8/routes"
 )
 
+# Google Places API (New) — live web-only overlay (rating / review snippets /
+# photos, issue #95). The key stays server-side (kiseki-maps secret); the
+# browser talks to /api/places/* proxies only. Nothing Google-derived is ever
+# persisted (references/google-places-compliance.md — place_id is the only
+# storable field); the caches here are transient display caches, not storage.
+GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_PLACES_URL = os.environ.get(
+    "GOOGLE_PLACES_URL", "https://places.googleapis.com/v1"
+)
+
 # Port the app listens on (used to build the base URL for Playwright).
 # NOTE: deliberately NOT named KISEKI_PORT — Kubernetes injects
 # <SERVICE_NAME>_PORT (e.g. KISEKI_PORT=tcp://10.x.x.x:8000) into pods for a

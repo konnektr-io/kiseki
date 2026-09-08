@@ -53,6 +53,7 @@ from .write import (
 )
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
+from .places import place_details, photo_by_name as place_photo_bytes
 from .media import (
     get_media_store,
     is_valid_media_path,
@@ -837,6 +838,45 @@ def maps_directions(
             _directions_cache[key] = (now + _DIRECTIONS_TTL, body)
             return body
     return {"available": False}
+
+
+# Live place overlay (rating / review snippets / photos, issue #95) —
+# Google Places API (New) behind server-side proxies, same trust pattern as
+# the HERE routes above: the key never leaves the backend, results are
+# short-TTL display caches (never persisted — #15/#95 storage rule), and any
+# Google failure answers {"available": false} (HTTP 200) so cards render
+# nothing instead of breaking. place_details() enforces the field mask and
+# prunes review/photo payloads to the attribution-carrying shape the UI
+# renders.
+@app.get("/api/places/details/{place_id}")
+def places_details_endpoint(request: Request, place_id: str) -> dict:
+    _rate_limit(request, "places-details", 60)
+    # place_details() returns None when the key is absent or Google fails —
+    # both are the same quiet {"available": false} to the caller.
+    details = place_details(place_id)
+    return details if details else {"available": False}
+
+
+@app.get("/api/places/photo")
+def places_photo_endpoint(request: Request, ref: str = Query(..., min_length=1)) -> Response:
+    """Proxy one Google place photo as image bytes.
+
+    ``ref`` is the photo resource name the details payload handed the browser
+    (``places/<id>/photos/<photo>`` — shape-validated in the client, so this
+    is not an open proxy; the resolve step yields an ephemeral keyless media
+    URL). Bytes are cached 15 min in-process (transient display cache —
+    nothing is stored, #95 decision).
+    """
+    _rate_limit(request, "places-photo", 120)
+    got = place_photo_bytes(ref)
+    if not got:
+        raise HTTPException(status_code=404, detail="Photo unavailable")
+    raw, content_type = got
+    return Response(
+        content=raw,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=900"},
+    )
 
 
 # Trip media (covers, gallery images) — referenced as /media/<trip_id>/<file>.
