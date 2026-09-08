@@ -85,3 +85,55 @@ describe("PlaceFacts location metadata", () => {
     expect(html).not.toContain("Place types");
   });
 });
+
+describe("PlaceFacts stored rights-clean photo (#95 option b)", () => {
+  it("renders the stored photo with credit, license, and source link", () => {
+    const html = renderFacts({
+      name: "Rusutsu",
+      lat: 42.75,
+      lng: 140.86,
+      photo: "/media/t1/rusutsu.jpg",
+      photoCredit: "Photo: Rusutsu Resort",
+      photoLicense: "CC BY-SA 4.0",
+      photoSourceUrl: "https://rusutsu.example/press",
+    });
+    expect(html).toContain('src="/media/t1/rusutsu.jpg"');
+    expect(html).toContain("Photo: Rusutsu Resort");
+    expect(html).toContain("CC BY-SA 4.0");
+    expect(html).toContain('href="https://rusutsu.example/press"');
+    // print-ELIGIBLE (deliberate #95 decision) — the photo itself is NOT
+    // inside the no-print region (SSR emits `class`, not `className`)…
+    expect(html).not.toContain('class="no-print mt-2 space-y-1.5"');
+    // …but every Google-derived row still is.
+    expect(html).toContain("no-print");
+  });
+
+  it("photo counts as facts: a photo-only place renders the figure alone in print", () => {
+    const place: TripLocation = { name: "R", photo: "abc.jpg" };
+    expect(placeHasFacts(place)).toBe(true);
+    const html = renderFacts(place);
+    expect(html).toContain('src="abc.jpg"');
+    // the web-only chips row still renders (name-query Maps link, harmless)
+    expect(html).toContain("Open in Google Maps");
+  });
+
+  it("credit line renders only the pieces that are set", () => {
+    const html = renderFacts({
+      name: "R",
+      photo: "abc.jpg",
+      photoCredit: "Wikimedia",
+    });
+    expect(html).toContain("Wikimedia");
+    expect(html).not.toContain("CC");
+    expect(html).not.toContain("source");
+  });
+
+  it("no photo → whole region keeps the blanket no-print wrapper", () => {
+    const html = renderFacts({
+      name: "R",
+      placeId: "ChIJx",
+      summary: "Prose.",
+    });
+    expect(html).toContain('class="no-print mt-2 space-y-1.5"');
+  });
+});
