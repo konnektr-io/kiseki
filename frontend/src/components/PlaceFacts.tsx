@@ -25,6 +25,18 @@ export function websiteHostname(website: string): string {
   }
 }
 
+/** True when two URLs point at the same site (host, ignoring www.). */
+function sameSite(a: string, b: string): boolean {
+  const host = (u: string) => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return u.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+    }
+  };
+  return host(a) === host(b);
+}
+
 /**
  * Place-metadata facts for a registry place — registry-shared location
  * content renders first (above the block's own user-editable prose, which
@@ -40,8 +52,11 @@ export function websiteHostname(website: string): string {
  * change existing print output. The tree stays auth-agnostic (no role
  * branching — pitfall 16).
  */
-export function PlaceFacts({ place }: { place: TripLocation }) {
+export function PlaceFacts({ place, blockLinks }: { place: TripLocation; blockLinks?: { label: string; url: string }[] }) {
   if (!placeHasFacts(place)) return null;
+  // A block link pointing at the same site as the registry's website makes
+  // the facts Website chip redundant — the bottom links row already has it.
+  const hasWebsiteLink = !!place.website && (blockLinks ?? []).some((l) => sameSite(l.url, place.website!));
   return (
     <div className="no-print mt-2 space-y-1.5">
       <div className="flex flex-wrap gap-1.5">
@@ -49,19 +64,19 @@ export function PlaceFacts({ place }: { place: TripLocation }) {
           href={gmapsSearchUrl(place.name, { placeId: place.placeId })}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:focus-ring"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
         >
-          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
           Open in Google Maps
         </a>
-        {place.website && (
+        {place.website && !hasWebsiteLink && (
           <a
             href={place.website}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:focus-ring"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
           >
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
             {websiteHostname(place.website)}
           </a>
         )}
