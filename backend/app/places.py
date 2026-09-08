@@ -136,18 +136,21 @@ def place_details(place_id: str) -> dict | None:
     # the UI request a properly-sized crop.
     photos = []
     for p in (data.get("photos") or [])[:3]:
+        attributions = []
+        for a in p.get("authorAttributions") or []:
+            entry: dict = {}
+            if a.get("displayName"):
+                entry["displayName"] = a["displayName"]
+            if a.get("uri"):
+                entry["uri"] = a["uri"]
+            if entry:
+                attributions.append(entry)
         photos.append(
             {
                 "name": p.get("name"),
                 "widthPx": p.get("widthPx"),
                 "heightPx": p.get("heightPx"),
-                "authorAttributions": [
-                    {
-                        "displayName": a.get("displayName"),
-                        "uri": a.get("uri"),
-                    }
-                    for a in (p.get("authorAttributions") or [])
-                ],
+                "authorAttributions": attributions,
             }
         )
     if photos:
