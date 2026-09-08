@@ -40,15 +40,28 @@ describe("PlaceFacts location metadata", () => {
     expect(html).toContain("query_place_id=");
     expect(html).toContain("ChIJN1t_tDeuEmsRUsoyG83frY4");
     expect(html).toContain('target="_blank"');
+    // … the website renders as a hostname chip-button (never raw URL text) …
+    expect(html).toContain('href="https://banff.example.com"');
+    expect(html).toContain(">banff.example.com<");
     // … then the facts …
     expect(html).toContain("123 Mountain Ave, Banff AB");
-    expect(html).toContain('href="https://banff.example.com"');
     expect(html).toContain("ski_area");
     expect(html).toContain("park");
     // … then the agent-authored summary, rendered as markdown.
     expect(html).toContain("<strong>powder</strong>");
     // Web-only: the booklet keeps its own prose.
     expect(html).toContain("no-print");
+  });
+
+  it("falls back to the raw string when the website is not a valid URL", () => {
+    const html = renderFacts({
+      name: "Hut",
+      lat: 51.18,
+      lng: -115.57,
+      website: "not a url",
+    });
+    expect(html).toContain('href="not a url"');
+    expect(html).toContain(">not a url<");
   });
 
   it("renders nothing with no metadata at all (pre-v0.23.12 trips)", () => {
