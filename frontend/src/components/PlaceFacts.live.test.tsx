@@ -61,14 +61,23 @@ describe("PlaceFacts live Google overlay (#95)", () => {
     expect(html).toContain('href="https://maps.google.com/?cid=42"');
   });
 
-  it("renders up to 3 review snippets with author attribution links", () => {
+  it("renders the first snippet clamped inline, the rest behind 'Show more'", () => {
     const html = renderFacts(base);
+    // First review: visible, but clamped to two lines (long reviews can't
+    // take over the card).
     expect(html).toContain("Best powder in Hokkaido.");
+    expect(html).toContain("line-clamp-2");
     expect(html).toContain("Snow Fan");
     expect(html).toContain("a month ago");
     expect(html).toContain('href="https://maps.google.com/?cid=42&amp;review=1"');
+    // Reviews 2–3 are collapsed inside the details expander (native
+    // <details> — no JS, closed by default). SSR interleaves text-node
+    // comments — assert parts.
+    expect(html).toContain("more review");
+    expect(html).toContain("<details");
+    expect(html).toContain("Second.");
     expect(html).toContain("Third.");
-    expect(html).not.toContain("Fourth"); // capped at 3 (the proxy also caps)
+    expect(html).not.toContain("Fourth"); // capped at 3 (belt-and-suspenders with the proxy cap)
   });
 
   it("serves the live photo through the keyless proxy with Google attribution", () => {
