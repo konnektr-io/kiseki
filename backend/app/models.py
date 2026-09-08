@@ -215,6 +215,10 @@ class Location(BaseModel):
     wheelchairAccessible: Optional[bool] = Field(default=None, description="Whether the place is wheelchair accessible.")
     rating: Optional[float] = Field(default=None, description="Google rating snapshot — NOT stored long-term. The read path strips it once the trip's `updated` is older than 30 days (≤30-day retention, #15 rule).")
     summary: Optional[str] = Field(default=None, description="Editorial summary of the place (markdown OK). The agent's own content — never Google review/summary text.")
+    photo: Optional[str] = Field(default=None, description="Rights-clean stored photo for the place card — bare media filename (served at /media/<trip_id>/<file> via the Garage S3 pipeline) or an external image URL. NEVER a Google photo: Google-derived imagery is fetched live through /api/places/photo and never stored (#15/#95 compliance).")
+    photoCredit: Optional[str] = Field(default=None, description="Credit line for the stored photo, e.g. 'Photo: Rusutsu Resort' — rendered under the image.")
+    photoLicense: Optional[str] = Field(default=None, description="License of the stored photo, e.g. 'CC BY-SA 4.0' or '© resort press kit (used with permission)'.")
+    photoSourceUrl: Optional[str] = Field(default=None, description="Source page URL of the stored photo (where it came from) — lets the crew later upload their own photos while keeping provenance.")
 
 
 class Person(BaseModel):

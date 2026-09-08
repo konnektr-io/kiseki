@@ -629,6 +629,34 @@
         "schema": "string",
         "writable": true,
         "description": "Editorial summary of the place (markdown OK). The agent's own content — never Google review/summary text."
+      },
+      {
+        "@type": "Property",
+        "name": "photo",
+        "schema": "string",
+        "writable": true,
+        "description": "Rights-clean stored photo for the place card — bare media filename (served at /media/<trip_id>/<file> via the Garage S3 pipeline) or an external image URL. NEVER a Google photo: Google-derived imagery is fetched live through /api/places/photo and never stored (#15/#95 compliance)."
+      },
+      {
+        "@type": "Property",
+        "name": "photoCredit",
+        "schema": "string",
+        "writable": true,
+        "description": "Credit line for the stored photo, e.g. 'Photo: Rusutsu Resort' — rendered under the image."
+      },
+      {
+        "@type": "Property",
+        "name": "photoLicense",
+        "schema": "string",
+        "writable": true,
+        "description": "License of the stored photo, e.g. 'CC BY-SA 4.0' or '© resort press kit (used with permission)'."
+      },
+      {
+        "@type": "Property",
+        "name": "photoSourceUrl",
+        "schema": "string",
+        "writable": true,
+        "description": "Source page URL of the stored photo (where it came from) — lets the crew later upload their own photos while keeping provenance."
       }
     ],
     "description": "A place on the trip — the source for loop markers AND future map"

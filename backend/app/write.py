@@ -286,14 +286,21 @@ class LocationWrite(_Strict):
     wheelchairAccessible: Optional[bool] = None
     rating: Optional[float] = None
     summary: Optional[str] = None
+    photo: Optional[str] = None
+    photoCredit: Optional[str] = None
+    photoLicense: Optional[str] = None
+    photoSourceUrl: Optional[str] = None
 
 
 # Location twin props managed by put_locations (diff-by-name). lat/lng stay;
-# every durable place-metadata field (#15/#95) rides along.
+# every durable place-metadata field (#15/#95) rides along. The photo fields
+# are RIGHTS-CLEAN stored media only (own upload / Wikimedia / press kit with
+# license) — Google photos are never written here (live /api/places/photo
+# overlay instead, #95).
 _LOCATION_PROPS = (
     "marker", "alias", "lat", "lng", "placeId", "address", "website",
     "phone", "openingHours", "types", "wheelchairAccessible", "rating",
-    "summary",
+    "summary", "photo", "photoCredit", "photoLicense", "photoSourceUrl",
 )
 
 
@@ -349,6 +356,10 @@ class LocationUpsert(_Strict):
     wheelchairAccessible: Optional[bool] = Field(default=None, description="Whether the place is wheelchair accessible.")
     rating: Optional[float] = Field(default=None, description="Google rating snapshot (short-lived; aged out by the read path).")
     summary: Optional[str] = Field(default=None, description="Editorial summary of the place (markdown OK).")
+    photo: Optional[str] = Field(default=None, description="Rights-clean stored photo — bare media filename or external image URL. Never a Google photo (#15/#95).")
+    photoCredit: Optional[str] = Field(default=None, description="Credit line for the stored photo.")
+    photoLicense: Optional[str] = Field(default=None, description="License of the stored photo.")
+    photoSourceUrl: Optional[str] = Field(default=None, description="Source page URL of the stored photo.")
 
 
 class LocationsPatch(_Strict):

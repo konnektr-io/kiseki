@@ -135,7 +135,7 @@ def resolve_media_urls(doc: dict | list, trip_id: str) -> dict | list:
     if isinstance(doc, dict):
         is_gallery = doc.get("kind") == "gallery"
         for key, value in list(doc.items()):
-            if key in ("cover", "map", "image"):
+            if key in ("cover", "map", "image", "photo"):
                 if isinstance(value, str):
                     doc[key] = canonicalize_media(value, trip_id)
             elif key == "images" and isinstance(value, list):

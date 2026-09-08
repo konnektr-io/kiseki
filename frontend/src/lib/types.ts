@@ -95,6 +95,16 @@ export interface TripLocation {
   rating?: number;
   /** Editorial summary (the agent's own content, never Google text). */
   summary?: string;
+  /** Rights-clean stored photo — bare media filename (canonicalized to
+   *  /media/<trip_id>/<file> by the API) or an external image URL. NEVER a
+   *  Google photo: Google imagery is a live web-only overlay (#15/#95). */
+  photo?: string;
+  /** Credit line for the stored photo, e.g. "Photo: Rusutsu Resort". */
+  photoCredit?: string;
+  /** License of the stored photo, e.g. "CC BY-SA 4.0". */
+  photoLicense?: string;
+  /** Source page URL of the stored photo (provenance, kept with the photo). */
+  photoSourceUrl?: string;
 }
 
 export interface FeatureCard {
