@@ -1,4 +1,4 @@
-import { ExternalLink, Star, StarHalf } from "lucide-react";
+import { ChevronDown, ExternalLink, Star, StarHalf } from "lucide-react";
 import { gmapsSearchUrl } from "../lib/gmaps";
 import { Markdown } from "../lib/markdown";
 import { placePhotoUrl, usePlaceLive, type PlaceLiveDetails } from "../lib/place-live";
@@ -228,34 +228,74 @@ export function PlaceFacts({
           </div>
         )}
         {!!live?.reviews?.length && (
-          <ul className="space-y-1" aria-label="Review snippets">
-            {live.reviews.slice(0, 3).map(
-              (r, i) =>
-                (r.text || r.authorName) && (
-                  <li key={i} className="text-sm leading-relaxed text-muted-foreground">
-                    {r.text && <span className="italic">“{r.text}”</span>}
-                    {r.authorName && (
-                      <>
-                        {r.text ? " — " : ""}
-                        {r.googleMapsUri || r.authorUri ? (
-                          <a
-                            href={r.googleMapsUri || r.authorUri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="hover:text-foreground hover:underline focus-visible:focus-ring"
-                          >
-                            {r.authorName}
-                          </a>
-                        ) : (
-                          <span>{r.authorName}</span>
-                        )}
-                      </>
-                    )}
-                    {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
-                  </li>
-                ),
+          <div>
+            {/* First snippet inline, clamped — long reviews stay 2 lines. */}
+            <ul aria-label="Review snippets">
+              {live.reviews.slice(0, 1).map(
+                (r, i) =>
+                  (r.text || r.authorName) && (
+                    <li key={i} className="text-sm leading-relaxed text-muted-foreground">
+                      {r.text && <span className="italic line-clamp-2">“{r.text}”</span>}
+                      {r.authorName && (
+                        <>
+                          {r.text ? " — " : ""}
+                          {r.googleMapsUri || r.authorUri ? (
+                            <a
+                              href={r.googleMapsUri || r.authorUri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="hover:text-foreground hover:underline focus-visible:focus-ring"
+                            >
+                              {r.authorName}
+                            </a>
+                          ) : (
+                            <span>{r.authorName}</span>
+                          )}
+                        </>
+                      )}
+                      {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
+                    </li>
+                  ),
+              )}
+            </ul>
+            {live.reviews.length > 1 && (
+              <details className="group">
+                <summary className="cursor-pointer list-none text-[12px] text-muted-foreground hover:text-foreground focus-visible:focus-ring [&::marker]:hidden">
+                  Show {Math.min(live.reviews.length, 3) - 1} more review
+                  {Math.min(live.reviews.length, 3) > 2 ? "s" : ""} from Google
+                  <ChevronDown className="ml-1 inline h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+                </summary>
+                <ul className="mt-1 space-y-1">
+                  {live.reviews.slice(1, 3).map(
+                    (r, i) =>
+                      (r.text || r.authorName) && (
+                        <li key={i} className="text-sm leading-relaxed text-muted-foreground">
+                          {r.text && <span className="italic">“{r.text}”</span>}
+                          {r.authorName && (
+                            <>
+                              {r.text ? " — " : ""}
+                              {r.googleMapsUri || r.authorUri ? (
+                                <a
+                                  href={r.googleMapsUri || r.authorUri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:text-foreground hover:underline focus-visible:focus-ring"
+                                >
+                                  {r.authorName}
+                                </a>
+                              ) : (
+                                <span>{r.authorName}</span>
+                              )}
+                            </>
+                          )}
+                          {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
+                        </li>
+                      ),
+                  )}
+                </ul>
+              </details>
             )}
-          </ul>
+          </div>
         )}
         {live && !place.photo && <LivePhoto place={place} live={live} />}
         {place.summary && (
