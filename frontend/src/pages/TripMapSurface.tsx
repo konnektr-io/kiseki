@@ -79,9 +79,15 @@ export function scrollToPlacePill(root: ParentNode | null, name: string): boolea
   if (!target) return false;
   // jsdom/node has no scrollIntoView — guard so unit tests don't explode.
   if (typeof target.scrollIntoView === "function") {
-    // The rail/sheet body is its own scroller (SplitView) — scrollIntoView
-    // walks the ancestor chain itself, never window.scrollTo.
-    target.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    // Confine the scroll to the rail/sheet's own scroller ([data-scroll-root]):
+    // scrollIntoView walks the ancestor chain, and on the phone sheet the
+    // nearest scrollable box ABOVE the scroller is the .map-surface wrapper —
+    // scrolling it drags the whole surface up (see scrollWithinScroller).
+    scrollWithinScroller(
+      target,
+      "nearest",
+      prefersReducedMotion() ? "auto" : "smooth",
+    );
   }
   // Flash the pill so the eye lands on it; state change only under
   // prefers-reduced-motion (the global CSS guard covers the animation too).
@@ -90,6 +96,68 @@ export function scrollToPlacePill(root: ParentNode | null, name: string): boolea
     setTimeout(() => target.classList.remove("place-pill-flash"), 1200);
   }
   return true;
+}
+
+/**
+ * Scroll `el` into view inside the rail/sheet's OWN scroller — never an
+ * ancestor of it.
+ *
+ * `Element.scrollIntoView` walks the WHOLE ancestor chain looking for
+ * scrollable boxes. On the phone sheet the nearest scrollable ancestor above
+ * the sheet body is the `.map-surface` wrapper (`overflow-hidden` still
+ * scrolls via scrollTop), so centering a day card scrolled THAT wrapper too:
+ * the whole map+sheet box slid up (measured `scrollTop = 244`), pushing the
+ * in-flow day nav out of the viewport and exposing the sheet's off-screen
+ * lower layout region as dead space (v0.23.x mobile regression — day view
+ * only; on desktop the SplitView rail is the nearest scroller, so nothing
+ * above it ever moved and the bug stayed invisible).
+ *
+ * Confinement: compute the element's offset relative to the nearest
+ * `[data-scroll-root]` (the same convention the day→day scroll reset and the
+ * scroll-spy already use) and set that scroller's scrollTop directly.
+ */
+export function scrollWithinScroller(
+  el: Element,
+  block: "nearest" | "center",
+  behavior: ScrollBehavior,
+): void {
+  // jsdom fakes carry scrollIntoView but no closest — guard keeps the unit
+  // tests' fake elements on the fallback path.
+  const scroller =
+    typeof el.closest === "function"
+      ? (el.closest("[data-scroll-root]") as HTMLElement | null)
+      : null;
+  if (!scroller) {
+    // No scroller found (non-DOM env, or a future layout without the
+    // attribute): fall back to scrollIntoView rather than not scrolling.
+    if (typeof el.scrollIntoView === "function") el.scrollIntoView({ block, behavior });
+    return;
+  }
+  const sRect = scroller.getBoundingClientRect();
+  const eRect = el.getBoundingClientRect();
+  // Element top in the scroller's content coordinates (unaffected by the
+  // scroller's own current scrollTop — both rects move together).
+  const relTop = eRect.top - sRect.top + scroller.scrollTop;
+  let top: number | null;
+  if (block === "center") {
+    top = relTop - Math.max(0, (sRect.height - eRect.height) / 2);
+  } else {
+    // "nearest": only adjust when the element sits outside the visible box.
+    const pad = 8;
+    if (relTop < scroller.scrollTop + pad) {
+      top = relTop - pad;
+    } else if (relTop + eRect.height > scroller.scrollTop + sRect.height - pad) {
+      top = relTop + eRect.height + pad - sRect.height;
+    } else {
+      top = null; // already fully visible — no scroll
+    }
+  }
+  if (top === null) return;
+  if (behavior === "smooth" && typeof scroller.scrollTo === "function") {
+    scroller.scrollTo({ top, behavior: "smooth" });
+  } else {
+    scroller.scrollTop = top;
+  }
 }
 
 /**
@@ -348,9 +416,12 @@ export function TripMapSurface() {
 
   /** Day level, map → rail: a chip tap raises, scrolls to and pulses its card.
    *  (#104): the scroll root IS the DayRail root element (`listRef` — scan
-   *  level attaches the same ref to `ItineraryList`'s root). `scrollIntoView`
-   *  with `block: "center"` walks the ancestor chain itself, which the rail's
-   *  nested scroller handles correctly. */
+   *  level attaches the same ref to `ItineraryList`'s root). The scroll is
+   *  confined to the nearest `[data-scroll-root]` scroller
+   *  (scrollWithinScroller): plain `scrollIntoView` walks the ancestor chain
+   *  and on the phone sheet also scrolled the `.map-surface` wrapper itself —
+   *  the whole surface slid up, the in-flow day nav left the viewport and the
+   *  sheet's off-screen layout region showed as dead space. */
   const tapBlockFromMap = (blockId: string) => {
     if (!blockId) {
       setActiveBlock(null);
@@ -361,9 +432,8 @@ export function TripMapSurface() {
     // The card scroll happens after the content is committed; rAF so the DOM
     // is settled.
     requestAnimationFrame(() => {
-      listRef.current
-        ?.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`)
-        ?.scrollIntoView({ block: "center", behavior: reducedMotion() ? "auto" : "smooth" });
+      const card = listRef.current?.querySelector(`[data-block-id="${CSS.escape(blockId)}"]`);
+      if (card) scrollWithinScroller(card, "center", reducedMotion() ? "auto" : "smooth");
     });
   };
 
