@@ -159,8 +159,15 @@ function ChatThread({
   useEffect(() => {
     const el = draftRef.current;
     if (!el) return;
+    // Measure with the scrollbar suppressed: a visible gutter narrows the box
+    // and rounds scrollHeight up past clientHeight (~1px with leading-relaxed),
+    // which made overflow-y-auto paint a permanent scrollbar even on empty
+    // drafts. Restore auto only at the 128px cap, where scrolling is real.
+    el.style.overflowY = "hidden";
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+    const next = Math.min(el.scrollHeight, 128);
+    el.style.height = `${next}px`;
+    el.style.overflowY = next >= 128 ? "auto" : "hidden";
   }, [draft]);
 
   const readyFiles = attachments.filter(
@@ -409,7 +416,7 @@ function ChatThread({
           aria-label="Chat message"
           rows={1}
           disabled={busy}
-          className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-auto rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
+          className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-hidden rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
         />
         {busy ? (
           <Button
