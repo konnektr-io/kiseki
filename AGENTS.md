@@ -120,6 +120,15 @@ Three modes, in order of preference:
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
 
+**User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
+/api/trips` (my trips) and `GET /api/auth/me` follow the RESOLVED identity —
+with act-as configured, the agent lists and identifies as the mapped user,
+never as `<client>@clients` (which holds no crew edges). `POST /api/claims`
+and `/api/claims/follow` PROVISION graph identity (User twin / hasCrew edge)
+and are **user-token-only**: a client-credentials (M2M) token is refused 403 —
+the agent never claims/follows, and act-as must never provision identity for
+the mapped user behind their back (mode 1 only).
+
 **Agent fleet (2026-09-08, #9/#140 — see `docs/spec.md` §8):** two Hermes
 agents. The **content agent** (dedicated profile `kiseki`) edits trip content
 through this write API only and never touches code; the **code agent** (Niko's

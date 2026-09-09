@@ -20,7 +20,12 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from .acl import authorize_trip_path, require_trip_role
+from .acl import (
+    authorize_trip_path,
+    require_trip_role,
+    require_user_token,
+    resolve_actor_sub,
+)
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import (
@@ -188,11 +193,14 @@ def health() -> dict:
 def auth_me(user: dict = Depends(get_current_user)) -> dict:
     """Who am I — identity from a validated Auth0 access token.
 
-    `sub` is the stable user identity (future ACLs, #5/#6). Profile claims
-    (email/name/picture) are only included when the token carries them — by
-    default they live in the ID token; the access token always has `sub`."""
+    `sub` is the RESOLVED actor sub (acl.resolve_actor_sub): for the
+    sanctioned agent M2M client with act-as configured, the act-as user (the
+    identity writes carry); for any other token, the token's own sub. Profile
+    claims (email/name/picture) are only included when the token carries them
+    — by default they live in the ID token; the access token always has `sub`.
+    """
     return {
-        "sub": user["sub"],
+        "sub": resolve_actor_sub(user),
         **{
             k: user[k]
             for k in ("email", "name", "picture", "email_verified")
@@ -205,13 +213,17 @@ def auth_me(user: dict = Depends(get_current_user)) -> dict:
 def my_trips(user: dict = Depends(get_current_user)) -> dict:
     """The caller's trips (issue #7 — logged-in landing).
 
-    Requires a valid Auth0 token; returns the trips the user has a crew role
-    on (via ``hasCrew``), with that role. Registered before the
-    ``{trip_id}`` route so the bare path is never captured by it.
-    Summary covers are stored as bare filenames in the graph; canonicalize
-    them to ``/media/<trip.$dtId>/<file>`` like full trip documents.
+    Requires a valid Auth0 token; returns the trips the RESOLVED actor has a
+    crew role on (via ``hasCrew``), with that role. The resolution follows
+    acl.resolve_actor_sub: the sanctioned agent M2M client with act-as
+    configured lists the act-as user's trips (their real crew edges) — never
+    the client's own (empty) listing (#142).
+    Registered before the ``{trip_id}`` route so the bare path is never
+    captured by it. Summary covers are stored as bare filenames in the graph;
+    canonicalize them to ``/media/<trip.$dtId>/<file>`` like full trip
+    documents.
     """
-    trips = list_trips_for_user(user["sub"])
+    trips = list_trips_for_user(resolve_actor_sub(user))
     for row in trips:
         if isinstance(row, dict) and row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
@@ -251,8 +263,10 @@ def create_claim(
 
     Requires a valid Auth0 token AND the trip's claim token. The claim token
     is what makes this an *invite*: the read link alone can never grant an
-    identity.
+    identity. Only a real end-user token may claim — an M2M client token
+    (which has no user sub) is refused (acl.require_user_token).
     """
+    require_user_token(session.user)
     try:
         trip = claim_identity(
             body.claimToken,
@@ -275,8 +289,11 @@ def follow_claim(
     Non-crew followers get a `hasCrew` edge with `role=follower`.
     Private trips require the invite; public trips can be followed
     optionally (read already works anonymously). Idempotent if already
-    on the crew — returns the trip without error.
+    on the crew — returns the trip without error. Like claiming, this
+    provisions a graph identity, so only a real end-user token may follow
+    (acl.require_user_token).
     """
+    require_user_token(session.user)
     try:
         trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
     except ClaimError as exc:
