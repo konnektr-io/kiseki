@@ -138,8 +138,8 @@ Kiseki agent work is split across **two Hermes agents** that hand off to each ot
 The content profile is backed up like the work/home profiles (git mirror repo `nikoraes/kiseki-hermes`, daily `push-profile.sh` cron) and can move to a **dedicated Hermes instance** later — the handoff protocol (GitHub issues + Hermes peer DMs) is machine-independent.
 
 - **Identity**: the agent has no identity in the graph (AGENTS.md → identity model). Interim single-user **TEMPORARY pin**: the content profile mints the M2M token and the backend `KISEKI_AGENT_ACT_AS` (static env) resolves writes as Niko. This pin exists only until per-request identity lands and must never become multi-user plumbing — target: the **UI passes the end user's token per request** (mode 1) or the M2M token + a request-scoped act-as sub; the static pin is then removed. Never provision agent twins/edges, never store a personal user token in a profile.
-- **User learning** (P2+, per Niko): **no Honcho dependency** — user memory lives in the **graph** as memory nodes (per user, per trip, pgvector embeddings — #10). Design the graph model so this is possible later.
-- **Agent memory hygiene**: the content profile's built-in memory holds **no user facts** — only impersonal operational knowledge (endpoints, content conventions). Per-user/per-trip facts live in graph memory nodes, queried under the acting user's scope; until #10 ships the agent is **stateless across users** (context comes from the request envelope). Cross-user isolation is a hard requirement, verified by test — never prompt discipline alone.
+- **User learning** (pivot 2026-09-09, per Niko): per-user memory uses **Honcho, scoped by `X-Hermes-Session-Key`** — the chat relay sends `<sub>` as the session key, and Honcho's session-key fallback gives each user an independent peer (`user-default-<sub>`) with per-user sessions/representation/memory (verified in the honcho plugin: `_resolve_user_peer_id` falls back to the session key when the platform sets no runtime user id, which the api server never does). Honcho is already deployed (ns `hermes`) and already the home profile's memory provider, so this is cheaper than graph memory nodes. **Graph memory (#10) is demoted to optional/later** — revisit only if Honcho's per-user recall proves insufficient (e.g. per-trip scoping on top). Design note: desktop/CLI sessions carry no session key, so they never pollute user memory (desired).
+- **Agent memory hygiene**: the content profile's built-in memory holds **no user facts** — only impersonal operational knowledge (endpoints, content conventions). Per-user facts live in **Honcho under the acting user's peer** (session-key scoped); until the kiseki profile enables `memory.provider: honcho`, the agent is **stateless across users** (context comes from the request envelope). Cross-user isolation is a hard requirement, verified by test — never prompt discipline alone.
 - **Integrations boundary** (unchanged): per-user OAuth + tokens (Google Photos, Strava, Timeline) live in the **app backend's secret store**, not in Hermes. The agent receives processed context via tools/MCP — no multi-user secret handling in the agent. Per-profile `.env` carries service-level credentials only.
 - **Guardrail** (unchanged): the agent only operates on trips it's explicitly pointed at; the app layer is the trust boundary, never the agent.
 - **GDPR** (parked until public — trusted group now): EU data residency (home cluster), DPAs with processors, erasure incl. memory, portability = the booklet export, consent for data sources, AI Act transparency. ⚠️ Provider choice (DeepSeek/OpenRouter) is a question *only* when the product goes public — models can be swapped later.
@@ -190,7 +190,7 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 ### P2–3 — Agent, memory, PWA, permissions
 
 - [ ] **Agent backend + chat UI (#9)** — dedicated **kiseki content-agent profile** (two-agent fleet, §8); `/chat` endpoint (A2A or Vercel-ai-compatible SSE) passes through with **per-user auth**; frontend chat via **Vercel ai-elements**; cross-user isolation verified by test.
-- [ ] **Agent memory per user / per trip (#10)** — graph memory nodes + pgvector embeddings (per user, per trip, ownership edges); stateless-across-users until it ships.
+- [ ] **Agent memory per user (#10 — re-scoped to Honcho, 2026-09-09)** — kiseki profile enables `memory.provider: honcho`; per-user peers derive from `X-Hermes-Session-Key` (chat relay already sends `<sub>`). Graph memory nodes + pgvector **demoted to optional** — revisit only if Honcho per-user recall proves insufficient (e.g. per-trip scoping on top).
 - [ ] **Agent fleet ops (#140)** — content→code code-request loop, code→content skill updates on API changes, session-review pass.
 - [ ] **Installable PWA** (service worker; icon set + manifest already in place).
 - [ ] **Events & notifications** (deferred from P1): SSE live updates, web push + Telegram.
@@ -240,7 +240,7 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 | 9 | Auth (P1) | ✅ **Invites + app-level ACLs**, implemented with the DB integration (not P2) |
 | 10 | Graph deploy (P1) | ✅ **API only, Events deferred**; pgvector + postgis image; x-user-id for `updatedBy` |
 | 11 | Agent (P2–3) | ✅ **Hermes as a library** (`AIAgent`) in the backend; chat UI via **Vercel ai-elements** (protocol adapter if needed) |
-| 12 | Agent memory (P2–3) | ✅ Target: **graph + pgvector** (per user, per trip) |
+| 12 | Agent memory (P2–3) | ✅ Pivot (2026-09-09): **Honcho per-user peers via X-Hermes-Session-Key** (#10 re-scoped); graph+pgvector demoted to optional |
 | 13 | Seeds | ✅ Keep real trip.json (private); **anonymized mocks** for testing; **DTDL auto-generated** from Python models |
 | 14 | Phase split | ✅ P0 done → **P1 infra/graph/auth/seed** → **P2–3 agent/PWA/permissions** → **P4 social**; review gates between phases |
 
@@ -251,7 +251,7 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 | # | Decision | Outcome |
 |---|---|---|
 | 15 | Two-agent split | ✅ **Content agent** — dedicated profile `kiseki`, content/write-API only, never code — + **code agent** (home profile: builds, releases, deploys, stewards the profile). Handoff = GitHub issues (`agent` label) + Hermes peer; see §8 |
-| 16 | Content-profile memory | ✅ Built-in agent memory holds **no user facts**; per-user/per-trip memory = graph nodes + pgvector (#10). Content agent is **stateless across users** until it ships |
+| 16 | Content-profile memory | ✅ Built-in agent memory holds **no user facts**; per-user memory = **Honcho peer per `X-Hermes-Session-Key`** (#10 re-scoped 2026-09-09). Content agent stateless across users until `provider: honcho` is enabled on the profile |
 | 17 | Content-profile backup | ✅ Git mirror repo `nikoraes/kiseki-hermes` + daily `push-profile.sh` cron (same pattern as the work/home profiles); move-ready for a dedicated Hermes instance |
 | 18 | Credentials | ✅ Per-profile `.env` = service-level only; end-user OAuth stays in the app backend secret store (§8 unchanged) |
 

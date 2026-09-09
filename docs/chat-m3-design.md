@@ -86,13 +86,25 @@ Behavior:
   2026-09-09 — keeps history in Hermes so the relay never resends the whole
   transcript):
   `POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses`,
-  `Authorization: Bearer $KISEKI_HERMES_KEY`, body `{model: "kiseki",
-  input: [<last user message>], conversation: "<sub>::trip:<trip>" (or
-  "<sub>::general"), instructions: "<identity envelope>", stream: true}`.
+  `Authorization: Bearer $KISEK...EY`,
+  `X-Hermes-Session-Key: <actor_sub>`, body `{model: "kiseki",
+  input: [<last user message>], conversation: "thread:<threadId>",
+  instructions: "<identity envelope>", stream: true}`.
   - **History lives server-side**: Hermes chains each turn to the stored
     response under `conversation` — the relay sends ONLY the new user
-    message each turn. `conversation` is scoped per acting user + trip, so
-    two users' histories never collide (isolation by construction).
+    message each turn. `conversation` distinguishes THREADS
+    (`thread:<threadId>` — the SPA always sends a client-persisted thread
+    id, reused on resume); it does NOT encode the user.
+  - **Per-user identity + memory ride the session key** (Niko's pivot,
+    2026-09-09): `X-Hermes-Session-Key: <sub>` makes Hermes bind the
+    session to that user AND Honcho derive an independent per-user peer
+    (`user-default-<sub>` — the api server sets no runtime user id, so the
+    plugin's session-key fallback fires) with per-user sessions/reprs/
+    memory. Isolation is by session key + request ACL, not by name — no
+    `sub::` prefix in conversation ids. Desktop/CLI sessions have no session
+    key → invisible to user memory (desired). Legacy no-threadId callers
+    keep a sub-scoped `trip:`/`general` fallback so they can never chain
+    onto another user's stored response.
   - `tripId` and any file URLs arrive inside the user content parts
     (`image_url` parts pass through — the api server supports inline image
     URLs).
