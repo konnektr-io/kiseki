@@ -62,6 +62,7 @@ from .write import (
     TodoAdd,
     TodoToggle,
     TricountConnect,
+    TripCreate,
     TripPatch,
     WriteError,
 )
@@ -238,6 +239,38 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
         if isinstance(row, dict) and row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
     return {"trips": trips}
+
+
+@app.post("/api/trips", status_code=201)
+def post_trip(
+    body: TripCreate,
+    x_act_as_sub: str | None = Header(default=None),
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Create an empty trip (issue #9 / M4) — the chat agent spawns it, then
+    fills it via the existing write API.
+
+    Identity follows the chat relay (``acl.resolve_request_actor_sub``): the
+    end user's own token (mode 1) or the sanctioned agent M2M token + a
+    request-scoped act-as sub (mode 2). A bare M2M token is rejected — the
+    trip is created FOR the resolved actor, who becomes ``owner``. Returns
+    the public-trip shape so the SPA can navigate straight to ``/t/<id>``.
+    """
+    actor_sub = resolve_request_actor_sub(session.user, x_act_as_sub)
+    # The token claims may carry email/name when userinfo is unavailable —
+    # userinfo (fresher) wins over claims.
+    profile = {
+        **{k: session.user[k] for k in ("email", "name") if session.user.get(k)},
+        **(session.profile or {}),
+    }
+    trip = _write(
+        write_svc.create_trip,
+        actor_sub=actor_sub,
+        token_sub=session.user.get("sub", ""),
+        profile=profile,
+        payload=body,
+    )
+    return _public_trip(trip, my_role="owner")
 
 
 @app.get("/api/trips/by-claim/{claim_token}")

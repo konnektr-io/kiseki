@@ -206,6 +206,17 @@ RETURN crew.role AS role
 LIMIT 1
 """
 
+# Existence probe for a User twin by its global auth id (issue #9 — trip
+# creation must not provision identity for an act-as user behind their back,
+# #142, so it checks first and only provisions from the user's own token).
+# `$uid` is a bound parameter.
+_Q_USER_EXISTS = """
+MATCH (u:Twin)
+WHERE u.`$dtId` = $uid
+RETURN u
+LIMIT 1
+"""
+
 
 class GraphReadClient:
     """Read trips from a live Konnektr Graph (konnektr-graph SDK)."""
@@ -397,6 +408,29 @@ class GraphReadClient:
         except Exception as exc:
             print(f"[kiseki] graph create user twin({user_dtid}) failed: {exc}")
             return False
+
+    def user_twin_exists(self, user_dtid: str) -> bool:
+        """True when a User twin with this global auth id exists (issue #9).
+
+        Uncached on purpose: trip creation checks-then-provisions in one flow,
+        and a cached False would re-provision (harmless but noisy) or, worse,
+        mask a twin created a moment ago. A rare op — no TTL needed.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return False
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_USER_EXISTS, query_parameters={"uid": user_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph user exists({user_dtid}) failed: {exc}")
+            return False
+        if not rows:
+            return False
+        node = self._norm_node((rows[0] or {}).get("u") or {})
+        return bool(node.get("$dtId"))
 
     def claim_crew_person(
         self,

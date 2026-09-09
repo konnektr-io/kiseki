@@ -200,9 +200,34 @@ class FakeGraph:
         return True
 
     def fetch_graph(self, trip_dtid: str) -> dict | None:
-        if trip_dtid != self.root or self.twin(trip_dtid) is None:
+        t = self.twin(trip_dtid)
+        if t is None or self.kind(trip_dtid) != "Trip":
             return None
-        return self._bundle()
+        bundle = self._bundle()
+        bundle["$dtId"] = trip_dtid
+        return bundle
+
+    def user_twin_exists(self, user_dtid: str) -> bool:
+        return self.twin(user_dtid) is not None
+
+    def create_user_twin(self, user_dtid: str, profile: dict) -> bool:
+        """Mirror the real ``create_user_twin`` (claim flow, #6): a User twin
+        without a verified email is refused (False) — the server invents no
+        identity. PUT by ``$dtId`` — idempotent."""
+        email = ((profile or {}).get("email") or "").strip()
+        if not email:
+            return False
+        name = ((profile or {}).get("name") or "").strip() or email.split("@")[0]
+        if self.twin(user_dtid) is None:
+            self.twins.append({
+                "$dtId": user_dtid,
+                "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
+                "name": name,
+                "email": email,
+                "displayName": name,
+                "authProvider": "external",
+            })
+        return True
 
     def role_for_user_on_trip(self, trip_dtid: str, user_dtid: str) -> str | None:
         for r in self.rels_from(trip_dtid, "hasCrew"):
