@@ -31,6 +31,7 @@ from .acl import (
 from .auth import AuthSession, get_current_session, get_current_user
 from .chat import (
     ChatRequest,
+    WireTranslator,
     build_upstream_body,
     fetch_upstream_lines,
     iter_wire_frames,
@@ -1034,12 +1035,20 @@ async def post_chat(
     )
 
     async def _stream():
+        # One stateful translator per turn: feed every upstream line into
+        # the SAME instance and finish() when the stream ends. A fresh
+        # iter_wire_frames([line]) per line (v0.24.0 bug) emits a spurious
+        # d: done frame for every lifecycle line — the SPA transport stops
+        # at the first d:, so nothing ever renders.
+        translator = WireTranslator()
         try:
             async for line in fetch_upstream_lines(
                 upstream, session_key=actor_sub
             ):
-                for frame in iter_wire_frames([line]):
+                for frame in translator.feed(line):
                     yield frame + "\n"
+            for frame in translator.finish():
+                yield frame + "\n"
         except HTTPException as exc:
             yield f'e:{json.dumps({"error": exc.detail})}\n'
 

@@ -93,55 +93,90 @@ def wire_error(message: str) -> str:
 
 
 def iter_wire_frames(lines: Iterable[str]) -> Iterator[str]:
-    """Translate Hermes Responses-API SSE lines → Vercel-ai wire frames.
+    """Translate a Responses-API SSE body → Vercel-ai wire frames (one-shot).
 
-    Frames carry an ``event:`` name plus a JSON ``data:`` body. Text deltas
-    arrive as ``response.output_text.delta``; the stream ends with
-    ``response.completed`` (success) or ``response.failed`` (error). Tool and
-    lifecycle events (``response.created``, ``output_item.added/done``,
-    ``output_text.done``) are consumed but not forwarded — tool execution
-    happens agent-side; the SPA renders the final text (tool-call UI is a
-    later add, see docs/chat-m3).
+    Convenience wrapper over :class:`WireTranslator` for tests and callers
+    that hold the whole upstream body at once. The live relay must feed the
+    stateful translator line-by-line instead (``feed`` per upstream line,
+    ``finish`` at stream end) — a fresh one-shot per line emits a spurious
+    ``d:`` done frame for every event/data line (the v0.24.0 no-streaming
+    bug: the SPA transport stops at the first ``d:``, so nothing renders).
     """
-    event: str | None = None
+    translator = WireTranslator()
     for line in lines:
+        yield from translator.feed(line)
+    yield from translator.finish()
+
+
+class WireTranslator:
+    """Incremental Responses-API SSE → Vercel-ai wire frame translator.
+
+    Feed raw upstream lines one at a time (``feed``); call ``finish`` when
+    the upstream stream ends. State that a one-shot generator holds across
+    lines survives here across calls:
+
+    - the pending ``event:`` name (SSE sends ``event:`` and ``data:`` as
+      separate lines);
+    - the terminal flag, so exactly ONE ``d:`` done frame is ever emitted —
+      on ``response.completed``/``[DONE]``, or from ``finish`` when the
+      stream ends without a terminal event (cut connection). Lifecycle
+      events (``response.created``, ``output_item.*``, ``output_text.done``)
+      are consumed and dropped, never echoed as frames.
+
+    Tool/lifecycle events stay agent-side by design — v1 renders text only.
+    """
+
+    def __init__(self) -> None:
+        self._event: str | None = None
+        self._done = False
+
+    def feed(self, line: str) -> list[str]:
+        """Translate one raw upstream line. Empty when consumed/dropped."""
+        if self._done:
+            return []
+        frames: list[str] = []
         line = line.strip()
         if not line or line.startswith(":"):
-            continue  # SSE comment / keepalive
+            return frames  # SSE comment / keepalive
         if line.startswith("event:"):
-            event = line[len("event:"):].strip()
-            continue
+            self._event = line[len("event:"):].strip()
+            return frames
         if not line.startswith("data:"):
-            continue
+            return frames
         payload = line[len("data:"):].strip()
         if payload == "[DONE]":
-            yield wire_done()
-            return
+            self._done = True
+            return [wire_done()]
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
-            continue  # non-JSON keepalive — ignore
-        name = event or data.get("type") or ""
-        event = None  # event: applies to the single following data: line
+            return frames  # non-JSON keepalive — ignore
+        name = self._event or data.get("type") or ""
+        self._event = None  # event: applies to the single following data: line
         if name == "response.output_text.delta":
             delta = data.get("delta")
             if isinstance(delta, str) and delta:
-                yield wire_text(delta)
+                frames.append(wire_text(delta))
         elif name in ("response.completed", "response.done"):
-            yield wire_done()
-            return
+            self._done = True
+            frames.append(wire_done())
         elif name in ("response.failed", "error"):
-            detail = (
-                data.get("error") or data.get("message") or "agent error"
-            )
+            detail = data.get("error") or data.get("message") or "agent error"
             if isinstance(detail, dict):
                 detail = detail.get("message", "agent error")
-            yield wire_error(str(detail))
-            return
+            self._done = True
+            frames.append(wire_error(str(detail)))
         # Everything else (created / output_item.* / output_text.done) is
         # lifecycle or tool metadata — ignored for text-only rendering.
-    # Stream ended without a terminal event — still signal completion.
-    yield wire_done()
+        return frames
+
+    def finish(self) -> list[str]:
+        """Signal stream end. Emits the terminal done ONLY if no terminal
+        event was seen (cut connection must still resolve the turn)."""
+        if self._done:
+            return []
+        self._done = True
+        return [wire_done()]
 
 
 # ------------------------------------------------------------------ identity
