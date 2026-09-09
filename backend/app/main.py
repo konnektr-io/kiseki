@@ -10,7 +10,6 @@ One process, one container:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import tempfile
 import time
@@ -31,11 +30,13 @@ from .acl import (
 from .auth import AuthSession, get_current_session, get_current_user
 from .chat import (
     ChatRequest,
+    SSE_DONE,
     WireTranslator,
     build_upstream_body,
+    error_chunk,
     fetch_upstream_lines,
-    iter_wire_frames,
     require_actor_trip_access,
+    sse_data,
 )
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import (
@@ -1016,11 +1017,13 @@ async def post_chat(
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Relay a chat turn to the kiseki content agent (SSE, Vercel-ai wire).
+    """Relay a chat turn to the kiseki content agent (SSE UI-message-stream v1).
 
     Resolves the acting sub (bearer → mode 1/2), optionally gates the named
     trip like any read (follower+), then streams the upstream Responses-API
-    turn back as Vercel-ai ``0:`` frames. Conversation history lives on the
+    turn back as ``data: {chunk}`` SSE events (text-start/text-delta/
+    text-end/finish, terminated by ``data: [DONE]``) with
+    ``x-vercel-ai-ui-message-stream: v1``. Conversation history lives on the
     Hermes side, scoped per acting user (and trip) — only the new user
     message is forwarded each turn.
     """
@@ -1037,27 +1040,32 @@ async def post_chat(
     async def _stream():
         # One stateful translator per turn: feed every upstream line into
         # the SAME instance and finish() when the stream ends. A fresh
-        # iter_wire_frames([line]) per line (v0.24.0 bug) emits a spurious
-        # d: done frame for every lifecycle line — the SPA transport stops
-        # at the first d:, so nothing ever renders.
+        # one-shot per line (v0.24.0 bug) emits a spurious terminal finish
+        # for every lifecycle line — the SPA transport stops at the terminal
+        # chunk, so nothing ever renders.
         translator = WireTranslator()
         try:
             async for line in fetch_upstream_lines(
                 upstream, session_key=actor_sub
             ):
-                for frame in translator.feed(line):
-                    yield frame + "\n"
-            for frame in translator.finish():
-                yield frame + "\n"
+                for chunk in translator.feed(line):
+                    yield sse_data(chunk)
+            for chunk in translator.finish():
+                yield sse_data(chunk)
+            yield SSE_DONE
         except HTTPException as exc:
-            yield f'e:{json.dumps({"error": exc.detail})}\n'
+            # Headers are already sent — the status can't change, so signal
+            # the failure in-stream (upstream 502/503 surfaces here).
+            yield sse_data(error_chunk(str(exc.detail)))
+            yield SSE_DONE
 
     return StreamingResponse(
         _stream(),
-        media_type="text/plain",
+        media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            "x-vercel-ai-ui-message-stream": "v1",
         },
     )
 

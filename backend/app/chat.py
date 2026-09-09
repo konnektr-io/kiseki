@@ -21,15 +21,18 @@ it is acting for; the agent's write-API calls act-as that sub, enforced
 downstream by the kiseki API ACL.
 
 The translation is deliberately pure: ``iter_wire_frames`` maps Responses-API
-SSE lines (``event:`` + ``data:``) to Vercel-ai data-stream lines
-(``0:\"<text>\"`` … ``d:{…}``) so the wire contract is unit-testable without
-any upstream. The IO seam (``fetch_upstream_lines``) is monkeypatched in
-tests.
+SSE lines (``event:`` + ``data:``) to Vercel-ai UI-message-stream v1 chunk
+dicts (``text-start`` / ``text-delta`` / ``text-end`` / ``finish`` / ``error``,
+serialized by the route as ``data: {…}`` SSE events per
+``x-vercel-ai-ui-message-stream: v1``) so the wire contract is unit-testable
+without any upstream. The IO seam (``fetch_upstream_lines``) is monkeypatched
+in tests.
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from typing import AsyncIterator, Iterable, Iterator
 
 from fastapi import HTTPException
@@ -77,106 +80,149 @@ class ChatRequest(_Strict):
 
 
 # ------------------------------------------------------------------ wire fmt
+# Vercel-ai UI-message-stream v1 (x-vercel-ai-ui-message-stream: v1), the
+# protocol the installed ai SDK's DefaultChatTransport parses natively. Each
+# chunk dict is serialized by the route as one SSE event
+# (``data: {json}\n\n``); the stream ends with ``data: [DONE]\n\n``. Minimal
+# text-only sequence per turn: text-start → text-delta* → text-end → finish.
 
-def wire_text(delta: str) -> str:
-    """Vercel-ai data-stream line for one text delta (part index 0)."""
-    return f"0:{json.dumps(delta)}"
-
-
-def wire_done() -> str:
-    """Terminal data-stream line (finish_reason stop)."""
-    return f'd:{{"finishReason":"stop","isContinued":false}}'
-
-
-def wire_error(message: str) -> str:
-    return f'e:{{"error":"{message}"}}'
+def text_start_chunk(part_id: str) -> dict:
+    """Open the turn's single text part."""
+    return {"type": "text-start", "id": part_id}
 
 
-def iter_wire_frames(lines: Iterable[str]) -> Iterator[str]:
-    """Translate a Responses-API SSE body → Vercel-ai wire frames (one-shot).
+def text_delta_chunk(part_id: str, delta: str) -> dict:
+    """One text delta on the turn's text part."""
+    return {"type": "text-delta", "id": part_id, "delta": delta}
+
+
+def text_end_chunk(part_id: str) -> dict:
+    """Close the turn's text part (only when text started)."""
+    return {"type": "text-end", "id": part_id}
+
+
+def finish_chunk() -> dict:
+    """Terminal chunk (stop). Always emitted, exactly once per turn."""
+    return {"type": "finish", "finishReason": "stop"}
+
+
+def error_chunk(message: str) -> dict:
+    """In-stream error signal (terminal — replaces text-end/finish)."""
+    return {"type": "error", "errorText": message}
+
+
+def sse_data(chunk: dict) -> str:
+    """Serialize one v1 chunk dict as an SSE ``data:`` event."""
+    return f"data: {json.dumps(chunk)}\n\n"
+
+
+#: Stream terminator appended after the terminal chunk.
+SSE_DONE = "data: [DONE]\n\n"
+
+
+def iter_wire_frames(
+    lines: Iterable[str], *, part_id: str | None = None
+) -> Iterator[dict]:
+    """Translate a Responses-API SSE body → v1 chunk dicts (one-shot).
 
     Convenience wrapper over :class:`WireTranslator` for tests and callers
     that hold the whole upstream body at once. The live relay must feed the
     stateful translator line-by-line instead (``feed`` per upstream line,
     ``finish`` at stream end) — a fresh one-shot per line emits a spurious
-    ``d:`` done frame for every event/data line (the v0.24.0 no-streaming
-    bug: the SPA transport stops at the first ``d:``, so nothing renders).
+    terminal ``finish`` for every event/data line (the v0.24.0 no-streaming
+    bug: the SPA transport stops at the terminal chunk, so nothing renders).
     """
-    translator = WireTranslator()
+    translator = WireTranslator(part_id=part_id)
     for line in lines:
         yield from translator.feed(line)
     yield from translator.finish()
 
 
 class WireTranslator:
-    """Incremental Responses-API SSE → Vercel-ai wire frame translator.
+    """Incremental Responses-API SSE → v1 chunk translator.
 
     Feed raw upstream lines one at a time (``feed``); call ``finish`` when
-    the upstream stream ends. State that a one-shot generator holds across
-    lines survives here across calls:
+    the upstream stream ends. One instance owns one turn (one stable
+    ``<turn-id>`` shared by text-start/delta/end). State that a one-shot
+    generator holds across lines survives here across calls:
 
     - the pending ``event:`` name (SSE sends ``event:`` and ``data:`` as
       separate lines);
-    - the terminal flag, so exactly ONE ``d:`` done frame is ever emitted —
-      on ``response.completed``/``[DONE]``, or from ``finish`` when the
-      stream ends without a terminal event (cut connection). Lifecycle
-      events (``response.created``, ``output_item.*``, ``output_text.done``)
-      are consumed and dropped, never echoed as frames.
+    - whether text started (``text-start`` is emitted lazily before the
+      first delta — the SDK requires start before delta/end);
+    - the terminal flag, so exactly ONE terminal sequence is ever emitted —
+      ``text-end`` (only if text started) + ``finish`` on
+      ``response.completed``/``[DONE]``, or from ``finish`` when the stream
+      ends without a terminal event (cut connection). Lifecycle events
+      (``response.created``, ``output_item.*``, ``output_text.done``) are
+      consumed and dropped, never echoed as chunks.
 
     Tool/lifecycle events stay agent-side by design — v1 renders text only.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, part_id: str | None = None) -> None:
         self._event: str | None = None
         self._done = False
+        self._started = False
+        self._part_id = part_id or uuid.uuid4().hex[:16]
 
-    def feed(self, line: str) -> list[str]:
+    def feed(self, line: str) -> list[dict]:
         """Translate one raw upstream line. Empty when consumed/dropped."""
         if self._done:
             return []
-        frames: list[str] = []
+        chunks: list[dict] = []
         line = line.strip()
         if not line or line.startswith(":"):
-            return frames  # SSE comment / keepalive
+            return chunks  # SSE comment / keepalive
         if line.startswith("event:"):
             self._event = line[len("event:"):].strip()
-            return frames
+            return chunks
         if not line.startswith("data:"):
-            return frames
+            return chunks
         payload = line[len("data:"):].strip()
         if payload == "[DONE]":
             self._done = True
-            return [wire_done()]
+            if self._started:
+                chunks.append(text_end_chunk(self._part_id))
+            chunks.append(finish_chunk())
+            return chunks
         try:
             data = json.loads(payload)
         except json.JSONDecodeError:
-            return frames  # non-JSON keepalive — ignore
+            return chunks  # non-JSON keepalive — ignore
         name = self._event or data.get("type") or ""
         self._event = None  # event: applies to the single following data: line
         if name == "response.output_text.delta":
             delta = data.get("delta")
             if isinstance(delta, str) and delta:
-                frames.append(wire_text(delta))
+                if not self._started:
+                    self._started = True
+                    chunks.append(text_start_chunk(self._part_id))
+                chunks.append(text_delta_chunk(self._part_id, delta))
         elif name in ("response.completed", "response.done"):
             self._done = True
-            frames.append(wire_done())
+            if self._started:
+                chunks.append(text_end_chunk(self._part_id))
+            chunks.append(finish_chunk())
         elif name in ("response.failed", "error"):
             detail = data.get("error") or data.get("message") or "agent error"
             if isinstance(detail, dict):
                 detail = detail.get("message", "agent error")
             self._done = True
-            frames.append(wire_error(str(detail)))
+            chunks.append(error_chunk(str(detail)))
         # Everything else (created / output_item.* / output_text.done) is
         # lifecycle or tool metadata — ignored for text-only rendering.
-        return frames
+        return chunks
 
-    def finish(self) -> list[str]:
-        """Signal stream end. Emits the terminal done ONLY if no terminal
+    def finish(self) -> list[dict]:
+        """Signal stream end. Emits the terminal sequence ONLY if no terminal
         event was seen (cut connection must still resolve the turn)."""
         if self._done:
             return []
         self._done = True
-        return [wire_done()]
+        if self._started:
+            return [text_end_chunk(self._part_id), finish_chunk()]
+        return [finish_chunk()]
 
 
 # ------------------------------------------------------------------ identity

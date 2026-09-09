@@ -6,8 +6,9 @@ Covers the M3 acceptance contract:
   no pin → 401;
 - /api/chat uses the Responses API: only the new user message is forwarded
   with a per-actor (per-trip) `conversation` name + identity `instructions`,
-  and the upstream Responses-API SSE stream is translated to Vercel-ai `0:`
-  frames;
+   and the upstream Responses-API SSE stream is translated to Vercel-ai
+   UI-message-stream v1 chunks (``data: {…}`` SSE events …
+   ``data: [DONE]``);
 - /api/chat gates the named trip (follower+ for the ACTING user);
 - /api/files stores content-addressed bytes into the trip's media namespace
   and returns the /media URL (editor+ only);
@@ -179,13 +180,37 @@ def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
     )
     assert resp.status_code == 200
     # Wire SHAPE, not just containment (the v0.24.0 regression: a fresh
-    # one-shot translator per upstream line spammed spurious d: done frames
-    # BEFORE the text — the SPA transport stops at the first d:, so nothing
-    # rendered). The SPA requires: text first, exactly one terminal d:.
-    lines = [ln for ln in resp.text.splitlines() if ln.strip()]
-    assert lines[0] == '0:"Hel"', f"first frame must be text, got {lines[0]!r}"
-    assert lines == ['0:"Hel"', '0:"lo"', chat_module.wire_done()], lines
-    assert "finishReason" in resp.text
+    # one-shot translator per upstream line spammed spurious terminal chunks
+    # BEFORE the text — the SPA transport stops at the terminal chunk, so
+    # nothing rendered). The SPA requires: text first, exactly one finish,
+    # SSE framing throughout.
+    assert resp.headers["content-type"].startswith("text/event-stream")
+    assert resp.headers["x-vercel-ai-ui-message-stream"] == "v1"
+    text = resp.text
+    assert text.rstrip("\n").endswith("data: [DONE]")
+    raw_events = [e for e in text.split("\n\n") if e.strip()]
+    assert raw_events[-1] == "data: [DONE]"
+    for event in raw_events[:-1]:
+        assert event.startswith("data: "), f"not an SSE data event: {event!r}"
+    payloads = [json.loads(e[len("data: "):]) for e in raw_events[:-1]]
+    assert payloads, "no SSE events in the body"
+    # first event opens the text part — nothing terminal before the text
+    assert payloads[0]["type"] == "text-start", payloads[0]
+    turn_id = payloads[0]["id"]
+    deltas = [
+        p["delta"] for p in payloads if p["type"] == "text-delta"
+    ]
+    assert deltas == ["Hel", "lo"], payloads
+    assert all(
+        p["id"] == turn_id
+        for p in payloads
+        if p["type"] in ("text-start", "text-delta", "text-end")
+    )
+    assert payloads[-2] == {"type": "text-end", "id": turn_id}
+    finishes = [p for p in payloads if p["type"] == "finish"]
+    assert len(finishes) == 1, payloads
+    assert finishes[0].get("finishReason") == "stop"
+    assert payloads[-1]["type"] == "finish"
 
 
 def test_chat_forwards_only_new_input_with_scoped_conversation(
@@ -405,8 +430,14 @@ def test_wire_translation_of_responses_stream() -> None:
         ("response.output_text.done", json.dumps({"type": "response.output_text.done", "text": "Hello"})),
         ("response.completed", json.dumps({"type": "response.completed"})),
     ])
-    frames = list(chat_module.iter_wire_frames(body.splitlines()))
-    assert frames == ['0:"Hel"', '0:"lo"', chat_module.wire_done()]
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "Hel"},
+        {"type": "text-delta", "id": "t1", "delta": "lo"},
+        {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
 
 
 def test_wire_translation_of_failed_stream() -> None:
@@ -414,8 +445,12 @@ def test_wire_translation_of_failed_stream() -> None:
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "partial"})),
         ("response.failed", json.dumps({"type": "response.failed", "error": "boom"})),
     ])
-    frames = list(chat_module.iter_wire_frames(body.splitlines()))
-    assert frames == ['0:"partial"', chat_module.wire_error("boom")]
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "partial"},
+        {"type": "error", "errorText": "boom"},
+    ]
 
 
 def test_wire_translation_skips_tool_events() -> None:
@@ -427,32 +462,46 @@ def test_wire_translation_skips_tool_events() -> None:
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "answer"})),
         ("response.completed", json.dumps({"type": "response.completed"})),
     ])
-    frames = list(chat_module.iter_wire_frames(body.splitlines()))
-    assert frames == ['0:"answer"', chat_module.wire_done()]
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "answer"},
+        {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
 
 
 def test_wire_translation_keepalives_ignored() -> None:
     body = ": keepalive\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}"
-    frames = list(chat_module.iter_wire_frames(body.splitlines()))
-    assert '0:"x"' in frames
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert {"type": "text-delta", "id": "t1", "delta": "x"} in chunks
 
 
 def test_wire_translation_stream_without_terminal() -> None:
     body = 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hi"}'
-    frames = list(chat_module.iter_wire_frames(body.splitlines()))
-    assert frames == ['0:"hi"', chat_module.wire_done()]
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "hi"},
+        {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
+
+
+def _finish_count(chunks: list[dict]) -> int:
+    return sum(1 for c in chunks if c.get("type") == "finish")
 
 
 def test_wire_translator_incremental_no_spurious_done_frames() -> None:
     """Feed lines ONE AT A TIME (how the live route consumes the upstream):
-    exactly one terminal d: at the end, never mid-stream, never first.
+    exactly one terminal finish at the end, never mid-stream, never first.
 
     Regression for the v0.24.0 no-streaming bug: the route called
     ``iter_wire_frames([line])`` — a FRESH one-shot per upstream line — so
     every ``event:``/lifecycle line fell through to the stream-end fallback
-    and emitted a spurious ``d:`` done frame. The SPA transport stops at the
-    first ``d:`` (``state.done``), so a multi-step agent turn (which is full
-    of lifecycle lines) rendered nothing at all.
+    and emitted a spurious terminal chunk. The SPA transport stops at the
+    terminal chunk, so a multi-step agent turn (which is full of lifecycle
+    lines) rendered nothing at all.
     """
     lines = _responses_sse([
         ("response.created", json.dumps({"type": "response.created"})),
@@ -466,34 +515,46 @@ def test_wire_translator_incremental_no_spurious_done_frames() -> None:
         ("response.completed", json.dumps({"type": "response.completed"})),
     ]).splitlines()
 
-    # The one-shot wrapper over the whole body still works…
-    assert list(chat_module.iter_wire_frames(lines)) == [
-        '0:"Hel"', '0:"lo"', chat_module.wire_done()
+    expected = [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "Hel"},
+        {"type": "text-delta", "id": "t1", "delta": "lo"},
+        {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
     ]
+    # The one-shot wrapper over the whole body still works…
+    assert list(chat_module.iter_wire_frames(lines, part_id="t1")) == expected
     # …and the incremental path (feed per line, as the route does) must
-    # produce the SAME wire: no d: before the first delta, none between.
-    t = chat_module.WireTranslator()
-    frames: list[str] = []
+    # produce the SAME wire: no terminal before the first text-start, none
+    # between.
+    t = chat_module.WireTranslator(part_id="t1")
+    chunks: list[dict] = []
     for line in lines:
-        frames.extend(t.feed(line))
-    frames.extend(t.finish())
-    assert frames == ['0:"Hel"', '0:"lo"', chat_module.wire_done()]
-    assert frames.count(chat_module.wire_done()) == 1
+        chunks.extend(t.feed(line))
+    chunks.extend(t.finish())
+    assert chunks == expected
+    assert _finish_count(chunks) == 1
 
 
 def test_wire_translator_stream_cut_mid_turn_still_terminates() -> None:
-    """A dropped connection (no completed event) must still emit one d:."""
+    """A dropped connection (no completed event) must still terminate once."""
     lines = _responses_sse([
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "par"})),
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "tial"})),
     ]).splitlines()
-    t = chat_module.WireTranslator()
-    frames: list[str] = []
+    t = chat_module.WireTranslator(part_id="t1")
+    chunks: list[dict] = []
     for line in lines:
-        frames.extend(t.feed(line))
-    frames.extend(t.finish())  # upstream closed without response.completed
-    assert frames == ['0:"par"', '0:"tial"', chat_module.wire_done()]
-    assert frames.count(chat_module.wire_done()) == 1
+        chunks.extend(t.feed(line))
+    chunks.extend(t.finish())  # upstream closed without response.completed
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "par"},
+        {"type": "text-delta", "id": "t1", "delta": "tial"},
+        {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
+    assert _finish_count(chunks) == 1
 
 
 # ------------------------------------------------------------------ /api/files

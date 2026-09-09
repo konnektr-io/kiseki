@@ -1,18 +1,20 @@
 import { useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
-import type { ChatTransport, UIMessage, UIMessageChunk } from "ai";
+import { DefaultChatTransport } from "ai";
+import type { UIMessage, UIMessageChunk } from "ai";
 
 /**
  * Chat wire client (issue #9 / M4) — the SPA side of `POST /api/chat`.
  *
- * Wire note: the relay speaks the legacy Vercel-ai data-stream lines
- * (`0:"<delta>"` … `d:{…finish…}`, `backend/app/chat.py` `wire_text` /
- * `wire_done` / `wire_error`). The installed AI SDK (`ai` v7 /
- * `@ai-sdk/react` v4) no longer consumes that wire natively —
- * `DefaultChatTransport` expects UI-message-chunk SSE — so this module ships
- * a small custom `ChatTransport` (the SDK's documented extension point) that
- * translates the relay lines into `UIMessageChunk`s. `useChat` still owns all
- * message/state management; only the HTTP + wire translation is custom.
+ * Wire note: the relay speaks the stock Vercel-ai UI-message-stream v1 SSE
+ * protocol (`data: {chunk}` events … `data: [DONE]`, header
+ * `x-vercel-ai-ui-message-stream: v1` — see `backend/app/chat.py`), which
+ * the installed AI SDK (`ai` v7 / `@ai-sdk/react` v4)
+ * `DefaultChatTransport` parses natively. This module therefore subclasses
+ * `DefaultChatTransport` for auth headers + request shaping only:
+ * `prepareSendMessagesRequest` maps the transcript to the relay's
+ * `{messages, threadId, tripId}` body, and a fetch wrapper maps 401/403 to
+ * `ChatAuthError`. `useChat` still owns all message/state management.
  * The relay keeps dropping tool events by design — v1 renders text only.
  */
 
@@ -144,164 +146,45 @@ async function relayErrorMessage(res: Response): Promise<string> {
   return text || `Request failed (${res.status})`;
 }
 
-/** Incremental parse state for one relay response body. */
-export interface RelayParseState {
-  textId: string;
-  started: boolean;
-  done: boolean;
-}
-
-export function initialRelayParseState(): RelayParseState {
-  return { textId: "text-1", started: false, done: false };
-}
-
-/**
- * Translate ONE relay line into `UIMessageChunk`s (pure — unit-tested).
- * Accepts the bare `0:` lines the relay emits today and the `data: 0:`
- * SSE form from the M3 doc, so either framing renders.
- */
-export function relayLineToChunks(
-  rawLine: string,
-  state: RelayParseState,
-): UIMessageChunk[] {
-  if (state.done) return [];
-  let line = rawLine.trim();
-  if (!line) return [];
-  if (line.startsWith("data:")) line = line.slice("data:".length).trim();
-  if (line.startsWith("0:")) {
-    let delta: unknown;
-    try {
-      delta = JSON.parse(line.slice(2));
-    } catch {
-      return [];
-    }
-    if (typeof delta !== "string" || !delta) return [];
-    const chunks: UIMessageChunk[] = [];
-    if (!state.started) {
-      state.started = true;
-      chunks.push({ type: "text-start", id: state.textId });
-    }
-    chunks.push({ type: "text-delta", id: state.textId, delta });
-    return chunks;
-  }
-  if (line.startsWith("d:")) {
-    state.done = true;
-    return state.started
-      ? [
-          { type: "text-end", id: state.textId },
-          { type: "finish" },
-        ]
-      : [{ type: "finish" }];
-  }
-  if (line.startsWith("e:")) {
-    state.done = true;
-    let message = "The assistant failed to reply.";
-    try {
-      const body = JSON.parse(line.slice(2)) as { error?: unknown };
-      if (typeof body.error === "string" && body.error) message = body.error;
-    } catch {
-      // keep the default
-    }
-    return [{ type: "error", errorText: message }];
-  }
-  return [];
-}
-
-/** The kiseki relay transport: bearer-first POST + `0:`/`d:`/`e:` → chunks. */
-export class KisekiChatTransport implements ChatTransport<UIMessage> {
-  private readonly tripId?: string;
-  private readonly threadId: string;
-  private readonly getToken: () => Promise<string>;
-  private readonly fetchImpl: typeof fetch;
-
+/** The kiseki relay transport: DefaultChatTransport + bearer auth +
+ *  `{messages, threadId, tripId}` request shaping + 401/403 mapping. */
+export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
   constructor(options: {
     tripId?: string;
     threadId: string;
     getToken: () => Promise<string>;
     fetchImpl?: typeof fetch;
   }) {
-    this.tripId = options.tripId;
-    this.threadId = options.threadId;
-    this.getToken = options.getToken;
-    // N.B. never assign `fetch` itself: `this.fetchImpl(...)` below would call
-    // the native function as a MEMBER of this instance, and window.fetch is
-    // brand-checked — "Failed to execute 'fetch' on 'Window': Illegal
-    // invocation" (seen live on the landing chat, v0.23.26). The wrapper
-    // calls bare `fetch(...)` (this = undefined), which is always legal.
-    this.fetchImpl =
+    const tripId = options.tripId;
+    const threadId = options.threadId;
+    const getToken = options.getToken;
+    // N.B. never pass `fetch` itself through: calling the native function as
+    // a member (`impl(...)`) is brand-checked — "Failed to execute 'fetch' on
+    // 'Window': Illegal invocation" (seen live on the landing chat,
+    // v0.23.26). The wrapper calls bare `fetch(...)` (this = undefined),
+    // which is always legal.
+    const fetchImpl: typeof fetch =
       options.fetchImpl ??
       ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
-  }
-
-  async sendMessages(options: {
-    messages: UIMessage[];
-    abortSignal: AbortSignal | undefined;
-  }): Promise<ReadableStream<UIMessageChunk>> {
-    const token = await this.getToken();
-    const res = await this.fetchImpl("/api/chat", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        messages: options.messages.map(toBackendMessage),
-        threadId: this.threadId,
-        ...(this.tripId ? { tripId: this.tripId } : {}),
+    super({
+      api: "/api/chat",
+      headers: async () => ({
+        Authorization: `Bearer ${await getToken()}`,
       }),
-      signal: options.abortSignal,
-    });
-    if (!res.ok) {
-      const message = await relayErrorMessage(res);
-      if (res.status === 401 || res.status === 403) {
-        throw new ChatAuthError(res.status, message);
-      }
-      throw new Error(`Kiseki chat failed (${res.status}): ${message}`);
-    }
-    if (!res.body) throw new Error("The chat response body is empty.");
-    const body = res.body;
-    return new ReadableStream<UIMessageChunk>({
-      async start(controller) {
-        const state = initialRelayParseState();
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        try {
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              for (const chunk of relayLineToChunks(line, state)) {
-                controller.enqueue(chunk);
-              }
-              if (state.done) break;
-            }
-            if (state.done) break;
-          }
-          if (buffer.trim()) {
-            for (const chunk of relayLineToChunks(buffer, state)) {
-              controller.enqueue(chunk);
-            }
-          }
-          // The relay always ends with a terminal frame, but a cut
-          // connection must still resolve the turn, never hang it.
-          if (!state.done) {
-            for (const chunk of relayLineToChunks("d:{}", state)) {
-              controller.enqueue(chunk);
-            }
-          }
-        } catch (err) {
-          controller.enqueue({
-            type: "error",
-            errorText: err instanceof Error ? err.message : "Stream failed.",
-          });
-        } finally {
-          controller.close();
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const res = await fetchImpl(input, init);
+        if (res.status === 401 || res.status === 403) {
+          throw new ChatAuthError(res.status, await relayErrorMessage(res));
         }
-      },
+        return res;
+      }) as typeof fetch,
+      prepareSendMessagesRequest: ({ messages }) => ({
+        body: {
+          messages: messages.map(toBackendMessage),
+          threadId,
+          ...(tripId ? { tripId } : {}),
+        },
+      }),
     });
   }
 
