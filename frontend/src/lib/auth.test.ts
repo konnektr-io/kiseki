@@ -12,7 +12,21 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isSessionExpiredError } from "./auth";
+import { isE2EQuery, isSessionExpiredError } from "./auth";
+
+describe("isE2EQuery (browser-probe auth mode)", () => {
+  it("is false without the kiseki_e2e param", () => {
+    expect(isE2EQuery("")).toBe(false);
+    expect(isE2EQuery("?trip=abc")).toBe(false);
+    expect(isE2EQuery("?e2e=1")).toBe(false); // different param name
+  });
+
+  it("is true when kiseki_e2e is present (any value)", () => {
+    expect(isE2EQuery("?kiseki_e2e")).toBe(true); // valueless counts as present
+    expect(isE2EQuery("?kiseki_e2e=1")).toBe(true);
+    expect(isE2EQuery("?trip=abc&kiseki_e2e=token&x=1")).toBe(true);
+  });
+});
 
 describe("isSessionExpiredError", () => {
   it("classifies missing_refresh_token (expired refresh token)", () => {

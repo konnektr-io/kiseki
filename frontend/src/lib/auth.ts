@@ -61,3 +61,23 @@ export function isSessionExpiredError(e: unknown): boolean {
   const { error } = e as AuthErrorLike;
   return typeof error === "string" && SESSION_EXPIRED_CODES.has(error);
 }
+
+/* ------------------------------------------------------------------ E2E auth
+ * Browser-probe mode (issue #9 / M4 test rig): ``?kiseki_e2e=<access-token>``
+ * makes the SPA behave as signed-in WITHOUT an Auth0 session — the Auth0
+ * context is stubbed to report isAuthenticated and hand the token straight
+ * to every API call. Same philosophy as the PDF-render bypass
+ * (__KISEKI_PDF_RENDER__, backend/app/pdf.py): bypass the SDK, never seed
+ * its localstorage cache (that failed for the PDF; the cache shape is
+ * internal and breaks on SDK upgrades). The backend still enforces every
+ * request against the presented token, so this grants nothing by itself —
+ * the token must be a real access token (an M2M act-as token works: the
+ * backend maps a sanctioned M2M bearer to the KISEKI_AGENT_ACT_AS pin when
+ * no X-Act-As-Sub header rides along).
+ */
+
+/** True when ``window.location`` carries a ``kiseki_e2e`` query param. */
+export function isE2EQuery(search: string): boolean {
+  const params = new URLSearchParams(search);
+  return params.has("kiseki_e2e");
+}
