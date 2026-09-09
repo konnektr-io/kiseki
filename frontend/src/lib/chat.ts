@@ -223,7 +223,14 @@ export class KisekiChatTransport implements ChatTransport<UIMessage> {
     this.tripId = options.tripId;
     this.threadId = options.threadId;
     this.getToken = options.getToken;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    // N.B. never assign `fetch` itself: `this.fetchImpl(...)` below would call
+    // the native function as a MEMBER of this instance, and window.fetch is
+    // brand-checked — "Failed to execute 'fetch' on 'Window': Illegal
+    // invocation" (seen live on the landing chat, v0.23.26). The wrapper
+    // calls bare `fetch(...)` (this = undefined), which is always legal.
+    this.fetchImpl =
+      options.fetchImpl ??
+      ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   }
 
   async sendMessages(options: {
@@ -313,19 +320,25 @@ export interface UploadedChatFile {
 }
 
 /**
- * Anchored-only upload (`POST /api/files`, multipart `file` + `tripId`,
- * editor+). Returns the `/media/<trip>/<hash>.ext` URL the next user message
- * carries as an `image_url` part (images) or a text link (docs).
+ * Upload (`POST /api/files`, multipart `file` + optional `tripId`).
+ *
+ * With a `tripId` (editor+ gate): the file lands in the trip's media
+ * namespace and the returned `/media/<trip>/<hash>.ext` URL is what
+ * `resolve_media_urls` emits. Without one (landing chat, before any trip
+ * exists): the file stages in the user's inbox and comes back as an
+ * unguessable `/inbox/<hash>.ext` URL — the agent promotes it into the trip
+ * it creates via `/api/files/promote`. Either way the next user message
+ * carries the URL as an `image_url` part (images) or a text link (docs).
  */
 export async function uploadChatFile(
   file: File,
-  tripId: string,
+  tripId: string | undefined,
   getToken: () => Promise<string>,
 ): Promise<UploadedChatFile> {
   const token = await getToken();
   const form = new FormData();
   form.append("file", file);
-  form.append("tripId", tripId);
+  if (tripId) form.append("tripId", tripId);
   const res = await fetch("/api/files", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

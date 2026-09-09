@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
@@ -39,10 +40,16 @@ export function withInlineMediaImages(text: string): string {
 interface ChatPanelProps {
   tripId?: string;
   onTripCreated?: (tripId: string) => void;
+  onClose?: () => void;
   className?: string;
 }
 
-export function ChatPanel({ tripId, onTripCreated, className }: ChatPanelProps) {
+export function ChatPanel({
+  tripId,
+  onTripCreated,
+  onClose,
+  className,
+}: ChatPanelProps) {
   const {
     isAuthenticated,
     isLoading: authLoading,
@@ -93,6 +100,7 @@ export function ChatPanel({ tripId, onTripCreated, className }: ChatPanelProps) 
       threadId={threadId}
       onNewChat={() => setThreadId(newThreadId(context))}
       onTripCreated={onTripCreated}
+      onClose={onClose}
       className={className}
     />
   );
@@ -108,12 +116,14 @@ function ChatThread({
   threadId,
   onNewChat,
   onTripCreated,
+  onClose,
   className,
 }: {
   tripId?: string;
   threadId: string;
   onNewChat: () => void;
   onTripCreated?: (tripId: string) => void;
+  onClose?: () => void;
   className?: string;
 }) {
   const { getAccessTokenSilently, loginWithRedirect } = useAuth0();
@@ -136,11 +146,22 @@ function ChatThread({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const list = listRef.current;
     if (list) list.scrollTop = list.scrollHeight;
   }, [messages, status]);
+
+  // Grow the composer with its content (up to max-h-32): reset to auto so the
+  // measured height tracks the current line count, then cap at the same bound
+  // the CSS class applies. Runs whenever the draft changes.
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [draft]);
 
   const readyFiles = attachments.filter(
     (a): a is { state: "ready"; file: UploadedChatFile } =>
@@ -176,7 +197,7 @@ function ChatThread({
   };
 
   const attach = async (files: FileList | null) => {
-    if (!files || files.length === 0 || !tripId) return;
+    if (!files || files.length === 0) return;
     setUploadError(null);
     const picked = Array.from(files);
     setAttachments((prev) => [
@@ -188,6 +209,8 @@ function ChatThread({
     await Promise.all(
       picked.map(async (file) => {
         try {
+          // No tripId → the file lands in the user's inbox (landing chat);
+          // the agent promotes it into the trip it creates (#9 / M4).
           const uploaded = await uploadChatFile(
             file,
             tripId,
@@ -222,16 +245,29 @@ function ChatThread({
     >
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
         <p className="kicker">Kiseki assistant</p>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onNewChat}
-          aria-label="Start a new chat"
-          className="h-9 px-2.5 text-xs"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          New chat
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onNewChat}
+            aria-label="Start a new chat"
+            className="h-9 px-2.5 text-xs"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            New chat
+          </Button>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="Close chat"
+              className="h-9 w-9"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div
@@ -337,31 +373,28 @@ function ChatThread({
       )}
 
       <div className="flex items-end gap-2 p-3">
-        {tripId && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.doc,.docx,.txt,.md"
-              className="sr-only"
-              aria-label="Attach a file"
-              onChange={(e) => void attach(e.target.files)}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Attach a file"
-              title="Attach a photo or document"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={busy}
-              className="h-11 w-11 shrink-0"
-            >
-              <Paperclip className="h-5 w-5" aria-hidden="true" />
-            </Button>
-          </>
-        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.txt,.md"
+          className="sr-only"
+          aria-label="Attach a file"
+          onChange={(e) => void attach(e.target.files)}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Attach a file"
+          title="Attach a photo or document"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy}
+          className="h-11 w-11 shrink-0"
+        >
+          <Paperclip className="h-5 w-5" aria-hidden="true" />
+        </Button>
         <textarea
+          ref={draftRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -376,7 +409,7 @@ function ChatThread({
           aria-label="Chat message"
           rows={1}
           disabled={busy}
-          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
+          className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-auto rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
         />
         {busy ? (
           <Button
@@ -503,3 +536,56 @@ function ChatErrorBanner({
     </div>
   );
 }
+
+/**
+ * Floating chat popup — the same drawer for the trip page and the landing
+ * page (issue #9 / M4). Bottom sheet on mobile, right rail on desktop; the
+ * trip (or trips grid) stays mounted underneath so agent edits land visibly.
+ * The close X lives in the panel header (next to "New chat"), never as an
+ * absolutely-positioned overlay — the old drawer X overlapped that button.
+ */
+export function ChatPopup({
+  tripId,
+  onClose,
+  onTripCreated,
+  label,
+  banner,
+}: {
+  tripId?: string;
+  onClose: () => void;
+  onTripCreated?: (tripId: string) => void;
+  label: string;
+  banner?: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-label={label}
+      className="no-print fixed inset-x-3 bottom-3 z-30 md:inset-x-auto md:bottom-6 md:right-6 md:top-20 md:w-[400px]"
+    >
+      <div className="floating relative flex max-h-[70dvh] flex-col overflow-hidden rounded-2xl md:max-h-none md:h-full">
+        {banner && (
+          <div className="shrink-0 border-b border-border/60 bg-background/95 px-4 py-2.5">
+            {banner}
+          </div>
+        )}
+        <ChatPanel
+          tripId={tripId}
+          onClose={onClose}
+          onTripCreated={onTripCreated}
+          className="h-[60dvh] border-0 md:h-full"
+        />
+      </div>
+    </div>
+  );
+}
+

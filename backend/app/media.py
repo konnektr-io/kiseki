@@ -92,6 +92,11 @@ def is_valid_media_path(trip: str, file_name: str) -> bool:
     """
     if not _TRIP_ID_RE.match(trip):
         return False
+    return is_valid_media_name(file_name)
+
+
+def is_valid_media_name(file_name: str) -> bool:
+    """True when ``file_name`` is a safe flat media name (no separators)."""
     if not (1 <= len(file_name) <= _FILE_MAX_LEN):
         return False
     if file_name in (".", ".."):
@@ -172,6 +177,10 @@ class MediaStore(Protocol):
         """Store ``raw`` bytes at ``key`` (trip-media namespace)."""
         ...
 
+    def delete(self, key: str) -> None:
+        """Delete the object at ``key``; a missing object is a no-op."""
+        ...
+
 
 class LocalMediaStore:
     """Serve media from a directory tree ``<root>/<trip>/<file>``.
@@ -203,6 +212,15 @@ class LocalMediaStore:
             raise ValueError(f"Media key escapes the store root: {key!r}")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(raw)
+
+    def delete(self, key: str) -> None:
+        target = (self.root / key).resolve()
+        if self.root not in target.parents:
+            raise ValueError(f"Media key escapes the store root: {key!r}")
+        try:
+            target.unlink()
+        except FileNotFoundError:
+            pass  # already gone — delete is idempotent
 
 
 class S3MediaStore:
@@ -263,6 +281,17 @@ class S3MediaStore:
             length=len(raw),
             content_type=content_type,
         )
+
+    def delete(self, key: str) -> None:
+        from minio.error import S3Error
+
+        try:
+            self._client.remove_object(self.bucket, KEY_PREFIX + key)
+        except S3Error as exc:
+            # 404 (NoSuchKey / NoSuchBucket / NotFound) → already gone.
+            if exc.code in ("NoSuchKey", "NoSuchBucket", "NotFound"):
+                return
+            raise
 
 
 _STORE: Optional[MediaStore] = None

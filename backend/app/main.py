@@ -72,6 +72,7 @@ from .places import place_details, photo_by_name as place_photo_bytes
 from .media import (
     content_addressed_key,
     get_media_store,
+    is_valid_media_name,
     is_valid_media_path,
     media_content_type,
     object_key_for,
@@ -109,7 +110,7 @@ class _RawPathTraversalGuard:
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http":
             raw = bytes(scope.get("raw_path", b"") or b"").lower()
-            if raw.startswith((b"/media", b"/api/maps/static")) and any(
+            if raw.startswith((b"/media", b"/inbox", b"/api/maps/static")) and any(
                 m in raw for m in self._ENCODED_MARKERS
             ):
                 response = JSONResponse({"detail": "Not Found"}, status_code=404)
@@ -973,6 +974,32 @@ def media_file(trip_id: str, file_name: str) -> Response:
     )
 
 
+@app.get("/inbox/{file_name}", include_in_schema=False)
+def inbox_file(file_name: str) -> Response:
+    """Stream a staged inbox file (landing-chat upload, #9 / M4).
+
+    Inbox keys are content-addressed (sha256[:32]) — the flat name is the
+    unguessable capability, exactly like trip media above. The name is
+    structurally validated the same way (``..`` / separators → 404, no
+    filesystem/bucket lookup). This route exists so the agent can fetch the
+    bytes over plain HTTPS before a trip exists; once the file is promoted
+    into a trip it is served from the canonical ``/media`` route instead.
+    """
+    if not is_valid_media_name(file_name):
+        raise HTTPException(404, "Not Found")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(404, "Not Found")
+    chunks = store.get(f"inbox/{file_name}")
+    if chunks is None:
+        raise HTTPException(404, "Not Found")
+    return StreamingResponse(
+        chunks,
+        media_type=media_content_type(file_name),
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
+
+
 # ------------------------------------------------------------- chat relay (#9 / M3)
 # The SPA's chat panel talks to the kiseki content agent through these two
 # routes. Identity is bearer-first (Niko's rule): a real end-user token IS the
@@ -1028,35 +1055,89 @@ async def post_chat(
 
 @app.post("/api/files")
 async def post_files(
-    trip_id: str = Form(...),
+    trip_id: str | None = Form(default=None),
     file: UploadFile = File(...),
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Upload a file into the trip's media namespace for the agent to use.
+    """Upload a file for the agent to use — into a trip, or the user's inbox.
 
-    Actor resolution identical to /api/chat; requires editor+ on the trip
-    (files attach to trip content). Bytes are content-addressed (sha256[:32])
-    and stored under the trip's own media key — the returned URL is exactly
-    what ``resolve_media_urls`` emits, so the SPA drops it into the next chat
-    message as an ``image_url`` part (or a text link for docs).
+    With ``trip_id``: requires editor+ on the trip (files attach to trip
+    content) and stores the bytes under the trip's own media key. Without it
+    (the landing chat, before any trip exists): any authenticated user may
+    stage a file into the shared inbox namespace ``inbox/<name>`` — the name
+    is content-addressed (sha256[:32]), so the returned URL is an unguessable
+    capability exactly like trip media. The agent promotes inbox files into a
+    trip via ``POST /api/files/promote`` once the trip exists. Bytes are
+    content-addressed in both cases; the returned URL is what the SPA drops
+    into the next chat message as an ``image_url`` part (or text link).
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
-    require_actor_trip_access(actor_sub, trip_id, min_role="editor")
-    store = get_media_store()
-    if store is None:
-        raise HTTPException(503, "Media storage is not configured")
     raw = await file.read()
     if not raw:
         raise HTTPException(422, "Empty file")
     ext = Path(file.filename or "").suffix.lower()
     name = content_addressed_key(raw, ext)
+    if trip_id is None:
+        # Inbox staging (landing chat). Content-addressed name = capability.
+        store = get_media_store()
+        if store is None:
+            raise HTTPException(503, "Media storage is not configured")
+        store.put(f"inbox/{name}", raw, media_content_type(name))
+        return {"url": f"/inbox/{name}"}
+    require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(503, "Media storage is not configured")
     store.put(
         object_key_for(trip_id.lower(), name),
         raw,
         media_content_type(name),
     )
     return {"url": f"/media/{trip_id.lower()}/{name}"}
+
+
+class PromoteBody(BaseModel):
+    """Move one staged inbox file into a trip's media namespace (#9 / M4)."""
+
+    trip_id: str
+    file_name: str
+
+
+@app.post("/api/files/promote", status_code=200)
+async def promote_file(
+    body: PromoteBody,
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Move an inbox file into a trip's media namespace (editor+ on the trip).
+
+    The landing chat stages uploads into the user's inbox (no trip yet); once
+    the agent has created a trip from that conversation it calls this route so
+    the bytes live under the trip's own media key and the canonical
+    ``/media/<trip>/<name>`` URL (what ``resolve_media_urls`` emits). Returns
+    the trip URL; the inbox copy is deleted (a move, not a copy).
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    trip_id = body.trip_id.lower()
+    require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+    if not is_valid_media_name(body.file_name):
+        raise HTTPException(404, "Not Found")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(503, "Media storage is not configured")
+    inbox_key = f"inbox/{body.file_name}"
+    chunks = store.get(inbox_key)
+    if chunks is None:
+        raise HTTPException(404, "Inbox file not found")
+    raw = b"".join(chunks)
+    store.put(
+        object_key_for(trip_id, body.file_name),
+        raw,
+        media_content_type(body.file_name),
+    )
+    store.delete(inbox_key)
+    return {"url": f"/media/{trip_id}/{body.file_name}"}
 
 
 # Built SPA with history-mode fallback

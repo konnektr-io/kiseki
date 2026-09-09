@@ -484,6 +484,119 @@ def test_files_requires_editor(client, rsa_keypair, monkeypatch) -> None:
     assert resp.status_code == 403
 
 
+# ------------------------------------------------------------- inbox + promote
+
+
+def test_files_uploads_to_inbox_without_trip(
+    client, rsa_keypair, monkeypatch, tmp_path
+) -> None:
+    """Landing-chat upload: no trip_id → content-addressed inbox URL (no editor gate)."""
+    _role(monkeypatch, "follower")  # inbox staging has no trip role to clear
+    monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
+    media_module.clear_media_store()
+    try:
+        token = _user_token(rsa_keypair)
+        raw = b"\x89PNG\r\n\x1a\ninbox-image-bytes"
+        resp = client.post(
+            "/api/files",
+            files={"file": ("photo.jpg", io.BytesIO(raw), "image/jpeg")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        url = resp.json()["url"]
+        expected = hashlib.sha256(raw).hexdigest()[:32]
+        assert url == f"/inbox/{expected}.jpg"
+        # bytes actually stored under the inbox namespace (LocalMediaStore)
+        stored = (tmp_path / "inbox" / f"{expected}.jpg").read_bytes()
+        assert stored == raw
+        # …and fetchable back over the public /inbox route
+        serve = client.get(url)
+        assert serve.status_code == 200
+        assert serve.content == raw
+        assert serve.headers["content-type"] == "image/jpeg"
+    finally:
+        media_module.clear_media_store()
+
+
+def test_files_inbox_rejects_traversal(client, rsa_keypair, monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
+    media_module.clear_media_store()
+    try:
+        for bad in ("..%2Fsecret.jpg", "a/b.jpg", "..", ".hidden"):
+            resp = client.get(f"/inbox/{bad}")
+            assert resp.status_code == 404, bad
+    finally:
+        media_module.clear_media_store()
+
+
+def test_promote_moves_inbox_file_into_trip(
+    client, rsa_keypair, monkeypatch, tmp_path
+) -> None:
+    """Editor+ can promote an inbox file into a trip's media namespace (move)."""
+    _role(monkeypatch, "editor")
+    _fake_trip(monkeypatch, visibility="private")
+    monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
+    media_module.clear_media_store()
+    try:
+        token = _user_token(rsa_keypair)
+        raw = b"promotable-bytes"
+        up = client.post(
+            "/api/files",
+            files={"file": ("doc.pdf", io.BytesIO(raw), "application/pdf")},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        inbox_name = up.json()["url"].rsplit("/", 1)[1]
+        assert inbox_name.endswith(".pdf")
+        prom = client.post(
+            "/api/files/promote",
+            json={"trip_id": TRIP, "file_name": inbox_name},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert prom.status_code == 200
+        assert prom.json()["url"] == f"/media/{TRIP}/{inbox_name}"
+        # moved: present under the trip's media key, gone from the inbox
+        assert client.get(f"/media/{TRIP}/{inbox_name}").status_code == 200
+        assert client.get(f"/inbox/{inbox_name}").status_code == 404
+    finally:
+        media_module.clear_media_store()
+
+
+def test_promote_requires_editor(client, rsa_keypair, monkeypatch, tmp_path) -> None:
+    _role(monkeypatch, "follower")  # below editor
+    _fake_trip(monkeypatch, visibility="private")
+    monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
+    media_module.clear_media_store()
+    try:
+        token = _user_token(rsa_keypair)
+        resp = client.post(
+            "/api/files/promote",
+            json={"trip_id": TRIP, "file_name": "abcd.jpg"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 403
+    finally:
+        media_module.clear_media_store()
+
+
+def test_promote_missing_inbox_file_404s(
+    client, rsa_keypair, monkeypatch, tmp_path
+) -> None:
+    _role(monkeypatch, "editor")
+    _fake_trip(monkeypatch, visibility="private")
+    monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
+    media_module.clear_media_store()
+    try:
+        token = _user_token(rsa_keypair)
+        resp = client.post(
+            "/api/files/promote",
+            json={"trip_id": TRIP, "file_name": "cafebabe.jpg"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 404
+    finally:
+        media_module.clear_media_store()
+
+
 # ------------------------------------------------------------------ regression
 
 

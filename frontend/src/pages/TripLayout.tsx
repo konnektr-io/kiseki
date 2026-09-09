@@ -1,14 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle, X } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
-import { ChatPanel } from "../components/chat-panel";
+import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
@@ -39,37 +39,6 @@ function isNavActive(pathname: string, base: string, to: string, end?: boolean):
     return pathname === `${base}/itinerary` || pathname.startsWith(`${base}/day`);
   }
   return pathname === `${base}/${to}`;
-}
-
-function ChatDrawer({ tripId, onClose }: { tripId: string; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="false"
-      aria-label="Trip chat"
-      className="no-print fixed inset-x-3 bottom-3 z-30 md:inset-x-auto md:bottom-6 md:right-6 md:top-20 md:w-[400px]"
-    >
-      <div className="floating relative flex max-h-[70dvh] flex-col overflow-hidden rounded-2xl md:max-h-none md:h-full">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close chat"
-          className="absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-        <ChatPanel tripId={tripId} className="h-[60dvh] border-0 md:h-full" />
-      </div>
-    </div>
-  );
 }
 
 function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
@@ -449,7 +418,11 @@ export function TripLayout() {
             stay mounted underneath. Bottom sheet on mobile, right rail on
             desktop. */}
         {chatOpen && (
-          <ChatDrawer tripId={trip.id} onClose={() => setChatOpen(false)} />
+          <ChatPopup
+            tripId={trip.id}
+            onClose={() => setChatOpen(false)}
+            label="Trip chat"
+          />
         )}
 
         {/* Mobile bottom nav (hidden on day pages — the day level has its own bar) */}
