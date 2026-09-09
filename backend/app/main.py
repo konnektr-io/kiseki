@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from .acl import authorize_trip_path, require_trip_role
+from .acl import authorize_trip_path, require_trip_role, resolve_agent_sub
 from .auth import AuthSession, get_current_session, get_current_user
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import (
@@ -210,8 +210,15 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
     ``{trip_id}`` route so the bare path is never captured by it.
     Summary covers are stored as bare filenames in the graph; canonicalize
     them to ``/media/<trip.$dtId>/<file>`` like full trip documents.
+
+    The sanctioned agent M2M client with ``KISEKI_AGENT_ACT_AS`` set lists
+    trips for the ACT-AS user's sub (issue #142) — the same identity the
+    per-trip ACL resolves, so the agent can discover the trips it may touch.
+    Without act-as a service principal has no meaningful crew identity and
+    the list stays empty.
     """
-    trips = list_trips_for_user(user["sub"])
+    sub = resolve_agent_sub(user) or user["sub"]
+    trips = list_trips_for_user(sub)
     for row in trips:
         if isinstance(row, dict) and row.get("dtId"):
             resolve_media_urls(row, row["dtId"])

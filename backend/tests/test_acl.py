@@ -324,6 +324,95 @@ def test_my_trips_role_from_graph(
     assert trips[0]["dtId"] == "t-1"
 
 
+# ------------------------------------------------------- agent act-as (#142)
+
+
+AGENT_CLIENT_ID = "agent-m2m-client"
+
+
+def _agent_token(rsa_keypair, **overrides: object) -> str:
+    return _token_of(
+        rsa_keypair,
+        azp=AGENT_CLIENT_ID,
+        gty="client-credentials",
+        sub=f"{AGENT_CLIENT_ID}@clients",
+        **overrides,
+    )
+
+
+def test_resolve_agent_sub_gates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """resolve_agent_sub: azp+gty gate AND act-as config must all match."""
+    user = {"azp": AGENT_CLIENT_ID, "gty": "client-credentials"}
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT_ID)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "google-oauth2|niko")
+    assert acl_module.resolve_agent_sub(user) == "google-oauth2|niko"
+    # a different client (e.g. the SPA) is never rewritten
+    assert acl_module.resolve_agent_sub(dict(user, azp="spa-client")) is None
+    # a non client-credentials grant is never the agent
+    assert acl_module.resolve_agent_sub(dict(user, gty="refresh_token")) is None
+    # act-as unset → service principal has no act-as sub
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "")
+    assert acl_module.resolve_agent_sub(user) is None
+    # no sanctioned client configured → never
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", "")
+    assert acl_module.resolve_agent_sub(user) is None
+
+
+def test_my_trips_lists_act_as_user_trips(
+    client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#142: the sanctioned M2M client with act-as lists the ACT-AS user's trips."""
+    seen: list[str] = []
+
+    def fake_list(sub: str) -> list[dict]:
+        seen.append(sub)
+        return [{"dtId": "t-1", "title": "T1", "role": "owner"}]
+
+    monkeypatch.setattr("app.main.list_trips_for_user", fake_list)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT_ID)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "google-oauth2|niko")
+    token = _agent_token(rsa_keypair)
+    r = client.get("/api/trips", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert seen == ["google-oauth2|niko"]  # act-as sub, NOT the client sub
+    assert r.json()["trips"][0]["dtId"] == "t-1"
+
+
+def test_my_trips_agent_without_act_as_keeps_client_sub(
+    client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#142 fallback: M2M token with no act-as lists for the client sub
+    (a service principal has no crew identity — the list stays empty in
+    graph mode; here we only pin that no user sub is substituted)."""
+    seen: list[str] = []
+    monkeypatch.setattr("app.main.list_trips_for_user", lambda sub: seen.append(sub) or [])
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT_ID)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "")
+    token = _agent_token(rsa_keypair)
+    r = client.get("/api/trips", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert seen == [f"{AGENT_CLIENT_ID}@clients"]
+
+
+def test_my_trips_regular_user_untouched(
+    client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A normal user token is never rewritten even when the agent is configured."""
+    seen: list[str] = []
+
+    def fake_list(sub: str) -> list[dict]:
+        seen.append(sub)
+        return [{"dtId": "t-1", "title": "T1", "role": "viewer"}]
+
+    monkeypatch.setattr("app.main.list_trips_for_user", fake_list)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT_ID)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "google-oauth2|niko")
+    token = _token_of(rsa_keypair)  # SPA client, interactive grant
+    r = client.get("/api/trips", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert seen == ["google-oauth2|1234567890"]
+
+
 # ---------------------------------------------------------------- booklet
 
 

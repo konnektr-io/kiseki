@@ -30,6 +30,31 @@ from .store import get_trip_by_id, get_trip_role_for_user
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
 
 
+def _is_agent_token(user: dict) -> bool:
+    """True iff the token is the sanctioned agent M2M client (azp + gty)."""
+    if not KISEKI_AGENT_CLIENT_ID:
+        return False
+    return (
+        user.get("azp") == KISEKI_AGENT_CLIENT_ID
+        and user.get("gty") == "client-credentials"
+    )
+
+
+def resolve_agent_sub(user: dict) -> str | None:
+    """The act-as sub for the sanctioned agent M2M client, else None (#142).
+
+    Only the signature-validated client-credentials token whose azp is
+    ``KISEKI_AGENT_CLIENT_ID`` matches, and only when
+    ``KISEKI_AGENT_ACT_AS`` is configured (Niko's home profile only —
+    deliberately never on the end-user profile). Shared by the per-trip ACL
+    and the list route (``GET /api/trips``) so the agent's discovery and its
+    per-trip access resolve the SAME identity.
+    """
+    if _is_agent_token(user) and KISEKI_AGENT_ACT_AS:
+        return KISEKI_AGENT_ACT_AS
+    return None
+
+
 def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     """Actor {sub, role} for the sanctioned agent M2M client (#46).
 
@@ -46,17 +71,14 @@ def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     - unset: owner-level service principal for unattended changes that cannot
       be linked to a user. Attribution = the M2M token's own sub.
     """
-    if not KISEKI_AGENT_CLIENT_ID:
+    if not _is_agent_token(user):
         return None
-    if user.get("azp") != KISEKI_AGENT_CLIENT_ID:
-        return None
-    if user.get("gty") != "client-credentials":
-        return None
-    if KISEKI_AGENT_ACT_AS:
-        role = get_trip_role_for_user(trip_dtid, KISEKI_AGENT_ACT_AS)
+    act_as = resolve_agent_sub(user)
+    if act_as:
+        role = get_trip_role_for_user(trip_dtid, act_as)
         if not role:
             return None  # the mapped user has no access → the agent has none
-        return {"sub": KISEKI_AGENT_ACT_AS, "role": role}
+        return {"sub": act_as, "role": role}
     return {"sub": user.get("sub"), "role": "owner"}
 
 
