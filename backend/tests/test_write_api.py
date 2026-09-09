@@ -812,6 +812,74 @@ def test_user_token_still_requires_crew_edge(client, rsa_keypair, graph, monkeyp
                   json={"stage": "live"}).status_code == 403
 
 
+# ------------------------------------------- user-scoped routes resolve act-as
+# Issue #142: my trips (GET /api/trips) and who-am-I (GET /api/auth/me) are
+# USER-scoped — they must follow the RESOLVED actor (acl.resolve_actor_sub),
+# i.e. the act-as user when the sanctioned M2M client acts as one, never the
+# client's own sub (<client>@clients, which holds no crew edges).
+
+
+def test_agent_m2m_my_trips_lists_act_as_users_trips(
+    client, rsa_keypair, graph, monkeypatch
+) -> None:
+    """GET /api/trips with an act-as M2M token lists the MAPPED user's trips
+    (their real crew edges), not the agent client's empty list."""
+    _sanction(monkeypatch, act_as=SUB)
+    g = graph()  # SUB (the act-as user) holds the owner edge on the trip
+    trip = _trip_of(g)
+    token = _agent_token(rsa_keypair)
+
+    r = client.get("/api/trips", headers=_auth(token))
+    assert r.status_code == 200
+    trips = r.json()["trips"]
+    assert any(t["dtId"] == trip.id for t in trips), f"expected {trip.id} in {trips}"
+    listed = next(t for t in trips if t["dtId"] == trip.id)
+    assert listed["role"] == "owner"
+
+
+def test_agent_m2m_my_trips_unattended_mode_lists_nothing(
+    client, rsa_keypair, graph, monkeypatch
+) -> None:
+    """Without act-as (unattended owner principal), the client sub holds no
+    crew edges → the listing is empty (writes still work per-trip)."""
+    _sanction(monkeypatch)  # no ACT_AS
+    graph()
+    token = _agent_token(rsa_keypair)
+
+    r = client.get("/api/trips", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["trips"] == []
+
+
+def test_auth_me_act_as_reports_mapped_user(
+    client, rsa_keypair, graph, monkeypatch
+) -> None:
+    """GET /api/auth/me with an act-as M2M token reports the act-as USER's
+    sub — the identity writes carry — never the client's own."""
+    _sanction(monkeypatch, act_as=SUB)
+    graph()
+    token = _agent_token(rsa_keypair)
+
+    r = client.get("/api/auth/me", headers=_auth(token))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sub"] == SUB
+    assert body["sub"] != f"{AGENT_CLIENT}@clients"
+
+
+def test_auth_me_unattended_reports_client_sub(
+    client, rsa_keypair, graph, monkeypatch
+) -> None:
+    """Without act-as the M2M client keeps its own sub in /auth/me."""
+    _sanction(monkeypatch)  # no ACT_AS
+    graph()
+    token = _agent_token(rsa_keypair)
+
+    r = client.get("/api/auth/me", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["sub"] == f"{AGENT_CLIENT}@clients"
+
+
 # ---------------------------------------------------------------- locations
 def test_put_locations_reconciles_by_name(client, rsa_keypair, graph) -> None:
     g = graph()

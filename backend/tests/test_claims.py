@@ -367,6 +367,19 @@ def test_claim_requires_token(client: TestClient) -> None:
     assert r.status_code == 401
 
 
+def test_claim_rejects_m2m_token(client: TestClient, rsa_keypair) -> None:
+    """An M2M client-credentials token has no user sub — it cannot claim a
+    crew identity (identity provisioning is user-token-only)."""
+    token = _sign(rsa_keypair, _claims(gty="client-credentials", azp="m2m-client"))
+    r = client.post(
+        "/api/claims",
+        json={"claimToken": CLAIM_TOKEN, "personId": "x"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 403
+    assert "Service principals" in r.json()["detail"]
+
+
 def test_claim_ok(client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch) -> None:
     real = _real_trip()
     monkeypatch.setattr(
@@ -506,6 +519,19 @@ def test_crew_write_invalidates_only_its_own_keys() -> None:
 def test_follow_requires_token(client: TestClient) -> None:
     r = client.post("/api/claims/follow", json={"claimToken": CLAIM_TOKEN})
     assert r.status_code == 401
+
+
+def test_follow_rejects_m2m_token(client: TestClient, rsa_keypair) -> None:
+    """Following provisions a hasCrew edge for the caller — an M2M token
+    cannot follow on behalf of a user (user-token-only)."""
+    token = _sign(rsa_keypair, _claims(gty="client-credentials", azp="m2m-client"))
+    r = client.post(
+        "/api/claims/follow",
+        json={"claimToken": CLAIM_TOKEN},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 403
+    assert "Service principals" in r.json()["detail"]
 
 
 def test_follow_ok(client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -30,12 +30,55 @@ from .store import get_trip_by_id, get_trip_role_for_user
 ROLE_RANK = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
 
 
+def _is_agent_token(user: dict) -> bool:
+    """True when the token is the sanctioned agent M2M client.
+
+    Only the signature-validated M2M token whose client id is sanctioned via
+    ``KISEKI_AGENT_CLIENT_ID`` (azp + gty are issuer-asserted) reaches this.
+    """
+    if not KISEKI_AGENT_CLIENT_ID:
+        return False
+    if user.get("azp") != KISEKI_AGENT_CLIENT_ID:
+        return False
+    return user.get("gty") == "client-credentials"
+
+
+def resolve_actor_sub(user: dict) -> str:
+    """The effective user sub for USER-SCOPED routes (my trips, /auth/me).
+
+    When the sanctioned agent M2M client acts AS a user (KISEKI_AGENT_ACT_AS,
+    the single-user interim pin), everything scoped by identity follows the
+    mapped user — never the client's own ``sub`` (``<client>@clients``).
+    Any other token keeps its own sub. Unattended agent mode (no act-as)
+    keeps the client sub: a service principal has no crew edges, so its
+    listings are empty by design; per-trip writes still work via
+    ``_agent_actor``'s owner fallback.
+    """
+    if _is_agent_token(user) and KISEKI_AGENT_ACT_AS:
+        return KISEKI_AGENT_ACT_AS
+    return user["sub"]
+
+
+def require_user_token(user: dict) -> None:
+    """Claims/follow PROVISION graph identity (User twin + hasCrew edge) —
+    only a real end-user token may do that.
+
+    An M2M client-credentials token is refused (403): the agent never gains a
+    graph identity, and act-as must never be used to claim/follow on behalf
+    of the mapped user — identity provisioning happens with the user's own
+    token (mode 1), or not at all.
+    """
+    if user.get("gty") == "client-credentials":
+        raise HTTPException(
+            status_code=403,
+            detail="Service principals cannot claim or follow trips",
+        )
+
+
 def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     """Actor {sub, role} for the sanctioned agent M2M client (#46).
 
     The agent NEVER appears in the graph — no User twin, no hasCrew edge.
-    Only the signature-validated M2M token whose client id is sanctioned via
-    ``KISEKI_AGENT_CLIENT_ID`` (azp + gty are issuer-asserted) reaches this.
 
     Two modes:
     - ``KISEKI_AGENT_ACT_AS`` set (Niko's home profile only — deliberately
@@ -46,11 +89,7 @@ def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     - unset: owner-level service principal for unattended changes that cannot
       be linked to a user. Attribution = the M2M token's own sub.
     """
-    if not KISEKI_AGENT_CLIENT_ID:
-        return None
-    if user.get("azp") != KISEKI_AGENT_CLIENT_ID:
-        return None
-    if user.get("gty") != "client-credentials":
+    if not _is_agent_token(user):
         return None
     if KISEKI_AGENT_ACT_AS:
         role = get_trip_role_for_user(trip_dtid, KISEKI_AGENT_ACT_AS)
