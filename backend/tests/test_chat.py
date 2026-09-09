@@ -244,9 +244,10 @@ def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypa
 
 
 def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> None:
-    """threadId wins over trip anchor: multiple threads per trip, and an
-    unanchored thread (planning a not-yet-created trip) keeps its identity
-    when a trip is anchored later."""
+    """threadId (not the sub) names the conversation: multiple threads per
+    trip, and an unanchored thread (planning a not-yet-created trip) keeps
+    its identity when a trip is anchored later. Per-USER scoping comes from
+    the session key / Honcho peer, not the conversation name (Niko)."""
     from app.chat import conversation_id_for
 
     thread_a, thread_b = "t-a-0001", "t-b-0002"
@@ -259,8 +260,14 @@ def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> 
     unanchored = conversation_id_for(USER_SUB, None, thread_a)
     # … keeps the SAME conversation id once a trip is attached (history chains)
     assert unanchored == conversation_id_for(USER_SUB, TRIP, thread_a)
-    # sub prefix always present (Niko: sub-prefix scoping)
-    assert unanchored.startswith(f"{USER_SUB}::")
+    # no sub in the name — thread-scoped only
+    assert unanchored == f"thread:{thread_a}"
+    # but DIFFERENT users with the same threadId do NOT share the legacy
+    # fallback (that path stays sub-scoped)
+    assert (
+        conversation_id_for(USER_SUB, TRIP)
+        != conversation_id_for(OTHER_SUB, TRIP)
+    )
 
 
 def test_chat_unanchored_thread_forwards_planning_context(
@@ -286,7 +293,7 @@ def test_chat_unanchored_thread_forwards_planning_context(
     )
     assert resp.status_code == 200
     body = captured["body"]
-    assert body["conversation"] == f"{USER_SUB}::plan-chile-001"
+    assert body["conversation"] == f"thread:plan-chile-001"
     assert "No trip is anchored" in body["instructions"]
     # no trip ACL consulted: the route never calls require_actor_trip_access
     # when no tripId is present (get_trip_role_for_user stays un-mocked here,

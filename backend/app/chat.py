@@ -178,18 +178,23 @@ def conversation_id_for(
     trip_id: str | None = None,
     thread_id: str | None = None,
 ) -> str:
-    """Stable Hermes-side conversation name for one acting user.
+    """Hermes-side conversation name for chaining one thread's turns.
 
-    Scoped under the actor sub (Niko: ``<sub>:`` prefix is right), then by
-    the CLIENT thread id when present — the thread is the unit of
-    conversation, so a trip can host several threads AND a thread can start
-    unanchored (planning a not-yet-created trip) and attach a trip later
-    without losing history. Fallbacks (no thread id): anchor by trip, else a
-    single general conversation. Two users' histories can never collide —
-    isolation by construction.
+    Identity is NOT encoded in the name (Niko, 2026-09-09): per-user scoping
+    comes from ``X-Hermes-Session-Key`` (→ Honcho derives an independent
+    ``user-default-<sub>`` peer per user) and from the request ACL, so the
+    conversation name only needs to distinguish THREADS.
+
+    - ``threadId`` present (the SPA always sends one — fresh UUID per chat,
+      reused on resume): ``thread:<threadId>``. Multiple threads per trip; a
+      thread may start unanchored (planning a not-yet-created trip) and
+      attach a trip later without losing history.
+    - No threadId (legacy callers): fall back to a sub-scoped trip anchor or
+      a single general conversation — sub-scoped so two legacy clients can
+      never chain onto each other's stored response.
     """
     if thread_id and thread_id.strip():
-        return f"{actor_sub}::{thread_id.strip()}"
+        return f"thread:{thread_id.strip()}"
     if trip_id:
         return f"{actor_sub}::trip:{trip_id.lower()}"
     return f"{actor_sub}::general"
