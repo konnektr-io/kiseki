@@ -10,7 +10,7 @@ React SPA (kiseki pod, ns kiseki)
    │  POST /api/chat            (Auth0 bearer, Vercel-ai SSE out)
    ▼
 kiseki FastAPI backend (same pod)          ← the NEW relay + files endpoints
-   │  POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions
+   │  POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses
    │        (API_SERVER_KEY bearer, model "kiseki", stream)
    ▼
 Hermes gateway api server (ns hermes, port 8642)   ← multiplexed gateway
@@ -29,15 +29,15 @@ Ground truth gathered this session:
   `gateway.multiplex_profiles: true` every route is mirrored at
   `/p/<profile><path>` (api_server.py `connect()`), scoping the request to
   that profile's home + secrets per request (`_profile_scope`). So the kiseki
-  profile is reached at **`http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions`**
+  profile is reached at **`http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses`**
   — the existing port + key, no new Service port, no second gateway (Niko's
   call, 2026-09-09).
 - kiseki deployment env already carries `KISEKI_AGENT_CLIENT_ID` +
   `KISEKI_AGENT_ACT_AS` (single-user pin, temporary per #9) → the relay reuses
   these; `KISEKI_AGENT_ACT_AS` remains the no-envelope fallback.
-- API server / chat-completions streaming emits per-event SSE frames
-  (`assistant.delta` / `tool.progress`, and OpenAI-compat `data:` frames on the
-  `/v1/chat/completions` surface). The relay translates to Vercel-ai wire
+- API server / Responses-API streaming emits per-event SSE frames
+  (`response.output_text.delta` / `response.completed` on the
+  `/v1/responses` surface). The relay translates to Vercel-ai wire
   format (`data: 0:"<json delta>"` … `data: d:"…finish…"`).
 
 ## 1. Identity — bearer always checked, sub = token or act-as (Niko's rule)
@@ -76,29 +76,37 @@ Request (Vercel-ai `useChat` default shape):
 
 Behavior:
 
-- Resolve actor sub (above). Attach an **identity envelope** as a system
-  message injected ahead of the user messages: acting sub + their role on
-  `tripId` (if any) + "you may edit content the acting user can edit; your
-  write-API calls carry act-as sub `<sub>`". This is how the per-request
-  identity reaches the agent — the api server has no per-request act-as field.
-- Forward to the Hermes api server:
-  `POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions`,
+- Resolve actor sub (above). The **identity envelope travels as
+  `instructions`** on the Responses API (an ephemeral system prompt, NOT a
+  stored history message): acting sub + their role on `tripId` (if any) +
+  "you may edit content the acting user can edit; your write-API calls carry
+  act-as sub `<sub>`". This is how the per-request identity reaches the agent
+  — the api server has no per-request act-as field.
+- Forward to the Hermes api server over the **Responses API** (Niko,
+  2026-09-09 — keeps history in Hermes so the relay never resends the whole
+  transcript):
+  `POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses`,
   `Authorization: Bearer $KISEKI_HERMES_KEY`, body `{model: "kiseki",
-  messages: [envelope, ...messages], stream: true}`. `tripId` and any file
-  URLs arrive inside the user content parts (`image_url` parts pass through —
-  the api server supports inline image URLs).
-- Translate the upstream stream to **Vercel-ai wire format** for the SPA:
-  - `assistant.delta` events / OpenAI `delta.content` → `data: 0:"…"\n\n`
-  - `tool.progress` / reasoning events → `data: 2:"{…tool…}"\n\n` (optional
-    v1: skip; text deltas + done are enough for the first cut)
-  - terminal → `data: d:"{…finish…}"\n\n`
+  input: [<last user message>], conversation: "<sub>::trip:<trip>" (or
+  "<sub>::general"), instructions: "<identity envelope>", stream: true}`.
+  - **History lives server-side**: Hermes chains each turn to the stored
+    response under `conversation` — the relay sends ONLY the new user
+    message each turn. `conversation` is scoped per acting user + trip, so
+    two users' histories never collide (isolation by construction).
+  - `tripId` and any file URLs arrive inside the user content parts
+    (`image_url` parts pass through — the api server supports inline image
+    URLs).
+- Translate the upstream **Responses-API SSE** stream to Vercel-ai wire
+  format for the SPA:
+  - `response.output_text.delta` → `data: 0:"…"\n\n`
+  - `response.completed` → terminal `data: d:"{…finish…}"\n\n`
+  - `response.failed` → `data: e:"{…error…}"\n\n`
+  - tool/lifecycle events (`output_item.added/done`, `response.created`)
+    consumed but not forwarded (v1 renders final text; tool-call UI is a
+    later add)
   - `X-Accel-Buffering: no`, `Cache-Control: no-cache`.
 - Any auth failure → 401/403 JSON (never a 200 HTML shell — SPA catch-all
   scoping from #120 applies to `/api/*`).
-
-Streaming state: each request is stateless (the full `messages` history is
-sent each turn), matching the api server's chat-completions contract and
-keeping the relay free of session bookkeeping.
 
 ## 3. `/api/files` — upload to the trip's Garage bucket, return URL
 

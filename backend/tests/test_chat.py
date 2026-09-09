@@ -4,8 +4,10 @@ Covers the M3 acceptance contract:
 - identity is bearer-first: end-user token → its own sub (mode 1); sanctioned
   M2M token + X-Act-As-Sub header → that sub (mode 2); M2M with no act-as and
   no pin → 401;
-- /api/chat translates an OpenAI-compatible upstream stream to Vercel-ai
-  ``0:`` frames and injects the identity envelope;
+- /api/chat uses the Responses API: only the new user message is forwarded
+  with a per-actor (per-trip) `conversation` name + identity `instructions`,
+  and the upstream Responses-API SSE stream is translated to Vercel-ai `0:`
+  frames;
 - /api/chat gates the named trip (follower+ for the ACTING user);
 - /api/files stores content-addressed bytes into the trip's media namespace
   and returns the /media URL (editor+ only);
@@ -14,6 +16,7 @@ Covers the M3 acceptance contract:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 
@@ -34,6 +37,7 @@ from conftest import CLIENT_ID, KID, TENANT, _claims, _sign
 M2M_CLIENT = "agent-m2m-client-xyz"
 USER_SUB = "google-oauth2|1234567890"
 OTHER_SUB = "google-oauth2|other-user-1"
+TRIP = "bf29a027-1111-2222-3333-444455556666"
 
 
 @pytest.fixture
@@ -70,33 +74,32 @@ def _role(monkeypatch: pytest.MonkeyPatch, value: str | None):
 def _fake_trip(monkeypatch: pytest.MonkeyPatch, visibility: str = "public"):
     class _Trip:
         def __init__(self):
-            self.id = "bf29a027-1111-2222-3333-444455556666"
+            self.id = TRIP
             self.visibility = visibility
             self.claimToken = "secret"
 
     monkeypatch.setattr(
         chat_module,
         "get_trip_by_id",
-        lambda trip_id: (_Trip() if trip_id == "bf29a027-1111-2222-3333-444455556666" else None),
+        lambda trip_id: (_Trip() if trip_id == TRIP else None),
     )
 
 
-def _fake_upstream(monkeypatch: pytest.MonkeyPatch, chunks: list[dict] | None = None):
-    """Point the relay at a canned upstream body (line by line)."""
-    if chunks is None:
-        chunks = [
-            {"choices": [{"delta": {"content": "Hel"}}]},
-            {"choices": [{"delta": {"content": "lo"}}]},
-            {"choices": [{"delta": {}}]},
-        ]
-    lines = ["data: " + json.dumps(c) for c in chunks] + ["data: [DONE]"]
+def _responses_sse(lines_spec: list[tuple[str, str]]) -> str:
+    """Build a Responses-API SSE body: (event, json-payload) pairs → lines."""
+    return "\n".join(
+        f"event: {event}\ndata: {payload}"
+        for event, payload in lines_spec
+    )
 
-    async def _fake(messages, *, trip_id, actor_sub):
-        for line in lines:
+
+def _fake_upstream(monkeypatch: pytest.MonkeyPatch, body_lines: str):
+    """Point the relay at a canned upstream Responses-API SSE body."""
+    async def _fake(body: dict):
+        for line in body_lines.splitlines():
             yield line
 
     monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
-    return lines
 
 
 # ------------------------------------------------------------------ identity
@@ -155,12 +158,21 @@ def test_m2m_no_act_as_no_pin_raises(client, rsa_keypair) -> None:
 def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
     _role(monkeypatch, "owner")
     _fake_trip(monkeypatch, visibility="private")
-    _fake_upstream(monkeypatch)
+    _fake_upstream(
+        monkeypatch,
+        _responses_sse([
+            ("response.created", json.dumps({"type": "response.created"})),
+            ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Hel"})),
+            ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "lo"})),
+            ("response.output_text.done", json.dumps({"type": "response.output_text.done", "text": "Hello"})),
+            ("response.completed", json.dumps({"type": "response.completed"})),
+        ]),
+    )
     token = _user_token(rsa_keypair)
     resp = client.post(
         "/api/chat",
         json={
-            "tripId": "bf29a027-1111-2222-3333-444455556666",
+            "tripId": TRIP,
             "messages": [{"role": "user", "content": "Summarize day 1"}],
         },
         headers={"Authorization": f"Bearer {token}"},
@@ -171,31 +183,61 @@ def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
     assert "finishReason" in resp.text
 
 
-def test_chat_injects_identity_envelope(client, rsa_keypair, monkeypatch) -> None:
-    """The upstream request carries the acting sub as a system envelope."""
+def test_chat_forwards_only_new_input_with_scoped_conversation(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Responses API: only the LAST user message + per-actor conversation +
+    identity instructions reach the upstream (history lives server-side)."""
     _role(monkeypatch, "owner")
     _fake_trip(monkeypatch, visibility="private")
     captured: dict = {}
 
-    async def _fake(messages, *, trip_id, actor_sub):
-        captured["messages"] = messages
-        captured["actor_sub"] = actor_sub
-        yield "data: [DONE]"
+    async def _fake(body: dict):
+        captured["body"] = body
+        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
 
     monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
     token = _user_token(rsa_keypair, sub=OTHER_SUB)
-    client.post(
+    resp = client.post(
         "/api/chat",
         json={
-            "tripId": "bf29a027-1111-2222-3333-444455556666",
-            "messages": [{"role": "user", "content": "hi"}],
+            "tripId": TRIP,
+            "messages": [
+                {"role": "user", "content": "earlier turn"},
+                {"role": "assistant", "content": "earlier reply"},
+                {"role": "user", "content": "now this"},
+            ],
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert captured["actor_sub"] == OTHER_SUB
-    assert captured["messages"][0]["role"] == "system"
-    assert OTHER_SUB in captured["messages"][0]["content"]
-    assert captured["messages"][1]["role"] == "user"
+    assert resp.status_code == 200
+    body = captured["body"]
+    # only the new message goes upstream
+    assert len(body["input"]) == 1
+    assert body["input"][0]["content"] == "now this"
+    # conversation scoped per actor + trip (never a bare client id)
+    assert body["conversation"] == f"{OTHER_SUB}::trip:{TRIP}"
+    # identity rides as instructions, not a stored history message
+    assert OTHER_SUB in body["instructions"]
+    # full history is NOT sent — only the new message (server-side chaining)
+    assert body["input"] == [{"role": "user", "content": "now this"}]
+    assert "conversation_history" not in body
+    assert body["stream"] is True
+
+
+def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypatch) -> None:
+    """Two users on the same trip get DIFFERENT conversation names."""
+    from app.chat import conversation_id_for
+
+    assert (
+        conversation_id_for(USER_SUB, TRIP)
+        != conversation_id_for(OTHER_SUB, TRIP)
+    )
+    # same user + same trip is stable across turns (chaining)
+    assert (
+        conversation_id_for(USER_SUB, TRIP)
+        == conversation_id_for(USER_SUB, TRIP)
+    )
 
 
 def test_chat_m2m_act_as_header_reaches_agent(
@@ -205,16 +247,16 @@ def test_chat_m2m_act_as_header_reaches_agent(
     _fake_trip(monkeypatch, visibility="private")
     captured: dict = {}
 
-    async def _fake(messages, *, trip_id, actor_sub):
-        captured["actor_sub"] = actor_sub
-        yield "data: [DONE]"
+    async def _fake(body: dict):
+        captured["body"] = body
+        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
 
     monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
     token = _user_token(rsa_keypair, m2m=True)
     resp = client.post(
         "/api/chat",
         json={
-            "tripId": "bf29a027-1111-2222-3333-444455556666",
+            "tripId": TRIP,
             "messages": [{"role": "user", "content": "hi"}],
         },
         headers={
@@ -223,7 +265,9 @@ def test_chat_m2m_act_as_header_reaches_agent(
         },
     )
     assert resp.status_code == 200
-    assert captured["actor_sub"] == OTHER_SUB
+    # M2M + act-as header → conversation + instructions follow the header sub
+    assert captured["body"]["conversation"].startswith(f"{OTHER_SUB}::")
+    assert OTHER_SUB in captured["body"]["instructions"]
 
 
 def test_chat_m2m_without_act_as_is_401(client, rsa_keypair, monkeypatch) -> None:
@@ -238,6 +282,21 @@ def test_chat_m2m_without_act_as_is_401(client, rsa_keypair, monkeypatch) -> Non
     assert resp.status_code == 401
 
 
+def test_chat_no_user_message_is_400(client, rsa_keypair, monkeypatch) -> None:
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "messages": [{"role": "assistant", "content": "only assistant"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+
+
 def test_chat_requires_role_on_private_trip(
     client, rsa_keypair, monkeypatch
 ) -> None:
@@ -248,7 +307,7 @@ def test_chat_requires_role_on_private_trip(
     resp = client.post(
         "/api/chat",
         json={
-            "tripId": "bf29a027-1111-2222-3333-444455556666",
+            "tripId": TRIP,
             "messages": [{"role": "user", "content": "hi"}],
         },
         headers={"Authorization": f"Bearer {token}"},
@@ -273,31 +332,50 @@ def test_chat_unknown_trip_404(client, rsa_keypair, monkeypatch) -> None:
 # ------------------------------------------------------------------ wire fmt
 
 
-def test_wire_translation_of_upstream_stream() -> None:
-    lines = [
-        'data: {"choices":[{"delta":{"content":"Hel"}}]}',
-        'data: {"choices":[{"delta":{"content":"lo"}}]}',
-        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-        "data: [DONE]",
-    ]
-    frames = list(chat_module.iter_wire_frames(lines))
+def test_wire_translation_of_responses_stream() -> None:
+    body = _responses_sse([
+        ("response.created", json.dumps({"type": "response.created"})),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Hel"})),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "lo"})),
+        ("response.output_text.done", json.dumps({"type": "response.output_text.done", "text": "Hello"})),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    frames = list(chat_module.iter_wire_frames(body.splitlines()))
     assert frames == ['0:"Hel"', '0:"lo"', chat_module.wire_done()]
 
 
-def test_wire_translation_skips_tool_chunks() -> None:
-    lines = [
-        'data: {"choices":[{"delta":{"tool_calls":[{"id":"c1"}]}}]}',
-        'data: {"choices":[{"delta":{"content":"answer"}}]}',
-        "data: [DONE]",
-    ]
-    frames = list(chat_module.iter_wire_frames(lines))
+def test_wire_translation_of_failed_stream() -> None:
+    body = _responses_sse([
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "partial"})),
+        ("response.failed", json.dumps({"type": "response.failed", "error": "boom"})),
+    ])
+    frames = list(chat_module.iter_wire_frames(body.splitlines()))
+    assert frames == ['0:"partial"', chat_module.wire_error("boom")]
+
+
+def test_wire_translation_skips_tool_events() -> None:
+    body = _responses_sse([
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {"type": "function_call", "name": "edit_block"},
+        })),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "answer"})),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    frames = list(chat_module.iter_wire_frames(body.splitlines()))
     assert frames == ['0:"answer"', chat_module.wire_done()]
 
 
 def test_wire_translation_keepalives_ignored() -> None:
-    lines = [": keepalive", "", 'data: {"choices":[{"delta":{"content":"x"}}]}', "data: [DONE]"]
-    frames = list(chat_module.iter_wire_frames(lines))
+    body = ": keepalive\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}"
+    frames = list(chat_module.iter_wire_frames(body.splitlines()))
     assert '0:"x"' in frames
+
+
+def test_wire_translation_stream_without_terminal() -> None:
+    body = 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hi"}'
+    frames = list(chat_module.iter_wire_frames(body.splitlines()))
+    assert frames == ['0:"hi"', chat_module.wire_done()]
 
 
 # ------------------------------------------------------------------ /api/files
@@ -315,17 +393,15 @@ def test_files_uploads_to_media_namespace(
         raw = b"\x89PNG\r\n\x1a\nfake-image-bytes"
         resp = client.post(
             "/api/files",
-            data={"trip_id": "bf29a027-1111-2222-3333-444455556666"},
+            data={"trip_id": TRIP},
             files={"file": ("photo.jpg", io.BytesIO(raw), "image/jpeg")},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert resp.status_code == 200
         url = resp.json()["url"]
         # content-addressed: /media/<trip>/<sha256[:32]>.jpg
-        assert url.startswith("/media/bf29a027-1111-2222-3333-444455556666/")
+        assert url.startswith(f"/media/{TRIP}/")
         assert url.endswith(".jpg")
-        import hashlib
-
         expected = hashlib.sha256(raw).hexdigest()[:32]
         assert url.endswith(f"/{expected}.jpg")
         # bytes actually stored (LocalMediaStore)
@@ -341,7 +417,7 @@ def test_files_requires_editor(client, rsa_keypair, monkeypatch) -> None:
     token = _user_token(rsa_keypair)
     resp = client.post(
         "/api/files",
-        data={"trip_id": "bf29a027-1111-2222-3333-444455556666"},
+        data={"trip_id": TRIP},
         files={"file": ("a.txt", io.BytesIO(b"hi"), "text/plain")},
         headers={"Authorization": f"Bearer {token}"},
     )

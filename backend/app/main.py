@@ -31,7 +31,7 @@ from .acl import (
 from .auth import AuthSession, get_current_session, get_current_user
 from .chat import (
     ChatRequest,
-    build_upstream_messages,
+    build_upstream_body,
     fetch_upstream_lines,
     iter_wire_frames,
     require_actor_trip_access,
@@ -958,21 +958,21 @@ async def post_chat(
     """Relay a chat turn to the kiseki content agent (SSE, Vercel-ai wire).
 
     Resolves the acting sub (bearer → mode 1/2), optionally gates the named
-    trip like any read (follower+), injects the identity envelope, then
-    streams the upstream agent response back as Vercel-ai ``0:`` frames.
+    trip like any read (follower+), then streams the upstream Responses-API
+    turn back as Vercel-ai ``0:`` frames. Conversation history lives on the
+    Hermes side, scoped per acting user (and trip) — only the new user
+    message is forwarded each turn.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     if body.tripId:
         require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
-    messages = build_upstream_messages(
+    upstream = build_upstream_body(
         body.messages, actor_sub=actor_sub, trip_id=body.tripId
     )
 
     async def _stream():
         try:
-            async for line in fetch_upstream_lines(
-                messages, trip_id=body.tripId, actor_sub=actor_sub
-            ):
+            async for line in fetch_upstream_lines(upstream):
                 for frame in iter_wire_frames([line]):
                     yield frame + "\n"
         except HTTPException as exc:

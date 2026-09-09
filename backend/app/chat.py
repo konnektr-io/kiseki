@@ -3,14 +3,26 @@
 The kiseki React SPA talks to ``POST /api/chat`` (Vercel-ai ``useChat``
 shape). This backend validates the caller, resolves the acting user (mode 1:
 end-user Auth0 token → its own sub; mode 2: sanctioned agent M2M token +
-request-scoped ``X-Act-As-Sub`` header → that sub), injects an identity
-envelope ahead of the user messages, then relays the turn to the kiseki
-content profile's Hermes API server (in-cluster) and translates the
-OpenAI-compatible stream into the Vercel-ai wire format the SPA consumes.
+request-scoped ``X-Act-As-Sub`` header → that sub), and relays the turn to
+the kiseki content profile's Hermes API server over the **Responses API**
+(``POST /v1/responses``), translating the stream into the Vercel-ai wire
+format the SPA consumes.
 
-The translation is deliberately pure: ``iter_wire_frames`` maps OpenAI SSE
-body lines (``data: {…}`` chunks) to Vercel-ai data-stream lines
-(``0:"<text>"`` … ``d:{…}``) so the wire contract is unit-testable without
+Why Responses, not chat completions (Niko, 2026-09-09): the Responses API
+keeps conversation history **on the Hermes side** — the relay sends only the
+new user message plus a stable ``conversation`` name, and Hermes chains it to
+the stored response. No full transcript round-trips every turn. The
+conversation name is scoped per acting user (and trip), so histories never
+mix across users — cross-user isolation by construction, not by prompt.
+
+The identity envelope travels as ``instructions`` (an ephemeral system
+prompt, not part of the stored history chain), telling the agent which user
+it is acting for; the agent's write-API calls act-as that sub, enforced
+downstream by the kiseki API ACL.
+
+The translation is deliberately pure: ``iter_wire_frames`` maps Responses-API
+SSE lines (``event:`` + ``data:``) to Vercel-ai data-stream lines
+(``0:\"<text>\"`` … ``d:{…}``) so the wire contract is unit-testable without
 any upstream. The IO seam (``fetch_upstream_lines``) is monkeypatched in
 tests.
 """
@@ -20,12 +32,10 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator, Iterable, Iterator
 
-from fastapi import Header, HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from . import config
-from .acl import resolve_request_actor_sub
-from .auth import get_current_user
 from .store import get_trip_role_for_user, get_trip_by_id
 
 # ------------------------------------------------------------------ payloads
@@ -38,7 +48,7 @@ class _Strict(BaseModel):
 class ChatMessage(_Strict):
     """One message in the turn. ``content`` may be a plain string or an array
     of parts (``{"type": "text", "text": …}`` / ``{"type": "image_url",
-    "image_url": {"url": …}}``) — the OpenAI-compatible upstream accepts both.
+    "image_url": {"url": …}}``) — the Responses API accepts both.
     """
 
     role: str
@@ -47,6 +57,11 @@ class ChatMessage(_Strict):
 
 
 class ChatRequest(_Strict):
+    """Vercel-ai ``useChat`` payload. ``messages`` carries the SPA's full
+    transcript for display; the relay forwards ONLY the last user message to
+    Hermes (the Responses API chains the rest server-side via
+    ``conversation``). ``tripId`` scopes the conversation + ACL gate."""
+
     messages: list[ChatMessage]
     tripId: str | None = None
 
@@ -68,19 +83,24 @@ def wire_error(message: str) -> str:
 
 
 def iter_wire_frames(lines: Iterable[str]) -> Iterator[str]:
-    """Translate OpenAI-compatible SSE body lines → Vercel-ai wire frames.
+    """Translate Hermes Responses-API SSE lines → Vercel-ai wire frames.
 
-    Accepts both standard OpenAI chat-completions chunks (``{"choices":
-    [{"delta": {"content": "…"}}]}``) and the bare-delta frames some agents
-    emit. Emits text deltas as ``0:"…"`` and a single terminal ``d:`` frame
-    on ``[DONE]``. Non-content chunks (tool_calls, finish_reason) are
-    consumed but not forwarded — tool execution happens agent-side; the SPA
-    renders the final text (tool-call UI is a later add, see docs/chat-m3).
+    Frames carry an ``event:`` name plus a JSON ``data:`` body. Text deltas
+    arrive as ``response.output_text.delta``; the stream ends with
+    ``response.completed`` (success) or ``response.failed`` (error). Tool and
+    lifecycle events (``response.created``, ``output_item.added/done``,
+    ``output_text.done``) are consumed but not forwarded — tool execution
+    happens agent-side; the SPA renders the final text (tool-call UI is a
+    later add, see docs/chat-m3).
     """
+    event: str | None = None
     for line in lines:
         line = line.strip()
         if not line or line.startswith(":"):
             continue  # SSE comment / keepalive
+        if line.startswith("event:"):
+            event = line[len("event:"):].strip()
+            continue
         if not line.startswith("data:"):
             continue
         payload = line[len("data:"):].strip()
@@ -88,38 +108,83 @@ def iter_wire_frames(lines: Iterable[str]) -> Iterator[str]:
             yield wire_done()
             return
         try:
-            chunk = json.loads(payload)
+            data = json.loads(payload)
         except json.JSONDecodeError:
             continue  # non-JSON keepalive — ignore
-        choices = chunk.get("choices") or []
-        if not choices:
-            # Some streams use {"delta": "…"} at top level instead.
-            delta = chunk.get("delta")
+        name = event or data.get("type") or ""
+        event = None  # event: applies to the single following data: line
+        if name == "response.output_text.delta":
+            delta = data.get("delta")
             if isinstance(delta, str) and delta:
                 yield wire_text(delta)
-            continue
-        for choice in choices:
-            delta = (choice.get("delta") or {})
-            content = delta.get("content")
-            if isinstance(content, str) and content:
-                yield wire_text(content)
-    # Stream ended without [DONE] — still signal completion.
+        elif name in ("response.completed", "response.done"):
+            yield wire_done()
+            return
+        elif name in ("response.failed", "error"):
+            detail = (
+                data.get("error") or data.get("message") or "agent error"
+            )
+            if isinstance(detail, dict):
+                detail = detail.get("message", "agent error")
+            yield wire_error(str(detail))
+            return
+        # Everything else (created / output_item.* / output_text.done) is
+        # lifecycle or tool metadata — ignored for text-only rendering.
+    # Stream ended without a terminal event — still signal completion.
     yield wire_done()
+
+
+# ------------------------------------------------------------------ identity
+
+
+def identity_instructions(actor_sub: str, trip_id: str | None) -> str:
+    """Ephemeral system prompt (Responses ``instructions``) telling the agent
+    which user it is acting for. Never stored in the history chain."""
+    scope = (
+        f"The trip in context is {trip_id}; you may read content the acting "
+        "user can read and edit content they can edit, and your write-API "
+        "calls act-as this user."
+        if trip_id
+        else "No trip is in context yet."
+    )
+    return (
+        "You are the Kiseki trip-content agent. The person you are helping "
+        f"has identity sub={actor_sub}. {scope}"
+    )
+
+
+def conversation_id_for(actor_sub: str, trip_id: str | None) -> str:
+    """Stable Hermes-side conversation name for one acting user.
+
+    Scoped under the actor sub (and the trip when named) so two users'
+    histories can never collide or cross-read — isolation by construction.
+    """
+    if trip_id:
+        return f"{actor_sub}::trip:{trip_id.lower()}"
+    return f"{actor_sub}::general"
+
+
+def last_user_input(messages: list[ChatMessage]) -> dict:
+    """The single new message to forward: the last user turn's content.
+
+    History lives on the Hermes side (Responses chaining), so only this is
+    sent as ``input``. Raises 400 when there is no user message.
+    """
+    for message in reversed(messages):
+        if message.role == "user":
+            return {"role": "user", "content": message.content}
+    raise HTTPException(status_code=400, detail="No user message in request")
 
 
 # ------------------------------------------------------------------ IO seam
 
-async def fetch_upstream_lines(
-    messages: list[dict],
-    *,
-    trip_id: str | None,
-    actor_sub: str,
-) -> AsyncIterator[str]:
-    """Stream the upstream chat-completions body (line by line).
+async def fetch_upstream_lines(body: dict) -> AsyncIterator[str]:
+    """Stream the upstream Responses-API body (line by line).
 
     The IO seam tests monkeypatch: production talks to the kiseki profile's
-    Hermes API server (``KISEKI_HERMES_URL``) with the shared
-    ``KISEKI_HERMES_KEY``; absent config → 503 (no agent to relay to).
+    Hermes API server (``KISEKI_HERMES_URL``, multiplexed /p/kiseki) with the
+    profile-scoped ``KISEKI_HERMES_KEY``; absent config → 503 (no agent to
+    relay to).
     """
     if not config.KISEKI_HERMES_URL or not config.KISEKI_HERMES_KEY:
         raise HTTPException(
@@ -128,12 +193,7 @@ async def fetch_upstream_lines(
         )
     import httpx
 
-    body = {
-        "model": "kiseki",
-        "messages": messages,
-        "stream": True,
-    }
-    url = config.KISEKI_HERMES_URL.rstrip("/") + "/v1/chat/completions"
+    url = config.KISEKI_HERMES_URL.rstrip("/") + "/v1/responses"
     headers = {
         "Authorization": f"Bearer {config.KISEKI_HERMES_KEY}",
         "Content-Type": "application/json",
@@ -152,36 +212,24 @@ async def fetch_upstream_lines(
                 yield text
 
 
-def build_upstream_messages(
+def build_upstream_body(
     messages: list[ChatMessage],
     *,
     actor_sub: str,
     trip_id: str | None,
-) -> list[dict]:
-    """User messages + the identity envelope ahead of them.
-
-    The api server has no per-request act-as field, so the acting user's sub
-    rides as a system envelope: the agent scopes its writes (act-as) to this
-    sub — enforced downstream by the kiseki API ACL, never by prompt alone.
-    """
-    envelope: dict = {
-        "role": "system",
-        "content": (
-            "You are the Kiseki trip-content agent. The person you are "
-            f"helping has identity sub={actor_sub}. "
-            + (
-                f"The trip in context is {trip_id}; you may read content the "
-                "acting user can read and edit content they can edit, and "
-                "your write-API calls act-as this user."
-                if trip_id
-                else "No trip is in context yet."
-            )
-        ),
+) -> dict:
+    """Responses-API request body: new input + scoped conversation +
+    identity instructions. Hermes chains prior turns from ``conversation``."""
+    return {
+        "model": "kiseki",
+        "input": [last_user_input(messages)],
+        "conversation": conversation_id_for(actor_sub, trip_id),
+        "instructions": identity_instructions(actor_sub, trip_id),
+        "stream": True,
     }
-    return [envelope] + [m.model_dump(exclude_none=True) for m in messages]
 
 
-# ------------------------------------------------------------------ deps
+# ------------------------------------------------------------------ trip gate
 
 def require_actor_trip_access(actor_sub: str, trip_id: str, min_role: str = "follower") -> str:
     """Validate the ACTING user has ``min_role`` on the named trip.
