@@ -178,8 +178,13 @@ def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    assert '0:"Hel"' in resp.text
-    assert '0:"lo"' in resp.text
+    # Wire SHAPE, not just containment (the v0.24.0 regression: a fresh
+    # one-shot translator per upstream line spammed spurious d: done frames
+    # BEFORE the text — the SPA transport stops at the first d:, so nothing
+    # rendered). The SPA requires: text first, exactly one terminal d:.
+    lines = [ln for ln in resp.text.splitlines() if ln.strip()]
+    assert lines[0] == '0:"Hel"', f"first frame must be text, got {lines[0]!r}"
+    assert lines == ['0:"Hel"', '0:"lo"', chat_module.wire_done()], lines
     assert "finishReason" in resp.text
 
 
@@ -436,6 +441,59 @@ def test_wire_translation_stream_without_terminal() -> None:
     body = 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hi"}'
     frames = list(chat_module.iter_wire_frames(body.splitlines()))
     assert frames == ['0:"hi"', chat_module.wire_done()]
+
+
+def test_wire_translator_incremental_no_spurious_done_frames() -> None:
+    """Feed lines ONE AT A TIME (how the live route consumes the upstream):
+    exactly one terminal d: at the end, never mid-stream, never first.
+
+    Regression for the v0.24.0 no-streaming bug: the route called
+    ``iter_wire_frames([line])`` — a FRESH one-shot per upstream line — so
+    every ``event:``/lifecycle line fell through to the stream-end fallback
+    and emitted a spurious ``d:`` done frame. The SPA transport stops at the
+    first ``d:`` (``state.done``), so a multi-step agent turn (which is full
+    of lifecycle lines) rendered nothing at all.
+    """
+    lines = _responses_sse([
+        ("response.created", json.dumps({"type": "response.created"})),
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {"type": "function_call", "name": "edit_block"},
+        })),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Hel"})),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "lo"})),
+        ("response.output_text.done", json.dumps({"type": "response.output_text.done", "text": "Hello"})),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ]).splitlines()
+
+    # The one-shot wrapper over the whole body still works…
+    assert list(chat_module.iter_wire_frames(lines)) == [
+        '0:"Hel"', '0:"lo"', chat_module.wire_done()
+    ]
+    # …and the incremental path (feed per line, as the route does) must
+    # produce the SAME wire: no d: before the first delta, none between.
+    t = chat_module.WireTranslator()
+    frames: list[str] = []
+    for line in lines:
+        frames.extend(t.feed(line))
+    frames.extend(t.finish())
+    assert frames == ['0:"Hel"', '0:"lo"', chat_module.wire_done()]
+    assert frames.count(chat_module.wire_done()) == 1
+
+
+def test_wire_translator_stream_cut_mid_turn_still_terminates() -> None:
+    """A dropped connection (no completed event) must still emit one d:."""
+    lines = _responses_sse([
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "par"})),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "tial"})),
+    ]).splitlines()
+    t = chat_module.WireTranslator()
+    frames: list[str] = []
+    for line in lines:
+        frames.extend(t.feed(line))
+    frames.extend(t.finish())  # upstream closed without response.completed
+    assert frames == ['0:"par"', '0:"tial"', chat_module.wire_done()]
+    assert frames.count(chat_module.wire_done()) == 1
 
 
 # ------------------------------------------------------------------ /api/files
