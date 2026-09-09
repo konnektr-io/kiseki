@@ -57,12 +57,22 @@ class ChatMessage(_Strict):
 
 
 class ChatRequest(_Strict):
-    """Vercel-ai ``useChat`` payload. ``messages`` carries the SPA's full
-    transcript for display; the relay forwards ONLY the last user message to
-    Hermes (the Responses API chains the rest server-side via
-    ``conversation``). ``tripId`` scopes the conversation + ACL gate."""
+    """Vercel-ai ``useChat`` payload.
+
+    ``messages`` carries the SPA's full transcript for display; the relay
+    forwards ONLY the last user message to Hermes (the Responses API chains
+    the rest server-side via ``conversation``).
+
+    ``threadId`` is the CLIENT-persisted conversation identity (a fresh UUID
+    per chat thread, reused on resume) — multiple threads per trip, and
+    threads that start unanchored. ``tripId`` is an optional ANCHOR: it is
+    decoupled from conversation identity so a planning thread can attach a
+    trip once it exists (created mid-thread) without losing history. It only
+    drives the ACL gate + the agent's context instructions.
+    """
 
     messages: list[ChatMessage]
+    threadId: str | None = None
     tripId: str | None = None
 
 
@@ -137,28 +147,49 @@ def iter_wire_frames(lines: Iterable[str]) -> Iterator[str]:
 # ------------------------------------------------------------------ identity
 
 
-def identity_instructions(actor_sub: str, trip_id: str | None) -> str:
+def identity_instructions(
+    actor_sub: str,
+    trip_id: str | None,
+    thread_id: str | None = None,
+) -> str:
     """Ephemeral system prompt (Responses ``instructions``) telling the agent
     which user it is acting for. Never stored in the history chain."""
-    scope = (
-        f"The trip in context is {trip_id}; you may read content the acting "
-        "user can read and edit content they can edit, and your write-API "
-        "calls act-as this user."
-        if trip_id
-        else "No trip is in context yet."
-    )
+    if trip_id:
+        scope = (
+            f"The trip anchored to this thread is {trip_id}. You may read "
+            "content the acting user can read and edit content they can "
+            "edit, and your write-API calls act-as this user."
+        )
+    else:
+        scope = (
+            "No trip is anchored to this thread yet. The user may ask about "
+            "an existing trip (list the user's trips, then read the one they "
+            "mean) or ask you to help PLAN a NEW trip — research freely, but "
+            "never write trip content until the user anchors one."
+        )
     return (
         "You are the Kiseki trip-content agent. The person you are helping "
         f"has identity sub={actor_sub}. {scope}"
     )
 
 
-def conversation_id_for(actor_sub: str, trip_id: str | None) -> str:
+def conversation_id_for(
+    actor_sub: str,
+    trip_id: str | None = None,
+    thread_id: str | None = None,
+) -> str:
     """Stable Hermes-side conversation name for one acting user.
 
-    Scoped under the actor sub (and the trip when named) so two users'
-    histories can never collide or cross-read — isolation by construction.
+    Scoped under the actor sub (Niko: ``<sub>:`` prefix is right), then by
+    the CLIENT thread id when present — the thread is the unit of
+    conversation, so a trip can host several threads AND a thread can start
+    unanchored (planning a not-yet-created trip) and attach a trip later
+    without losing history. Fallbacks (no thread id): anchor by trip, else a
+    single general conversation. Two users' histories can never collide —
+    isolation by construction.
     """
+    if thread_id and thread_id.strip():
+        return f"{actor_sub}::{thread_id.strip()}"
     if trip_id:
         return f"{actor_sub}::trip:{trip_id.lower()}"
     return f"{actor_sub}::general"
@@ -178,13 +209,19 @@ def last_user_input(messages: list[ChatMessage]) -> dict:
 
 # ------------------------------------------------------------------ IO seam
 
-async def fetch_upstream_lines(body: dict) -> AsyncIterator[str]:
+async def fetch_upstream_lines(body: dict, *, session_key: str | None = None) -> AsyncIterator[str]:
     """Stream the upstream Responses-API body (line by line).
 
     The IO seam tests monkeypatch: production talks to the kiseki profile's
     Hermes API server (``KISEKI_HERMES_URL``, multiplexed /p/kiseki) with the
     profile-scoped ``KISEKI_HERMES_KEY``; absent config → 503 (no agent to
     relay to).
+
+    ``session_key`` is forwarded as ``X-Hermes-Session-Key`` — the acting
+    user's sub — so every session this user creates carries their sub as its
+    session key. That is the seam per-user session recall filters on (the
+    agent searches sessions whose session_key == the acting sub, never other
+    users').
     """
     if not config.KISEKI_HERMES_URL or not config.KISEKI_HERMES_KEY:
         raise HTTPException(
@@ -198,6 +235,8 @@ async def fetch_upstream_lines(body: dict) -> AsyncIterator[str]:
         "Authorization": f"Bearer {config.KISEKI_HERMES_KEY}",
         "Content-Type": "application/json",
     }
+    if session_key:
+        headers["X-Hermes-Session-Key"] = session_key
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream(
             "POST", url, json=body, headers=headers
@@ -217,14 +256,15 @@ def build_upstream_body(
     *,
     actor_sub: str,
     trip_id: str | None,
+    thread_id: str | None = None,
 ) -> dict:
     """Responses-API request body: new input + scoped conversation +
     identity instructions. Hermes chains prior turns from ``conversation``."""
     return {
         "model": "kiseki",
         "input": [last_user_input(messages)],
-        "conversation": conversation_id_for(actor_sub, trip_id),
-        "instructions": identity_instructions(actor_sub, trip_id),
+        "conversation": conversation_id_for(actor_sub, trip_id, thread_id),
+        "instructions": identity_instructions(actor_sub, trip_id, thread_id),
         "stream": True,
     }
 

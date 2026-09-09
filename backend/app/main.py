@@ -967,12 +967,17 @@ async def post_chat(
     if body.tripId:
         require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
     upstream = build_upstream_body(
-        body.messages, actor_sub=actor_sub, trip_id=body.tripId
+        body.messages,
+        actor_sub=actor_sub,
+        trip_id=body.tripId,
+        thread_id=body.threadId,
     )
 
     async def _stream():
         try:
-            async for line in fetch_upstream_lines(upstream):
+            async for line in fetch_upstream_lines(
+                upstream, session_key=actor_sub
+            ):
                 for frame in iter_wire_frames([line]):
                     yield frame + "\n"
         except HTTPException as exc:

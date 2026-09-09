@@ -95,7 +95,7 @@ def _responses_sse(lines_spec: list[tuple[str, str]]) -> str:
 
 def _fake_upstream(monkeypatch: pytest.MonkeyPatch, body_lines: str):
     """Point the relay at a canned upstream Responses-API SSE body."""
-    async def _fake(body: dict):
+    async def _fake(body: dict, *, session_key=None):
         for line in body_lines.splitlines():
             yield line
 
@@ -192,8 +192,9 @@ def test_chat_forwards_only_new_input_with_scoped_conversation(
     _fake_trip(monkeypatch, visibility="private")
     captured: dict = {}
 
-    async def _fake(body: dict):
+    async def _fake(body: dict, *, session_key=None):
         captured["body"] = body
+        captured["session_key"] = session_key
         yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
 
     monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
@@ -223,6 +224,8 @@ def test_chat_forwards_only_new_input_with_scoped_conversation(
     assert body["input"] == [{"role": "user", "content": "now this"}]
     assert "conversation_history" not in body
     assert body["stream"] is True
+    # X-Hermes-Session-Key carries the ACTING sub → per-user session recall
+    assert captured["session_key"] == OTHER_SUB
 
 
 def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypatch) -> None:
@@ -240,6 +243,56 @@ def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypa
     )
 
 
+def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> None:
+    """threadId wins over trip anchor: multiple threads per trip, and an
+    unanchored thread (planning a not-yet-created trip) keeps its identity
+    when a trip is anchored later."""
+    from app.chat import conversation_id_for
+
+    thread_a, thread_b = "t-a-0001", "t-b-0002"
+    # two threads on the SAME trip are distinct conversations
+    assert (
+        conversation_id_for(USER_SUB, TRIP, thread_a)
+        != conversation_id_for(USER_SUB, TRIP, thread_b)
+    )
+    # a thread started unanchored …
+    unanchored = conversation_id_for(USER_SUB, None, thread_a)
+    # … keeps the SAME conversation id once a trip is attached (history chains)
+    assert unanchored == conversation_id_for(USER_SUB, TRIP, thread_a)
+    # sub prefix always present (Niko: sub-prefix scoping)
+    assert unanchored.startswith(f"{USER_SUB}::")
+
+
+def test_chat_unanchored_thread_forwards_planning_context(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """No tripId → no ACL gate; the agent is told no trip is anchored and may
+    plan a new one (never writes until anchored)."""
+    captured: dict = {}
+
+    async def _fake(body: dict, *, session_key=None):
+        captured["body"] = body
+        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
+
+    monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "threadId": "plan-chile-001",
+            "messages": [{"role": "user", "content": "help me plan a Chile trip"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = captured["body"]
+    assert body["conversation"] == f"{USER_SUB}::plan-chile-001"
+    assert "No trip is anchored" in body["instructions"]
+    # no trip ACL consulted: the route never calls require_actor_trip_access
+    # when no tripId is present (get_trip_role_for_user stays un-mocked here,
+    # and the upstream fake was reached — proving no gate ran first)
+
+
 def test_chat_m2m_act_as_header_reaches_agent(
     client, rsa_keypair, monkeypatch
 ) -> None:
@@ -247,7 +300,7 @@ def test_chat_m2m_act_as_header_reaches_agent(
     _fake_trip(monkeypatch, visibility="private")
     captured: dict = {}
 
-    async def _fake(body: dict):
+    async def _fake(body: dict, *, session_key=None):
         captured["body"] = body
         yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
 
