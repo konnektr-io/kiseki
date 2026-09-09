@@ -93,6 +93,12 @@ KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
 #   - without it, the actor is an OWNER-level service principal for
 #     unattended changes that cannot be linked to a user.
 # Either way NOTHING is provisioned in the graph — no User twin, no edge.
+# TEMPORARY fallback (Niko, 2026-09-09): KISEKI_AGENT_ACT_AS is an interim
+# single-user pin only. Target identity is per-request: the caller presents
+# the END USER's token (mode 1) or the M2M token + a request-scoped act-as
+# sub (validated against the user's real crew role). When #9's chat UI
+# ships, this static pin is removed — a static env var must never become
+# multi-user identity plumbing. Tracked in #9 (identity) / #142 (list gap).
 KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
 KISEKI_AGENT_ACT_AS = os.environ.get("KISEKI_AGENT_ACT_AS", "")
 

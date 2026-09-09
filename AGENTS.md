@@ -106,12 +106,15 @@ writes against the real graph and restores every mutation.
 
 **Identity model (#46)**: the agent has no identity of its own in the graph.
 Three modes, in order of preference:
-1. **User's own token** (dedicated end-user profile / UI chat): present the
-   acting user's access token — ACL + `x-user-id` follow its `sub`.
-2. **Act-as (this Niko home profile only)**: the agent authenticates with the
-   sanctioned M2M client token and the backend resolves the actor as Niko
-   (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role, attribution = his
-   sub. No user token needed; never configured on the end-user profile.
+1. **User's own token** (UI chat / end-user profile): present the acting
+   user's access token — ACL + `x-user-id` follow its `sub`.
+2. **Act-as (TEMPORARY, single-user interim only)**: the agent authenticates
+   with the sanctioned M2M client token and the backend resolves the actor
+   as Niko (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role,
+   attribution = his sub. No user token needed. This static env pin exists
+   ONLY until the chat UI (#9) ships; it must never become multi-user
+   identity plumbing. Target: per-request identity — the caller presents the
+   end user's token, or the M2M token + a request-scoped act-as sub.
 3. **Unattended fallback**: M2M token with no act-as → owner-level service
    principal (`KISEKI_AGENT_CLIENT_ID`), last resort only.
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
@@ -123,9 +126,10 @@ through this write API only and never touches code; the **code agent** (Niko's
 home profile) builds/deploys the app and stewards the content agent's profile,
 skills and backup. Content-agent code requests arrive as issues with the
 `agent` label (template in #140). Until the chat UI ships, content-agent
-writes run M2M + act-as (mode 2, Niko); afterwards the UI passes end-user
-tokens (mode 1) and act-as is dropped. The content agent's built-in memory
-holds no user facts — user/trip memory is graph nodes (#10).
+writes run M2M + act-as (mode 2, TEMPORARY — Niko); afterwards the UI passes
+end-user tokens (mode 1) and the static act-as pin is removed. The content
+agent's built-in memory holds no user facts — user/trip memory is graph
+nodes (#10).
 
 **Not the content path anymore**: `backend/data/trips/*/trip.json` (local
 scratch), reseed scripts (`trip_to_graph.py`, `seed_graph.py`,
