@@ -130,14 +130,29 @@ describe("ChatPanel errors", () => {
   });
 });
 
-describe("ChatPanel attach button (anchored-only uploads)", () => {
+describe("ChatPanel attach button (trip chat or landing inbox)", () => {
   it("is visible when a trip chat is bound", () => {
     stubChat();
     expect(renderPanel("trip-1")).toContain('aria-label="Attach a file"');
   });
 
-  it("is hidden on the unanchored landing chat", () => {
+  it("is visible on the unanchored landing chat (files stage in the inbox)", () => {
     stubChat();
-    expect(renderPanel()).not.toContain('aria-label="Attach a file"');
+    expect(renderPanel()).toContain('aria-label="Attach a file"');
+  });
+});
+
+describe("ChatPanel close button", () => {
+  it("appears when onClose is provided (popup chrome)", () => {
+    stubChat();
+    const html = renderToString(
+      createElement(ChatPanel, { tripId: "trip-1", onClose: () => {} }),
+    );
+    expect(html).toContain('aria-label="Close chat"');
+  });
+
+  it("is absent in the inline (non-popup) form", () => {
+    stubChat();
+    expect(renderPanel("trip-1")).not.toContain('aria-label="Close chat"');
   });
 });

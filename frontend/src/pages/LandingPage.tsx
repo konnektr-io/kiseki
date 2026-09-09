@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, Compass, MapPin, Ticket } from "lucide-react";
+import { ArrowRight, Compass, MapPin, MessageCircle, Ticket } from "lucide-react";
 import { AuthButton } from "../components/AuthButton";
-import { ChatPanel } from "../components/chat-panel";
+import { ChatPopup } from "../components/chat-panel";
 import { Button, StageBadge } from "../components/ui";
 import { fetchMyTrips } from "../lib/api";
 import { formatDate } from "../lib/dates";
@@ -143,9 +143,14 @@ function AuthenticatedLanding() {
   // the grid fell back to a skeleton that never resolved).
   const [attempt, setAttempt] = useState(0);
   // The newest trip the assistant created in this session (detected from its
-  // /t/<id> links) — offered as an "Open trip" button while the refetched
-  // grid below catches up.
+  // /t/<id> links) — offered as an "Open trip" button in the chat popup while
+  // the refetched grid below catches up.
   const [createdTripId, setCreatedTripId] = useState<string | null>(null);
+  // Landing chat lives in the same floating popup as the in-trip chat (#9 /
+  // M4 v2): a header button when the user has trips, a center button in the
+  // empty state when they don't. Attachments attach to the user's inbox
+  // (there is no trip yet); the agent promotes them once it creates one.
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,6 +215,23 @@ function AuthenticatedLanding() {
               Every journey you're part of — pick one to open the booklet.
             </p>
           </div>
+          {/* Landing chat launcher — top-right of the trips list (only when
+              the user has trips; the empty state gets a center button below,
+              so a brand-new user still finds the assistant). Opens the same
+              floating popup as the in-trip chat (#9 / M4 v2). */}
+          {trips && trips.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setChatOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={chatOpen}
+              className="shrink-0"
+            >
+              <MessageCircle className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Ask Kiseki
+            </Button>
+          )}
         </div>
 
         {error ? (
@@ -263,9 +285,19 @@ function AuthenticatedLanding() {
             <Ticket className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
             <h3 className="font-heading text-lg font-semibold">No trips yet</h3>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              You're not on any trip's crew yet. Ask the trip owner for their
-              join link — one click and you're in.
+              Plan your first journey with the Kiseki assistant — describe the
+              trip you have in mind and it will build the booklet for you. Or
+              ask a trip owner for their join link to hop onto an existing one.
             </p>
+            <Button
+              onClick={() => setChatOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={chatOpen}
+              className="mt-5"
+            >
+              <MessageCircle className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Plan a trip
+            </Button>
           </div>
         ) : (
           <div className="grid gap-5 sm:grid-cols-2">
@@ -275,35 +307,34 @@ function AuthenticatedLanding() {
           </div>
         )}
 
-        {/* General chat (issue #9 / M4): no tripId — the assistant answers
-            questions about the user's trips or creates a new one. A fresh
-            trip surfaces here as an "Open trip" button while the grid above
-            refetches. */}
-        <section aria-label="Kiseki assistant" className="mt-10">
-          <h2 className="font-heading text-2xl font-semibold tracking-wide">
-            Kiseki assistant
-          </h2>
-          <p className="mb-4 text-sm text-muted-foreground">
-            Plan something new, or ask about your trips.
-          </p>
-          {createdTripId && (
-            <Link
-              to={`/t/${createdTripId}`}
-              className="mb-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
-            >
-              Open your new trip
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-          )}
-          <ChatPanel
-            className="h-[480px]"
+        {/* Landing chat popup (issue #9 / M4 v2): the same floating drawer as
+            the in-trip chat, opened by the header / empty-state launchers
+            above. No tripId — the assistant answers questions about the
+            user's trips or creates a new one; uploads stage in the user's
+            inbox until the agent promotes them into the new trip. A fresh
+            trip surfaces as an "Open trip" banner while the grid refetches. */}
+        {chatOpen && (
+          <ChatPopup
+            onClose={() => setChatOpen(false)}
             onTripCreated={(id) => {
               setCreatedTripId(id);
               // The new trip exists now — refetch so its card appears above.
               setAttempt((n) => n + 1);
             }}
+            label="Kiseki assistant"
+            banner={
+              createdTripId ? (
+                <Link
+                  to={`/t/${createdTripId}`}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+                >
+                  Open your new trip
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              ) : undefined
+            }
           />
-        </section>
+        )}
       </main>
     </div>
   );
