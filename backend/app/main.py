@@ -10,12 +10,13 @@ One process, one container:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import tempfile
 import time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -25,8 +26,16 @@ from .acl import (
     require_trip_role,
     require_user_token,
     resolve_actor_sub,
+    resolve_request_actor_sub,
 )
 from .auth import AuthSession, get_current_session, get_current_user
+from .chat import (
+    ChatRequest,
+    build_upstream_body,
+    fetch_upstream_lines,
+    iter_wire_frames,
+    require_actor_trip_access,
+)
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .config import (
     HERE_ACCESS_KEY_ID,
@@ -60,6 +69,7 @@ from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, photo_by_name as place_photo_bytes
 from .media import (
+    content_addressed_key,
     get_media_store,
     is_valid_media_path,
     media_content_type,
@@ -928,6 +938,92 @@ def media_file(trip_id: str, file_name: str) -> Response:
         media_type=media_content_type(file_name),
         headers={"Cache-Control": "public, max-age=86400, immutable"},
     )
+
+
+# ------------------------------------------------------------- chat relay (#9 / M3)
+# The SPA's chat panel talks to the kiseki content agent through these two
+# routes. Identity is bearer-first (Niko's rule): a real end-user token IS the
+# actor (mode 1); the sanctioned agent M2M token needs a request-scoped
+# X-Act-As-Sub header (mode 2) — see acl.resolve_request_actor_sub. Files land
+# in the trip's Garage media namespace and come back as /media URLs the agent
+# can consume (the Hermes api server accepts inline image URLs but no uploads).
+
+
+@app.post("/api/chat")
+async def post_chat(
+    body: ChatRequest,
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> StreamingResponse:
+    """Relay a chat turn to the kiseki content agent (SSE, Vercel-ai wire).
+
+    Resolves the acting sub (bearer → mode 1/2), optionally gates the named
+    trip like any read (follower+), then streams the upstream Responses-API
+    turn back as Vercel-ai ``0:`` frames. Conversation history lives on the
+    Hermes side, scoped per acting user (and trip) — only the new user
+    message is forwarded each turn.
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    if body.tripId:
+        require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
+    upstream = build_upstream_body(
+        body.messages,
+        actor_sub=actor_sub,
+        trip_id=body.tripId,
+        thread_id=body.threadId,
+    )
+
+    async def _stream():
+        try:
+            async for line in fetch_upstream_lines(
+                upstream, session_key=actor_sub
+            ):
+                for frame in iter_wire_frames([line]):
+                    yield frame + "\n"
+        except HTTPException as exc:
+            yield f'e:{json.dumps({"error": exc.detail})}\n'
+
+    return StreamingResponse(
+        _stream(),
+        media_type="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/files")
+async def post_files(
+    trip_id: str = Form(...),
+    file: UploadFile = File(...),
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Upload a file into the trip's media namespace for the agent to use.
+
+    Actor resolution identical to /api/chat; requires editor+ on the trip
+    (files attach to trip content). Bytes are content-addressed (sha256[:32])
+    and stored under the trip's own media key — the returned URL is exactly
+    what ``resolve_media_urls`` emits, so the SPA drops it into the next chat
+    message as an ``image_url`` part (or a text link for docs).
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(503, "Media storage is not configured")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(422, "Empty file")
+    ext = Path(file.filename or "").suffix.lower()
+    name = content_addressed_key(raw, ext)
+    store.put(
+        object_key_for(trip_id.lower(), name),
+        raw,
+        media_content_type(name),
+    )
+    return {"url": f"/media/{trip_id.lower()}/{name}"}
 
 
 # Built SPA with history-mode fallback

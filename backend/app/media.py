@@ -168,6 +168,10 @@ class MediaStore(Protocol):
         """
         ...
 
+    def put(self, key: str, raw: bytes, content_type: str) -> None:
+        """Store ``raw`` bytes at ``key`` (trip-media namespace)."""
+        ...
+
 
 class LocalMediaStore:
     """Serve media from a directory tree ``<root>/<trip>/<file>``.
@@ -191,6 +195,14 @@ class LocalMediaStore:
                     yield chunk
 
         return _chunks()
+
+    def put(self, key: str, raw: bytes, content_type: str) -> None:
+        target = (self.root / key).resolve()
+        # No traversal: the resolved path must stay under the store root.
+        if self.root not in target.parents:
+            raise ValueError(f"Media key escapes the store root: {key!r}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
 
 
 class S3MediaStore:
@@ -240,6 +252,17 @@ class S3MediaStore:
                 resp.release_conn()
 
         return _chunks()
+
+    def put(self, key: str, raw: bytes, content_type: str) -> None:
+        from io import BytesIO
+
+        self._client.put_object(
+            self.bucket,
+            KEY_PREFIX + key,
+            data=BytesIO(raw),
+            length=len(raw),
+            content_type=content_type,
+        )
 
 
 _STORE: Optional[MediaStore] = None
