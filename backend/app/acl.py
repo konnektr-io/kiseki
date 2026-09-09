@@ -75,6 +75,40 @@ def require_user_token(user: dict) -> None:
         )
 
 
+def resolve_request_actor_sub(
+    user: dict,
+    x_act_as_sub: str | None = None,
+) -> str:
+    """Per-request actor sub for chat/agent routes (issue #9, mode 1 + 2).
+
+    Rule (Niko, 2026-09-09): ALWAYS check the bearer token first; its sub is
+    the actor UNLESS the token is a full-access agent M2M token — then the
+    act-as sub comes from the request (``X-Act-As-Sub`` header), falling back
+    to the static ``KISEKI_AGENT_ACT_AS`` pin only when the request names no
+    sub (single-user interim, deprecated).
+
+    Mode 1 (UI): the end user's own Auth0 token → actor = token sub.
+    Mode 2 (agent backend): sanctioned M2M token + request-scoped act-as sub
+    (header) → actor = that sub. This is the per-request identity model that
+    replaces the static env pin once the chat UI ships (#9).
+    """
+    if not _is_agent_token(user):
+        return user["sub"]
+    # Sanctioned agent M2M client: act-as is REQUIRED for user-scoped work.
+    if x_act_as_sub and x_act_as_sub.strip():
+        return x_act_as_sub.strip()
+    if KISEKI_AGENT_ACT_AS:
+        return KISEKI_AGENT_ACT_AS
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "Agent token requires an act-as sub (X-Act-As-Sub header) "
+            "for user-scoped routes"
+        ),
+    )
+
+
+
 def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     """Actor {sub, role} for the sanctioned agent M2M client (#46).
 

@@ -120,6 +120,17 @@ Three modes, in order of preference:
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
 
+**Chat identity (M3, `/api/chat` + `/api/files`) is bearer-first per request**
+(`acl.resolve_request_actor_sub`, #9): every request MUST carry a bearer
+token; its sub IS the actor UNLESS it is a sanctioned agent M2M token, in
+which case the actor sub comes from the **`X-Act-As-Sub` request header**
+(mode 2, per-request) or the static env pin (deprecated fallback). A bare
+M2M token with no act-as anywhere → 401 (a service principal has no user
+identity to scope a chat to). The resolved sub is then gated on the named
+trip like any read (follower+ to chat about it, editor+ to attach files)
+and forwarded to the content agent as an identity envelope — the agent's
+own write-API calls act-as that sub, enforced downstream by the API ACL.
+
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
 /api/trips` (my trips) and `GET /api/auth/me` follow the RESOLVED identity —
 with act-as configured, the agent lists and identifies as the mapped user,
