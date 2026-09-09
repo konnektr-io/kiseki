@@ -10,26 +10,28 @@ React SPA (kiseki pod, ns kiseki)
    │  POST /api/chat            (Auth0 bearer, Vercel-ai SSE out)
    ▼
 kiseki FastAPI backend (same pod)          ← the NEW relay + files endpoints
-   │  POST http://hermes.hermes.svc.cluster.local:8646/v1/chat/completions
+   │  POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions
    │        (API_SERVER_KEY bearer, model "kiseki", stream)
    ▼
-Hermes api server (ns hermes, port 8646)   ← the kiseki profile's OWN gateway
-   │  (gateway-kiseki s6 service already runs `hermes -p kiseki gateway run`)
+Hermes gateway api server (ns hermes, port 8642)   ← multiplexed gateway
+   │  (gateway.multiplex_profiles: true → /p/kiseki/ scoped to the profile)
    ▼
 kiseki content agent: tools = write API (M2M + act-as), web, media
 ```
 
 Ground truth gathered this session:
 
-- `hermes` Service (ns `hermes`) already exposes `api:8642`, `dashboard:9119`,
-  `webhook:8644` → **add `chat:8646`** (targetPort 8646) for the kiseki app pod.
-- `gateway-kiseki` s6 service **already runs** (`hermes -p kiseki gateway run
-  --replace`, started 2026-09-08 for bot-mode DMs) — it is the natural host for
-  the profile's API server. No new process, no subprocess from the app pod.
-- The kiseki profile `.env` has **no** `API_SERVER_*` yet → add
-  `API_SERVER_ENABLED=true`, `API_SERVER_PORT=8646`, `API_SERVER_KEY=<secret>`
-  (or serve via the default gateway's `/p/kiseki/` multiplex — rejected: the
-  profile gateway already exists and keeps agent credentials scoped).
+- **One live gateway**: the hermes pod runs a single `hermes gateway run`
+  process (PID 165) that owns the API server on **8642**. The
+  `gateway-kiseki` s6 supervision exists but runs no process (bot-mode DMs
+  spawn `hermes -p kiseki chat` subprocesses, not a persistent gateway).
+- The API server supports **multi-profile multiplexing** natively: with
+  `gateway.multiplex_profiles: true` every route is mirrored at
+  `/p/<profile><path>` (api_server.py `connect()`), scoping the request to
+  that profile's home + secrets per request (`_profile_scope`). So the kiseki
+  profile is reached at **`http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions`**
+  — the existing port + key, no new Service port, no second gateway (Niko's
+  call, 2026-09-09).
 - kiseki deployment env already carries `KISEKI_AGENT_CLIENT_ID` +
   `KISEKI_AGENT_ACT_AS` (single-user pin, temporary per #9) → the relay reuses
   these; `KISEKI_AGENT_ACT_AS` remains the no-envelope fallback.
@@ -80,7 +82,7 @@ Behavior:
   write-API calls carry act-as sub `<sub>`". This is how the per-request
   identity reaches the agent — the api server has no per-request act-as field.
 - Forward to the Hermes api server:
-  `POST http://hermes.hermes.svc.cluster.local:8646/v1/chat/completions`,
+  `POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/chat/completions`,
   `Authorization: Bearer $KISEKI_HERMES_KEY`, body `{model: "kiseki",
   messages: [envelope, ...messages], stream: true}`. `tripId` and any file
   URLs arrive inside the user content parts (`image_url` parts pass through —
@@ -122,12 +124,13 @@ store, no raw bytes through the chat endpoint.
 
 ## 4. Config & secrets
 
-- kiseki deployment env (k8s): `KISEKI_HERMES_URL=http://hermes.hermes.svc.cluster.local:8646`
-  (config.py: `os.environ.get("KISEKI_HERMES_URL", "")`), plus
-  `KISEKI_HERMES_KEY` from the `kiseki-hermes` secret (mirrors `kiseki-s3`).
-- kiseki profile `.env` (this repo's deployment step, applied separately):
-  `API_SERVER_ENABLED=true`, `API_SERVER_PORT=8646`, `API_SERVER_KEY=…`
-  → restart `gateway-kiseki` → add `chat:8646` to the hermes Service.
+- kiseki deployment env (k8s): `KISEKI_HERMES_URL=http://hermes.hermes.svc.cluster.local:8642/p/kiseki`
+  (config.py default; overridable), plus `KISEKI_HERMES_KEY` from the
+  `kiseki-hermes` secret (mirrors `kiseki-s3`) = the gateway's shared
+  `API_SERVER_KEY`.
+- Hermes gateway config (home profile `/opt/data/config.yaml`):
+  `gateway.multiplex_profiles: true` → restart the gateway → the api server
+  mirrors every route at `/p/kiseki/…`. No new Service port, no second key.
 - No new credentials minted per request: the agent's own M2M credentials do
   the write-API calls; the envelope's act-as sub is what the agent passes
   through its existing `kiseki_api.sh` wrapper (extended to accept an

@@ -103,10 +103,15 @@ KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
 KISEKI_AGENT_ACT_AS = os.environ.get("KISEKI_AGENT_ACT_AS", "")
 
 # Kiseki chat (issue #9 / M3): where the kiseki content agent's Hermes API
-# server lives. The app pod relays /api/chat to this URL (in-cluster
-# service DNS: http://hermes.hermes.svc.cluster.local:8646); the key is the
-# profile's API_SERVER_KEY (secret kiseki-hermes). Absent → /api/chat 503s.
-KISEKI_HERMES_URL = os.environ.get("KISEKI_HERMES_URL", "")
+# server lives. The app pod relays /api/chat to this URL — the in-cluster
+# hermes gateway's API server (http://hermes.hermes.svc.cluster.local:8642)
+# with the /p/kiseki profile prefix (gateway.multiplex_profiles) so the turn
+# runs on the kiseki profile's own home/secrets. The key is the gateway's
+# shared API_SERVER_KEY (secret kiseki-hermes). Absent → /api/chat 503s.
+KISEKI_HERMES_URL = os.environ.get(
+    "KISEKI_HERMES_URL",
+    "http://hermes.hermes.svc.cluster.local:8642/p/kiseki",
+)
 KISEKI_HERMES_KEY = os.environ.get("KISEKI_HERMES_KEY", "")
 
 # TriCount (bunq) expense integration (issue #111). Tricount device
