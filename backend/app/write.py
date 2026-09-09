@@ -27,12 +27,14 @@ booklet sort by it. ``hasBlock`` edges carry no index. This module maintains
 from __future__ import annotations
 
 import datetime as _dt
+import re
+import secrets
 import uuid
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .graph.client import GraphWriteError, _invalidate_graph_cache
+from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
 from .graph.convert import graph_to_trip
 from .models import (
     BlockKind,
@@ -542,6 +544,101 @@ def _trip_of(graph: dict) -> Trip:
 
 
 # ---------------------------------------------------------------- trip level
+class TripCreate(_Strict):
+    """POST /api/trips body (issue #9): spawn an empty trip.
+
+    The agent fills it afterwards through the existing write API — creation
+    only names it. ``title`` is required; everything else starts at the
+    defaults (``stage: idea``, ``visibility: private``).
+    """
+
+    title: str = Field(min_length=1)
+    subtitle: Optional[str] = None
+
+
+def _slugify(title: str) -> str:
+    """Kebab-case slug from a title (repo-folder style, uniqueness not required)."""
+    return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "trip"
+
+
+def _drop_nones(value: Any) -> Any:
+    """Drop explicit nulls recursively (mirrors scripts/trip_to_graph.twin):
+    ADT validates null against the property schema, while absent is fine."""
+    if isinstance(value, dict):
+        return {k: _drop_nones(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [_drop_nones(v) for v in value if v is not None]
+    return value
+
+
+def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload: TripCreate) -> Trip:
+    """Spawn an empty trip owned by the acting user (issue #9 / M4).
+
+    The trip twin carries the same scalar shape a seed trip would (``stage:
+    idea``, ``visibility: private``, no days/sections/crew yet) plus a fresh
+    ``claimToken`` so the owner can invite crew afterwards; the creator's
+    ``hasCrew`` edge (``role: owner``, ``index: 0``) is the ACL fact every
+    later read/write gates on.
+
+    Identity rule (#142): a missing User twin is provisioned ONLY from the
+    caller's own token profile. An act-as sub with no twin is a 403 — the
+    agent never provisions identity for the mapped user behind their back.
+    A user token with no email anywhere is a 403 too: a User twin without a
+    verified email is not useful, and the server invents no identity.
+    """
+    client = _client()
+    title = (payload.title or "").strip()
+    if not title:
+        raise WriteError(422, "Trip title must not be blank")
+    if not actor_sub or not token_sub:
+        raise WriteError(401, "Missing actor identity")
+    if not client.user_twin_exists(actor_sub):
+        if actor_sub != token_sub:
+            raise WriteError(
+                403,
+                "No user identity for this act-as sub — sign in with the user's own token first",
+            )
+        if not client.create_user_twin(actor_sub, profile or {}):
+            raise WriteError(
+                403,
+                "Cannot create a user identity without a verified email",
+            )
+    trip_id = _new_id()
+    doc = Trip(
+        id=trip_id,
+        slug=_slugify(title),
+        title=title,
+        subtitle=(payload.subtitle or "").strip(),
+        stage="idea",
+        visibility="private",
+        claimToken=secrets.token_urlsafe(24),
+        updated=_today(),
+    )
+    props = doc.model_dump(by_alias=True)
+    for field in ("days", "locations", "crew", "features", "sections"):
+        props.pop(field, None)
+    props.pop("id", None)
+    twin: dict[str, Any] = {"$dtId": trip_id, "$metadata": {"$model": TRIP_MODEL}}
+    twin.update(_drop_nones(props))
+    client.upsert_twin(trip_id, twin, x_user_id=actor_sub)
+    client.upsert_relationship(
+        trip_id,
+        {
+            "$relationshipId": _rel_id(trip_id, "hasCrew", actor_sub),
+            "$sourceId": trip_id,
+            "$relationshipName": "hasCrew",
+            "$targetId": actor_sub,
+            "role": "owner",
+            "index": 0,
+        },
+        x_user_id=actor_sub,
+    )
+    # The creator's trip list is cached per user — retire it so the new trip
+    # shows up on the landing immediately.
+    _invalidate_graph_cache(trip_dtid=trip_id, user_dtid=actor_sub)
+    return _rebuild(client, trip_id)
+
+
 def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     """Trip scalar edits + stage machine + owner-only visibility.
 

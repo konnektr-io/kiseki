@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks } from "lucide-react";
+import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle, X } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
+import { ChatPanel } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
@@ -38,6 +39,37 @@ function isNavActive(pathname: string, base: string, to: string, end?: boolean):
     return pathname === `${base}/itinerary` || pathname.startsWith(`${base}/day`);
   }
   return pathname === `${base}/${to}`;
+}
+
+function ChatDrawer({ tripId, onClose }: { tripId: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="false"
+      aria-label="Trip chat"
+      className="no-print fixed inset-x-3 bottom-3 z-30 md:inset-x-auto md:bottom-6 md:right-6 md:top-20 md:w-[400px]"
+    >
+      <div className="floating relative flex max-h-[70dvh] flex-col overflow-hidden rounded-2xl md:max-h-none md:h-full">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close chat"
+          className="absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+        <ChatPanel tripId={tripId} className="h-[60dvh] border-0 md:h-full" />
+      </div>
+    </div>
+  );
 }
 
 function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
@@ -86,6 +118,9 @@ export function TripLayout() {
   const [error, setError] = useState<LoadError | null>(null);
   const [joinCopied, setJoinCopied] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
+  // surface stays mounted underneath so edits land visibly live.
+  const [chatOpen, setChatOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -357,6 +392,24 @@ export function TripLayout() {
                   : "Dates TBD"}
               </p>
             </div>
+            {/* Chat with the trip-content agent (signed in only — there is no
+                anonymous chat). Opens the drawer below; the trip stays mounted. */}
+            {isAuthenticated && (
+              <button
+                type="button"
+                onClick={() => setChatOpen((open) => !open)}
+                aria-expanded={chatOpen}
+                aria-label={chatOpen ? "Close chat" : "Open chat"}
+                title="Chat with the Kiseki assistant"
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                  chatOpen
+                    ? "border-primary/60 bg-primary text-primary-foreground"
+                    : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              </button>
+            )}
             {/* One overflow menu holds every trip action (PDF for everyone,
                 join link for the owner, stage + sharing for editor+/owner) so
                 the header stays a single row. */}
@@ -389,6 +442,14 @@ export function TripLayout() {
           <main className="mx-auto max-w-3xl px-4 py-5 pb-24 md:pb-10">
             <Outlet />
           </main>
+        )}
+
+        {/* In-trip chat drawer (issue #9 / M4) — Chrome, `no-print` (via the
+            panel), floating over the trip so the map surface and its content
+            stay mounted underneath. Bottom sheet on mobile, right rail on
+            desktop. */}
+        {chatOpen && (
+          <ChatDrawer tripId={trip.id} onClose={() => setChatOpen(false)} />
         )}
 
         {/* Mobile bottom nav (hidden on day pages — the day level has its own bar) */}

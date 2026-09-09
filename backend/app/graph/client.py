@@ -398,6 +398,29 @@ class GraphReadClient:
             print(f"[kiseki] graph create user twin({user_dtid}) failed: {exc}")
             return False
 
+    def user_twin_exists(self, user_dtid: str) -> bool:
+        """True when a User twin with this global auth id exists (issue #9).
+
+        Uses the SDK's native ``get_digital_twin`` (a 404 surfaces as
+        ``ResourceNotFoundError``) — no hand-rolled Cypher probe (Niko,
+        2026-09-09). Uncached on purpose: trip creation checks-then-provisions
+        in one flow, and a cached False would re-provision (harmless but
+        noisy) or, worse, mask a twin created a moment ago. A rare op — no
+        TTL needed.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return False
+        try:
+            from konnektr_graph import ResourceNotFoundError
+
+            self._client.get_digital_twin(user_dtid)  # type: ignore[union-attr]
+            return True
+        except ResourceNotFoundError:
+            return False
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[kiseki] graph user exists({user_dtid}) failed: {exc}")
+            return False
+
     def claim_crew_person(
         self,
         trip_dtid: str,

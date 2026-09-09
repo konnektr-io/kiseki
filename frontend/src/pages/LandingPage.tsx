@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Compass, MapPin, Ticket } from "lucide-react";
+import { ArrowRight, Compass, MapPin, Ticket } from "lucide-react";
 import { AuthButton } from "../components/AuthButton";
+import { ChatPanel } from "../components/chat-panel";
 import { Button, StageBadge } from "../components/ui";
 import { fetchMyTrips } from "../lib/api";
 import { formatDate } from "../lib/dates";
@@ -141,6 +142,10 @@ function AuthenticatedLanding() {
   // genuinely re-runs the load (previously Retry only cleared the error and
   // the grid fell back to a skeleton that never resolved).
   const [attempt, setAttempt] = useState(0);
+  // The newest trip the assistant created in this session (detected from its
+  // /t/<id> links) — offered as an "Open trip" button while the refetched
+  // grid below catches up.
+  const [createdTripId, setCreatedTripId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -269,6 +274,36 @@ function AuthenticatedLanding() {
             ))}
           </div>
         )}
+
+        {/* General chat (issue #9 / M4): no tripId — the assistant answers
+            questions about the user's trips or creates a new one. A fresh
+            trip surfaces here as an "Open trip" button while the grid above
+            refetches. */}
+        <section aria-label="Kiseki assistant" className="mt-10">
+          <h2 className="font-heading text-2xl font-semibold tracking-wide">
+            Kiseki assistant
+          </h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Plan something new, or ask about your trips.
+          </p>
+          {createdTripId && (
+            <Link
+              to={`/t/${createdTripId}`}
+              className="mb-4 inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
+            >
+              Open your new trip
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
+          )}
+          <ChatPanel
+            className="h-[480px]"
+            onTripCreated={(id) => {
+              setCreatedTripId(id);
+              // The new trip exists now — refetch so its card appears above.
+              setAttempt((n) => n + 1);
+            }}
+          />
+        </section>
       </main>
     </div>
   );

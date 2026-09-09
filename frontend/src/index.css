@@ -179,6 +179,9 @@ h4 {
 .md blockquote {
   @apply my-2 border-l-2 border-primary/30 pl-3 italic text-muted-foreground;
 }
+.md img {
+  @apply my-2 h-auto max-w-full rounded-lg border border-border;
+}
 .md :first-child {
   @apply mt-0;
 }

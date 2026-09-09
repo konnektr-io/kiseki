@@ -14,6 +14,7 @@ prints the API response — for writes that is the canonical trip document
                                                     #    no user token needed.
                                                     # 3. M2M alone: owner fallback (unattended).
     python scripts/api_write.py get /api/trips/<trip_id>
+    python scripts/api_write.py create-trip --title "Japan 2028" --subtitle "Powder"
     python scripts/api_write.py put /api/trips/<trip_id> --json '{"stage": "booked"}'
     python scripts/api_write.py post /api/trips/<trip_id>/blocks \
         --json '{"kind": "lodging", "title": "Banff Inn", \
@@ -83,10 +84,13 @@ def _read_body(args) -> bytes | None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("method", choices=["get", "put", "post", "patch", "delete"])
-    ap.add_argument("path", help="API path, e.g. /api/trips/<trip_id>/blocks")
+    ap.add_argument("method", choices=["get", "put", "post", "patch", "delete", "create-trip"])
+    ap.add_argument("path", nargs="?", default=None,
+                    help="API path, e.g. /api/trips/<trip_id>/blocks (omit for create-trip)")
     ap.add_argument("--json", help="JSON body inline")
     ap.add_argument("--file", help="JSON body from file ('-' = stdin)")
+    ap.add_argument("--title", help="Trip title (create-trip only)")
+    ap.add_argument("--subtitle", help="Trip subtitle (create-trip only)")
     ap.add_argument("--token", help="Bearer token (default: $KISEKI_TOKEN)")
     ap.add_argument("--base", default=BASE_URL, help=f"API base (default: {BASE_URL})")
     args = ap.parse_args()
@@ -95,9 +99,27 @@ def main() -> int:
     if token is None:
         raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
 
-    body = _read_body(args)
-    url = args.base.rstrip("/") + ("/" + args.path.lstrip("/") if args.path else "")
-    req = urllib.request.Request(url, method=args.method.upper(), data=body)
+    method = args.method
+    path = args.path
+    if method == "create-trip":
+        # POST /api/trips — spawn an empty trip the agent then fills via the
+        # write API (issue #9). Body is just the name; --json/--file would
+        # only smuggle fields the endpoint ignores.
+        if path not in (None, "/api/trips"):
+            raise SystemExit("error: create-trip takes no path (it POSTs /api/trips)")
+        if args.json is not None or args.file is not None:
+            raise SystemExit("error: create-trip takes --title/--subtitle, not --json/--file")
+        if not (args.title or "").strip():
+            raise SystemExit("error: create-trip requires --title")
+        doc = {"title": args.title.strip()}
+        if (args.subtitle or "").strip():
+            doc["subtitle"] = args.subtitle.strip()
+        body = json.dumps(doc).encode("utf-8")
+        method, path = "post", "/api/trips"
+    else:
+        body = _read_body(args)
+    url = args.base.rstrip("/") + ("/" + path.lstrip("/") if path else "")
+    req = urllib.request.Request(url, method=method.upper(), data=body)
     req.add_header("Authorization", f"Bearer {token}")
     if body is not None:
         req.add_header("Content-Type", "application/json")
