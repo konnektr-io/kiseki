@@ -10,6 +10,7 @@ import {
   chatContextKey,
   findTripIds,
   loadThreadId,
+  messageInterrupted,
   messageToText,
   newThreadId,
   uploadChatFile,
@@ -140,6 +141,23 @@ function ChatThread({
   });
   const { messages, status, error } = chat;
   const busy = status === "submitted" || status === "streaming";
+  // A dropped turn (issue #152): the relay closed the stream without the
+  // agent's terminal event, so it marked the finish `interrupted`. The turn
+  // looks "done" but the agent never finished — offer Reconnect, which
+  // re-sends the transcript on the SAME threadId (same `thread:<id>`
+  // conversation, so Hermes chains the stored turn and continues).
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const droppedTurn =
+    !busy &&
+    !error &&
+    lastMessage !== null &&
+    lastMessage.role === "assistant" &&
+    messageInterrupted(lastMessage);
+
+  const reconnect = async () => {
+    if (!droppedTurn || busy) return;
+    await chat.regenerate();
+  };
 
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -304,6 +322,10 @@ function ChatThread({
           </div>
         )}
       </div>
+
+      {droppedTurn && (
+        <ChatReconnectBanner onReconnect={() => void reconnect()} />
+      )}
 
       {error && (
         <ChatErrorBanner
@@ -474,6 +496,28 @@ function AgentBubble({ message }: { message: UIMessage }) {
   return (
     <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
       <Markdown>{withInlineMediaImages(text)}</Markdown>
+    </div>
+  );
+}
+
+function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="mx-3 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-center"
+    >
+      <p className="text-xs text-muted-foreground">
+        Connection lost — the agent didn&apos;t finish. Reconnect continues
+        the same turn (nothing is sent twice).
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onReconnect}
+        className="mt-2 text-xs"
+      >
+        Reconnect
+      </Button>
     </div>
   );
 }

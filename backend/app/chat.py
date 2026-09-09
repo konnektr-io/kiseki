@@ -101,9 +101,20 @@ def text_end_chunk(part_id: str) -> dict:
     return {"type": "text-end", "id": part_id}
 
 
-def finish_chunk() -> dict:
-    """Terminal chunk (stop). Always emitted, exactly once per turn."""
-    return {"type": "finish", "finishReason": "stop"}
+def finish_chunk(*, interrupted: bool = False) -> dict:
+    """Terminal chunk (stop). Always emitted, exactly once per turn.
+
+    ``interrupted`` marks a cut connection: the upstream stream ended
+    without ``response.completed``/``[DONE]`` (transport drop, SSE
+    disconnect, server restart). It travels as the chunk's
+    ``messageMetadata`` (a first-class field the SDK persists onto the
+    assistant message) so the UI can offer Reconnect — never render a
+    dropped turn as a clean completion.
+    """
+    chunk: dict = {"type": "finish", "finishReason": "stop"}
+    if interrupted:
+        chunk["messageMetadata"] = {"interrupted": True}
+    return chunk
 
 
 def error_chunk(message: str) -> dict:
@@ -153,7 +164,9 @@ class WireTranslator:
     - the terminal flag, so exactly ONE terminal sequence is ever emitted —
       ``text-end`` (only if text started) + ``finish`` on
       ``response.completed``/``[DONE]``, or from ``finish`` when the stream
-      ends without a terminal event (cut connection). Lifecycle events
+      ends without a terminal event (cut connection — the emitted ``finish``
+      carries ``interrupted: true`` so the UI can offer Reconnect instead of
+      rendering a fake completion). Lifecycle events
       (``response.created``, ``output_item.*``, ``output_text.done``) are
       consumed and dropped, never echoed as chunks.
 
@@ -216,13 +229,14 @@ class WireTranslator:
 
     def finish(self) -> list[dict]:
         """Signal stream end. Emits the terminal sequence ONLY if no terminal
-        event was seen (cut connection must still resolve the turn)."""
+        event was seen (cut connection must still resolve the turn — with an
+        ``interrupted`` finish so the UI offers Reconnect, issue #152)."""
         if self._done:
             return []
         self._done = True
         if self._started:
-            return [text_end_chunk(self._part_id), finish_chunk()]
-        return [finish_chunk()]
+            return [text_end_chunk(self._part_id), finish_chunk(interrupted=True)]
+        return [finish_chunk(interrupted=True)]
 
 
 # ------------------------------------------------------------------ identity
