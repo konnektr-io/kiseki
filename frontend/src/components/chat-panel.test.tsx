@@ -82,14 +82,27 @@ function renderPanel(tripId?: string): string {
 }
 
 describe("ChatPanel messages", () => {
-  it("renders streamed assistant markdown", () => {
+  it("renders settled assistant markdown", () => {
+    stubChat({
+      messages: [userText("Hi"), assistantText("Hello **there**")],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Hi");
+    expect(html).toContain("<strong>there</strong>");
+  });
+
+  it("holds a streaming pre-tool answer back until the turn settles (issue #179)", () => {
+    // While a turn streams with no activity parts yet, its text is
+    // unclassifiable (plain answer OR narration) — the thinking row is the
+    // feedback; the text renders once the turn settles.
     stubChat({
       messages: [userText("Hi"), assistantText("Hello **there**")],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    expect(html).toContain("Hi");
-    expect(html).toContain("<strong>there</strong>");
+    expect(html).not.toContain("<strong>there</strong>");
+    expect(html).toContain("Agent is thinking");
   });
 
   it("renders a bare /media/ URL as an inline image", () => {
@@ -256,6 +269,25 @@ describe("ChatPanel messages", () => {
     const html = renderPanel("trip-1");
     expect(html).not.toContain("Let me check the trip data first");
     expect(html).toContain("Checking trip data…");
+  });
+
+  it("acknowledges a settled narration-only turn in traveler terms (issue #179)", () => {
+    // The turn DID work (activity rows completed) but streamed no final
+    // prose — after settle the user must not read dead silence. The
+    // acknowledgement is plain, never plumbing.
+    stubChat({
+      messages: [
+        userText("Plan day 3"),
+        toolTurn([
+          { kind: "text", text: "Let me check the trip data first…" },
+          { kind: "activity", id: "c1", label: "Checking trip data…", done: true },
+        ]),
+      ],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Handled — your trip is up to date.");
+    expect(html).not.toContain("Let me check the trip data first");
   });
 
   it("keeps plain Q&A turns fully visible (no activity parts)", () => {
