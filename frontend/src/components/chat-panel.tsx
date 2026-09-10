@@ -5,6 +5,7 @@ import { Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { Markdown } from "../lib/markdown";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
   chatContextKey,
@@ -157,6 +158,7 @@ function ChatThread({
 
   const reconnect = async () => {
     if (!droppedTurn || busy) return;
+    if (isPostHogConfigured) posthog.capture("chat_reconnect_requested");
     await chat.regenerate();
   };
 
@@ -213,6 +215,13 @@ function ChatThread({
       }
     }
     const text = [draft.trim(), ...docLinks].filter(Boolean).join("\n\n");
+    if (isPostHogConfigured) {
+      posthog.capture("chat_message_sent", {
+        conversation_scope: tripId ? "trip" : "general",
+        has_text: Boolean(draft.trim()),
+        attachment_count: readyFiles.length,
+      });
+    }
     setDraft("");
     setAttachments([]);
     setUploadError(null);
@@ -246,6 +255,12 @@ function ChatThread({
                 : a,
             ),
           );
+          if (isPostHogConfigured) {
+            posthog.capture("chat_attachment_uploaded", {
+              conversation_scope: tripId ? "trip" : "general",
+              attachment_type: uploaded.isImage ? "image" : "document",
+            });
+          }
         } catch (e) {
           const message = e instanceof Error ? e.message : "Upload failed.";
           setAttachments((prev) =>

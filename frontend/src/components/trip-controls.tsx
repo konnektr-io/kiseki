@@ -12,6 +12,7 @@ import { useTripState } from "./theme";
 import { useTripWrite } from "../lib/useTripWrite";
 import { deleteTrip, putTrip, TripAccessError } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   roleAtLeast,
   stageOptions,
@@ -92,12 +93,21 @@ export function TripActionsMenu({
   }, [open]);
 
   const changeStage = (stage: Stage) => {
+    if (isPostHogConfigured) {
+      posthog.capture("trip_stage_changed", { from_stage: trip.stage, to_stage: stage });
+    }
     void run(
       (token) => putTrip(trip.id, { stage }, token),
       (t) => withTripStage(t, stage),
     );
   };
   const changeVisibility = (visibility: Visibility) => {
+    if (isPostHogConfigured) {
+      posthog.capture("trip_visibility_changed", {
+        from_visibility: trip.visibility,
+        to_visibility: visibility,
+      });
+    }
     void run(
       (token) => putTrip(trip.id, { visibility }, token),
       (t) => withTripVisibility(t, visibility),

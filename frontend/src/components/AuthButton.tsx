@@ -1,6 +1,7 @@
 import { useAuth0 } from "@auth0/auth0-react";
 import { LogIn, LogOut } from "lucide-react";
 import { isAuthConfigured } from "../lib/auth";
+import { resetIdentity } from "../lib/posthog";
 import { Button } from "./ui";
 
 /**
@@ -71,9 +72,10 @@ function AuthButtonInner() {
       <Button
         variant="outline"
         size="sm"
-        onClick={() =>
-          logout({ logoutParams: { returnTo: window.location.origin } })
-        }
+        onClick={() => {
+          resetIdentity();
+          logout({ logoutParams: { returnTo: window.location.origin } });
+        }}
         className="bg-background/80"
         title={`Sign out (${name})`}
       >

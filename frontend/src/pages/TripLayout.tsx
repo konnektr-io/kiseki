@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, downloadBooklet, fetchJoinLink, clearTripCache, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
+import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -305,6 +306,11 @@ export function TripLayout() {
         }
       }
       await downloadBooklet(trip.id, at, `${trip.slug}-booklet.pdf`);
+      // #21 metric: booklet downloads per trip (an explicitly listed goal).
+      // Only on success — a failed render is not a download.
+      capture("booklet_downloaded", {
+        authenticated: isAuthenticated,
+      });
     } catch (e) {
       // A 401 on a trip that is ON SCREEN means the session died mid-visit
       // (private trip — the anonymous fallback above cannot succeed): send

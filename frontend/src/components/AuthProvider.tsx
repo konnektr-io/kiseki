@@ -2,9 +2,10 @@ import {
   Auth0Context,
   Auth0Provider,
   initialContext,
+  useAuth0,
 } from "@auth0/auth0-react";
 import type { Auth0ContextInterface, User } from "@auth0/auth0-react";
-import { createElement, type ReactNode } from "react";
+import { createElement, useEffect, useRef, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AUTH0_AUDIENCE,
@@ -13,9 +14,34 @@ import {
   isAuthConfigured,
   isE2EQuery,
 } from "../lib/auth";
+import { identifyUser, isPostHogConfigured, posthog } from "../lib/posthog";
 
 interface AuthProviderProps {
   children: ReactNode;
+}
+
+function PostHogIdentity({ children }: AuthProviderProps) {
+  const { isAuthenticated, user } = useAuth0();
+  const identifiedUserId = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Identity key is the Auth0 `sub` — never name/email (self-asserted claims
+    // are not credentials, same rule as the backend ACL). Name is attached as a
+    // person property for readability only.
+    const distinctId = user?.sub;
+    if (!isPostHogConfigured || !isAuthenticated || !distinctId) return;
+
+    // A different user on the same browser must not be merged into the previous
+    // one's profile — reset first, then identify.
+    if (identifiedUserId.current && identifiedUserId.current !== distinctId) {
+      posthog.reset();
+    }
+
+    identifyUser(distinctId, { name: user.name });
+    identifiedUserId.current = distinctId;
+  }, [isAuthenticated, user?.name, user?.sub]);
+
+  return <>{children}</>;
 }
 
 /**
@@ -67,7 +93,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return createElement(
       Auth0Context.Provider,
       { value: e2eContext },
-      children,
+      <PostHogIdentity>{children}</PostHogIdentity>,
     );
   }
 
@@ -96,7 +122,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cacheLocation="localstorage"
       onRedirectCallback={onRedirectCallback}
     >
-      {children}
+      <PostHogIdentity>{children}</PostHogIdentity>
     </Auth0Provider>
   );
 }
