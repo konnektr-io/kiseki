@@ -144,7 +144,7 @@ def test_delete_trip_edges_removed_before_twins(client, rsa_keypair, graph) -> N
     trip = _trip_of(g)
     r = _authz(client, "delete", f"/api/trips/{trip.id}", _token_of(rsa_keypair))
     assert r.status_code == 204, r.text[:300]
-    assert g.fetch_graph(trip.id) is None
+    assert g.fetch_graph(trip.id)["twins"] == []  # live-shaped Trip-less bundle (#171)
 
 
 # ------------------------------------------------------------------ roles
@@ -276,7 +276,7 @@ def test_delete_trip_agent_act_as_owner_allowed(
 
     r = _authz(client, "delete", f"/api/trips/{trip.id}", agent_token)
     assert r.status_code == 204, r.text[:300]
-    assert g.fetch_graph(trip.id) is None
+    assert g.fetch_graph(trip.id)["twins"] == []  # live-shaped Trip-less bundle (#171)
     # attribution rode the user's sub on the graph writes
     assert any(h.get("x-user-id") == SUB for h in g.write_headers)
     assert all(h.get("x-user-id") != f"{AGENT_CLIENT}@clients" for h in g.write_headers)
@@ -305,7 +305,7 @@ def test_delete_trip_agent_owner_fallback_unattended(
 
     r = _authz(client, "delete", f"/api/trips/{trip.id}", agent_token)
     assert r.status_code == 204, r.text[:300]
-    assert g.fetch_graph(trip.id) is None
+    assert g.fetch_graph(trip.id)["twins"] == []  # live-shaped Trip-less bundle (#171)
     # attribution rode the client sub; nothing was provisioned for it
     assert any(h.get("x-user-id") == agent_sub for h in g.write_headers)
     assert all(t.get("$dtId") != agent_sub for t in g.twins)

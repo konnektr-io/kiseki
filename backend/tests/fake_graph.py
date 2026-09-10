@@ -200,9 +200,18 @@ class FakeGraph:
         return True
 
     def fetch_graph(self, trip_dtid: str) -> dict | None:
+        """Mirror the LIVE graph's unknown-id shape (issue #171).
+
+        The real graph answers an unknown ``$dtId`` with a NON-EMPTY bundle
+        (``{"$dtId": …, "twins": [], "relationships": []}`` — Cypher
+        ``collect()`` over zero matches), NOT ``None``. Reproducing that here
+        is the point: the store/converter must treat a truthy Trip-less
+        bundle as "absent" (→ 404), and with the old ``return None`` the
+        tests never exercised that path (prod 500'd on it).
+        """
         t = self.twin(trip_dtid)
         if t is None or self.kind(trip_dtid) != "Trip":
-            return None
+            return {"$dtId": trip_dtid, "twins": [], "relationships": []}
         bundle = self._bundle()
         bundle["$dtId"] = trip_dtid
         return bundle

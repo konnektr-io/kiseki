@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .graph.convert import graph_to_trip
+from .graph.convert import GraphNotFound, graph_to_trip
 from .graph.client import PERSON_MODEL, USER_MODEL
 from .models import Trip
 from .store import get_graph_client
@@ -73,7 +73,10 @@ def trip_by_claim_token(claim_token: str) -> Trip | None:
     graph = client.fetch_graph(trip_dtid)
     if not graph:
         return None
-    return graph_to_trip(graph)
+    try:
+        return graph_to_trip(graph)
+    except GraphNotFound:  # deleted between the token lookup and the fetch (#171)
+        return None
 
 
 def claim_identity(
@@ -124,7 +127,10 @@ def claim_identity(
     rebuilt = client.fetch_graph(trip_dtid)
     if not rebuilt:
         raise ClaimError(503, "Trip could not be re-read after claim")
-    return graph_to_trip(rebuilt)
+    try:
+        return graph_to_trip(rebuilt)
+    except GraphNotFound as exc:  # vanished mid-claim (#171)
+        raise ClaimError(503, "Trip could not be re-read after claim") from exc
 
 
 def follow_via_claim(
@@ -150,10 +156,16 @@ def follow_via_claim(
         graph = client.fetch_graph(trip_dtid)
         if not graph:
             raise ClaimError(404, "Trip not found")
-        return graph_to_trip(graph)
+        try:
+            return graph_to_trip(graph)
+        except GraphNotFound:
+            raise ClaimError(404, "Trip not found")  # deleted mid-check (#171)
     if not client.follow_trip(trip_dtid, user_dtid, profile):
         raise ClaimError(503, "Could not follow trip")
     rebuilt = client.fetch_graph(trip_dtid)
     if not rebuilt:
         raise ClaimError(503, "Trip could not be re-read after follow")
-    return graph_to_trip(rebuilt)
+    try:
+        return graph_to_trip(rebuilt)
+    except GraphNotFound as exc:  # vanished mid-follow (#171)
+        raise ClaimError(503, "Trip could not be re-read after follow") from exc
