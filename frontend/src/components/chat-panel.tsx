@@ -5,6 +5,7 @@ import { Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { Markdown } from "../lib/markdown";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
   chatContextKey,
@@ -157,6 +158,7 @@ function ChatThread({
 
   const reconnect = async () => {
     if (!droppedTurn || busy) return;
+    if (isPostHogConfigured) posthog.capture("chat_reconnect_requested");
     await chat.regenerate();
   };
 
@@ -213,6 +215,13 @@ function ChatThread({
       }
     }
     const text = [draft.trim(), ...docLinks].filter(Boolean).join("\n\n");
+    if (isPostHogConfigured) {
+      posthog.capture("chat_message_sent", {
+        conversation_scope: tripId ? "trip" : "general",
+        has_text: Boolean(draft.trim()),
+        attachment_count: readyFiles.length,
+      });
+    }
     setDraft("");
     setAttachments([]);
     setUploadError(null);
@@ -246,6 +255,12 @@ function ChatThread({
                 : a,
             ),
           );
+          if (isPostHogConfigured) {
+            posthog.capture("chat_attachment_uploaded", {
+              conversation_scope: tripId ? "trip" : "general",
+              attachment_type: uploaded.isImage ? "image" : "document",
+            });
+          }
         } catch (e) {
           const message = e instanceof Error ? e.message : "Upload failed.";
           setAttachments((prev) =>
@@ -314,15 +329,6 @@ function ChatThread({
           ),
         )}
         {busy && <AgentActivity messages={messages} />}
-        {status === "submitted" && (
-          <div
-            role="status"
-            className="flex items-center gap-2 text-sm text-muted-foreground"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            Agent is thinking…
-          </div>
-        )}
       </div>
 
       {droppedTurn && (
@@ -524,11 +530,14 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
 
 /**
  * Live agent-activity feed (issue #151) — what the agent is doing RIGHT
- * NOW, while the turn runs. One row per `tool-kiseki-activity` part across
+ * NOW, while the turn runs. One row per `data-kiseki-activity` part across
  * the streamed assistant messages (friendly labels from the relay, never raw
  * tool names): the latest open call spins, finished calls show a check.
  * Falls back to the plain "thinking" row when no activity arrived yet —
  * a text-only turn (or a slow first byte) still shows something alive.
+ * This fallback is the ONLY thinking indicator (issue #157): it renders for
+ * the whole `busy` window, so no separate `submitted` row may ever render
+ * alongside it — that used to show "Agent is thinking" twice.
  */
 function AgentActivity({ messages }: { messages: UIMessage[] }) {
   const rows = messages.flatMap((message) => messageActivities(message));

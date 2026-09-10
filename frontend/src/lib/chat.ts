@@ -16,11 +16,14 @@ import type { UIMessage, UIMessageChunk } from "ai";
  * `{messages, threadId, tripId}` body, and a fetch wrapper maps 401/403 to
  * `ChatAuthError`. `useChat` still owns all message/state management.
  *
- * Agent tool calls (issue #151) arrive as activity chunks
- * (`tool-input-start` / `tool-input-available` / `tool-output-available`,
- * toolName `kiseki-activity`) — one activity row per call, rendered by the
- * panel from the assistant message's tool parts. The relay maps real tool
- * names to friendly labels server-side; raw names never reach the UI.
+ * Agent tool calls (issue #151) arrive as activity rows — one per
+ * `data-kiseki-activity` data part (issue #157: the relay used to emit
+ * synthetic tool-lifecycle chunks, but the AI SDK's tool state machine never
+ * settled undeclared-tool parts into the shape the reader expected, so
+ * nothing rendered). Data parts need no declared tool, trigger no client
+ * execution and no resubmit; the panel reads them from message parts via
+ * `messageActivities`. The relay maps real tool names to friendly labels
+ * server-side; raw names never reach the UI.
  */
 
 const THREADS_KEY = "kiseki.chat.threads.v1";
@@ -309,46 +312,32 @@ export function messageToText(message: UIMessage): string {
 
 /**
  * Agent activity rows for one assistant message (issue #151) — one entry
- * per `tool-kiseki-activity` part the relay emitted, in message order.
+ * per `data-kiseki-activity` data part the relay emitted, in message order.
  * `label` is the relay's friendly text ("Searching the web…"); `done` flips
- * when the call's output lands. Messages without tool parts yield [].
+ * when the call's output lands. Messages without activity parts yield [].
  */
 export interface ChatActivity {
   label: string;
   done: boolean;
 }
 
+/** The relay's activity data-part type (issue #157) — a `data-*` custom
+ *  part, NOT a tool part: no client execution, no resubmit, no declared
+ *  tool needed. The SDK stores the chunk verbatim as a message part and
+ *  updates `.data` in place on the completing chunk (same part `id`). */
+export const ACTIVITY_PART = "data-kiseki-activity";
+
 export function messageActivities(message: UIMessage): ChatActivity[] {
   const rows: ChatActivity[] = [];
   for (const part of message.parts) {
-    if (
-      typeof part.type !== "string" ||
-      !part.type.startsWith("tool-") ||
-      !("toolCallId" in part)
-    ) {
-      continue;
-    }
-    const tool = part as {
-      type: string;
-      toolCallId?: unknown;
-      toolName?: unknown;
-      input?: unknown;
-      state?: unknown;
-    };
-    if (tool.toolName !== "kiseki-activity") continue;
-    if (typeof tool.toolCallId !== "string" || !tool.toolCallId) continue;
-    if (tool.type === "tool-kiseki-activity") {
-      const input = tool.input as { label?: unknown } | undefined;
-      const label =
-        typeof input?.label === "string" && input.label
-          ? input.label
-          : "Working…";
-      const state = typeof tool.state === "string" ? tool.state : "";
-      rows.push({
-        label,
-        done: state === "output-available" || state === "output-error",
-      });
-    }
+    if (part.type !== ACTIVITY_PART) continue;
+    const data = (part as { data?: unknown }).data;
+    if (typeof data !== "object" || data === null) continue;
+    const { label, done } = data as { label?: unknown; done?: unknown };
+    rows.push({
+      label: typeof label === "string" && label ? label : "Working…",
+      done: done === true,
+    });
   }
   return rows;
 }

@@ -62,6 +62,11 @@ all live behind their own nested endpoints. Build a trip in this order:
 6. POST /api/trips/<trip_id>/blocks              `order` is server-managed
    (container: {"type": "day"|"section", "id": …}) — never send it
 
+Botched a half-create? DELETE /api/trips/<trip_id> (owner-only) removes the
+trip and everything scoped to it — `delete /api/trips/<id>`; expect 204,
+then a 404 on the second call. Never leave a stray empty trip behind
+(issue #163).
+
 Bodies with quotes/apostrophes: write the JSON to a file and pass --file
 (inline shell quoting of apostrophes is the classic failure).
 

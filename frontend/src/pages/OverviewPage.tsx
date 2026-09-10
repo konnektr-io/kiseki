@@ -271,7 +271,7 @@ export function OverviewPage() {
       )}
 
       {/* practical preview */}
-      {(totalTodos > 0 || trip.practical.links?.length) && (
+      {(totalTodos > 0 || (trip.practical.links?.length ?? 0) > 0) && (
         <Card className="p-5">
           <div className="flex items-center justify-between">
             <p className="kicker">Practical</p>

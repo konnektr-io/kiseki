@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, Outlet, useLocation, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
-import { fetchTrip, downloadBooklet, fetchJoinLink, TripAccessError } from "../lib/api";
+import { fetchTrip, downloadBooklet, fetchJoinLink, clearTripCache, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
+import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -82,6 +83,7 @@ const PDF_RENDER = typeof window !== "undefined" && window.__KISEKI_PDF_RENDER__
 export function TripLayout() {
   const { tripId = "" } = useParams();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
@@ -304,6 +306,11 @@ export function TripLayout() {
         }
       }
       await downloadBooklet(trip.id, at, `${trip.slug}-booklet.pdf`);
+      // #21 metric: booklet downloads per trip (an explicitly listed goal).
+      // Only on success — a failed render is not a download.
+      capture("booklet_downloaded", {
+        authenticated: isAuthenticated,
+      });
     } catch (e) {
       // A 401 on a trip that is ON SCREEN means the session died mid-visit
       // (private trip — the anonymous fallback above cannot succeed): send
@@ -381,12 +388,22 @@ export function TripLayout() {
             )}
             {/* One overflow menu holds every trip action (PDF for everyone,
                 join link for the owner, stage + sharing for editor+/owner) so
-                the header stays a single row. */}
+                the header stays a single row. `onDeleted` is the terminal
+                exit (#163): the trip is gone — clear the session cache the
+                layout fetched into and navigate back to the landing. */}
             <TripActionsMenu
               pdfBusy={pdfBusy}
               onDownloadPdf={handleDownloadPdf}
               joinCopied={joinCopied}
               onCopyJoinLink={isOwner ? copyJoinLink : undefined}
+              onDeleted={
+                isOwner
+                  ? () => {
+                      clearTripCache();
+                      navigate("/");
+                    }
+                  : undefined
+              }
             />
           </div>
           {/* Desktop nav */}

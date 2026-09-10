@@ -454,10 +454,11 @@ def test_wire_translation_of_failed_stream() -> None:
 
 
 def test_wire_translation_skips_tool_events() -> None:
+    """Non-function_call output items still emit nothing (lifecycle only)."""
     body = _responses_sse([
         ("response.output_item.added", json.dumps({
             "type": "response.output_item.added",
-            "item": {"type": "function_call", "name": "edit_block"},
+            "item": {"type": "message", "id": "msg_1"},
         })),
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "answer"})),
         ("response.completed", json.dumps({"type": "response.completed"})),
@@ -467,6 +468,67 @@ def test_wire_translation_skips_tool_events() -> None:
         {"type": "text-start", "id": "t1"},
         {"type": "text-delta", "id": "t1", "delta": "answer"},
         {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
+
+
+def test_wire_translation_function_call_opens_and_closes_activity_row() -> None:
+    """A function_call item emits ONE activity part on added (open, spinning)
+    and the completing part on done (same id, done=true) — issue #157.
+
+    The wire is `data-*` custom parts, NOT tool-lifecycle chunks: nothing is
+    executed client-side, so tool semantics only fought the SDK state
+    machine (undeclared-tool parts never rendered, and the turn showed a
+    doubled thinking row instead of the activity). The part id is stable
+    across open/close so the SDK updates the SAME part in place.
+    """
+    lines = _responses_sse([
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": "web_search",
+            },
+        })),
+        ("response.output_item.done", json.dumps({
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": "web_search",
+            },
+        })),
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "name": "totally_unknown_tool",
+            },
+        })),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ]).splitlines()
+    chunks = list(chat_module.iter_wire_frames(lines, part_id="t1"))
+    assert chunks == [
+        # open: friendly label from the map, done=false (spins)
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-1",
+            "data": {"label": "Searching the web…", "done": False},
+        },
+        # close: SAME part id, done flips — the row completes in place
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-1",
+            "data": {"label": "Searching the web…", "done": True},
+        },
+        # unknown tool → generic label, raw name never leaks
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-2",
+            "data": {"label": "Working…", "done": False},
+        },
         {"type": "finish", "finishReason": "stop"},
     ]
 
@@ -577,6 +639,127 @@ def test_wire_translator_stream_cut_mid_turn_still_terminates() -> None:
         },
     ]
     assert _finish_count(chunks) == 1
+
+
+# ------------------------------------------------ credential silence (#158)
+
+
+def test_identity_instructions_carry_credential_silence_rule() -> None:
+    """The identity envelope keeps the act-as sub for write calls but
+    explicitly forbids narrating credential mechanics (issue #158)."""
+    text = chat_module.identity_instructions(OTHER_SUB, TRIP)
+    assert OTHER_SUB in text  # the actor-sub line stays (act-as writes need it)
+    assert "tokens, M2M, minting, act-as, credentials" in text
+    assert "act on their behalf" in text
+    # the same rule on the unanchored (no-trip) envelope
+    assert (
+        "tokens, M2M, minting, act-as, credentials"
+        in chat_module.identity_instructions(OTHER_SUB, None)
+    )
+
+
+def test_scrub_jwt_redacts_complete_tokens() -> None:
+    jwt = (
+        "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+        "dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    )
+    assert chat_module.scrub_jwt(f"here {jwt} now") == "here [redacted] now"
+    # normal prose is untouched
+    assert chat_module.scrub_jwt("no credentials here") == "no credentials here"
+    # a bare "eyJ" word (no JWT shape) is not redacted
+    assert chat_module.scrub_jwt("the eyJ note") == "the eyJ note"
+
+
+def test_wire_translator_redacts_token_split_across_deltas() -> None:
+    """A token SPLIT across deltas must never stream in fragments: the
+    dangling partial JWT is held back, joined with the next delta, then
+    redacted as one (issue #158)."""
+    lines = _responses_sse([
+        ("response.output_text.delta", json.dumps({
+            "type": "response.output_text.delta", "delta": "using eyJhbGciOi",
+        })),
+        ("response.output_text.delta", json.dumps({
+            "type": "response.output_text.delta",
+            "delta": "JIUzI1NiJ9.eyJzdWIiOiIxIn0.sig-value-01",
+        })),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    chunks = list(chat_module.iter_wire_frames(lines.splitlines(), part_id="t1"))
+    deltas = [c["delta"] for c in chunks if c["type"] == "text-delta"]
+    joined = "".join(deltas)
+    assert "eyJ" not in joined
+    assert "[redacted]" in joined
+    assert joined.startswith("using ")  # surrounding prose streams intact
+
+
+def test_wire_translator_holds_back_dangling_header_then_streams_prose() -> None:
+    """A delta ending in a dangling eyJ-run holds ONLY that tail back; the
+    next delta resolves it as natural text — nothing ever streams before
+    the join, so no fragment of a would-be token can leak."""
+    lines = _responses_sse([
+        ("response.output_text.delta", json.dumps({
+            "type": "response.output_text.delta", "delta": "I saw eyJ",
+        })),
+        ("response.output_text.delta", json.dumps({
+            "type": "response.output_text.delta", "delta": " in the logs",
+        })),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    chunks = list(chat_module.iter_wire_frames(lines.splitlines(), part_id="t1"))
+    deltas = [c["delta"] for c in chunks if c["type"] == "text-delta"]
+    assert deltas[0] == "I saw "  # the eyJ tail was held back, not streamed
+    assert "".join(deltas) == "I saw eyJ in the logs"
+
+
+def test_wire_translator_cut_stream_redacts_held_token_fragment() -> None:
+    """Cut stream with a held-back fragment: the fragment is redacted, not
+    flushed — the stream may have been cut mid-token (issue #158)."""
+    lines = _responses_sse([
+        ("response.output_text.delta", json.dumps({
+            "type": "response.output_text.delta", "delta": "token: eyJhbGciOi",
+        })),
+    ])
+    t = chat_module.WireTranslator(part_id="t1")
+    chunks: list[dict] = []
+    for line in lines.splitlines():
+        chunks.extend(t.feed(line))
+    chunks.extend(t.finish())
+    deltas = [c["delta"] for c in chunks if c["type"] == "text-delta"]
+    assert deltas == ["token: ", "[redacted]"]
+    assert chunks[-1]["messageMetadata"] == {"interrupted": True}
+
+
+def test_chat_stream_never_carries_eyJ(client, rsa_keypair, monkeypatch) -> None:
+    """End-to-end: no ``eyJ…`` token material can stream through the relay
+    to the UI (issue #158 acceptance — fake JWT in a text delta)."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    fake_jwt = (
+        "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0cmlwLWFnaWVudCJ9.AAAA-bbbb_cccc_dddd"
+    )
+    _fake_upstream(
+        monkeypatch,
+        _responses_sse([
+            ("response.output_text.delta", json.dumps({
+                "type": "response.output_text.delta",
+                "delta": f"working {fake_jwt} on it",
+            })),
+            ("response.completed", json.dumps({"type": "response.completed"})),
+        ]),
+    )
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert "eyJ" not in resp.text
+    assert "[redacted]" in resp.text
 
 
 # ------------------------------------------------------------------ /api/files

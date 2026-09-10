@@ -6,6 +6,7 @@ import {
   findTripIds,
   loadThreadId,
   loadTranscript,
+  messageActivities,
   messageInterrupted,
   messageToText,
   saveTranscript,
@@ -151,6 +152,67 @@ describe("messageInterrupted (issue #152: cut vs clean terminal)", () => {
         parts: [{ type: "text", text: "hi" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("messageActivities (issue #157: activity data parts)", () => {
+  function activityPart(
+    id: string,
+    data: { label: string; done: boolean },
+  ): UIMessage["parts"][number] {
+    return { type: "data-kiseki-activity", id, data } as unknown as UIMessage["parts"][number];
+  }
+
+  it("reads activity rows from data-kiseki-activity parts", () => {
+    const rows = messageActivities({
+      id: "a1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "One moment…" },
+        activityPart("c1", { label: "Searching the web…", done: true }),
+        activityPart("c2", { label: "Running a command…", done: false }),
+      ],
+    });
+    expect(rows).toEqual([
+      { label: "Searching the web…", done: true },
+      { label: "Running a command…", done: false },
+    ]);
+  });
+
+  it("yields [] for tool parts and unknown data parts (never trusts them)", () => {
+    // The old wire (tool-kiseki-activity tool parts) must NOT be picked up:
+    // the SDK only settles declared-tool parts, so a stale tool part would
+    // have shown a row the data wire no longer sends.
+    const rows = messageActivities({
+      id: "a1",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-kiseki-activity",
+          toolCallId: "c1",
+          toolName: "kiseki-activity",
+          state: "input-available",
+          input: { label: "Searching the web…" },
+        },
+        { type: "data-trip-update", id: "d1", data: { anything: true } },
+      ],
+    } as unknown as UIMessage);
+    expect(rows).toEqual([]);
+  });
+
+  it("falls back to the generic label and skips parts without data", () => {
+    // Empty label → the generic fallback; a recognized part with NO data
+    // object at all is malformed (the relay never sends one) → no row.
+    expect(
+      messageActivities({
+        id: "a1",
+        role: "assistant",
+        parts: [
+          activityPart("c1", { label: "", done: false }),
+          { type: "data-kiseki-activity", id: "c2" },
+        ],
+      } as unknown as UIMessage),
+    ).toEqual([{ label: "Working…", done: false }]);
   });
 });
 

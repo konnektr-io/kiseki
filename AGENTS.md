@@ -61,6 +61,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 |---|---|---|
 | POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill via the nested endpoints below — canonical order in `api_write.py --help` |
 | PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates; `visibility` owner-only |
+| DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
 | PUT | `/api/trips/{trip_id}/practical` | whole practical object |
@@ -276,6 +277,104 @@ writeup; in short:
 - **Terrain (#38)**: `lib/terrain.ts` adds a shared `raster-dem` source (Mapterhorn, terrarium, keyless), an `igor` hillshade and runtime contours (`maplibre-contour`, minzoom 10) BELOW the basemap's roads and labels — found by layer *type*, not id, so a style swap (#40) does not break the ordering. `DEM_MAXZOOM = 12` is deliberate: global GLO-30 coverage stops there (Sahara/Outback/Andes 404 at z13; BC reaches z15), so capping upscales instead of leaving holes. 3D terrain attaches lazily on `pitchstart` (invisible at pitch 0, so the flat view pays nothing) behind `TERRAIN_3D`; the compass reveals itself only when the map is off north or tilted, and resets both. #40 wires the per-trip switch. Failures are swallowed: no hillshade beats no route.
 - **WebGL2 is mandatory** in MapLibre v6 (no WebGL1 fallback) — `MapView` shows a styled placeholder when WebGL2 is absent or the style/tiles fail (`data-map-failed="true"` so the PDF waiter can resolve). Never an empty grey box.
 - Routing credentials live in the `kiseki-here` k8s secret (`HERE_ACCESS_KEY_ID` / `HERE_ACCESS_KEY_SECRET` / `HERE_TOKEN_ENDPOINT_URL`; see `app/here.py`) for Routing v8. Absent → routes simply don't render (straight dashed lines; no crash). OAuth2 bearer tokens are minted server-side (`app/here.py` — RFC 5849 client_credentials) and cached for their ~24 h validity.
+
+## Analytics (PostHog — issue #21)
+
+Self-hosted-on-home-k8s was the original preference, but Niko chose **PostHog Cloud
+(EU)** for now: an org already exists, the free tier covers a project this small, and
+EU cloud satisfies the spec §8 data-residency posture. Umami remains the lighter
+self-hosted option if the ≥90 KB gzipped SDK ever becomes a problem (see the bundle
+numbers below).
+
+**Trip URLs carry secrets, so analytics is non-standard here.** `/t/<id>` is what a
+public trip is readable by, and `/join/<claimToken>` grants a crew identity. Every
+analytics SDK records page URLs by default — a naive install would export each trip's
+access capability to a third party, into dashboards and exports. The rules, all
+enforced in `frontend/src/lib/`:
+
+- **Paths are rewritten before an event leaves the browser** — `/t/<id>` → `/t/:token`,
+  `/join/<x>` → `/join/:token`, query string and fragment dropped. This happens in the
+  SDK's `before_send` hook (`lib/analytics-privacy.ts`, wired in `lib/posthog.ts`),
+  client-side and pre-request — deliberately NOT a PostHog-UI display filter, which
+  filters after ingestion, when the secret is already stored.
+- **The scrubber walks EVERY string in `properties`, `$set` and `$set_once`** — it does
+  not trust a key list. A rendered-browser probe caught the raw trip id and claim token
+  surviving in `$pathname` and in the `$initial_current_url` / `$initial_pathname` /
+  `$initial_referrer` values posthog-js keeps in `$set_once`, while `$current_url` looked
+  perfectly clean. A guard on `$current_url` alone would have shipped the leak; unknown
+  future SDK properties are now covered by construction. `normalizeSecretPath` also
+  preserves the input's SHAPE (a bare path stays a bare path) because `$pathname` is a
+  path to PostHog and an absolute URL there would corrupt its breakdown.
+- **`$referrer` gets the same treatment**: a referral from a trip page otherwise carries
+  the secret to the next origin's analytics.
+- **Per-trip metrics key on the trip `$dtId`** (a property, `trip_id`), never on the URL.
+- **Session replay and heatmaps are globally OFF.** Replay records the URL bar and the
+  DOM — private travel plans, crew names, booking codes. A global switch cannot be
+  defeated by a routing mistake in the way a per-route gate can.
+- **Autocapture is OFF** (it ships element text/attributes, i.e. trip *content*). Only
+  navigation events and a small set of explicit product events are sent.
+- **Consent-gated cookies, `cookieless_mode: "on_reject"` (Niko, post-v0.25.0).** Analytics is
+  **consent-gated**: `components/CookieConsent.tsx` (ported from graph-explorer's
+  `cookie-consent.tsx`) asks before the SDK ever initializes — a declined or undecided
+  visitor produces ZERO requests (the probe asserts it), and a stored "granted" choice is
+  restored on load without re-showing. Once accepted, PostHog runs in its **normal
+  cookie-backed mode**: `on_reject` is the documented pairing for a banner (no
+  local/session storage and no events until the visitor decides, full mode after opt-in),
+  and `initAnalytics` calls `opt_in_capturing()` because `on_reject` starts the client in
+  the pending/cookieless state. Declining never initializes the SDK at all, so no
+  cookieless fallback events are sent either. The banner's copy says what actually ships —
+  accepting sets one first-party cookie — and the strictly-necessary choice cookie
+  (`kiseki_consent`, 1y, SameSite=Lax; deliberately NOT graph-explorer's shared
+  `cookieConsent` name) is written either way. PDF-render and e2e-probe contexts never see
+  the banner and never consent (booklet stays pixel-stable; the probe's zero-event
+  assertion stays true).
+- **`cookieless_mode: "always"` is a trap here — do not go back to it.** "Always" is the
+  mode for sites that deliberately have NO banner: identity becomes a server-side
+  daily-salted hash, which is only storable when the project enables *Cookieless server
+  hash mode*. Ours does not, so PostHog answers every event with `{"status":"Ok"}` and
+  then **discards it**. v0.25.0 shipped exactly that way and collected nothing for a whole
+  release while every visible signal was green (HTTP 200, requests delivered, unit tests
+  passing). `frontend/src/lib/posthog.test.ts` now pins the mode and the
+  `opt_in_capturing()` handshake so neither can be undone silently.
+- The automated guard is `frontend/src/lib/analytics-privacy.test.ts`, which asserts a
+  raw token cannot survive into an outbound payload.
+
+Pageviews are sent by `components/AnalyticsPageviews.tsx` (the SDK's built-in
+`capture_pageview` is disabled so every URL goes through the scrubber). The project
+token is a public ingest key baked into `lib/posthog.ts` as a default (same posture as
+the Auth0 domain/client id), overridable with `VITE_POSTHOG_*`. Analytics is a no-op
+when the token is empty, so local dev and forks ship nothing.
+
+**Verifying a change here needs the rendered-browser probe, not just unit tests** —
+`frontend/scripts/probe-analytics-privacy.py` (run `pnpm build` first) drives real trip
+and join pages, decodes the gzip bodies the SDK actually POSTs, and fails if a secret
+survives in any location field or if no events are delivered at all. Two traps it
+encodes, both of which cost real time to find: (a) posthog-js **drops events from
+detected bots**, and its matcher treats Playwright's Chromium as one (it substring-matches
+"headlesschrome" against `navigator.userAgentData.brands` and flags
+`navigator.webdriver`), so a plain headless probe reports "nothing sent" for every config
+— the script spoofs a normal Chrome identity first; (b) the SDK flushes `$pageview` on
+pagehide via `sendBeacon`, for which Playwright's `post_data` is empty — the bodies must
+be read over CDP, and they are raw gzip.
+
+**PostHog project settings (checked over the MCP, 2026-09-10):** `cookieless_server_hash_mode`
+stays `0` — it is only required when the SDK sends *cookieless* events. With `on_reject`
+plus the consent gate that never happens: undecided and declined visitors never initialize
+the SDK at all, and accepted visitors are in cookie mode. Enabling it is not a fix for the
+mode being wrong — it would make an `"always"` configuration merely *look* healthy while
+reducing every visitor to a daily-resetting hash identity. The PostHog MCP server is wired
+into Hermes (`mcp_posthog_*` tools) for exactly this kind of check — and for the check that
+would have caught the v0.25.0 defect: query `events` to confirm they are **stored**, not
+merely accepted. A 200 from `/e/` proves nothing.
+
+**Bundle impact** (measured, `pnpm build`, gzipped, main app chunk): 306.4 kB before →
+**403.0 kB with PostHog** (+96.6 kB). The `posthog-js` slim entry point would land at
+357.7 kB (+51.3 kB) and is deliberately not used: it is experimental, needs a deep
+`posthog-js/dist/module.slim` import, and silently drops error tracking (the
+ErrorBoundary in `main.tsx` calls `captureException`) unless undocumented extension
+bundles are attached. #21's ≤5 kB budget cannot be met by any PostHog variant; if the
+trip-page weight matters more than the feature set, lazy-loading the SDK (dynamic
+import after first paint) or moving to self-hosted Umami are the levers.
 
 ## Conventions / rules
 

@@ -56,6 +56,8 @@ def test_docstring_documents_canonical_fill_order_and_quoting_rule() -> None:
     assert "POST /api/trips/<trip_id>/blocks" in text
     # The --file quoting rule (the apostrophe fight the agent hit).
     assert "--file" in text
+    # The botched-half-create exit (#163 DELETE /api/trips/{id}).
+    assert "DELETE /api/trips/<trip_id>" in text
 
 
 def test_docstring_documents_inbox_and_promote() -> None:

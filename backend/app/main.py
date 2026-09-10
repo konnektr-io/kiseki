@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 
 from .acl import (
     authorize_trip_path,
+    require_trip_owner,
     require_trip_role,
     require_user_token,
     resolve_actor_sub,
@@ -414,6 +415,24 @@ def put_trip(
 ) -> dict:
     trip = _write(write_svc.update_trip, trip_dtid=trip_id.lower(), actor=actor, patch=body)
     return _public_trip(trip, my_role=actor["role"])
+
+
+@app.delete("/api/trips/{trip_id}", status_code=204)
+def delete_trip_route(
+    trip_id: str,
+    actor: dict = Depends(require_trip_owner),
+) -> Response:
+    """Delete a trip and everything scoped to it (issue #163) — owner-only.
+
+    The terminal affordance for a botched half-create: the trip twin, its
+    days/sections/blocks/features and its crew edges all go (edges-first —
+    the graph does not cascade deletes), claimed User twins survive as global
+    identities. Answers 204 with no body — there is no trip document left to
+    return; a second delete is a 404 (the ACL gate checks existence first),
+    which is the caller's cleanup-loop termination condition.
+    """
+    _write(write_svc.delete_trip, trip_dtid=trip_id.lower(), actor=actor)
+    return Response(status_code=204)
 
 
 @app.put("/api/trips/{trip_id}/practical")
