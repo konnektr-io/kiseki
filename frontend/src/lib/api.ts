@@ -198,6 +198,21 @@ export async function putTrip(
   return doc;
 }
 
+/** Owner-only: delete the whole trip (#163). The endpoint answers 204 with
+ *  NO body — there is no canonical document left to return — so this is a
+ *  plain fetch, not `tripWrite`. On success the session cache drops every
+ *  copy of the trip (both keys, both credential modes): a back-navigation
+ *  must never resurrect a deleted document from memory. */
+export async function deleteTrip(tripId: string, accessToken: string): Promise<void> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  tripCache.delete(`${tripId}|anon`);
+  tripCache.delete(`${tripId}|auth`);
+}
+
 export async function toggleTodoItem(
   tripId: string,
   index: number,
