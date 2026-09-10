@@ -7,6 +7,15 @@ workarounds (direct graph SDK PATCHes, reseeds, kubectl cp). Every command
 prints the API response — for writes that is the canonical trip document
 (media URLs canonicalized, claimToken absent).
 
+**Workspace copies drift — repo wins (issue #160).** This script ships
+verbatim into agent workspaces (content workspace `scripts/`, profile skill
+`kiseki-trip-content/scripts/`). The repo copy is the single source of
+truth: after ANY change here, re-copy to BOTH workspaces (one-way) and
+`cmp`-verify — a stale workspace copy silently hides new verbs (the content
+agent lacked `create-trip` for a full release for exactly this reason). The
+wrapper's "Install:" note and the content skill's "Deploying scripts"
+section carry the same rule.
+
     export KISEKI_TOKEN=<access token>              # 1. USER token (dedicated/UI profile):
                                                     #    ACL + x-user-id follow its sub.
                                                     # 2. M2M client token on the home profile:
@@ -28,7 +37,33 @@ prints the API response — for writes that is the canonical trip document
     python scripts/api_write.py delete /api/trips/<trip_id>/blocks/<block_id>
     python scripts/api_write.py put /api/trips/<trip_id>/practical --file body.json
 
+    # Inbox (M4): stage a file with POST /api/files (multipart, no tripId)
+    # → /inbox/<sha256[:32]><ext>; promote it into a trip once it exists:
+    #   python scripts/api_write.py post /api/files/promote --file promote.json
+    #   # promote.json: {"trip_id": "<trip_id>", "file_name": "<hash>.jpg"}
+    #   (or pipe it: echo '{"trip_id": "...", "file_name": "..."}' |
+    #    python scripts/api_write.py post /api/files/promote --file -)
+
 Endpoint reference: AGENTS.md → "Content update".
+
+Canonical trip fill order — the agent's recipe (issue #160). TripPatch is
+scalars-only (`extra=forbid`): PUT /api/trips/<id> takes title/subtitle/
+summary/stage/startDate/endDate/timezone/theme/cover/coverCredit/map/
+visibility and NOTHING else — locations, sections, stats, days and blocks
+all live behind their own nested endpoints. Build a trip in this order:
+
+1. create-trip --title "…" [--subtitle "…"]      POST /api/trips (201)
+2. PUT /api/trips/<trip_id>                      scalars via --json/--file
+3. PUT /api/trips/<trip_id>/locations            full-array replace
+   (or PATCH …/locations for named upserts)
+4. POST /api/trips/<trip_id>/sections            (+ PUT …/sections/<id>
+   to set/move the day range; inclusive [first, last], no overlap)
+5. POST /api/trips/<trip_id>/days                insert/append days
+6. POST /api/trips/<trip_id>/blocks              `order` is server-managed
+   (container: {"type": "day"|"section", "id": …}) — never send it
+
+Bodies with quotes/apostrophes: write the JSON to a file and pass --file
+(inline shell quoting of apostrophes is the classic failure).
 
 **Identity model (#46)**: the agent has NO identity in the graph — no User
 twin, no hasCrew edge is ever provisioned. Three modes:
