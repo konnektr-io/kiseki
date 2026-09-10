@@ -87,7 +87,33 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
-<path> [--json '…'|--file -]`.
+<path> [--json '…'|--file -]` — plus the verb set `fill`, `upload`, `promote`,
+`photo`, `resolve-places`, `create-trip`.
+
+**Media fields store a BARE filename** (`cover`, `map`, block `images` / gallery
+`items`, feature `image`/`images`/`cards[].image`) — the API canonicalizes it to
+`/media/<trip_id>/<file>` on read. A stored `http(s)://` value is a hotlink: it
+404s when the source moves (a traveler reported exactly that) and cannot be
+embedded in the booklet, so the write path now **rejects it with a 422** (#187).
+`Location.photo` keeps its documented external-URL option (#95).
+
+**Venue resolution is a tooling step, not a prose rule (#187).**
+`GET /api/places/search?q=<venue name>` resolves a name to `placeId` +
+coordinates (server-side key, short-TTL cache, `{"available": false}` on a miss —
+same contract as the other `/api/places/*` proxies; only `placeId` is durable per
+the #15 storage table). `scripts/api_write.py resolve-places <trip_id>` walks a
+trip: registry locations without a `placeId` are resolved and patched, and every
+activity/lodging/meal/booking block gets its `googlePlaceId` from its `mapsQuery`
+or from the registry entry its `location` points at. `fill` runs that pass
+automatically and reports `blocks_without_venue` — the blocks whose Maps pill
+would otherwise fall back to `maps/search?api=1&query=<city>`.
+
+**Getting a picture in**: `scripts/api_write.py photo "<what the picture shows>"
+--trip-id <id>` searches Wikimedia Commons, keeps only reusable licences (CC0 /
+public domain / CC BY / CC BY-SA — NC and ND are skipped), downloads, uploads into
+the trip and prints the bare filename plus the credit/licence to record. That is
+the media pipeline the booklet needs, and the reason the 422 gate above is a gate
+rather than a warning.
 
 **Bulk fill — the default for building a trip** (one validated plan, one run;
 ~11 calls instead of ~100, and the whole 422 class is checked before the first

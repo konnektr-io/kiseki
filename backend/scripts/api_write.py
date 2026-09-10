@@ -97,10 +97,36 @@ inbox file into the trip and prints the same pair. Never write an external URL
 into a media field: a hotlink renders as a broken cover in the app and cannot
 be embedded in the PDF booklet.
 
-Also: never write an external URL into a media field. Source a rights-clean
-image, stage it with POST /api/files (multipart → /inbox/<sha>), promote it
-with POST /api/files/promote, and store the resulting BARE filename (the
-`/media/<trip_id>/<file>` route and the PDF booklet expect that shape).
+Fetching one instead of uploading your own — rights-clean, sourced + credited in
+one command (Wikimedia Commons):
+
+    python scripts/api_write.py photo "Shibuya Crossing Tokyo" --trip-id <trip_id>
+    python scripts/api_write.py photo "Raohe Street Night Market" --trip-id <trip_id> --index 1
+
+It searches Commons, keeps only reusable images (CC0 / public domain / CC BY /
+CC BY-SA — NC and ND are skipped), downloads the best match, uploads it into the
+trip, and prints `field_value` (the bare filename) plus the credit and licence to
+record. `--index N` takes a different candidate when the first is not the right
+subject; `--file <path>` uploads your own image instead. The write path REFUSES
+an external URL in a media field with a 422, so a hotlink cannot be stored at all.
+
+Uploading your own bytes instead of sourcing them: `upload <file> --trip-id <id>`
+posts multipart to POST /api/files straight into the trip; omit `--trip-id` to
+stage into the inbox, then move it in with `promote <name> --trip-id <id>`
+(POST /api/files/promote).
+
+Venues — exact places, not city anchors (issue #187):
+
+    python scripts/api_write.py resolve-places <trip_id>
+
+Resolves every registry location without a `placeId` (name → place_id + real
+lat/lng + address) and gives every activity/lodging/meal/booking block its
+`googlePlaceId` — from the block's `mapsQuery` (the precise venue query), or from
+the registry entry its `location` points at. `fill` runs this pass automatically
+(`--no-resolve` skips it) and its summary reports `blocks_without_venue`: those
+blocks name no place, so their Maps link falls back to
+`maps/search?api=1&query=<city>`. Give each one a `mapsQuery` with the actual
+venue, or point `location` at a venue-level registry entry.
 
 Botched a half-create? DELETE /api/trips/<trip_id> (owner-only) removes the
 trip and everything scoped to it — `delete /api/trips/<id>`; expect 204,
@@ -132,10 +158,14 @@ import io
 import json
 import mimetypes
 import os
+import re
 import sys
+import tempfile
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
+from typing import Any
 
 BASE_URL = os.environ.get("KISEKI_BASE_URL", "https://kiseki.konnektr.io")
 TIMEOUT = 30
@@ -260,6 +290,42 @@ def _location_keys(existing: dict | None, plan: dict) -> set[str]:
     return keys
 
 
+#: Plan keys whose values are media (bare filenames), mirrored from the model.
+_PLAN_MEDIA_KEYS = ("cover", "map", "image", "images", "items")
+
+
+def _plan_media_url_errors(plan: dict) -> list[str]:
+    """Client-side mirror of the write path's media gate (#187).
+
+    The server refuses a stored ``http(s)://`` in a media field with a 422; this
+    catches it in ``--dry-run`` instead, before any call, and names the field.
+    ``Location.photo`` is deliberately not scanned (an external URL is a
+    documented value there, #95).
+    """
+    errors: list[str] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in _PLAN_MEDIA_KEYS:
+                    values = value if isinstance(value, (list, tuple)) else [value]
+                    for item in values:
+                        if isinstance(item, str) and item.strip().lower().startswith(("http://", "https://")):
+                            errors.append(
+                                f"{path}.{key} is a web URL ({item.strip()[:60]!r}) — media fields "
+                                "store a bare filename; run `photo \"<query>\" --trip-id <id>` "
+                                "(or `upload`) and use the name it returns"
+                            )
+                else:
+                    walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+
+    walk(plan, "plan")
+    return errors
+
+
 def validate_plan(plan: dict, existing: dict | None = None) -> tuple[list[str], list[str]]:
     """Check a fill plan client-side. Returns ``(errors, warnings)``.
 
@@ -273,6 +339,8 @@ def validate_plan(plan: dict, existing: dict | None = None) -> tuple[list[str], 
     unknown = set(plan) - PLAN_KEYS
     if unknown:
         errors.append(f"unknown plan keys {sorted(unknown)} — allowed: {sorted(PLAN_KEYS)}")
+
+    errors.extend(_plan_media_url_errors(plan))
 
     scalars = plan.get("scalars") or {}
     if not isinstance(scalars, dict):
@@ -650,6 +718,331 @@ def _server_base(trip_id: str, base: str, token: str) -> dict:
     return doc
 
 
+# ------------------------------------------------- venue resolution (#187)
+
+#: Block kinds that name a real-world venue and therefore want a Maps key.
+_VENUE_KINDS = {"activity", "lodging", "meal", "booking"}
+
+
+def _resolve_query(query: str, base: str, token: str) -> dict | None:
+    """``GET /api/places/search?q=`` — venue name → place_id + coordinates.
+
+    The server holds the Google key and caches the lookup; a miss (no key, no
+    match, Google error) answers ``{"available": false}`` and comes back here as
+    ``None`` so callers treat every kind of miss identically.
+    """
+    text = str(query or "").strip()
+    if not text:
+        return None
+    status, body = _request(
+        "get", base, f"/api/places/search?q={urllib.parse.quote(text)}", token, None
+    )
+    if status != 200 or not isinstance(body, dict) or not body.get("available"):
+        return None
+    return body if body.get("placeId") else None
+
+
+def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
+    """Fill in every venue key a trip is missing (#187).
+
+    Two passes, both mechanical — the point is that exact locations stop being a
+    thing the agent has to remember to do:
+
+    1. **Registry locations without a ``placeId``** are resolved by name and
+       patched (``placeId`` + real ``lat``/``lng`` + address). A city entry
+       resolves to the city, a venue entry to the venue.
+    2. **Venue blocks without a ``googlePlaceId``** get one: from their
+       ``mapsQuery`` (the precise venue query) if they carry it, else copied
+       from the registry entry their ``location`` points at once that entry has
+       a ``placeId``. Without this the Maps pill falls back to
+       ``maps/search?api=1&query=<city>`` — the generic link in the report.
+
+    Anything still without a venue is reported in ``blocks_without_venue`` /
+    ``locations_unresolved``: that is content the plan has to supply, and it is
+    the honest signal that the itinerary is anchored to cities, not places.
+    """
+    trip = _server_base(trip_id, base, token)
+    report: dict = {
+        "locations_resolved": [],
+        "locations_unresolved": [],
+        "blocks_resolved": 0,
+        "blocks_unresolved": [],
+        "blocks_without_venue": [],
+    }
+
+    upserts: list[dict] = []
+    for loc in trip.get("locations") or []:
+        name = str(loc.get("name") or "").strip()
+        if not name or loc.get("placeId"):
+            continue
+        hit = _resolve_query(name, base, token)
+        if not hit:
+            report["locations_unresolved"].append(name)
+            continue
+        entry: dict = {"name": name, "placeId": hit["placeId"]}
+        if hit.get("lat") is not None:
+            entry["lat"] = hit["lat"]
+            entry["lng"] = hit["lng"]
+        if hit.get("address"):
+            entry["address"] = hit["address"]
+        upserts.append(entry)
+        report["locations_resolved"].append(
+            {"name": name, "placeId": hit["placeId"], "matched": hit.get("name")}
+        )
+
+    if upserts:
+        status, payload = _request(
+            "patch", base, f"/api/trips/{trip_id}/locations", token, {"locations": upserts}
+        )
+        if not 200 <= status < 300:
+            detail = json.dumps(payload, ensure_ascii=False)[:300] if not isinstance(payload, str) else payload[:300]
+            print(f"HTTP {status} patching locations: {detail}", file=sys.stderr)
+            report["locations_unresolved"] += [u["name"] for u in upserts]
+            report["locations_resolved"] = []
+        trip = _server_base(trip_id, base, token)
+
+    # registry name/alias → placeId, for the block pass
+    known: dict[str, str] = {}
+    for loc in trip.get("locations") or []:
+        if not loc.get("placeId"):
+            continue
+        for key in [loc.get("name")] + list(loc.get("alias") or []):
+            if key:
+                known[str(key).strip().lower()] = loc["placeId"]
+
+    for container in (trip.get("days") or []) + (trip.get("sections") or []):
+        for block in container.get("blocks") or []:
+            if block.get("kind") not in _VENUE_KINDS or block.get("googlePlaceId"):
+                continue
+            label = {
+                "day": container.get("date") or container.get("id"),
+                "title": block.get("title"),
+            }
+            query = str(block.get("mapsQuery") or "").strip()
+            place_id = None
+            matched = None
+            if query:
+                hit = _resolve_query(query, base, token)
+                if hit:
+                    place_id, matched = hit["placeId"], hit.get("name")
+            if not place_id:
+                from_registry = known.get(str(block.get("location") or "").strip().lower())
+                if from_registry:
+                    place_id, matched = from_registry, block.get("location")
+            if not place_id:
+                report["blocks_without_venue" if not query else "blocks_unresolved"].append(label)
+                continue
+            status, payload = _request(
+                "put", base, f"/api/trips/{trip_id}/blocks/{block.get('id')}", token,
+                {"googlePlaceId": place_id},
+            )
+            if 200 <= status < 300:
+                report["blocks_resolved"] += 1
+            else:
+                detail = json.dumps(payload, ensure_ascii=False)[:200] if not isinstance(payload, str) else payload[:200]
+                print(f"  block {label['title']!r}: HTTP {status} {detail}", file=sys.stderr)
+                report["blocks_unresolved"].append(label)
+
+    return report
+
+
+def resolve_places_verb(args) -> int:
+    """``resolve-places <trip_id>`` — fill in missing place_ids / venue keys."""
+    base = args.base
+    token = args.token or os.environ.get("KISEKI_TOKEN")
+    if token is None:
+        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    if not args.path:
+        raise SystemExit("error: resolve-places needs a trip id: resolve-places <trip_id>")
+    report = resolve_trip_places(args.path, base, token)
+    print(json.dumps(report, indent=2, ensure_ascii=False))
+    if report["blocks_without_venue"]:
+        print(
+            f"warning: {len(report['blocks_without_venue'])} block(s) still name no venue — "
+            "give each one a venue-level `location` from the registry or a `mapsQuery` with the "
+            "actual place, or its Maps link falls back to the city",
+            file=sys.stderr,
+        )
+    if report["locations_unresolved"]:
+        print(
+            f"warning: could not resolve {report['locations_unresolved']} — check the name "
+            "(or that GOOGLE_MAPS_API_KEY is set on the server)",
+            file=sys.stderr,
+        )
+    return 0
+
+
+# ------------------------------------------------------------------ photo (#187)
+
+#: Wikimedia Commons search — no API key, and every file carries its licence.
+_COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+_COMMONS_UA = "kiseki-content-agent/1.0 (https://kiseki.konnektr.io; trip media sourcing)"
+_IMAGE_MIMES = ("image/jpeg", "image/png")
+_TAG_RE = re.compile(r"<[^>]+>")
+#: Licences we may reuse. Anything mentioning NC (non-commercial) or ND (no
+#: derivatives) is skipped rather than judged.
+_BAD_LICENSE_RE = re.compile(r"\b(nc|nd)\b", re.IGNORECASE)
+
+
+def _strip_html(value: str) -> str:
+    return re.sub(r"\s+", " ", _TAG_RE.sub("", value or "")).strip()
+
+
+def _commons_candidates(query: str, limit: int = 12) -> list[dict]:
+    """Rights-clean image candidates for a query, best-first (Commons order)."""
+    params = {
+        "action": "query",
+        "format": "json",
+        "generator": "search",
+        "gsrsearch": query,
+        "gsrnamespace": "6",
+        "gsrlimit": str(limit),
+        "prop": "imageinfo",
+        "iiprop": "url|mime|size|extmetadata",
+        "iiurlwidth": "1600",
+    }
+    url = _COMMONS_API + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": _COMMONS_UA})
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:
+        print(f"error: Commons search failed: {exc}", file=sys.stderr)
+        return []
+
+    out: list[dict] = []
+    pages = ((data.get("query") or {}).get("pages") or {}).values()
+    for page in pages:
+        info = (page.get("imageinfo") or [{}])[0]
+        meta = info.get("extmetadata") or {}
+        if info.get("mime") not in _IMAGE_MIMES:
+            continue
+        if (info.get("width") or 0) < 800:
+            continue
+        license_name = _strip_html((meta.get("LicenseShortName") or {}).get("value", ""))
+        if not license_name or _BAD_LICENSE_RE.search(license_name):
+            continue
+        title = str(page.get("title") or "").replace("File:", "")
+        source_url = "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
+            str(page.get("title") or "")
+        )
+        out.append(
+            {
+                "title": title,
+                "url": info.get("thumburl") or info.get("url"),
+                "mime": info.get("mime"),
+                "width": info.get("width"),
+                "height": info.get("height"),
+                "license": license_name,
+                "licenseUrl": _strip_html((meta.get("LicenseUrl") or {}).get("value", "")),
+                "artist": _strip_html((meta.get("Artist") or {}).get("value", ""))
+                or _strip_html((meta.get("Credit") or {}).get("value", "")),
+                "sourceUrl": source_url,
+                "descriptionUrl": source_url,
+            }
+        )
+    return out
+
+
+def fetch_photo(args) -> int:
+    """``photo <query|--file path> --trip-id <id>`` — rights-clean image → Garage.
+
+    One command replaces "guess an image URL": search Wikimedia Commons, take a
+    licence-clean candidate, download it, upload it into the trip's media
+    namespace, and print the BARE FILENAME to write plus the credit/licence
+    fields. That is the media pipeline the booklet needs — a hotlinked URL is
+    refused by the write API (#187).
+    """
+    base = args.base
+    token = args.token or os.environ.get("KISEKI_TOKEN")
+    if token is None:
+        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    if not args.trip_id:
+        raise SystemExit(
+            "error: photo needs --trip-id <trip_id> (media belongs to a trip; "
+            "uploading without one stages into the inbox)"
+        )
+
+    candidate: dict = {}
+    local = args.file
+    tmp_path = None
+    if local:
+        if not os.path.isfile(local):
+            raise SystemExit(f"error: no such file: {local}")
+        candidate = {
+            "title": os.path.basename(local),
+            "license": args.license or "",
+            "artist": args.credit or "",
+            "sourceUrl": args.source_url or "",
+        }
+    else:
+        query = str(args.path or "").strip()
+        if not query:
+            raise SystemExit('error: photo needs a search query: photo "<what the picture shows>" --trip-id <id>')
+        candidates = _commons_candidates(query)
+        if not candidates:
+            print(
+                "no rights-clean Commons image found for that query — try different words "
+                "(the place name usually beats a description), or pass --file with your own image",
+                file=sys.stderr,
+            )
+            return 1
+        index = int(args.index or 0)
+        if index >= len(candidates):
+            print(f"error: --index {index} out of range ({len(candidates)} candidates)", file=sys.stderr)
+            return 1
+        candidate = candidates[index]
+        try:
+            req = urllib.request.Request(candidate["url"], headers={"User-Agent": _COMMONS_UA})
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                raw = resp.read()
+        except Exception as exc:
+            print(f"error: download failed: {exc}", file=sys.stderr)
+            return 1
+        suffix = ".png" if candidate["mime"] == "image/png" else ".jpg"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="kiseki-photo-")
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+        local = tmp_path
+
+    try:
+        payload, content_type = _multipart({"trip_id": args.trip_id}, "file", local)
+        status, body = _request("post", base, "/api/files", token, None, raw=(payload, content_type))
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if not 200 <= status < 300:
+        detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+        print(f"HTTP {status}: {str(detail)[:300]}", file=sys.stderr)
+        return 1
+    url = (body or {}).get("url", "")
+    name = _bare_name(url)
+    print(
+        json.dumps(
+            {
+                "field_value": name,
+                "url": url,
+                "title": candidate.get("title"),
+                "license": candidate.get("license"),
+                "credit": (args.credit or candidate.get("artist") or None),
+                "sourceUrl": (args.source_url or candidate.get("sourceUrl") or None),
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    print(
+        "write `field_value` into the media field (cover/image/images/photo) and the credit + "
+        "licence into its credit/licence fields — never the URL",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def fill_trip(args) -> int:
     """`fill` — one validated plan, one ordered run, one summary."""
     base = args.base
@@ -757,6 +1150,22 @@ def fill_trip(args) -> int:
             print(f"stopped at block {idx}/{len(block_calls)}", file=sys.stderr)
             return 1
 
+    # Venue resolution (#187) — automatic, so an itinerary cannot ship anchored
+    # to cities with generic Maps links. A resolution miss must never fail the
+    # fill itself (the trip content is already written at this point).
+    resolution: dict = {
+        "locations_resolved": [],
+        "locations_unresolved": [],
+        "blocks_resolved": 0,
+        "blocks_unresolved": [],
+        "blocks_without_venue": [],
+    }
+    if not getattr(args, "no_resolve", False):
+        try:
+            resolution = resolve_trip_places(args.path, base, token)
+        except Exception as exc:  # noqa: BLE001 — best effort, never fatal
+            print(f"warning: venue resolution skipped ({exc})", file=sys.stderr)
+
     final = _server_base(args.path, base, token)
     days = final.get("days") or []
     empty = [d.get("date") for d in days if not (d.get("blocks") or [])]
@@ -771,11 +1180,30 @@ def fill_trip(args) -> int:
         "blocks": sum(len(d.get("blocks") or []) for d in days),
         "days_without_blocks": empty,
         "blocks_updated_in_place": matched,
+        "venue_locations_resolved": len(resolution["locations_resolved"]),
+        "venue_locations_unresolved": resolution["locations_unresolved"],
+        "blocks_pinned_to_a_venue": resolution["blocks_resolved"],
+        "blocks_without_venue": [
+            f"{b.get('day')}: {b.get('title')}" for b in resolution["blocks_without_venue"]
+        ],
     }
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     if empty:
         print(
             f"warning: {len(empty)} day(s) still have no blocks: {', '.join(empty)}",
+            file=sys.stderr,
+        )
+    if resolution["blocks_without_venue"]:
+        print(
+            f"warning: {len(resolution['blocks_without_venue'])} block(s) name no venue — give each "
+            "one a `mapsQuery` with the actual place (or point `location` at a venue-level registry "
+            "entry), otherwise its Maps link stays city-level",
+            file=sys.stderr,
+        )
+    if resolution["locations_unresolved"]:
+        print(
+            f"warning: could not resolve {resolution['locations_unresolved']} — check the spelling, "
+            "or that the server holds a Google Places key",
             file=sys.stderr,
         )
     return 0
@@ -786,7 +1214,7 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("method",
                     choices=["get", "put", "post", "patch", "delete", "create-trip", "fill",
-                             "upload", "promote"])
+                             "upload", "promote", "photo", "resolve-places"])
     ap.add_argument("path", nargs="?", default=None,
                     help="API path, e.g. /api/trips/<trip_id>/blocks (omit for create-trip)")
     ap.add_argument("--json", help="JSON body inline")
@@ -798,12 +1226,24 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="fill only: validate + print the calls, write nothing")
     ap.add_argument("--trip-id",
-                    help="upload/promote: the trip the file belongs to (upload without it "
+                    help="upload/promote/photo: the trip the file belongs to (upload without it "
                          "stages into the inbox, then `promote` moves it)")
+    ap.add_argument("--index", type=int, default=0,
+                    help="photo: which Commons candidate to take (0 = best match)")
+    ap.add_argument("--credit", help="photo: credit line to record (default: the Commons artist)")
+    ap.add_argument("--license", help="photo: licence to record (with --file uploads)")
+    ap.add_argument("--source-url", dest="source_url",
+                    help="photo: source page URL to record (default: the Commons file page)")
+    ap.add_argument("--no-resolve", dest="no_resolve", action="store_true",
+                    help="fill: skip the automatic venue-resolution pass")
     args = ap.parse_args()
 
     if args.method == "fill":
         return fill_trip(args)
+    if args.method == "photo":
+        return fetch_photo(args)
+    if args.method == "resolve-places":
+        return resolve_places_verb(args)
     if args.method == "upload":
         return upload_file(args)
     if args.method == "promote":

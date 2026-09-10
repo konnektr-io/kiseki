@@ -73,7 +73,7 @@ from .write import (
 )
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
-from .places import place_details, photo_by_name as place_photo_bytes
+from .places import place_details, search_place, photo_by_name as place_photo_bytes
 from .graph.convert import GraphNotFound
 from .media import (
     content_addressed_key,
@@ -979,6 +979,26 @@ def places_details_endpoint(request: Request, place_id: str) -> dict:
     # both are the same quiet {"available": false} to the caller.
     details = place_details(place_id)
     return details if details else {"available": False}
+
+
+@app.get("/api/places/search")
+def places_search_endpoint(request: Request, q: str = Query(..., min_length=2)) -> dict:
+    """Resolve a venue NAME to its ``place_id`` + exact coordinates (#187).
+
+    The content agent's resolution step: it knows the venue ("Shinjuku Gyoen",
+    "Hotel Gracery Shinjuku") and needs the durable key + real coordinates,
+    instead of anchoring an activity to the city and shipping a generic
+    ``maps/search?api=1&query=Tokyo`` link.
+
+    Same contract as the sibling proxies: the Google key stays server-side, a
+    short-TTL in-process cache absorbs repeat lookups, and an unconfigured key /
+    Google failure / no match all answer ``{"available": false}`` with HTTP 200
+    so a caller can treat every miss the same way. Nothing Google-derived is
+    persisted here — the documented storable field is ``placeId`` (#15/#95).
+    """
+    _rate_limit(request, "places-search", 60)
+    found = search_place(q)
+    return found if found else {"available": False}
 
 
 @app.get("/api/places/photo")
