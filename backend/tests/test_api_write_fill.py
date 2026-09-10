@@ -9,9 +9,12 @@ testable without a server: `validate_plan` and `plan_calls` are pure.
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
+import json
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "api_write.py"
@@ -323,3 +326,196 @@ def test_fill_requires_a_trip_id():
     )
     assert out.returncode != 0
     assert "trip id" in out.stderr
+
+
+# ------------------------------------------------- media + venues (#187)
+
+def _media_errors(plan: dict) -> list[str]:
+    errors, _ = aw.validate_plan(plan, EXISTING)
+    return [e for e in errors if "web URL" in e]
+
+
+def test_plan_media_urls_are_rejected_client_side():
+    """A hotlinked media value fails the plan (and therefore `--dry-run`)
+    instead of reaching the server, which refuses it with a 422 (#187)."""
+    plan = _valid_plan()
+    plan["scalars"]["cover"] = "https://images.unsplash.com/photo-1503899036084?w=1280&q=80"
+    plan["days"][0]["blocks"][0]["images"] = ["https://x.test/i.jpg"]
+
+    errors = _media_errors(plan)
+    assert any("plan.scalars.cover is a web URL" in e for e in errors)
+    assert any(".images is a web URL" in e for e in errors)
+    # the guidance names the verb that produces a usable value
+    assert any("photo" in e for e in errors)
+
+
+def test_plan_media_fields_accept_bare_filenames():
+    plan = _valid_plan()
+    plan["scalars"]["cover"] = "c383ce57deadbeef1234abcd.jpg"
+    plan["days"][0]["blocks"][0]["images"] = ["0f1e2d3c4b5a69788796a5b4.jpg"]
+    assert _media_errors(plan) == []
+
+
+def test_plan_links_are_never_gated_as_media():
+    """`links` carry real URLs — only the media fields are filenames."""
+    plan = _valid_plan()
+    plan["days"][0]["blocks"][0]["links"] = [{"label": "site", "url": "https://example.com/x"}]
+    assert _media_errors(plan) == []
+
+
+def test_plan_location_photo_url_is_not_gated():
+    """`photo` is a documented external-URL field (#95) — the walker must leave
+    it alone while still guarding the booklet media fields."""
+    plan = _valid_plan()
+    plan["locations"][0]["photo"] = "https://upload.wikimedia.org/x.jpg"
+    assert _media_errors(plan) == []
+
+
+def test_commons_candidates_keep_only_reusable_images(monkeypatch):
+    """Licence + kind + size gate on the Commons search: NC/ND, non-images and
+    thumbnails are skipped, and the artist HTML is flattened for the credit."""
+    payload = {
+        "query": {
+            "pages": {
+                "1": {"title": "File:Good.jpg", "imageinfo": [{
+                    "mime": "image/jpeg", "width": 1600, "height": 900,
+                    "thumburl": "https://upload/x.jpg",
+                    "extmetadata": {
+                        "LicenseShortName": {"value": "CC BY-SA 4.0"},
+                        "Artist": {"value": "<a href='#'>Someone</a>"},
+                    }}]},
+                "2": {"title": "File:NonCommercial.jpg", "imageinfo": [{
+                    "mime": "image/jpeg", "width": 1600, "height": 900,
+                    "url": "https://upload/nc.jpg",
+                    "extmetadata": {"LicenseShortName": {"value": "CC BY-NC 4.0"}}}]},
+                "3": {"title": "File:Doc.pdf", "imageinfo": [{
+                    "mime": "application/pdf", "width": 1600, "height": 900,
+                    "url": "https://upload/p.pdf",
+                    "extmetadata": {"LicenseShortName": {"value": "CC0"}}}]},
+                "4": {"title": "File:Tiny.jpg", "imageinfo": [{
+                    "mime": "image/jpeg", "width": 320, "height": 240,
+                    "url": "https://upload/s.jpg",
+                    "extmetadata": {"LicenseShortName": {"value": "Public domain"}}}]},
+            }
+        }
+    }
+
+    class _Resp:
+        def read(self):
+            return json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(aw.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    out = aw._commons_candidates("shinjuku gyoen")
+    assert [c["title"] for c in out] == ["Good.jpg"]
+    assert out[0]["artist"] == "Someone"
+    assert out[0]["license"] == "CC BY-SA 4.0"
+    assert out[0]["sourceUrl"].startswith("https://commons.wikimedia.org/wiki/")
+
+
+def test_photo_upload_with_a_local_file_prints_a_bare_name(monkeypatch, tmp_path, capsys):
+    img = tmp_path / "mine.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0jpegbytes")
+    seen = {}
+
+    def fake_request(method, base, path, token, body=None, raw=None):
+        assert path == "/api/files", path
+        seen["raw"] = raw
+        return 200, {"url": f"/media/{TRIP_ID}/abc123def456.jpg"}
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    args = argparse.Namespace(
+        base="http://x", token="t", trip_id=TRIP_ID, file=str(img), path=None,
+        index=0, license="CC0", credit="Someone", source_url="https://src/x",
+    )
+    assert aw.fetch_photo(args) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["field_value"] == "abc123def456.jpg"  # bare name, never the URL
+    assert payload["credit"] == "Someone" and payload["license"] == "CC0"
+    assert seen["raw"][1].startswith("multipart/form-data")
+
+
+def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
+    """The resolution pass is what kills the generic city links: registry names
+    get their place_id + coordinates, blocks copy or resolve a venue key, and
+    anything without a venue is REPORTED rather than silently left generic."""
+    trip = {
+        "id": TRIP_ID,
+        "title": "Urban Legends",
+        "locations": [{"name": "Tokyo"}, {"name": "Shinjuku Gyoen"}],
+        "days": [{
+            "id": "day-1",
+            "date": "2027-09-20",
+            "blocks": [
+                {"id": "blk-1", "kind": "activity", "title": "Garden stroll",
+                 "mapsQuery": "Shinjuku Gyoen National Garden"},
+                {"id": "blk-2", "kind": "activity", "title": "Ramen", "location": "Tokyo"},
+                {"id": "blk-3", "kind": "note", "title": "a note"},
+                {"id": "blk-4", "kind": "activity", "title": "Mystery bar"},
+            ],
+        }],
+        "sections": [],
+    }
+    state = {"patched": [], "blocks": []}
+
+    def fake_request(method, base, path, token, body=None, raw=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            q = urllib.parse.unquote(path.split("q=", 1)[1])
+            return 200, {"available": True, "placeId": f"ChIJ-{q}", "lat": 35.0, "lng": 139.0,
+                         "name": q, "address": f"{q}, Japan"}
+        if method == "patch" and path.endswith("/locations"):
+            state["patched"].append(body)
+            for entry in body["locations"]:
+                for loc in trip["locations"]:
+                    if loc["name"] == entry["name"]:
+                        loc.update(entry)
+            return 200, trip
+        if method == "put" and "/blocks/" in path:
+            state["blocks"].append((path, body))
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda trip_id, base, token: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert {entry["name"] for entry in report["locations_resolved"]} == {"Tokyo", "Shinjuku Gyoen"}
+    assert state["patched"][0]["locations"][0]["placeId"] == "ChIJ-Tokyo"
+    # blk-1 from its mapsQuery, blk-2 from the registry entry it points at
+    assert report["blocks_resolved"] == 2
+    assert {path.rsplit("/", 1)[-1] for path, _ in state["blocks"]} == {"blk-1", "blk-2"}
+    assert all(body["googlePlaceId"] for _, body in state["blocks"])
+    # blk-4 names no venue at all — reported, not silently skipped
+    assert [b["title"] for b in report["blocks_without_venue"]] == ["Mystery bar"]
+    # a note block is not a venue and is never flagged
+    assert "a note" not in [b["title"] for b in report["blocks_without_venue"]]
+
+
+def test_resolve_places_verb_needs_a_trip_id():
+    out = subprocess.run(
+        [sys.executable, str(SCRIPT), "--base", "http://127.0.0.1:9", "resolve-places"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={"KISEKI_TOKEN": "test-dummy-token", "PATH": "/usr/bin:/bin"},
+    )
+    assert out.returncode != 0
+    assert "trip id" in out.stderr
+
+
+def test_photo_verb_needs_a_trip_id():
+    out = subprocess.run(
+        [sys.executable, str(SCRIPT), "--base", "http://127.0.0.1:9", "photo", "tokyo"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={"KISEKI_TOKEN": "test-dummy-token", "PATH": "/usr/bin:/bin"},
+    )
+    assert out.returncode != 0
+    assert "--trip-id" in out.stderr

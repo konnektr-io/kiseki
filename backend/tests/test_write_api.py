@@ -255,6 +255,69 @@ def test_scalar_put_retires_the_owners_trip_list_cache(client, rsa_keypair, grap
     assert ("list_trips_for_user", ("google-oauth2|someone-else",), ()) in client_mod._GRAPH_CACHE
 
 
+@pytest.mark.parametrize("method,path_suffix,body,needle", [
+    ("put", "", {"cover": "https://images.unsplash.com/photo-1?w=800"}, "cover"),
+    ("put", "", {"map": "http://x.test/map.png"}, "map"),
+    ("put", "/days/DAY", {"map": "https://x.test/m.png"}, "map"),
+    ("post", "/blocks", {"kind": "activity", "title": "x",
+                         "container": {"type": "day", "id": "DAY"},
+                         "images": ["https://x.test/i.jpg"]}, "images"),
+    ("put", "/blocks/BLK", {"images": ["https://x.test/i.jpg"]}, "images"),
+    ("post", "/blocks", {"kind": "gallery", "title": "g",
+                         "container": {"type": "day", "id": "DAY"},
+                         "items": ["https://x.test/i.jpg"]}, "items"),
+    ("put", "/features", {"features": [{"title": "Card", "image": "https://x.test/i.jpg"}]}, "image"),
+    ("patch", "/features", {"features": [{"title": "Card", "images": ["https://x.test/i.jpg"]}]}, "images"),
+])
+def test_media_fields_reject_web_urls(client, rsa_keypair, graph, method, path_suffix, body, needle) -> None:
+    """A media field stores a BARE filename — a stored web URL is a hotlink that
+    404s in the app (traveler report, 2026-09-10) and cannot be embedded in the
+    booklet. The write path refuses it instead of persisting it (#187)."""
+    import json as _json
+
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}{path_suffix}".replace(
+        "/DAY", f"/{trip.days[0].id}"
+    ).replace("/BLK", f"/{trip.days[0].blocks[0].id}")
+    body = _json.loads(_json.dumps(body).replace('"DAY"', f'"{trip.days[0].id}"'))
+
+    r = _authz(client, method, url, token, json=body)
+    assert r.status_code == 422, r.text
+    detail = r.json()["detail"]
+    assert "bare media filename" in detail
+    assert needle in detail
+
+
+def test_media_fields_accept_bare_filenames(client, rsa_keypair, graph) -> None:
+    """Positive control: the same writes land when the value is a bare name."""
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+
+    ok = _authz(client, "put", f"/api/trips/{trip.id}/blocks/{trip.days[0].blocks[0].id}",
+                token, json={"images": ["c383ce57deadbeef1234abcd.jpg"]})
+    assert ok.status_code == 200, ok.text
+    ok = _authz(client, "put", f"/api/trips/{trip.id}", token,
+                json={"cover": "0f1e2d3c4b5a69788796a5b4.jpg"})
+    assert ok.status_code == 200, ok.text
+
+
+def test_location_photo_keeps_its_external_url_option(client, rsa_keypair, graph) -> None:
+    """#95 documents `photo` as a bare name OR an external image URL — the media
+    gate must not close that door (only the booklet-media fields are gated)."""
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+
+    r = _authz(client, "put", f"/api/trips/{trip.id}/locations", token,
+               json={"locations": [{"name": "Sensō-ji",
+                                    "photo": "https://upload.wikimedia.org/x.jpg",
+                                    "photoCredit": "Wikimedia"}]})
+    assert r.status_code == 200, r.text
+
+
 def test_visibility_owner_only(client, rsa_keypair, graph) -> None:
     g = graph(role="editor")
     trip = _trip_of(g)

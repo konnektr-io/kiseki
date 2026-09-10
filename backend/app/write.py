@@ -457,6 +457,52 @@ def _validate_iso_date(value: Optional[str], what: str) -> None:
         raise WriteError(422, f"{what} must be ISO YYYY-MM-DD, got {value!r}") from exc
 
 
+#: A media field value that is a web URL rather than a bare media filename.
+_EXTERNAL_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def _reject_media_urls(**fields: Any) -> None:
+    """Media fields carry BARE filenames — 422 on a stored web URL (#187).
+
+    The read path canonicalizes a bare name to ``/media/<trip_id>/<file>``, so a
+    stored ``https://…`` is a hotlink and always a mistake: it 404s when the
+    source moves or blocks hotlinking (the broken image a traveler reported), it
+    cannot be embedded in the booklet, and it skips the Garage pipeline the
+    content agent is supposed to use. Lists are checked item-wise and non-string
+    items (gallery/todo objects) are ignored, so one helper guards every media
+    field. ``Location.photo`` is deliberately exempt — it documents an external
+    image URL as an accepted value (#95).
+    """
+    for name, value in fields.items():
+        values = value if isinstance(value, (list, tuple)) else [value]
+        for item in values:
+            if isinstance(item, str) and _EXTERNAL_URL_RE.match(item.strip()):
+                raise WriteError(
+                    422,
+                    f"{name} stores a bare media filename, not a URL "
+                    f"({item.strip()[:60]!r}) — upload the file first "
+                    "(POST /api/files with tripId) and write the name it "
+                    "returns; a web link cannot be embedded in the booklet",
+                )
+
+
+def _reject_feature_media(features: Any) -> None:
+    """Feature cards carry media fields too — guard image / images / cards[].image."""
+    for feature in features or []:
+        tag = getattr(feature, "title", "") or "?"
+        nested = {
+            f"features[{tag}].cards[{i}].image": card.image
+            for i, card in enumerate(getattr(feature, "cards", None) or [])
+        }
+        _reject_media_urls(
+            **{
+                f"features[{tag}].image": getattr(feature, "image", None),
+                f"features[{tag}].images": getattr(feature, "images", None),
+            },
+            **nested,
+        )
+
+
 def _validate_stage(current: str, new: str, role: str) -> None:
     if new == current:
         return
@@ -778,6 +824,7 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     is safe to call from anywhere: visibility + stage transitions per the
     approved rules; ``claimToken`` is not in the payload model at all.
     """
+    _reject_media_urls(cover=patch.cover, map=patch.map)
     client = _client()
     graph = _fetch(client, trip_dtid)
     trip_twin = _trip_twin(graph, trip_dtid)
@@ -916,6 +963,7 @@ def add_todo(trip_dtid: str, actor: dict, body: TodoAdd) -> Trip:
 
 # ---------------------------------------------------------------- days
 def update_day(trip_dtid: str, actor: dict, day_id: str, patch: DayPatch) -> Trip:
+    _reject_media_urls(map=patch.map)
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -1599,6 +1647,7 @@ def _container_twin(graph: dict, ref: ContainerRef, trip_dtid: str) -> dict:
 
 
 def create_block(trip_dtid: str, actor: dict, payload: BlockCreate) -> Trip:
+    _reject_media_urls(images=payload.images, items=payload.items)
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -1656,6 +1705,7 @@ def create_block(trip_dtid: str, actor: dict, payload: BlockCreate) -> Trip:
 
 
 def update_block(trip_dtid: str, actor: dict, block_id: str, payload: BlockFields) -> Trip:
+    _reject_media_urls(images=payload.images, items=payload.items)
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -2222,6 +2272,7 @@ def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
     titles = [e.title for e in entries]
     if len(titles) != len(set(titles)):
         raise WriteError(422, "Feature titles must be unique")
+    _reject_feature_media(entries)
 
     features = _feature_features(graph)
     old_edges = _has_feature_edges(graph, trip_dtid)
@@ -2325,6 +2376,7 @@ def patch_features(trip_dtid: str, actor: dict, body: FeaturesPatch) -> Trip:
     titles = [e.title for e in entries]
     if len(titles) != len(set(titles)):
         raise WriteError(409, "Feature titles must be unique")
+    _reject_feature_media(entries)
     given_ids = [e.id for e in entries if e.id is not None]
     if len(given_ids) != len(set(given_ids)):
         raise WriteError(409, "Feature ids must be unique")

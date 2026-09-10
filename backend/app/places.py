@@ -33,10 +33,12 @@ from .config import GOOGLE_MAPS_API_KEY, GOOGLE_PLACES_URL
 # N places load at once) without re-hitting Google per mount.
 _DETAILS_TTL = 300.0  # 5 min — rating + review snippets + photo metadata
 _PHOTO_TTL = 900.0  # 15 min — proxied photo bytes (issue #95 decision)
+_SEARCH_TTL = 86400.0  # 24 h — venue name → place_id is effectively static
 _MAX_REVIEW_SNIPPETS = 3
 
 _details_cache: dict[str, tuple[float, dict]] = {}
 _photo_cache: dict[str, tuple[float, bytes, str]] = {}
+_search_cache: dict[str, tuple[float, dict]] = {}
 
 
 def places_configured() -> bool:
@@ -45,19 +47,25 @@ def places_configured() -> bool:
 
 
 def clear_caches() -> None:
-    """Test isolation — drop both caches."""
+    """Test isolation — drop every cache."""
     _details_cache.clear()
     _photo_cache.clear()
+    _search_cache.clear()
 
 
 def _request(url: str, *, method: str = "GET", field_mask: str | None = None, body: bytes | None = None) -> tuple[int, bytes]:
-    """One Google API call. Returns (status, body). Never raises on HTTP errors."""
+    """One Google API call. Returns (status, body). Never raises on HTTP errors.
+
+    ``Content-Type`` must be set BEFORE the ``Request`` is built: urllib
+    snapshots the header mapping, so adding it afterwards (harmless while every
+    call was a GET) sends a POST body Google rejects as untyped.
+    """
     headers = {"X-Goog-Api-Key": GOOGLE_MAPS_API_KEY}
     if field_mask:
         headers["X-Goog-FieldMask"] = field_mask
-    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     if body:
         headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status, resp.read()
@@ -159,6 +167,72 @@ def place_details(place_id: str) -> dict | None:
     if len(_details_cache) > 512:
         _details_cache.clear()
     _details_cache[place_id] = (now + _DETAILS_TTL, out)
+    return out
+
+
+def search_place(query: str) -> dict | None:
+    """Resolve a venue's TEXT query to its ``place_id`` + exact coordinates.
+
+    The resolution step the content agent needs (issue #187): a venue name in,
+    the durable key out. Previously nothing did this — the agent either
+    hand-rolled a Places script (which died with the turn budget) or wrote
+    city-level locations, which is how a trip ends up with a generic
+    ``maps/search?api=1&query=Tokyo`` link on every activity.
+
+    Places API (New) ``places:searchText``. Compliance (#15/#95): this function
+    returns Google content but persists nothing — the caller stores only
+    ``placeId`` (indefinite) plus lat/lng (≤30 d) and its own editorial text.
+    Ratings/reviews/photos are never stored.
+
+    Returns ``None`` when the key is absent, the query is blank, Google fails,
+    or nothing matched; callers treat all of those as "not resolvable".
+    """
+    text = (query or "").strip()
+    if not places_configured() or not text:
+        return None
+    cache_key = text.lower()
+    hit = _search_cache.get(cache_key)
+    now = time.monotonic()
+    if hit and hit[0] > now:
+        return hit[1]
+
+    body = json.dumps({"textQuery": text, "maxResultCount": 1}).encode("utf-8")
+    status, raw = _request(
+        f"{GOOGLE_PLACES_URL}/places:searchText",
+        method="POST",
+        field_mask=(
+            "places.id,places.displayName,places.formattedAddress,"
+            "places.location,places.googleMapsUri,places.primaryType"
+        ),
+        body=body,
+    )
+    if status != 200:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    found = data.get("places") or []
+    if not found:
+        return None
+    first = found[0]
+    location = first.get("location") or {}
+    out = {
+        "available": True,
+        "placeId": first.get("id"),
+        "query": text,
+        "name": (first.get("displayName") or {}).get("text"),
+        "address": first.get("formattedAddress"),
+        "lat": location.get("latitude"),
+        "lng": location.get("longitude"),
+        "googleMapsUri": first.get("googleMapsUri"),
+        "primaryType": first.get("primaryType"),
+    }
+    if not out["placeId"]:
+        return None
+    if len(_search_cache) > 1024:
+        _search_cache.clear()
+    _search_cache[cache_key] = (now + _SEARCH_TTL, out)
     return out
 
 
