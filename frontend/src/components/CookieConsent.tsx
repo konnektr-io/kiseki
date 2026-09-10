@@ -19,11 +19,12 @@ function hasStoredChoice(): boolean {
  * graph-explorer"), restyled to Kiseki tokens and `no-print` so the PDF
  * booklet never captures it.
  *
- * Copy is deliberately NOT "we use cookies": Kiseki's analytics is cookieless
- * (no cookie, no local/session storage), so the banner describes exactly what
- * ships — anonymous, per-trip usage events — instead of a generic cookie line
- * that would be false. The only cookie involved is the strictly-necessary
- * choice itself (`kiseki_consent`).
+ * Copy states what actually ships, which changed with `cookieless_mode:
+ * "on_reject"` (v0.25.1): accepting now enables PostHog's normal cookie-backed
+ * mode, so the banner says a first-party cookie is set — the previous
+ * "cookieless / no cookies" wording would be false. Declining sets nothing
+ * beyond the choice itself. The strictly-necessary choice cookie
+ * (`kiseki_consent`) is stored either way.
  *
  * Until a choice is made, PostHog is not initialized at all: a closed tab
  * sends nothing (the probe asserts zero events pre-consent).
@@ -83,11 +84,11 @@ export function CookieConsent() {
         </div>
         <div className="p-3 sm:p-4">
           <p className="text-xs text-muted-foreground sm:text-sm">
-            Kiseki uses anonymous, cookie-free analytics to learn how the app is
-            used — which pages people open, whether trip pages work on mobile,
-            how often booklets get downloaded. No cookies, no ads, no trackers;
-            trip content never leaves your browser. It is one small first-party
-            cookie: your choice on this banner.
+            Kiseki uses anonymous analytics to learn how the app is used — which
+            pages people open, whether trip pages work on mobile, how often
+            booklets get downloaded. Accepting sets one first-party cookie so
+            returning visits can be told apart. No ads, no cross-site tracking,
+            and trip content never leaves your browser.
           </p>
         </div>
         <div className="grid grid-cols-2 items-center gap-2 border-t border-border p-3 sm:px-4 sm:py-4">

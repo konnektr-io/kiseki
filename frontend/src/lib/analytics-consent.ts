@@ -10,8 +10,9 @@
  * The choice itself is a STRICTLY-NECESSARY cookie (ePrivacy exempts storage
  * that records a consent decision — it is not tracking), which is why it may be
  * written before any consent exists. Same pattern as graph-explorer's
- * `cookie-consent.tsx` (Niko: copy that banner), minus the misleading copy: our
- * analytics is cookieless, so the banner says so instead of "we use cookies".
+ * `cookie-consent.tsx` (Niko: copy that banner), but with copy that matches
+ * what actually ships — accepting enables PostHog's cookie-backed mode, so the
+ * banner states a first-party cookie is set rather than claiming cookieless.
  */
 
 export type ConsentChoice = "granted" | "denied";
@@ -21,6 +22,14 @@ export const CONSENT_COOKIE = "kiseki_consent";
 
 /** A year, then ask again (preferences can change; PostHog config may too). */
 const ONE_YEAR = 60 * 60 * 24 * 365;
+
+/**
+ * Choice made during THIS page load. Needed when the cookie cannot be written
+ * (private mode, storage-blocking extensions): the visitor still expects the
+ * button to work, and `initAnalytics` refuses to start without a granted
+ * choice, so without this an "Allow analytics" click would silently do nothing.
+ */
+let inMemoryConsent: ConsentChoice | null = null;
 
 /** Parse a serialized cookie jar for our consent decision. Pure — unit-tested. */
 export function parseConsent(cookieHeader: string): ConsentChoice | null {
@@ -43,6 +52,7 @@ export function consentCookieValue(choice: ConsentChoice): string {
 
 /** The visitor's stored choice, or null when they have not been asked. */
 export function currentConsent(): ConsentChoice | null {
+  if (inMemoryConsent) return inMemoryConsent;
   try {
     return parseConsent(document.cookie);
   } catch {
@@ -52,12 +62,13 @@ export function currentConsent(): ConsentChoice | null {
 
 /** Persist the choice and return the cookie string written (for tests/spy). */
 export function storeConsent(choice: ConsentChoice): string {
+  inMemoryConsent = choice;
   const cookie = consentCookieValue(choice);
   try {
     document.cookie = cookie;
   } catch {
     // Storage blocked (private mode, hardening extensions): the in-memory
-    // choice still applies for this page load via setAnalyticsConsent.
+    // choice still applies for this page load via currentConsent().
   }
   return cookie;
 }

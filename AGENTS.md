@@ -308,19 +308,29 @@ enforced in `frontend/src/lib/`:
   defeated by a routing mistake in the way a per-route gate can.
 - **Autocapture is OFF** (it ships element text/attributes, i.e. trip *content*). Only
   navigation events and a small set of explicit product events are sent.
-- **Cookieless storage + opt-in consent (Niko, post-v1: add the banner).** Analytics is
+- **Consent-gated cookies, `cookieless_mode: "on_reject"` (Niko, post-v0.25.0).** Analytics is
   **consent-gated**: `components/CookieConsent.tsx` (ported from graph-explorer's
   `cookie-consent.tsx`) asks before the SDK ever initializes — a declined or undecided
   visitor produces ZERO requests (the probe asserts it), and a stored "granted" choice is
-  restored on load without re-showing. Within consent, `cookieless_mode: "always"` means no
-  cookie/local/session storage and a server-side daily-salted IP+UA+host hash (IP
-  discarded). Trade-offs: a returning visitor counts as new each day; no GeoIP/bot
-  enrichment. The banner's copy says what actually ships — the only cookie is the
-  strictly-necessary choice itself (`kiseki_consent`, 1y, SameSite=Lax; deliberately NOT
-  graph-explorer's shared `cookieConsent` name). PDF-render and e2e-probe contexts never
-  see the banner and never consent (booklet stays pixel-stable; the probe's zero-event
-  assertion stays true). Because consent is opt-in, PostHog's *Cookieless server hash mode*
-  project setting is NOT required — leave it off.
+  restored on load without re-showing. Once accepted, PostHog runs in its **normal
+  cookie-backed mode**: `on_reject` is the documented pairing for a banner (no
+  local/session storage and no events until the visitor decides, full mode after opt-in),
+  and `initAnalytics` calls `opt_in_capturing()` because `on_reject` starts the client in
+  the pending/cookieless state. Declining never initializes the SDK at all, so no
+  cookieless fallback events are sent either. The banner's copy says what actually ships —
+  accepting sets one first-party cookie — and the strictly-necessary choice cookie
+  (`kiseki_consent`, 1y, SameSite=Lax; deliberately NOT graph-explorer's shared
+  `cookieConsent` name) is written either way. PDF-render and e2e-probe contexts never see
+  the banner and never consent (booklet stays pixel-stable; the probe's zero-event
+  assertion stays true).
+- **`cookieless_mode: "always"` is a trap here — do not go back to it.** "Always" is the
+  mode for sites that deliberately have NO banner: identity becomes a server-side
+  daily-salted hash, which is only storable when the project enables *Cookieless server
+  hash mode*. Ours does not, so PostHog answers every event with `{"status":"Ok"}` and
+  then **discards it**. v0.25.0 shipped exactly that way and collected nothing for a whole
+  release while every visible signal was green (HTTP 200, requests delivered, unit tests
+  passing). `frontend/src/lib/posthog.test.ts` now pins the mode and the
+  `opt_in_capturing()` handshake so neither can be undone silently.
 - The automated guard is `frontend/src/lib/analytics-privacy.test.ts`, which asserts a
   raw token cannot survive into an outbound payload.
 
@@ -342,12 +352,15 @@ detected bots**, and its matcher treats Playwright's Chromium as one (it substri
 pagehide via `sendBeacon`, for which Playwright's `post_data` is empty — the bodies must
 be read over CDP, and they are raw gzip.
 
-**PostHog project settings (checked over the MCP, 2026-09-10):** with consent-gated
-opt-in, `cookieless_server_hash_mode` does NOT need enabling — leave it `0`. (It was the
-original plan when analytics shipped unconditionally; PostHog then discards every event
-with an invisible server-side failure. With a banner, consent handles it.) The PostHog MCP
-server is wired into Hermes (`mcp_posthog_*` tools) for exactly this kind of check —
-`gh`-style queries against the project without leaving the terminal.
+**PostHog project settings (checked over the MCP, 2026-09-10):** `cookieless_server_hash_mode`
+stays `0` — it is only required when the SDK sends *cookieless* events. With `on_reject`
+plus the consent gate that never happens: undecided and declined visitors never initialize
+the SDK at all, and accepted visitors are in cookie mode. Enabling it is not a fix for the
+mode being wrong — it would make an `"always"` configuration merely *look* healthy while
+reducing every visitor to a daily-resetting hash identity. The PostHog MCP server is wired
+into Hermes (`mcp_posthog_*` tools) for exactly this kind of check — and for the check that
+would have caught the v0.25.0 defect: query `events` to confirm they are **stored**, not
+merely accepted. A 200 from `/e/` proves nothing.
 
 **Bundle impact** (measured, `pnpm build`, gzipped, main app chunk): 306.4 kB before →
 **403.0 kB with PostHog** (+96.6 kB). The `posthog-js` slim entry point would land at
