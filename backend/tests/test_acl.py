@@ -255,6 +255,26 @@ def test_protected_404_unknown_trip(client: TestClient, rsa_keypair, role) -> No
     assert r.status_code == 404
 
 
+def test_get_unknown_trip_tripless_bundle_is_404_not_500(
+    client: TestClient, monkeypatch
+) -> None:
+    """HTTP-layer #171 regression: the live graph answers an unknown id with a
+    TRUTHY, Trip-less bundle (Cypher collect() over zero matches), which the
+    old falsy-bundle guard let through → converter ValueError → 500. With the
+    store mapping GraphNotFound → None, the gate answers 404 — anonymously
+    too, since the existence check precedes any auth verdict."""
+    from app import store as store_mod
+
+    class _LiveShapedMiss:
+        def fetch_graph(self, trip_dtid):
+            return {"$dtId": trip_dtid, "twins": [], "relationships": []}
+
+    monkeypatch.setattr(store_mod, "_graph_client", lambda: _LiveShapedMiss())
+    unknown = "00000000-0000-4000-8000-000000000000"
+    assert client.get(f"/api/trips/{unknown}").status_code == 404
+    assert client.delete(f"/api/trips/{unknown}").status_code == 401  # auth first
+
+
 def test_public_trip_is_anonymous(client: TestClient) -> None:
     trip = _public_trip()
     r = client.get(f"/api/trips/{trip.id}")

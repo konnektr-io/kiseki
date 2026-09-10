@@ -104,15 +104,25 @@ def get_trip_by_id(trip_dtid: str) -> Trip | None:
 
     Graph is the authority; when not configured, falls back to the
     anonymized mocks (so ``uv run pytest`` works without a live graph).
+
+    A Trip-less bundle IS "absent" (issue #171): the live graph answers an
+    unknown ``$dtId`` with a non-empty bundle (empty ``twins`` list — the
+    Cypher ``collect()`` over zero matches), so the falsy check below does
+    not fire and ``graph_to_trip`` raises ``GraphNotFound``. Mapping it to
+    ``None`` here is what turns every 404 gate (GET, ACL, delete, tricount,
+    chat) into a clean 404 instead of a 500.
     """
     client = _graph_client()
     if client is not None:
         graph = client.fetch_graph(trip_dtid)
         if not graph:
             return None
-        from .graph.convert import graph_to_trip
+        from .graph.convert import GraphNotFound, graph_to_trip
 
-        return graph_to_trip(graph)
+        try:
+            return graph_to_trip(graph)
+        except GraphNotFound:
+            return None
     for t in _anon_trips():
         if t.id == trip_dtid:
             return t

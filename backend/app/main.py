@@ -72,6 +72,7 @@ from .write import (
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, photo_by_name as place_photo_bytes
+from .graph.convert import GraphNotFound
 from .media import (
     content_addressed_key,
     get_media_store,
@@ -400,11 +401,17 @@ def _write(fn, **kwargs):
 
     TriCountError is mapped too: the tricount connect path (#111) validates
     the registry key inside the write service, and a bad key must surface as
-    its HTTP status (404/502/503), never a 500."""
+    its HTTP status (404/502/503), never a 500.
+    ``GraphNotFound`` is mapped to 404 as well: a bundle whose Trip twin is
+    gone means the trip vanished mid-call (issue #171) — e.g. ``toggle_todo``
+    rebuilds the document before the twin guard runs — and must never
+    surface as a 500."""
     try:
         return fn(**kwargs)
     except (WriteError, TriCountError) as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    except GraphNotFound as exc:
+        raise HTTPException(status_code=404, detail="Trip not found") from exc
 
 
 @app.put("/api/trips/{trip_id}")

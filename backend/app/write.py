@@ -35,7 +35,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
-from .graph.convert import graph_to_trip
+from .graph.convert import GraphNotFound, graph_to_trip
 from .models import (
     BlockKind,
     BlockStatus,
@@ -536,7 +536,10 @@ def _rebuild(client, trip_dtid: str, graph: dict | None = None) -> Trip:
         graph = client.fetch_graph(trip_dtid)
         if not graph:
             raise WriteError(503, "Trip could not be re-read after write")
-    return graph_to_trip(graph)
+    try:
+        return graph_to_trip(graph)
+    except GraphNotFound as exc:  # trip vanished mid-write (#171)
+        raise WriteError(503, "Trip could not be re-read after write") from exc
 
 
 def _trip_of(graph: dict) -> Trip:

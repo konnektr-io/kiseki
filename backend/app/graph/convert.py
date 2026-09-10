@@ -83,6 +83,21 @@ def _rating_expired(updated: Any) -> bool:
     return (utcnow().date() - stamped).days > RATING_TTL_DAYS
 
 
+class GraphNotFound(ValueError):
+    """The bundle carries no Trip twin — in practice: the id is unknown.
+
+    The live Konnektr Graph answers an unknown ``$dtId`` with a NON-EMPTY
+    bundle (``{"$dtId": …, "twins": [], "relationships": []}`` — the Cypher
+    ``collect()`` over zero matches), so a falsy-bundle guard does not fire
+    and this is the only signal that the trip is absent (issue #171). Typed
+    so read paths can map it to "absent" (404) while genuine conversion
+    failures stay errors: pydantic's ``ValidationError`` ALSO subclasses
+    ``ValueError``, so a bare ``except ValueError`` would mask corrupt graph
+    data as a quiet 404. Subclassing ``ValueError`` keeps any existing
+    ``except ValueError`` caller working.
+    """
+
+
 def graph_to_trip(graph: dict) -> M.Trip:
     twins = graph.get("twins", [])
     rels = graph.get("relationships", [])
@@ -125,7 +140,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
         None,
     )
     if trip_twin is None:
-        raise ValueError("graph has no Trip twin")
+        raise GraphNotFound("graph has no Trip twin")
     base = _bydict(trip_twin)
 
     # ---- locations (shared registry) -------------------------------------

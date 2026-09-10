@@ -285,3 +285,85 @@ def test_crew_claimed_never_reaches_the_graph() -> None:
         assert "claimed" not in t
     for r in g["relationships"]:
         assert "claimed" not in r
+
+
+# ---------------------------------------------------------------- #171 regression
+
+
+def _tripless_bundle(dtid: str) -> dict:
+    """The LIVE graph's unknown-id answer: non-empty but Trip-less (Cypher
+    collect() over zero matches → empty twins/relationships lists)."""
+    return {"$dtId": dtid, "twins": [], "relationships": []}
+
+
+def test_graph_to_trip_raises_typed_notfound_on_tripless_bundle() -> None:
+    """A non-empty, Trip-less bundle raises the TYPED GraphNotFound (not a
+    bare ValueError): the read path must be able to map 'absent' → 404
+    without swallowing pydantic ValidationError (a ValueError subclass that
+    signals corrupt data, not absence)."""
+    from app.graph.convert import GraphNotFound
+
+    with pytest.raises(GraphNotFound):
+        graph_to_trip(_tripless_bundle("00000000-0000-4000-8000-000000000000"))
+
+
+def test_graph_to_trip_still_raises_validationerror_on_corrupt_data() -> None:
+    """Corrupt graph data (a Trip twin whose fields fail the model) must NOT
+    be classified as 'absent': it raises pydantic ValidationError, which the
+    store does NOT map to None — corrupt data 500s, absent data 404s."""
+    from pydantic import ValidationError
+
+    corrupt = {
+        "$dtId": "trip-1",
+        "twins": [{
+            "$dtId": "trip-1",
+            "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+            "slug": "x", "title": "T", "stage": "bogus-stage",
+        }],
+        "relationships": [],
+    }
+    with pytest.raises(ValidationError):
+        graph_to_trip(corrupt)
+
+
+def test_store_tripless_bundle_is_none(monkeypatch) -> None:
+    """The exact shape FakeGraph never produced (issue #171): a TRUTHY,
+    non-empty, Trip-less bundle through ``get_trip_by_id`` → None (→ 404 at
+    every gate), not a 500."""
+    import app.store as store_mod
+
+    class _LiveShapedMiss:
+        def fetch_graph(self, trip_dtid):
+            return _tripless_bundle(trip_dtid)
+
+    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT", _LiveShapedMiss())
+    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT_READY", True)
+    assert store_mod.get_trip_by_id("00000000-0000-4000-8000-000000000000") is None
+
+
+def test_store_corrupt_bundle_propagates(monkeypatch) -> None:
+    """The store maps ONLY GraphNotFound to None. A corrupt bundle (pydantic
+    ValidationError, a ValueError subclass) propagates — the 500 is honest:
+    data exists but cannot be served; faking a 404 would hide corruption."""
+    import app.store as store_mod
+
+    corrupt = {
+        "$dtId": "trip-1",
+        "twins": [{
+            "$dtId": "trip-1",
+            "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+            "slug": "x", "title": "T", "stage": "bogus-stage",
+        }],
+        "relationships": [],
+    }
+
+    class _CorruptGraph:
+        def fetch_graph(self, trip_dtid):
+            return corrupt
+
+    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT", _CorruptGraph())
+    monkeypatch.setattr(store_mod, "_GRAPH_CLIENT_READY", True)
+    with pytest.raises(Exception) as excinfo:
+        store_mod.get_trip_by_id("trip-1")
+    assert not isinstance(excinfo.value, __import__(
+        "app.graph.convert", fromlist=["GraphNotFound"]).GraphNotFound)
