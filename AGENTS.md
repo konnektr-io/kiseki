@@ -308,12 +308,19 @@ enforced in `frontend/src/lib/`:
   defeated by a routing mistake in the way a per-route gate can.
 - **Autocapture is OFF** (it ships element text/attributes, i.e. trip *content*). Only
   navigation events and a small set of explicit product events are sent.
-- **Cookieless (`cookieless_mode: "always"`)** — no cookie, no local/session storage,
-  identity = a server-side daily-salted hash of IP+UA+host with the IP discarded.
-  **Therefore no cookie banner is needed** (ePrivacy/consent is only triggered by
-  storing or reading information on the user's device) — which is why #21's "copy the
-  banner from ktrlplane" branch was not taken. Trade-offs accepted: a returning visitor
-  counts as new each day, and PostHog's GeoIP/bot enrichment does not apply.
+- **Cookieless storage + opt-in consent (Niko, post-v1: add the banner).** Analytics is
+  **consent-gated**: `components/CookieConsent.tsx` (ported from graph-explorer's
+  `cookie-consent.tsx`) asks before the SDK ever initializes — a declined or undecided
+  visitor produces ZERO requests (the probe asserts it), and a stored "granted" choice is
+  restored on load without re-showing. Within consent, `cookieless_mode: "always"` means no
+  cookie/local/session storage and a server-side daily-salted IP+UA+host hash (IP
+  discarded). Trade-offs: a returning visitor counts as new each day; no GeoIP/bot
+  enrichment. The banner's copy says what actually ships — the only cookie is the
+  strictly-necessary choice itself (`kiseki_consent`, 1y, SameSite=Lax; deliberately NOT
+  graph-explorer's shared `cookieConsent` name). PDF-render and e2e-probe contexts never
+  see the banner and never consent (booklet stays pixel-stable; the probe's zero-event
+  assertion stays true). Because consent is opt-in, PostHog's *Cookieless server hash mode*
+  project setting is NOT required — leave it off.
 - The automated guard is `frontend/src/lib/analytics-privacy.test.ts`, which asserts a
   raw token cannot survive into an outbound payload.
 
@@ -335,11 +342,12 @@ detected bots**, and its matcher treats Playwright's Chromium as one (it substri
 pagehide via `sendBeacon`, for which Playwright's `post_data` is empty — the bodies must
 be read over CDP, and they are raw gzip.
 
-**One project-setting prerequisite (PostHog dashboard, Niko):** cookieless tracking only
-works if *Cookieless server hash mode* is enabled under Project Settings → Web analytics.
-Without it the SDK still delivers events and they are discarded server-side — the failure
-is invisible from the client, so check the dashboard actually shows the pageviews after
-the first deploy.
+**PostHog project settings (checked over the MCP, 2026-09-10):** with consent-gated
+opt-in, `cookieless_server_hash_mode` does NOT need enabling — leave it `0`. (It was the
+original plan when analytics shipped unconditionally; PostHog then discards every event
+with an invisible server-side failure. With a banner, consent handles it.) The PostHog MCP
+server is wired into Hermes (`mcp_posthog_*` tools) for exactly this kind of check —
+`gh`-style queries against the project without leaving the terminal.
 
 **Bundle impact** (measured, `pnpm build`, gzipped, main app chunk): 306.4 kB before →
 **403.0 kB with PostHog** (+96.6 kB). The `posthog-js` slim entry point would land at
