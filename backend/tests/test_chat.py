@@ -454,10 +454,11 @@ def test_wire_translation_of_failed_stream() -> None:
 
 
 def test_wire_translation_skips_tool_events() -> None:
+    """Non-function_call output items still emit nothing (lifecycle only)."""
     body = _responses_sse([
         ("response.output_item.added", json.dumps({
             "type": "response.output_item.added",
-            "item": {"type": "function_call", "name": "edit_block"},
+            "item": {"type": "message", "id": "msg_1"},
         })),
         ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "answer"})),
         ("response.completed", json.dumps({"type": "response.completed"})),
@@ -467,6 +468,67 @@ def test_wire_translation_skips_tool_events() -> None:
         {"type": "text-start", "id": "t1"},
         {"type": "text-delta", "id": "t1", "delta": "answer"},
         {"type": "text-end", "id": "t1"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
+
+
+def test_wire_translation_function_call_opens_and_closes_activity_row() -> None:
+    """A function_call item emits ONE activity part on added (open, spinning)
+    and the completing part on done (same id, done=true) — issue #157.
+
+    The wire is `data-*` custom parts, NOT tool-lifecycle chunks: nothing is
+    executed client-side, so tool semantics only fought the SDK state
+    machine (undeclared-tool parts never rendered, and the turn showed a
+    doubled thinking row instead of the activity). The part id is stable
+    across open/close so the SDK updates the SAME part in place.
+    """
+    lines = _responses_sse([
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": "web_search",
+            },
+        })),
+        ("response.output_item.done", json.dumps({
+            "type": "response.output_item.done",
+            "item": {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": "web_search",
+            },
+        })),
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {
+                "type": "function_call",
+                "id": "fc_2",
+                "name": "totally_unknown_tool",
+            },
+        })),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    chunks = list(chat_module.iter_wire_frames(lines, part_id="t1"))
+    assert chunks == [
+        # open: friendly label from the map, done=false (spins)
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-1",
+            "data": {"label": "Searching the web…", "done": False},
+        },
+        # close: SAME part id, done flips — the row completes in place
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-1",
+            "data": {"label": "Searching the web…", "done": True},
+        },
+        # unknown tool → generic label, raw name never leaks
+        {
+            "type": "data-kiseki-activity",
+            "id": "t1-tool-2",
+            "data": {"label": "Working…", "done": False},
+        },
         {"type": "finish", "finishReason": "stop"},
     ]
 
