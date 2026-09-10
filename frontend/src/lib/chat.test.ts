@@ -200,7 +200,9 @@ describe("messageActivities (issue #157: activity data parts)", () => {
     expect(rows).toEqual([]);
   });
 
-  it("falls back to the generic label and ignores malformed data", () => {
+  it("falls back to the generic label and skips parts without data", () => {
+    // Empty label → the generic fallback; a recognized part with NO data
+    // object at all is malformed (the relay never sends one) → no row.
     expect(
       messageActivities({
         id: "a1",
@@ -210,10 +212,7 @@ describe("messageActivities (issue #157: activity data parts)", () => {
           { type: "data-kiseki-activity", id: "c2" },
         ],
       } as unknown as UIMessage),
-    ).toEqual([
-      { label: "Working…", done: false },
-      { label: "Working…", done: false },
-    ]);
+    ).toEqual([{ label: "Working…", done: false }]);
   });
 });
 
