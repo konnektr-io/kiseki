@@ -292,6 +292,14 @@ enforced in `frontend/src/lib/`:
   SDK's `before_send` hook (`lib/analytics-privacy.ts`, wired in `lib/posthog.ts`),
   client-side and pre-request — deliberately NOT a PostHog-UI display filter, which
   filters after ingestion, when the secret is already stored.
+- **The scrubber walks EVERY string in `properties`, `$set` and `$set_once`** — it does
+  not trust a key list. A rendered-browser probe caught the raw trip id and claim token
+  surviving in `$pathname` and in the `$initial_current_url` / `$initial_pathname` /
+  `$initial_referrer` values posthog-js keeps in `$set_once`, while `$current_url` looked
+  perfectly clean. A guard on `$current_url` alone would have shipped the leak; unknown
+  future SDK properties are now covered by construction. `normalizeSecretPath` also
+  preserves the input's SHAPE (a bare path stays a bare path) because `$pathname` is a
+  path to PostHog and an absolute URL there would corrupt its breakdown.
 - **`$referrer` gets the same treatment**: a referral from a trip page otherwise carries
   the secret to the next origin's analytics.
 - **Per-trip metrics key on the trip `$dtId`** (a property, `trip_id`), never on the URL.
@@ -314,6 +322,24 @@ Pageviews are sent by `components/AnalyticsPageviews.tsx` (the SDK's built-in
 token is a public ingest key baked into `lib/posthog.ts` as a default (same posture as
 the Auth0 domain/client id), overridable with `VITE_POSTHOG_*`. Analytics is a no-op
 when the token is empty, so local dev and forks ship nothing.
+
+**Verifying a change here needs the rendered-browser probe, not just unit tests** —
+`frontend/scripts/probe-analytics-privacy.py` (run `pnpm build` first) drives real trip
+and join pages, decodes the gzip bodies the SDK actually POSTs, and fails if a secret
+survives in any location field or if no events are delivered at all. Two traps it
+encodes, both of which cost real time to find: (a) posthog-js **drops events from
+detected bots**, and its matcher treats Playwright's Chromium as one (it substring-matches
+"headlesschrome" against `navigator.userAgentData.brands` and flags
+`navigator.webdriver`), so a plain headless probe reports "nothing sent" for every config
+— the script spoofs a normal Chrome identity first; (b) the SDK flushes `$pageview` on
+pagehide via `sendBeacon`, for which Playwright's `post_data` is empty — the bodies must
+be read over CDP, and they are raw gzip.
+
+**One project-setting prerequisite (PostHog dashboard, Niko):** cookieless tracking only
+works if *Cookieless server hash mode* is enabled under Project Settings → Web analytics.
+Without it the SDK still delivers events and they are discarded server-side — the failure
+is invisible from the client, so check the dashboard actually shows the pageviews after
+the first deploy.
 
 **Bundle impact** (measured, `pnpm build`, gzipped, main app chunk): 306.4 kB before →
 **403.0 kB with PostHog** (+96.6 kB). The `posthog-js` slim entry point would land at
