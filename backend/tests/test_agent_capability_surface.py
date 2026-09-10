@@ -72,6 +72,20 @@ def test_docstring_documents_inbox_and_promote() -> None:
     assert "/inbox/" in text
 
 
+def test_docstring_documents_bulk_fill_verb() -> None:
+    """Bulk fill (one validated plan → one ordered run) is advertised.
+
+    The agent must be able to find it without reading the source: filling a
+    trip through the per-object verbs cost ~108 calls and 8 client-fixable
+    422s, so `fill` is the documented default for building a trip.
+    """
+    text = _run("--help").stdout
+    assert "fill <trip_id> --file plan.json" in text
+    assert "--dry-run" in text
+    assert "blocks" in text
+    assert "cost` as a\nnumber" in text or "cost" in text
+
+
 def test_create_trip_arg_contract() -> None:
     """create-trip takes --title/--subtitle only — no body flags."""
     no_title = _run("create-trip", "--subtitle", "x")
