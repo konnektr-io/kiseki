@@ -59,12 +59,17 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 
 | Method | Path | Notes |
 |---|---|---|
+| POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill via the nested endpoints below — canonical order in `api_write.py --help` |
 | PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates; `visibility` owner-only |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
+| POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
+| POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
 | PUT | `/api/trips/{trip_id}/practical` | whole practical object |
 | POST | `/api/trips/{trip_id}/practical/todos` | append todo |
 | POST | `/api/trips/{trip_id}/practical/todos/{i}/toggle` | per-item `{"done": bool}` |
+| POST | `/api/trips/{trip_id}/days` | insert a day at `index` (default append) — explicit ISO `date` or neighbor-based default |
 | PUT | `/api/trips/{trip_id}/days/{day_id}` | title/notes/meta/map (date immutable) |
+| DELETE | `/api/trips/{trip_id}/days/{day_id}` | remove a day (its blocks go with it; the last remaining day cannot be deleted) |
 | PUT | `/api/trips/{trip_id}/sections/{section_id}` | title, `locationRefs`, or `days` (inclusive `[first, last]` 0-based; rewires the section's `hasDay` edges + twin property; in-bounds + no overlap with another section — a day renders under exactly one section) |
 | POST | `/api/trips/{trip_id}/sections` | create a section chapter — `title` (+ optional `days` range, `locationRefs`); no `days` = pure ideation section |
 | POST | `/api/trips/{trip_id}/blocks` | create — `container: {"type": "day"\|"section", "id"}` |
