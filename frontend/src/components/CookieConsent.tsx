@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
 import { CookieIcon } from "lucide-react";
 import { Button } from "./ui";
-import { storeConsent } from "../lib/analytics-consent";
+import { CONSENT_COOKIE, storeConsent } from "../lib/analytics-consent";
 import { initAnalytics } from "../lib/posthog";
+
+/** Any stored answer (granted OR denied) means the visitor decided before. */
+function hasStoredChoice(): boolean {
+  try {
+    return document.cookie.includes(`${CONSENT_COOKIE}=`);
+  } catch {
+    return false; // storage blocked → treat as undecided, show the banner
+  }
+}
 
 /**
  * Analytics consent banner (issue #21) — ported from graph-explorer's
@@ -32,14 +41,13 @@ export function CookieConsent() {
       typeof window !== "undefined" &&
       (window.__KISEKI_PDF_RENDER__ === true ||
         new URLSearchParams(window.location.search).has("kiseki_e2e"));
-    if (automated) {
+    if (automated || hasStoredChoice()) {
+      // Automated context, or the visitor already answered on a previous visit:
+      // gone entirely — a closed-but-mounted banner would still intercept taps.
       setHidden(true);
       return;
     }
-    // Any stored choice (granted or denied) means the visitor already answered
-    // on a previous visit — stay hidden. Only an undecided visitor sees it.
-    const hadChoice = document.cookie.includes(`${"kiseki_consent"}=`);
-    if (!hadChoice) setOpen(true);
+    setOpen(true);
   }, []);
 
   const finish = (ms = 600) => {

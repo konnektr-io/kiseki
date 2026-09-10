@@ -9,15 +9,16 @@ Run it against a production build of the SPA:
 It loads the REAL built bundle with the REAL config, drives several trip/join
 pages, decodes the gzip bodies the SDK actually POSTs to PostHog EU, and asserts:
 
-  1. events are delivered at all (a silent no-op is the failure mode that makes
-     analytics look "installed" while collecting nothing),
-  2. the trip id and claim token are rewritten to `:token` in EVERY URL-bearing
+  1. WITHOUT consent: the banner renders, and ZERO requests reach PostHog
+     (opt-in analytics — the SDK is never initialized),
+  2. after clicking "Allow analytics": events are delivered,
+  3. the trip id and claim token are rewritten to `:token` in EVERY URL-bearing
      property — not just `$current_url`, but `$pathname`, `$referrer` and the
      `$initial_*` values the SDK stores in `$set_once`,
-  3. no raw trip id / claim token appears in any URL, path or referrer field,
-  4. per-trip metrics DO arrive as a `trip_id` PROPERTY (the $dtId) — that is the
+  4. no raw trip id / claim token appears in any URL, path or referrer field,
+  5. per-trip metrics DO arrive as a `trip_id` PROPERTY (the $dtId) — that is the
      sanctioned way to segment by trip (#21), so it must survive scrubbing,
-  5. no session-replay traffic.
+  6. the consent cookie is written, and a reload does NOT re-show the banner.
 
 WHY THE UA SPOOFING — a test-harness requirement, not an app change.
 posthog-js drops events from detected bots (`opt_out_useragent_filter`). Its bot
@@ -71,7 +72,7 @@ Object.defineProperty(navigator, 'userAgentData', {
 
 TRIP_ID = "bf29a027-1f6c-4a3b-9d21-7c0e5a4b8f13"
 CLAIM_TOKEN = "c66b1f42f0e94d5c8a7b3e2d1c0f9a8b7e6d5c4b3a291807f6e5d4c3b2a1908"
-PORT = 8819
+PORT = 8821
 
 TRIP = {
     "id": TRIP_ID,
@@ -194,18 +195,53 @@ def main() -> int:
             lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(TRIP)),
         )
 
-        visits = [
-            ("landing", "/"),
+        def visit(path, settle=2500):
+            page.goto(f"http://127.0.0.1:{PORT}{path}", wait_until="networkidle")
+            page.wait_for_timeout(settle)
+
+        # --- Phase 1: NO consent. Banner must render; PostHog must receive NOTHING.
+        print("phase 1 — un-consented visit (banner visible, zero events expected)")
+        visit("/", settle=2000)
+        banner = page.locator('[role="dialog"][aria-label="Anonymous analytics"]')
+        if not banner.is_visible():
+            print("  FAIL: consent banner did not render for an undecided visitor")
+        else:
+            print("  banner rendered ✓")
+        visit(f"/t/{TRIP_ID}/itinerary")
+        visit(f"/t/{TRIP_ID}/day/0")
+        visit(f"/join/{CLAIM_TOKEN}")
+        pre_consent_posts = len(posts)
+        print(f"  posthog deliveries before consent: {pre_consent_posts} (expect 0)")
+
+        # --- Phase 2: click "Allow analytics", then browse.
+        print("phase 2 — accept, then browse")
+        page.goto(f"http://127.0.0.1:{PORT}/", wait_until="networkidle")
+        page.wait_for_timeout(1000)
+        page.get_by_role("button", name="Allow analytics").click()
+        page.wait_for_timeout(2500)
+        cookie_blob = ctx.cookies()
+        consent_cookie = next((c for c in cookie_blob if c.get("name") == "kiseki_consent"), None)
+        consent_value = consent_cookie.get("value") if consent_cookie else None
+        print(f"  consent cookie: {consent_value}")
+        banner_after = page.locator('[role="dialog"][aria-label="Anonymous analytics"]').count()
+        print(f"  banner hidden after choice: {banner_after == 0}")
+
+        for label, path in [
             ("trip overview", f"/t/{TRIP_ID}"),
             ("itinerary", f"/t/{TRIP_ID}/itinerary"),
             ("day level", f"/t/{TRIP_ID}/day/0"),
             ("practical", f"/t/{TRIP_ID}/practical"),
             ("join page", f"/join/{CLAIM_TOKEN}"),
-        ]
-        for label, path in visits:
+        ]:
             print(f"  visit {label:14s} {path}")
-            page.goto(f"http://127.0.0.1:{PORT}{path}", wait_until="networkidle")
-            page.wait_for_timeout(3000)
+            visit(path)
+
+        # --- Phase 3: reload with the granted cookie — banner must stay hidden.
+        print("phase 3 — returning visitor: banner must NOT re-show")
+        page.goto(f"http://127.0.0.1:{PORT}/", wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        re_shown = page.locator('[role="dialog"][aria-label="Anonymous analytics"]').is_visible()
+        print(f"  banner re-shown on reload: {re_shown} (expect False)")
 
         browser.close()
     httpd.shutdown()
@@ -222,11 +258,19 @@ def main() -> int:
         for ev in body.get("batch", [body]) if isinstance(body, dict) else [body]:
             events.append(ev)
 
+    failures = []
     print(f"\ndecoded analytics events: {len(events)}")
 
-    failures = []
+    if pre_consent_posts != 0:
+        failures.append(
+            f"{pre_consent_posts} posthog requests fired BEFORE consent — analytics is not opt-in"
+        )
     if not events:
-        failures.append("no analytics events were delivered (silent no-op)")
+        failures.append("no analytics events were delivered after consent (silent no-op)")
+    if consent_value != "granted":
+        failures.append(f"consent cookie not written as 'granted' (got {consent_value!r})")
+    if re_shown:
+        failures.append("banner re-showed on reload despite a stored choice")
 
     raw_in_url_field: list[str] = []
     tripped: list[str] = []
@@ -252,18 +296,18 @@ def main() -> int:
     # Sanity: the scrubbing must be OBSERVABLE, otherwise the checks above pass
     # vacuously (e.g. if every body failed to decode).
     blob = json.dumps(events)
-    if "/t/:token" not in blob:
+    if events and "/t/:token" not in blob:
         failures.append("no normalized /t/:token anywhere — is the scrubber even running?")
-    if "/join/:token" not in blob:
+    if events and "/join/:token" not in blob:
         failures.append("no normalized /join/:token anywhere")
-    if '"trip_id"' not in blob:
+    if events and '"trip_id"' not in blob:
         failures.append("trip_id property missing — per-trip metrics would be impossible")
-    if TRIP_ID not in blob:
+    if events and TRIP_ID not in blob:
         failures.append("trip_id value missing")
     if replay_hits:
         failures.append("session-replay traffic observed: " + ", ".join(replay_hits[:2]))
 
-    print("\n--- sample of what a trip pageview actually carries ---")
+    print("\n--- sample of a consented trip pageview ---")
     for ev in events:
         props = ev.get("properties", {})
         if props.get("$pathname", "").startswith("/t/"):
@@ -282,9 +326,10 @@ def main() -> int:
         for f in failures:
             print("  FAIL:", f)
         return 1
-    print("  PASS — events delivered; every URL/path/referrer field normalized to :token;")
-    print("         no raw trip id or claim token in any location field; per-trip metrics")
-    print("         keyed on the trip_id property; no replay traffic.")
+    print("  PASS — banner shown to undecided visitors; ZERO events before consent;")
+    print("         events delivered after consent; every URL/path/referrer field")
+    print("         normalized to :token; trip_id delivered as a property; no raw trip")
+    print("         id, no claim token, no replay traffic; banner suppressed on reload.")
     return 0
 
 
