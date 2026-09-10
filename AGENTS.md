@@ -273,6 +273,57 @@ writeup; in short:
 - **WebGL2 is mandatory** in MapLibre v6 (no WebGL1 fallback) — `MapView` shows a styled placeholder when WebGL2 is absent or the style/tiles fail (`data-map-failed="true"` so the PDF waiter can resolve). Never an empty grey box.
 - Routing credentials live in the `kiseki-here` k8s secret (`HERE_ACCESS_KEY_ID` / `HERE_ACCESS_KEY_SECRET` / `HERE_TOKEN_ENDPOINT_URL`; see `app/here.py`) for Routing v8. Absent → routes simply don't render (straight dashed lines; no crash). OAuth2 bearer tokens are minted server-side (`app/here.py` — RFC 5849 client_credentials) and cached for their ~24 h validity.
 
+## Analytics (PostHog — issue #21)
+
+Self-hosted-on-home-k8s was the original preference, but Niko chose **PostHog Cloud
+(EU)** for now: an org already exists, the free tier covers a project this small, and
+EU cloud satisfies the spec §8 data-residency posture. Umami remains the lighter
+self-hosted option if the ≥90 KB gzipped SDK ever becomes a problem (see the bundle
+numbers below).
+
+**Trip URLs carry secrets, so analytics is non-standard here.** `/t/<id>` is what a
+public trip is readable by, and `/join/<claimToken>` grants a crew identity. Every
+analytics SDK records page URLs by default — a naive install would export each trip's
+access capability to a third party, into dashboards and exports. The rules, all
+enforced in `frontend/src/lib/`:
+
+- **Paths are rewritten before an event leaves the browser** — `/t/<id>` → `/t/:token`,
+  `/join/<x>` → `/join/:token`, query string and fragment dropped. This happens in the
+  SDK's `before_send` hook (`lib/analytics-privacy.ts`, wired in `lib/posthog.ts`),
+  client-side and pre-request — deliberately NOT a PostHog-UI display filter, which
+  filters after ingestion, when the secret is already stored.
+- **`$referrer` gets the same treatment**: a referral from a trip page otherwise carries
+  the secret to the next origin's analytics.
+- **Per-trip metrics key on the trip `$dtId`** (a property, `trip_id`), never on the URL.
+- **Session replay and heatmaps are globally OFF.** Replay records the URL bar and the
+  DOM — private travel plans, crew names, booking codes. A global switch cannot be
+  defeated by a routing mistake in the way a per-route gate can.
+- **Autocapture is OFF** (it ships element text/attributes, i.e. trip *content*). Only
+  navigation events and a small set of explicit product events are sent.
+- **Cookieless (`cookieless_mode: "always"`)** — no cookie, no local/session storage,
+  identity = a server-side daily-salted hash of IP+UA+host with the IP discarded.
+  **Therefore no cookie banner is needed** (ePrivacy/consent is only triggered by
+  storing or reading information on the user's device) — which is why #21's "copy the
+  banner from ktrlplane" branch was not taken. Trade-offs accepted: a returning visitor
+  counts as new each day, and PostHog's GeoIP/bot enrichment does not apply.
+- The automated guard is `frontend/src/lib/analytics-privacy.test.ts`, which asserts a
+  raw token cannot survive into an outbound payload.
+
+Pageviews are sent by `components/AnalyticsPageviews.tsx` (the SDK's built-in
+`capture_pageview` is disabled so every URL goes through the scrubber). The project
+token is a public ingest key baked into `lib/posthog.ts` as a default (same posture as
+the Auth0 domain/client id), overridable with `VITE_POSTHOG_*`. Analytics is a no-op
+when the token is empty, so local dev and forks ship nothing.
+
+**Bundle impact** (measured, `pnpm build`, gzipped, main app chunk): 306.4 kB before →
+**403.0 kB with PostHog** (+96.6 kB). The `posthog-js` slim entry point would land at
+357.7 kB (+51.3 kB) and is deliberately not used: it is experimental, needs a deep
+`posthog-js/dist/module.slim` import, and silently drops error tracking (the
+ErrorBoundary in `main.tsx` calls `captureException`) unless undocumented extension
+bundles are attached. #21's ≤5 kB budget cannot be met by any PostHog variant; if the
+trip-page weight matters more than the feature set, lazy-loading the SDK (dynamic
+import after first paint) or moving to self-hosted Umami are the levers.
+
 ## Conventions / rules
 
 - **Content-first**: trip content lives in the graph and is edited through the write API (`backend/scripts/api_write.py`, #46). The image contains only app code; a content change never rebuilds or redeploys. Local `trip.json` scratch + reseed scripts are migration-only tooling.

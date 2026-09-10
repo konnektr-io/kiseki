@@ -13,6 +13,7 @@ import {
   withBlockItems,
 } from "../lib/editing";
 import { deleteTripBlock, putContainerOrder, putTripBlock } from "../lib/api";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import type { Block, BlockKind, BlockStatus } from "../lib/types";
 
 /**
@@ -86,6 +87,12 @@ export function EditableBlockList({
     if (i < 0 || j < 0 || j >= ids.length) return;
     const swapped = [...ids];
     [swapped[i], swapped[j]] = [swapped[j], swapped[i]];
+    if (isPostHogConfigured) {
+      posthog.capture("trip_block_reordered", {
+        block_kind: b.kind,
+        direction: dir === -1 ? "up" : "down",
+      });
+    }
     await run(
       (token) => putContainerOrder(trip.id, containerId, swapped, token),
       (t) => swapContainerBlocks(t, containerId, b.id, ids[j]),
@@ -94,6 +101,7 @@ export function EditableBlockList({
 
   const remove = async (b: Block) => {
     setDeleteArmId(null);
+    if (isPostHogConfigured) posthog.capture("trip_block_deleted", { block_kind: b.kind });
     await run((token) => deleteTripBlock(trip.id, b.id, token));
   };
 
@@ -101,6 +109,9 @@ export function EditableBlockList({
     const items = ((b.items ?? []) as { label?: string; done?: boolean }[]).map((it, i) =>
       i === itemIndex ? { ...it, done } : it,
     );
+    if (isPostHogConfigured) {
+      posthog.capture("trip_todo_item_toggled", { completed: done });
+    }
     await run(
       (token) => putTripBlock(trip.id, b.id, { items }, token),
       (t) => withBlockItems(t, b.id, items as Block["items"]),
@@ -109,6 +120,12 @@ export function EditableBlockList({
 
   const saveFields = async (b: Block, fields: Partial<Block>) => {
     setEditingId(null);
+    if (isPostHogConfigured) {
+      posthog.capture("trip_block_updated", {
+        block_kind: b.kind,
+        changed_field_count: Object.keys(fields).length,
+      });
+    }
     await run(
       (token) => putTripBlock(trip.id, b.id, fields as Record<string, unknown>, token),
       (t) => withBlockFields(t, b.id, fields),

@@ -8,6 +8,7 @@ import { itineraryItems, sectionRange } from "../lib/sections";
 import { roleAtLeast } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { moveTripBlock } from "../lib/api";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import type { Day, TripSection } from "../lib/types";
 
 const scrollKey = (tripId: string) => `kiseki:itinerary-scroll:${tripId}`;
@@ -312,6 +313,11 @@ export function ItineraryList({
                             onChange={(e) => {
                               const dayId = e.target.value;
                               if (!dayId) return;
+                              if (isPostHogConfigured) {
+                                posthog.capture("itinerary_block_scheduled", {
+                                  block_kind: b.kind,
+                                });
+                              }
                               void run((token) =>
                                 moveTripBlock(trip.id, b.id, { type: "day", id: dayId }, token),
                               );

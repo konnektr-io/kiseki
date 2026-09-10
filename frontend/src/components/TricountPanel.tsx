@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { roleAtLeast } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
+import { isPostHogConfigured, posthog } from "../lib/posthog";
 import type { TricountSnapshot } from "../lib/types";
 
 const tricountAppUrl = (key: string) => `https://tricount.com/${key}`;
@@ -90,6 +91,7 @@ export function TricountPanel() {
             e.preventDefault();
             if (!keyDraft.trim()) return;
             setConnectError(null);
+            if (isPostHogConfigured) posthog.capture("tricount_connected");
             void run(
               (token) => connectTricount(trip.id, keyDraft.trim(), token),
               (t) => t, // canonical doc carries practical.tricount — effect refetches
@@ -132,7 +134,10 @@ export function TricountPanel() {
             size="icon"
             aria-label="Refresh Tricount data"
             title="Refresh"
-            onClick={() => void load(true)}
+            onClick={() => {
+              if (isPostHogConfigured) posthog.capture("tricount_refreshed");
+              void load(true);
+            }}
             disabled={loading}
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
@@ -145,6 +150,7 @@ export function TricountPanel() {
               title="Disconnect"
               onClick={() => {
                 setLoadError(null);
+                if (isPostHogConfigured) posthog.capture("tricount_disconnected");
                 void run((token) => disconnectTricount(trip.id, token), (t) => t);
               }}
               disabled={busy}
