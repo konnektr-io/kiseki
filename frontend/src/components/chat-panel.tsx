@@ -12,6 +12,7 @@ import {
   findTripIds,
   loadThreadId,
   messageActivities,
+  messageFinalText,
   messageInterrupted,
   messageToText,
   newThreadId,
@@ -497,7 +498,10 @@ function UserBubble({ message }: { message: UIMessage }) {
 }
 
 function AgentBubble({ message }: { message: UIMessage }) {
-  const text = messageToText(message);
+  // Issue #179: render only the FINAL text (after the last activity part).
+  // Pre-tool narration — "let me load the skill…", raw JSON, HTTP codes —
+  // is build log, never a chat bubble, no matter how chatty the model is.
+  const text = messageFinalText(message);
   if (!text) return null;
   return (
     <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
