@@ -88,19 +88,16 @@ describe("ChatPanel messages", () => {
       role: "assistant",
       parts: [
         {
-          type: "tool-kiseki-activity",
-          toolCallId: "c1",
-          toolName: "kiseki-activity",
-          state: "input-available",
-          input: { label: "Searching the web…" },
+          // data-kiseki-activity custom data part (issue #157) — the SDK
+          // stores the relay chunk verbatim on message.parts.
+          type: "data-kiseki-activity",
+          id: "c1",
+          data: { label: "Searching the web…", done: true },
         },
         {
-          type: "tool-kiseki-activity",
-          toolCallId: "c2",
-          toolName: "kiseki-activity",
-          state: "output-available",
-          input: { label: "Running a command…" },
-          output: { done: true },
+          type: "data-kiseki-activity",
+          id: "c2",
+          data: { label: "Running a command…", done: false },
         },
       ],
     } as unknown as UIMessage;
@@ -111,6 +108,22 @@ describe("ChatPanel messages", () => {
     expect(html).toContain("Running a command…");
     // raw tool names never render
     expect(html).not.toContain("kiseki-activity");
+  });
+
+  it("shows the thinking indicator at most ONCE per turn (issue #157)", () => {
+    // Before the fix the panel rendered AgentActivity's thinking fallback
+    // AND a separate `submitted` thinking row — "Agent is thinking" twice.
+    stubChat({ status: "submitted" });
+    const html = renderPanel("trip-1");
+    const count = html.split("Agent is thinking").length - 1;
+    expect(count).toBe(1);
+  });
+
+  it("keeps one thinking row while streaming with no activity yet", () => {
+    stubChat({ messages: [userText("Hi")], status: "streaming" });
+    const html = renderPanel("trip-1");
+    const count = html.split("Agent is thinking").length - 1;
+    expect(count).toBe(1);
   });
 
   it("falls back to thinking when the turn has no activity yet", () => {

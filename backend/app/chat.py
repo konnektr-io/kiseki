@@ -140,29 +140,30 @@ def tool_activity_label(tool_name: str) -> str:
     return TOOL_ACTIVITY_LABELS.get(tool_name, "Working…")
 
 
-#: The single synthetic tool name the activity feed uses (issue #151). The
+#: The synthetic data-part type the activity feed uses (issue #157). The
 #: relay drops the REAL upstream tool names on purpose — raw names
-#: (``terminal``, ``execute_code``, …) never reach the UI; the friendly label
-#: travels as the chunk input instead.
-_ACTIVITY_TOOL = "kiseki-activity"
+#: (``terminal``, ``execute_code``, …) never reach the UI; the friendly
+#: label travels in the part ``data`` instead. Data parts carry NO tool
+#: lifecycle semantics: nothing is executed client-side, nothing is
+#: resubmitted, and no declared tool is needed for the SPA to render them.
+_ACTIVITY_PART = "data-kiseki-activity"
 
 
-def tool_start_chunk(tool_call_id: str, tool_name: str) -> dict:
-    """Announce an agent tool call (start) — renders as one activity row."""
+def activity_start_chunk(call_id: str, label: str) -> dict:
+    """Open one activity row — the SPA renders it spinning (label, done=F)."""
     return {
-        "type": "tool-input-start",
-        "toolCallId": tool_call_id,
-        "toolName": _ACTIVITY_TOOL,
+        "type": _ACTIVITY_PART,
+        "id": call_id,
+        "data": {"label": label, "done": False},
     }
 
 
-def tool_available_chunk(tool_call_id: str, tool_name: str) -> dict:
-    """Mark an agent tool call resolved — completes its activity row."""
+def activity_done_chunk(call_id: str, label: str) -> dict:
+    """Close the activity row ``call_id`` opened — same id, ``done: true``."""
     return {
-        "type": "tool-input-available",
-        "toolCallId": tool_call_id,
-        "toolName": _ACTIVITY_TOOL,
-        "input": {"label": tool_activity_label(tool_name)},
+        "type": _ACTIVITY_PART,
+        "id": call_id,
+        "data": {"label": label, "done": True},
     }
 
 
@@ -221,13 +222,17 @@ class WireTranslator:
 
     Agent tool calls (issue #151) forward as activity chunks, not text: each
     upstream ``output_item.added`` carrying a ``function_call`` item emits a
-    ``tool-input-start`` (one activity row per call), and the matching
-    ``output_item.done`` for that call emits ``tool-input-available``
-    (completing the row). The REAL upstream tool name never leaves the
-    server — the friendly label travels as the chunk input. Chunks are
-    ``toolName``-namespaced under the relay's own synthetic tool
-    (``kiseki-activity``), so the SPA can render activity rows from message
-    parts alone with no transport changes. Emitted BEFORE any
+    ``data-kiseki-activity`` part (one activity row per call, ``done: false``
+    — spinning), and the matching ``output_item.done`` for that call emits
+    the completing part (``done: true``) — issue #157 switched the wire from
+    synthetic tool-lifecycle chunks to ``data-*`` custom parts: nothing is
+    ever executed client-side, so tool lifecycle semantics only fought the
+    SDK's tool state machine (undeclared-tool parts never settle into
+    ``message.parts`` as the reader expected, and the UI rendered nothing).
+    The REAL upstream tool name never leaves the
+    server — the friendly label travels in the part data. Rows update in
+    place by part ``id``, so an open call (``done: false``) is a real
+    spinner state, not a born-complete row. Emitted BEFORE any
     ``response.completed`` terminal, so mid-turn tool calls render while the
     agent still works.
 
@@ -240,7 +245,7 @@ class WireTranslator:
         self._started = False
         self._part_id = part_id or uuid.uuid4().hex[:16]
         self._call_seq = 0
-        self._open_calls: dict[str, str] = {}  # item id → activity call id
+        self._open_calls: dict[str, tuple[str, str]] = {}  # item id → (call id, label)
 
     def feed(self, line: str) -> list[dict]:
         """Translate one raw upstream line. Empty when consumed/dropped."""
@@ -293,10 +298,11 @@ class WireTranslator:
         return chunks
 
     def _feed_tool_item(self, event: str, data: dict) -> list[dict]:
-        """Translate one tool ``output_item`` event → activity chunks.
+        """Translate one tool ``output_item`` event → activity parts.
 
         ``output_item.added`` with a ``function_call`` item opens an activity
-        row; ``output_item.done`` for the same item id closes it. Anything
+        row (``done: false`` — spinning); ``output_item.done`` for the same
+        item id closes it with the SAME part id (``done: true``). Anything
         else (message items, ``function_call_output`` items, unknown shapes)
         is consumed silently. Unknown tool names still open a row — the label
         falls back to "Working…", never the raw name.
@@ -316,30 +322,13 @@ class WireTranslator:
             )
             self._call_seq += 1
             call_id = f"{self._part_id}-tool-{self._call_seq}"
-            self._open_calls[item_id] = call_id
-            return [
-                {
-                    "type": "tool-input-start",
-                    "toolCallId": call_id,
-                    "toolName": _ACTIVITY_TOOL,
-                },
-                {
-                    "type": "tool-input-available",
-                    "toolCallId": call_id,
-                    "toolName": _ACTIVITY_TOOL,
-                    "input": {"label": label},
-                },
-            ]
-        call_id = self._open_calls.pop(item_id, None)
-        if call_id is None:
+            self._open_calls[item_id] = (call_id, label)
+            return [activity_start_chunk(call_id, label)]
+        open_call = self._open_calls.pop(item_id, None)
+        if open_call is None:
             return []  # orphan done (no matching added) — ignore
-        return [
-            {
-                "type": "tool-output-available",
-                "toolCallId": call_id,
-                "output": {"done": True},
-            }
-        ]
+        call_id, label = open_call
+        return [activity_done_chunk(call_id, label)]
 
     def finish(self) -> list[dict]:
         """Signal stream end. Emits the terminal sequence ONLY if no terminal
