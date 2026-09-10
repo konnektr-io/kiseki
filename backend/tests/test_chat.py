@@ -965,10 +965,20 @@ def test_files_uploads_to_inbox_without_trip(
 
 
 def test_files_inbox_rejects_traversal(client, rsa_keypair, monkeypatch, tmp_path) -> None:
+    """Traversal-shaped inbox names never read the store.
+
+    Only names that actually REACH the route can express traversal, so the
+    cases here are the encoded separator and the raw separator: a bare ``..``
+    path segment is normalized to ``/`` by any conformant HTTP client (httpx)
+    or proxy before routing, so it can never address the inbox route at all —
+    asserting 404 on it only tested whether a local SPA build existed to make
+    ``/`` answer 200 (it failed in the shared checkout, which has
+    ``frontend/dist/``, and passed in a fresh worktree and CI).
+    """
     monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
     media_module.clear_media_store()
     try:
-        for bad in ("..%2Fsecret.jpg", "a/b.jpg", "..", ".hidden"):
+        for bad in ("..%2Fsecret.jpg", "a/b.jpg", "..%2F..%2Fetc%2Fpasswd", ".hidden"):
             resp = client.get(f"/inbox/{bad}")
             assert resp.status_code == 404, bad
     finally:
