@@ -266,6 +266,15 @@ class WireTranslator:
       instead of rendering a fake completion, issue #152). Lifecycle events
       (``response.created``, ``output_item.*`` without tool payloads,
       ``output_text.done``) are consumed and dropped, never echoed as chunks.
+    - the text-part SEGMENT id (issue #179): narration between tool calls
+      must never render as chat text, so each ``function_call`` open CLOSES
+      the active text part and the next delta opens a FRESH part
+      (``<turn-id>-seg<n>``). The SDK stores one ``text`` part per
+      ``text-start`` id in arrival order, so narration segments sit
+      structurally BEFORE the activity parts and the final answer AFTER the
+      last one — ``messageFinalText`` (frontend/src/lib/chat.ts) renders
+      only post-activity text, and a chatty model's narration can never
+      become a chat bubble.
 
     Agent tool calls (issue #151) forward as activity chunks, not text: each
     upstream ``output_item.added`` carrying a ``function_call`` item emits a
@@ -298,6 +307,12 @@ class WireTranslator:
         # in the next delta, so the fragment is withheld (never streamed)
         # until the next delta or the stream end resolves it.
         self._partial = ""
+        # Text-part segment id (issue #179): the ACTIVE text part's id.
+        # Starts as the turn id; every function_call open closes the active
+        # part and rotates to ``<turn-id>-seg<n>`` so post-tool text lands
+        # in a NEW part AFTER the activity parts (see class docstring).
+        self._text_id = self._part_id
+        self._seg = 0
 
     def feed(self, line: str) -> list[dict]:
         """Translate one raw upstream line. Empty when consumed/dropped."""
@@ -317,7 +332,7 @@ class WireTranslator:
             self._done = True
             chunks.extend(self._flush_tail())
             if self._started:
-                chunks.append(text_end_chunk(self._part_id))
+                chunks.append(text_end_chunk(self._text_id))
             chunks.append(finish_chunk())
             return chunks
         try:
@@ -331,13 +346,13 @@ class WireTranslator:
             if isinstance(delta, str) and delta:
                 if not self._started:
                     self._started = True
-                    chunks.append(text_start_chunk(self._part_id))
+                    chunks.append(text_start_chunk(self._text_id))
                 chunks.extend(self._scrub_delta(delta))
         elif name in ("response.completed", "response.done"):
             self._done = True
             chunks.extend(self._flush_tail())
             if self._started:
-                chunks.append(text_end_chunk(self._part_id))
+                chunks.append(text_end_chunk(self._text_id))
             chunks.append(finish_chunk())
         elif name in ("response.failed", "error"):
             detail = data.get("error") or data.get("message") or "agent error"
@@ -345,6 +360,8 @@ class WireTranslator:
                 detail = detail.get("message", "agent error")
             self._done = True
             chunks.extend(self._flush_tail())
+            if self._started:
+                chunks.append(text_end_chunk(self._text_id))
             chunks.append(error_chunk(str(detail)))
         elif name in ("response.output_item.added", "response.output_item.done"):
             chunks.extend(self._feed_tool_item(name, data))
@@ -371,8 +388,25 @@ class WireTranslator:
             text = text[: m.start()]
         out: list[dict] = []
         if text:
-            out.append(text_delta_chunk(self._part_id, text))
+            out.append(text_delta_chunk(self._text_id, text))
         return out
+
+    def _rotate_text_part(self) -> dict | None:
+        """Close the active text part and open a fresh segment (issue #179).
+
+        Called when a ``function_call`` opens: whatever the model streamed
+        so far is narration (pre-tool chatter), and the next delta must
+        land in a NEW ``text`` part positioned AFTER the tool's activity
+        parts — that post-activity text is all the UI renders as chat
+        (``messageFinalText``). No-op while no text part is open.
+        """
+        if not self._started:
+            return None
+        self._started = False
+        chunk = text_end_chunk(self._text_id)
+        self._seg += 1
+        self._text_id = f"{self._part_id}-seg{self._seg}"
+        return chunk
 
     def _flush_tail(self) -> list[dict]:
         """Resolve the held-back tail at stream end.
@@ -387,7 +421,7 @@ class WireTranslator:
         if not self._partial:
             return []
         self._partial = ""
-        return [text_delta_chunk(self._part_id, _REDACTED)]
+        return [text_delta_chunk(self._text_id, _REDACTED)]
 
     def _feed_tool_item(self, event: str, data: dict) -> list[dict]:
         """Translate one tool ``output_item`` event → activity parts.
@@ -415,7 +449,12 @@ class WireTranslator:
             self._call_seq += 1
             call_id = f"{self._part_id}-tool-{self._call_seq}"
             self._open_calls[item_id] = (call_id, label)
-            return [activity_start_chunk(call_id, label)]
+            # Close any open text part FIRST (issue #179): text streamed so
+            # far is narration — end it so the activity part (and all later
+            # text) sits in a fresh part after it, not inside the narration.
+            closed = self._rotate_text_part()
+            chunks = [closed] if closed else []
+            return chunks + [activity_start_chunk(call_id, label)]
         open_call = self._open_calls.pop(item_id, None)
         if open_call is None:
             return []  # orphan done (no matching added) — ignore
@@ -432,7 +471,7 @@ class WireTranslator:
         self._done = True
         chunks = self._flush_tail()
         if self._started:
-            chunks.append(text_end_chunk(self._part_id))
+            chunks.append(text_end_chunk(self._text_id))
         chunks.append(finish_chunk(interrupted=True))
         return chunks
 
@@ -449,9 +488,11 @@ def identity_instructions(
     which user it is acting for. Never stored in the history chain.
 
     The envelope carries the sub the agent's write-API calls act as — and an
-    explicit credential-silence rule (issue #158): the model must never
-    narrate the machinery (tokens, M2M, minting, act-as) to the user; the
-    write path stays correct, the narration stays invisible.
+    explicit silence rule: never narrate the machinery (tokens, M2M, minting,
+    act-as — issue #158) nor any other plumbing (tools, skills, scripts,
+    paths, endpoints, HTTP codes, JSON, field names — issue #179); the app
+    shows a live activity line while the agent works, so step narration is
+    redundant. The write path stays correct, the narration stays invisible.
     """
     if trip_id:
         scope = (
@@ -472,7 +513,13 @@ def identity_instructions(
         "Never mention tokens, M2M, minting, act-as, credentials, or how "
         "you authenticate — to the user you simply act on their behalf. If "
         "asked about access, say you act as them through Kiseki and offer "
-        "to continue the task."
+        "to continue the task. "
+        "The same silence covers your whole plumbing: never narrate tools, "
+        "skills, scripts, file paths, endpoints, API verbs, HTTP status "
+        "codes, JSON, schemas, or field names in chat — the app already "
+        "shows a live activity line while you work, so step-by-step "
+        "commentary is redundant. Speak only in traveler terms: outcomes, "
+        "questions, and problems that change the trip."
     )
 
 
