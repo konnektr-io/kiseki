@@ -484,8 +484,26 @@ def test_wire_translation_stream_without_terminal() -> None:
         {"type": "text-start", "id": "t1"},
         {"type": "text-delta", "id": "t1", "delta": "hi"},
         {"type": "text-end", "id": "t1"},
-        {"type": "finish", "finishReason": "stop"},
+        # Cut connection (issue #152): no response.completed, so the finish
+        # is marked interrupted (via messageMetadata — the SDK persists it
+        # onto the assistant message) — the UI offers Reconnect, never a
+        # fake completion.
+        {
+            "type": "finish",
+            "finishReason": "stop",
+            "messageMetadata": {"interrupted": True},
+        },
     ]
+
+
+def test_wire_translation_completed_stream_is_not_interrupted() -> None:
+    """A clean terminal event yields a plain finish (no interrupted flag)."""
+    body = _responses_sse([
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "hi"})),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ])
+    chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    assert chunks[-1] == {"type": "finish", "finishReason": "stop"}
 
 
 def _finish_count(chunks: list[dict]) -> int:
@@ -552,7 +570,11 @@ def test_wire_translator_stream_cut_mid_turn_still_terminates() -> None:
         {"type": "text-delta", "id": "t1", "delta": "par"},
         {"type": "text-delta", "id": "t1", "delta": "tial"},
         {"type": "text-end", "id": "t1"},
-        {"type": "finish", "finishReason": "stop"},
+        {
+            "type": "finish",
+            "finishReason": "stop",
+            "messageMetadata": {"interrupted": True},
+        },
     ]
     assert _finish_count(chunks) == 1
 

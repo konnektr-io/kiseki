@@ -167,6 +167,38 @@ describe("ChatPanel errors", () => {
   });
 });
 
+describe("ChatPanel reconnect (issue #152: dropped turn)", () => {
+  it("shows the Reconnect banner on an interrupted finish", () => {
+    stubChat({
+      messages: [
+        userText("Create a trip"),
+        {
+          id: "a1",
+          role: "assistant",
+          metadata: { interrupted: true },
+          parts: [{ type: "text", text: "partial…" }],
+        },
+      ],
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Connection lost");
+    expect(html).toContain("Reconnect");
+  });
+
+  it("shows no banner on a clean finish", () => {
+    stubChat({
+      messages: [
+        userText("Hi"),
+        assistantText("Hello **there**"),
+      ],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).not.toContain("Connection lost");
+    expect(html).not.toContain("Reconnect");
+  });
+});
+
 describe("ChatPanel attach button (trip chat or landing inbox)", () => {
   it("is visible when a trip chat is bound", () => {
     stubChat();

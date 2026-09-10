@@ -5,7 +5,10 @@ import {
   chatContextKey,
   findTripIds,
   loadThreadId,
+  loadTranscript,
+  messageInterrupted,
   messageToText,
+  saveTranscript,
   toBackendMessage,
 } from "./chat";
 
@@ -113,5 +116,54 @@ describe("chat threads", () => {
 
   it("returns null without a browser store (SSR-safe)", () => {
     expect(loadThreadId("general")).toBeNull();
+  });
+});
+
+describe("messageInterrupted (issue #152: cut vs clean terminal)", () => {
+  function assistantMessage(parts: UIMessage["parts"]): UIMessage {
+    return { id: "a1", role: "assistant", parts };
+  }
+
+  it("flags a finish marked interrupted (cut connection)", () => {
+    expect(
+      messageInterrupted({
+        id: "a1",
+        role: "assistant",
+        metadata: { interrupted: true },
+        parts: [{ type: "text", text: "par" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("passes a clean finish (agent completed)", () => {
+    expect(
+      messageInterrupted(
+        assistantMessage([{ type: "text", text: "done" }]),
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores user messages and text-only parts", () => {
+    expect(
+      messageInterrupted({
+        id: "u1",
+        role: "user",
+        parts: [{ type: "text", text: "hi" }],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("transcript persistence (issue #152: reload restores)", () => {
+  it("returns [] with no browser store (SSR-safe)", () => {
+    expect(loadTranscript("thread-1")).toEqual([]);
+  });
+
+  it("saveTranscript is a no-op without a browser store", () => {
+    expect(() =>
+      saveTranscript("thread-1", [
+        { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
+      ]),
+    ).not.toThrow();
   });
 });

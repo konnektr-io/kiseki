@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -251,6 +251,54 @@ export async function uploadChatFile(
   };
 }
 
+/** Persisted per-thread transcript (issue #152) — `UIMessage[]` serialized
+ *  as JSON, capped so one long thread can't evict the others' quota. */
+const TRANSCRIPTS_KEY = "kiseki.chat.transcripts.v1";
+const MAX_STORED_MESSAGES = 100;
+
+function readTranscripts(): Record<string, UIMessage[]> {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(TRANSCRIPTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: Record<string, UIMessage[]> = {};
+    for (const [key, value] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (Array.isArray(value)) out[key] = value as UIMessage[];
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** The restored transcript for a thread (empty = none stored yet). */
+export function loadTranscript(threadId: string): UIMessage[] {
+  try {
+    const stored = readTranscripts()[threadId];
+    return Array.isArray(stored) ? stored : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Persist a thread's transcript (fire-and-forget — quota errors drop it). */
+export function saveTranscript(threadId: string, messages: UIMessage[]): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    const tail = messages.slice(-MAX_STORED_MESSAGES);
+    window.localStorage.setItem(
+      TRANSCRIPTS_KEY,
+      JSON.stringify({ ...readTranscripts(), [threadId]: tail }),
+    );
+  } catch {
+    // persistence is a convenience — a chat without it still works
+  }
+}
+
 /** Plain text of a message (assistant rendering + trip-link detection). */
 export function messageToText(message: UIMessage): string {
   return message.parts
@@ -305,6 +353,23 @@ export function messageActivities(message: UIMessage): ChatActivity[] {
   return rows;
 }
 
+/** Whether the last assistant message ended on a CUT connection (issue #152).
+
+ * The relay marks the terminal `finish` chunk's `messageMetadata` with
+ * `{interrupted: true}` when the upstream stream closed without
+ * `response.completed`/`[DONE]` — a dropped turn the UI must surface with
+ * Reconnect, never as a clean completion. The SDK persists chunk
+ * `messageMetadata` onto the assistant message, so the flag survives as
+ * `message.metadata`. */
+export function messageInterrupted(message: UIMessage): boolean {
+  const meta = message.metadata as { interrupted?: unknown } | undefined;
+  return (
+    typeof meta === "object" &&
+    meta !== null &&
+    (meta as { interrupted?: unknown }).interrupted === true
+  );
+}
+
 /** Trip ids the agent linked (`/t/<uuid>`) — after a create, the landing
  *  offers the newest one as an "Open trip" button. */
 export function findTripIds(text: string): string[] {
@@ -328,6 +393,13 @@ export interface UseTripChatOptions {
  * `useChat` bound to a trip context (or the general landing chat).
  * `threadId` is caller-owned (persisted per context in localStorage) — the
  * panel remounts the thread on rotate so chat state restarts cleanly.
+ *
+ * Transcript persistence (issue #152): the thread's messages restore from
+ * localStorage on mount (`loadTranscript`) and save on every change — a
+ * reload or app switch keeps the visible transcript. Server history stays
+ * the source of truth for continuation (the relay forwards only the new
+ * input; Hermes chains the rest via `thread:<threadId>`), so a restored
+ * transcript is display state, never re-sent.
  */
 export function useTripChat({
   tripId,
@@ -342,6 +414,7 @@ export function useTripChat({
   const chat = useChat({
     id: threadId,
     transport,
+    messages: loadTranscript(threadId),
     ...(onFinish
       ? {
           onFinish: ({ message }: { message: UIMessage }) => {
@@ -350,5 +423,10 @@ export function useTripChat({
         }
       : {}),
   });
+  // Persist the visible transcript so a reload / app switch restores it.
+  const { messages } = chat;
+  useEffect(() => {
+    saveTranscript(threadId, messages);
+  }, [threadId, messages]);
   return chat;
 }
