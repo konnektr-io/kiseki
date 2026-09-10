@@ -7,7 +7,6 @@ import {
   loadThreadId,
   loadTranscript,
   messageActivities,
-  messageFinalText,
   messageInterrupted,
   messageToText,
   saveTranscript,
@@ -110,7 +109,7 @@ describe("messageToText + findTripIds", () => {
   });
 });
 
-describe("messageFinalText (issue #179: narration never renders as chat)", () => {
+describe("assistant text (issue #181 revert: the bubble shows everything)", () => {
   const activityPart = (id: string, done: boolean) =>
     ({
       type: "data-kiseki-activity",
@@ -118,80 +117,46 @@ describe("messageFinalText (issue #179: narration never renders as chat)", () =>
       data: { label: "Running a command…", done },
     }) as unknown as UIMessage["parts"][number];
 
-  it("keeps ALL text on a turn with no activity parts (plain Q&A)", () => {
+  // #181 rendered only the text AFTER the last activity part. Live use showed
+  // what that cost: the agent's commentary IS the product ("Days are in. Now
+  // the section chapters."), plain answers surfaced late — sometimes after the
+  // user's NEXT message — and previous agent messages vanished while a new
+  // turn streamed. The bubble renders `messageToText`: every part, in order.
+  it("keeps narration and the answer, in stream order", () => {
+    const message: UIMessage = {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Days are in. Now the section chapters." },
+        activityPart("c1", true),
+        { type: "text", text: " 11 days, 3 cities — activities on every day." },
+      ],
+    };
+    const text = messageToText(message);
+    expect(text).toContain("Days are in");
+    expect(text).toContain("11 days, 3 cities");
+    expect(text.indexOf("Days are in")).toBeLessThan(text.indexOf("11 days"));
+  });
+
+  it("keeps a plain Q&A answer intact (no activity parts)", () => {
     const message: UIMessage = {
       id: "a1",
       role: "assistant",
       parts: [{ type: "text", text: "Hello — here's the plan." }],
     };
-    expect(messageFinalText(message)).toBe("Hello — here's the plan.");
+    expect(messageToText(message)).toBe("Hello — here's the plan.");
   });
 
-  it("renders only the text AFTER the last activity part", () => {
+  it("keeps a tool-only turn's narration (nothing else would render)", () => {
     const message: UIMessage = {
       id: "a1",
       role: "assistant",
       parts: [
-        { type: "text", text: "Let me load the skill and check the data." },
-        activityPart("c1", true),
-        { type: "text", text: "Done — pushed the Seoul day." },
-      ],
-    };
-    expect(messageFinalText(message)).toBe("Done — pushed the Seoul day.");
-  });
-
-  it("collapses narration between MANY tool calls — only the answer survives", () => {
-    // the reported defect shape: narration → tool → narration → tool → answer
-    const message: UIMessage = {
-      id: "a1",
-      role: "assistant",
-      parts: [
-        { type: "text", text: "I'll start by loading the trip-content skill…" },
-        activityPart("c1", true),
-        { type: "text", text: "HTTP 422: extra_forbidden on coverStats." },
-        activityPart("c2", true),
-        { type: "text", text: "The trip is booked — dates are in." },
-      ],
-    };
-    expect(messageFinalText(message)).toBe("The trip is booked — dates are in.");
-  });
-
-  it("streams the growing post-activity answer mid-turn (spinner + answer)", () => {
-    const message: UIMessage = {
-      id: "a1",
-      role: "assistant",
-      parts: [
-        { type: "text", text: "Checking the trip…" },
-        activityPart("c1", false),
-        { type: "text", text: "Adding the day no" },
-      ],
-    };
-    expect(messageFinalText(message)).toBe("Adding the day no");
-  });
-
-  it("joins MULTIPLE post-activity text parts (multi-segment answers)", () => {
-    const message: UIMessage = {
-      id: "a1",
-      role: "assistant",
-      parts: [
-        activityPart("c1", true),
-        { type: "text", text: "Booked the cabin. " },
-        { type: "text", text: "The view is alpine." },
-      ],
-    };
-    expect(messageFinalText(message)).toBe("Booked the cabin. The view is alpine.");
-  });
-
-  it("yields empty for a narration-only turn (tool call still running)", () => {
-    const message: UIMessage = {
-      id: "a1",
-      role: "assistant",
-      parts: [
-        { type: "text", text: "Let me load the kiseki trip-content skill…" },
+        { type: "text", text: "Pulling the Seoul days together…" },
         activityPart("c1", false),
       ],
     };
-    expect(messageFinalText(message)).toBe("");
+    expect(messageToText(message)).toContain("Pulling the Seoul days together");
   });
 });
 

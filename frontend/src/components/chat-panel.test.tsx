@@ -92,16 +92,17 @@ describe("ChatPanel messages", () => {
     expect(html).toContain("<strong>there</strong>");
   });
 
-  it("holds a streaming pre-tool answer back until the turn settles (issue #179)", () => {
-    // While a turn streams with no activity parts yet, its text is
-    // unclassifiable (plain answer OR narration) — the thinking row is the
-    // feedback; the text renders once the turn settles.
+  it("streams a plain answer while the turn is still running (issue #181 revert)", () => {
+    // #181 held pre-tool text back mid-stream (unclassifiable as answer vs
+    // narration) and rendered it only at settle — which also delayed every
+    // plain answer, so it could surface after the user's NEXT message. Text
+    // renders as it arrives.
     stubChat({
       messages: [userText("Hi"), assistantText("Hello **there**")],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    expect(html).not.toContain("<strong>there</strong>");
+    expect(html).toContain("<strong>there</strong>");
     expect(html).toContain("Agent is thinking");
   });
 
@@ -226,68 +227,82 @@ describe("ChatPanel messages", () => {
     expect(html).toContain("Agent is thinking");
   });
 
-  it("hides pre-tool narration — only the post-activity answer is a bubble (issue #179)", () => {
-    // The reported defect: the agent's step-by-step narration ("let me load
-    // the skill…", raw JSON, HTTP 422) streamed as ordinary text and
-    // rendered as chat bubbles in a travel app. AgentBubble renders only
-    // messageFinalText — text after the LAST activity part.
+  it("renders the agent's running commentary as well as its answer (issue #181 revert)", () => {
+    // Live use of #181: hiding pre-tool text also hid the commentary the user
+    // wants — "Days are in. Now the section chapters." — and delayed the
+    // answer until settle. The bubble shows every text part, in stream order.
     stubChat({
       messages: [
         userText("Plan day 3"),
         toolTurn([
-          { kind: "text", text: "I'll start by loading the trip-content skill…" },
+          { kind: "text", text: "Days are in. Now the section chapters." },
           { kind: "activity", id: "c1", label: "Checking trip data…", done: true },
-          { kind: "text", text: 'HTTP 422: [{"type": "extra_forbidden", "loc": ["body", "coverStats"]}]' },
-          { kind: "activity", id: "c2", label: "Writing trip data…", done: false },
           { kind: "text", text: "Day 3 is in — heli day, lunch in Catomba." },
         ]),
       ],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    // the answer renders
+    expect(html).toContain("Days are in. Now the section chapters.");
     expect(html).toContain("Day 3 is in");
-    // the narration — model chatter, raw JSON, HTTP codes — NEVER renders
-    expect(html).not.toContain("trip-content skill");
-    expect(html).not.toContain("HTTP 422");
-    expect(html).not.toContain("extra_forbidden");
-    // the live activity row still works
-    expect(html).toContain("Writing trip data…");
+    expect(html).toContain("Checking trip data…");
   });
 
-  it("shows NO bubble for a narration-only turn (tool still running)", () => {
+  it("keeps earlier agent messages on screen while a new turn streams (issue #181 revert)", () => {
+    // The reported defect: send a follow-up and every agent bubble vanished —
+    // `busy` was passed to EVERY bubble, and a busy bubble with no activity
+    // parts rendered nothing. Only the live activity row belongs to `busy`.
     stubChat({
       messages: [
-        userText("Plan day 3"),
+        userText("What's the plan?"),
+        assistantText("Three cities, eleven days."),
+        userText("add activities on all days"),
         toolTurn([
-          { kind: "text", text: "Let me check the trip data first…" },
-          { kind: "activity", id: "c1", label: "Checking trip data…", done: false },
+          { kind: "text", text: "Working through the days…" },
+          { kind: "activity", id: "c1", label: "Writing trip data…", done: false },
         ]),
       ],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    expect(html).not.toContain("Let me check the trip data first");
-    expect(html).toContain("Checking trip data…");
+    expect(html).toContain("Three cities, eleven days.");
+    expect(html).toContain("Working through the days…");
   });
 
-  it("acknowledges a settled narration-only turn in traveler terms (issue #179)", () => {
-    // The turn DID work (activity rows completed) but streamed no final
-    // prose — after settle the user must not read dead silence. The
-    // acknowledgement is plain, never plumbing.
+  it("never claims a finished tool: the row spins for the whole turn", () => {
+    // A per-call checkmark flipped the instant one call's result landed, while
+    // the turn kept working — a premature "finished" claim in a single-row feed.
+    stubChat({
+      messages: [
+        userText("add activities"),
+        toolTurn([
+          { kind: "activity", id: "c1", label: "Writing trip data…", done: true },
+        ]),
+      ],
+      status: "streaming",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).not.toContain("✓");
+    expect(html).toContain("Writing trip data…");
+  });
+
+  it("adds no synthetic acknowledgement for a tool-only turn", () => {
+    // "Handled — your trip is up to date." asserted success the agent never
+    // stated (and was sometimes untrue). The agent's own words are the only
+    // text the UI shows.
     stubChat({
       messages: [
         userText("Plan day 3"),
         toolTurn([
-          { kind: "text", text: "Let me check the trip data first…" },
-          { kind: "activity", id: "c1", label: "Checking trip data…", done: true },
+          { kind: "text", text: "Checking the trip data first…" },
+          { kind: "activity", id: "c1", label: "Writing trip data…", done: true },
         ]),
       ],
       status: "ready",
     });
     const html = renderPanel("trip-1");
-    expect(html).toContain("Handled — your trip is up to date.");
-    expect(html).not.toContain("Let me check the trip data first");
+    expect(html).not.toContain("Handled");
+    expect(html).toContain("Checking the trip data first…");
   });
 
   it("keeps plain Q&A turns fully visible (no activity parts)", () => {

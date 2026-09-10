@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TripAccessError, clearTripCache, fetchTrip } from "./api";
+import { TripAccessError, clearTripCache, fetchTrip, refetchTrip } from "./api";
 
 const TRIP_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -34,6 +34,25 @@ function stubFetch(...bodies: Array<Record<string, unknown>>) {
 afterEach(() => {
   clearTripCache();
   vi.unstubAllGlobals();
+});
+
+describe("refetchTrip (agent edits must reach the UI)", () => {
+  it("bypasses the session cache and re-reads the document", async () => {
+    // The chat drawer refetches after every completed turn: a cached copy
+    // would serve the PRE-agent document and the edit would stay invisible.
+    const sent = stubFetch(crewDoc, { ...crewDoc, title: "Agent just edited this" });
+    await fetchTrip(TRIP_ID, "tok-123");
+    const fresh = (await refetchTrip(TRIP_ID, "tok-123")) as unknown as { title?: string };
+    expect(sent.length).toBe(2); // the second read really hit the network
+    expect(fresh.title).toBe("Agent just edited this");
+  });
+
+  it("drops the anonymous copy too — one cache key is not the other", async () => {
+    const sent = stubFetch(anonDoc, crewDoc);
+    await fetchTrip(TRIP_ID); // anonymous read cached under `<id>|anon`
+    await refetchTrip(TRIP_ID, "tok-123");
+    expect(sent).toEqual([undefined, "Bearer tok-123"]);
+  });
 });
 
 describe("fetchTrip", () => {

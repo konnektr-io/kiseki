@@ -56,6 +56,19 @@ export function clearTripCache(): void {
   tripCache.clear();
 }
 
+/**
+ * Force a fresh read of one trip, bypassing the session cache — the agent
+ * edits trips server-side while the SPA keeps the document it read at page
+ * load, so a surface that must show agent edits (the chat drawer finishing a
+ * turn) has to drop the cached copy first. Falls back to `fetchTrip`'s error
+ * contract (TripAccessError) so callers keep the 401/403 handling.
+ */
+export async function refetchTrip(tripId: string, accessToken?: string): Promise<Trip> {
+  tripCache.delete(`${tripId}|auth`);
+  tripCache.delete(`${tripId}|anon`);
+  return fetchTrip(tripId, accessToken);
+}
+
 /** Resolve the trip behind a claim token (join link) — the 'invite' view. */
 export async function fetchTripByClaim(claimToken: string): Promise<Trip> {
   const res = await fetch(`/api/trips/by-claim/${encodeURIComponent(claimToken)}`);

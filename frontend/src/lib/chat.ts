@@ -311,40 +311,6 @@ export function messageToText(message: UIMessage): string {
 }
 
 /**
- * The FINAL text of an assistant turn (issue #179) — only text that came
- * AFTER the last `data-kiseki-activity` part. The relay rotates the text
- * part id on every tool call, so the message's parts carry the turn's
- * shape in order: narration segments (pre-tool chatter) → activity parts
- * → the answer. Rendering only the post-activity text is the durable UI
- * leg against a chatty model narrating its plumbing ("let me load the
- * skill…", raw JSON, HTTP codes) as chat bubbles.
- *
- * - Messages with no activity parts (plain Q&A turns, or a turn that
- *   streamed its whole answer with zero tool calls) yield ALL their text
- *   — the common path is untouched.
- * - An in-flight answer (activity parts arrived, then text is still
- *   streaming) yields the partial post-activity text — the growing answer
- *   renders live, never the narration that preceded it.
- * - Settled turns keep FULL `messageToText` semantics in the persisted
- *   transcript; this reader is what AgentBubble renders, so history
- *   transparency is a deliberate non-goal: narration stays invisible.
- */
-export function messageFinalText(message: UIMessage): string {
-  const parts = message.parts;
-  let lastActivity = -1;
-  for (let i = 0; i < parts.length; i++) {
-    if (parts[i].type === ACTIVITY_PART) lastActivity = i;
-  }
-  return parts
-    .flatMap((part, i) =>
-      part.type === "text" && (lastActivity === -1 || i > lastActivity)
-        ? [part.text]
-        : [],
-    )
-    .join("");
-}
-
-/**
  * Agent activity rows for one assistant message (issue #151) — one entry
  * per `data-kiseki-activity` data part the relay emitted, in message order.
  * `label` is the relay's friendly text ("Searching the web…"); `done` flips

@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
-import { fetchTrip, downloadBooklet, fetchJoinLink, clearTripCache, TripAccessError } from "../lib/api";
+import { fetchTrip, refetchTrip, downloadBooklet, fetchJoinLink, clearTripCache, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
@@ -286,6 +286,30 @@ export function TripLayout() {
     pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
   const isOwner = trip.myRole === "owner";
 
+  // The chat drawer's agent writes trip content server-side, while the SPA
+  // keeps the document it read at load (`api.ts` memoizes it for the session)
+  // and the chat's activity row unmounts the moment the turn ends — so without
+  // this, a turn's own edits are invisible until a manual reload ("I updated
+  // it but you still don't see the result"). Refetch when a turn completes.
+  // Failures stay silent: the current view keeps working and the next
+  // navigation refetches anyway.
+  const reloadTrip = useCallback(async () => {
+    let at: string | undefined;
+    if (isAuthenticated) {
+      try {
+        at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getTokenRef.current());
+      } catch {
+        // Renewal blocked (third-party cookies) — a public trip still reads
+        // anonymously; a private one just keeps the view it already has.
+      }
+    }
+    try {
+      setTrip(await refetchTrip(tripId, at));
+    } catch {
+      // Keep what is on screen; the agent's answer is still in the drawer.
+    }
+  }, [tripId, isAuthenticated]);
+
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
     setPdfBusy(true);
@@ -438,6 +462,9 @@ export function TripLayout() {
           <ChatPopup
             tripId={trip.id}
             onClose={() => setChatOpen(false)}
+            onTurnComplete={() => {
+              void reloadTrip();
+            }}
             label="Trip chat"
           />
         )}

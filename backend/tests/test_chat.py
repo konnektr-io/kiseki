@@ -756,10 +756,16 @@ def test_identity_instructions_carry_credential_silence_rule() -> None:
 
 
 def test_identity_instructions_forbid_all_plumbing_narration() -> None:
-    """Issue #179: the silence rule extends past credentials to every
+    """Issues #179/#181: the silence rule extends past credentials to every
     internal the chat must not surface — tools, skills, scripts, paths,
-    endpoints, HTTP codes, JSON, field names — on BOTH envelope shapes,
-    and states the live activity line makes narration redundant."""
+    endpoints, HTTP codes, JSON, field names — on BOTH envelope shapes.
+
+    It is a VOCABULARY rule, not a gag on progress. #181 also told the agent
+    that step commentary was redundant; live use showed the opposite need (a
+    turn that streamed only tool calls left the traveler with no idea what
+    happened). The envelope must still ask for traveler-language narration and
+    a closing line naming what changed.
+    """
     for text in (
         chat_module.identity_instructions(OTHER_SUB, TRIP),
         chat_module.identity_instructions(OTHER_SUB, None),
@@ -768,8 +774,8 @@ def test_identity_instructions_forbid_all_plumbing_narration() -> None:
         assert "skills, scripts, file paths, endpoints" in text
         assert "HTTP status" in text
         assert "JSON, schemas, or field names" in text
-        assert "live activity line" in text
-        assert "step-by-step commentary is redundant" in text
+        assert "keep talking to the traveler" in text
+        assert "end every turn" in text
         # #158's credential rule must still hold verbatim
         assert "tokens, M2M, minting, act-as, credentials" in text
 
@@ -959,10 +965,20 @@ def test_files_uploads_to_inbox_without_trip(
 
 
 def test_files_inbox_rejects_traversal(client, rsa_keypair, monkeypatch, tmp_path) -> None:
+    """Traversal-shaped inbox names never read the store.
+
+    Only names that actually REACH the route can express traversal, so the
+    cases here are the encoded separator and the raw separator: a bare ``..``
+    path segment is normalized to ``/`` by any conformant HTTP client (httpx)
+    or proxy before routing, so it can never address the inbox route at all —
+    asserting 404 on it only tested whether a local SPA build existed to make
+    ``/`` answer 200 (it failed in the shared checkout, which has
+    ``frontend/dist/``, and passed in a fresh worktree and CI).
+    """
     monkeypatch.setattr(media_module, "config", _FakeConfig(tmp_path))
     media_module.clear_media_store()
     try:
-        for bad in ("..%2Fsecret.jpg", "a/b.jpg", "..", ".hidden"):
+        for bad in ("..%2Fsecret.jpg", "a/b.jpg", "..%2F..%2Fetc%2Fpasswd", ".hidden"):
             resp = client.get(f"/inbox/{bad}")
             assert resp.status_code == 404, bad
     finally:
