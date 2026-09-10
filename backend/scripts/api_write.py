@@ -83,7 +83,21 @@ matching a known place) and then issues the calls in the canonical order,
 ending with a re-GET summary: counts plus which days still have NO blocks.
 A plan that would 422 is rejected before the first write.
 
-Images: never write an external URL into a media field. Source a rights-clean
+Images — the pipeline the agent can actually run (no token ever hits a shell):
+
+    python scripts/api_write.py upload ./tokyo.jpg --trip-id <trip_id>
+    python scripts/api_write.py upload ./tokyo.jpg            # → inbox, then promote
+    python scripts/api_write.py promote <hash>.jpg --trip-id <trip_id>
+
+`upload` posts multipart to POST /api/files (with `trip_id`: straight into the
+trip's media namespace; without: the user's inbox) and prints both the returned
+URL and `field_value` — the BARE filename you write into `cover`, a block's
+`images`, a feature's `image`, or a place's `photo`. `promote` moves a staged
+inbox file into the trip and prints the same pair. Never write an external URL
+into a media field: a hotlink renders as a broken cover in the app and cannot
+be embedded in the PDF booklet.
+
+Also: never write an external URL into a media field. Source a rights-clean
 image, stage it with POST /api/files (multipart → /inbox/<sha>), promote it
 with POST /api/files/promote, and store the resulting BARE filename (the
 `/media/<trip_id>/<file>` route and the PDF booklet expect that shape).
@@ -114,9 +128,12 @@ Stdlib only (urllib) so it runs anywhere, no venv needed.
 from __future__ import annotations
 
 import argparse
+import io
 import json
+import mimetypes
 import os
 import sys
+import uuid
 import urllib.error
 import urllib.request
 
@@ -500,13 +517,24 @@ def plan_calls(plan: dict, trip_id: str, existing: dict | None = None) -> list[t
     return calls
 
 
-def _request(method: str, base: str, path: str, token: str, body: dict | None) -> tuple[int, object]:
+def _request(
+    method: str,
+    base: str,
+    path: str,
+    token: str,
+    body: dict | None,
+    raw: tuple[bytes, str] | None = None,
+) -> tuple[int, object]:
     url = base.rstrip("/") + ("/" + path.lstrip("/") if path else "")
-    data = json.dumps(body).encode("utf-8") if body is not None else None
+    if raw is not None:
+        data, content_type = raw
+    else:
+        data = json.dumps(body).encode("utf-8") if body is not None else None
+        content_type = "application/json"
     req = urllib.request.Request(url, method=method.upper(), data=data)
     req.add_header("Authorization", f"Bearer {token}")
     if data is not None:
-        req.add_header("Content-Type", "application/json")
+        req.add_header("Content-Type", content_type)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             payload = resp.read().decode("utf-8")
@@ -522,6 +550,87 @@ def _request(method: str, base: str, path: str, token: str, body: dict | None) -
         return status, json.loads(payload)
     except json.JSONDecodeError:
         return status, payload
+
+
+def _multipart(fields: dict[str, str], file_field: str, path: str) -> tuple[bytes, str]:
+    """Encode one file + plain fields as multipart/form-data (stdlib only)."""
+    boundary = "----kiseki" + uuid.uuid4().hex
+    buf = io.BytesIO()
+    for key, value in fields.items():
+        if value is None:
+            continue
+        buf.write(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
+        )
+    name = os.path.basename(path)
+    ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    buf.write(
+        f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; '
+        f'filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode()
+    )
+    with open(path, "rb") as fh:
+        buf.write(fh.read())
+    buf.write(f"\r\n--{boundary}--\r\n".encode())
+    return buf.getvalue(), f"multipart/form-data; boundary={boundary}"
+
+
+def _bare_name(url: str) -> str:
+    """The filename a media field stores, from any returned /media//inbox/ URL."""
+    return url.rstrip("/").rsplit("/", 1)[-1]
+
+
+def upload_file(args) -> int:
+    """`upload <local-file> [--trip-id <id>]` — bytes into the trip (or the inbox)."""
+    base = args.base
+    token = args.token or os.environ.get("KISEKI_TOKEN")
+    if token is None:
+        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    path = args.path
+    if not path:
+        raise SystemExit("error: upload needs a local file path: upload <file> [--trip-id <id>]")
+    if not os.path.isfile(path):
+        raise SystemExit(f"error: no such file: {path}")
+
+    payload, content_type = _multipart({"trip_id": args.trip_id}, "file", path)
+    status, body = _request(
+        "post", base, "/api/files", token, None, raw=(payload, content_type)
+    )
+    if not 200 <= status < 300:
+        detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+        print(f"HTTP {status}: {str(detail)[:300]}", file=sys.stderr)
+        return 1
+    url = (body or {}).get("url", "")
+    print(json.dumps({"url": url, "field_value": _bare_name(url)}, indent=2))
+    if url.startswith("/inbox/"):
+        print(
+            "staged in the inbox — promote it into the trip before writing a field:\n"
+            f"  api_write.py promote {_bare_name(url)} --trip-id <trip_id>",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def promote_file(args) -> int:
+    """`promote <file-name> --trip-id <id>` — inbox file → the trip's media namespace."""
+    base = args.base
+    token = args.token or os.environ.get("KISEKI_TOKEN")
+    if token is None:
+        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    if not args.path:
+        raise SystemExit("error: promote needs the file name: promote <file-name> --trip-id <id>")
+    if not args.trip_id:
+        raise SystemExit("error: promote needs --trip-id <trip_id>")
+    status, body = _request(
+        "post", base, "/api/files/promote", token, {"trip_id": args.trip_id, "file_name": args.path}
+    )
+    if not 200 <= status < 300:
+        detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+        print(f"HTTP {status}: {str(detail)[:300]}", file=sys.stderr)
+        return 1
+    url = (body or {}).get("url", "")
+    print(json.dumps({"url": url, "field_value": _bare_name(url)}, indent=2))
+    print("write THAT field value (the bare filename) into cover/images/photo — not the URL", file=sys.stderr)
+    return 0
 
 
 def _block_update_body(body: dict) -> dict:
@@ -676,7 +785,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("method",
-                    choices=["get", "put", "post", "patch", "delete", "create-trip", "fill"])
+                    choices=["get", "put", "post", "patch", "delete", "create-trip", "fill",
+                             "upload", "promote"])
     ap.add_argument("path", nargs="?", default=None,
                     help="API path, e.g. /api/trips/<trip_id>/blocks (omit for create-trip)")
     ap.add_argument("--json", help="JSON body inline")
@@ -687,10 +797,17 @@ def main() -> int:
     ap.add_argument("--base", default=BASE_URL, help=f"API base (default: {BASE_URL})")
     ap.add_argument("--dry-run", action="store_true",
                     help="fill only: validate + print the calls, write nothing")
+    ap.add_argument("--trip-id",
+                    help="upload/promote: the trip the file belongs to (upload without it "
+                         "stages into the inbox, then `promote` moves it)")
     args = ap.parse_args()
 
     if args.method == "fill":
         return fill_trip(args)
+    if args.method == "upload":
+        return upload_file(args)
+    if args.method == "promote":
+        return promote_file(args)
 
     token = args.token or os.environ.get("KISEKI_TOKEN")
     if token is None:

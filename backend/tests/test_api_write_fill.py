@@ -278,6 +278,36 @@ def test_block_update_body_drops_immutable_fields():
     assert update_body["title"] == "Late ramen" and update_body["cost"] == 1500
 
 
+def test_bare_name_from_media_and_inbox_urls():
+    """The value a media field stores — from either returned URL shape."""
+    assert aw._bare_name("/media/abc-123/hash.jpg") == "hash.jpg"
+    assert aw._bare_name("/inbox/hash.jpg") == "hash.jpg"
+    assert aw._bare_name("/media/abc-123/hash.jpg/") == "hash.jpg"
+
+
+def test_multipart_body_is_well_formed(tmp_path):
+    """Stdlib multipart: fields, filename, guessed content type, closing boundary."""
+    img = tmp_path / "cover.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0jpegbytes")
+    payload, content_type = aw._multipart({"trip_id": "trip-1"}, "file", str(img))
+    assert content_type.startswith("multipart/form-data; boundary=")
+    assert b'name="trip_id"' in payload and b"trip-1" in payload
+    assert b'name="file"; filename="cover.jpg"' in payload
+    assert b"Content-Type: image/jpeg" in payload
+    assert b"jpegbytes" in payload
+    assert payload.endswith(b"--\r\n")
+
+
+def test_cli_advertises_upload_and_promote():
+    """The agent can only move an image if a verb can carry its minted token."""
+    out = subprocess.run(
+        [sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=30
+    ).stdout
+    assert "upload <local-file>" in out or "upload" in out
+    assert "promote" in out
+    assert "--trip-id" in out
+
+
 def test_every_planned_path_is_an_absolute_api_path():
     for method, path, _ in aw.plan_calls(_valid_plan(), TRIP_ID, EXISTING):
         assert path.startswith("/api/"), f"{method} {path} is not an absolute API path"
