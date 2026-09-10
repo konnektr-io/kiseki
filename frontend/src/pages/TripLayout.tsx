@@ -210,6 +210,38 @@ export function TripLayout() {
     return () => ro.disconnect();
   }, [trip, pathname]);
 
+  // The chat drawer's agent writes trip content server-side, while the SPA
+  // keeps the document it read at load (`api.ts` memoizes it for the session)
+  // and the chat's activity row unmounts the moment the turn ends — so without
+  // this, a turn's own edits are invisible until a manual reload ("I updated
+  // it but you still don't see the result"). Refetch when a turn completes.
+  // Failures stay silent: the current view keeps working and the next
+  // navigation refetches anyway.
+  //
+  // ⚠️ HOOK PLACEMENT: this must stay ABOVE the loading/error early returns
+  // below. Every hook in this component has to run on EVERY render — the
+  // mount render bails at `if (!trip)` with a shorter hook list, so a hook
+  // declared after that guard makes the next render (trip arrives) call one
+  // MORE hook than the previous one, and React throws "Rendered more hooks
+  // than during the previous render" (#310) for the whole app. That shipped
+  // once in v0.25.8 and blanked every trip page. TripLayout.test.tsx pins it.
+  const reloadTrip = useCallback(async () => {
+    let at: string | undefined;
+    if (isAuthenticated) {
+      try {
+        at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getTokenRef.current());
+      } catch {
+        // Renewal blocked (third-party cookies) — a public trip still reads
+        // anonymously; a private one just keeps the view it already has.
+      }
+    }
+    try {
+      setTrip(await refetchTrip(tripId, at));
+    } catch {
+      // Keep what is on screen; the agent's answer is still in the drawer.
+    }
+  }, [tripId, isAuthenticated]);
+
   if (!authReady && !PDF_RENDER && !error) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -285,30 +317,6 @@ export function TripLayout() {
   const onMapSurface =
     pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
   const isOwner = trip.myRole === "owner";
-
-  // The chat drawer's agent writes trip content server-side, while the SPA
-  // keeps the document it read at load (`api.ts` memoizes it for the session)
-  // and the chat's activity row unmounts the moment the turn ends — so without
-  // this, a turn's own edits are invisible until a manual reload ("I updated
-  // it but you still don't see the result"). Refetch when a turn completes.
-  // Failures stay silent: the current view keeps working and the next
-  // navigation refetches anyway.
-  const reloadTrip = useCallback(async () => {
-    let at: string | undefined;
-    if (isAuthenticated) {
-      try {
-        at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getTokenRef.current());
-      } catch {
-        // Renewal blocked (third-party cookies) — a public trip still reads
-        // anonymously; a private one just keeps the view it already has.
-      }
-    }
-    try {
-      setTrip(await refetchTrip(tripId, at));
-    } catch {
-      // Keep what is on screen; the agent's answer is still in the drawer.
-    }
-  }, [tripId, isAuthenticated]);
 
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
