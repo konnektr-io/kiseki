@@ -82,6 +82,43 @@ describe("ChatPanel messages", () => {
     expect(renderPanel("trip-1")).toContain("Agent is thinking");
   });
 
+  it("renders the activity feed while the agent calls tools", () => {
+    const activity = {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-kiseki-activity",
+          toolCallId: "c1",
+          toolName: "kiseki-activity",
+          state: "input-available",
+          input: { label: "Searching the web…" },
+        },
+        {
+          type: "tool-kiseki-activity",
+          toolCallId: "c2",
+          toolName: "kiseki-activity",
+          state: "output-available",
+          input: { label: "Running a command…" },
+          output: { done: true },
+        },
+      ],
+    } as unknown as UIMessage;
+    stubChat({ messages: [activity], status: "streaming" });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Agent activity");
+    expect(html).toContain("Searching the web…");
+    expect(html).toContain("Running a command…");
+    // raw tool names never render
+    expect(html).not.toContain("kiseki-activity");
+  });
+
+  it("falls back to thinking when the turn has no activity yet", () => {
+    stubChat({ messages: [assistantText("partial")], status: "streaming" });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Agent is thinking");
+  });
+
   it("renders user image attachments as thumbnails", () => {
     const message: UIMessage = {
       id: "u2",

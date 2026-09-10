@@ -1,11 +1,17 @@
-import { Auth0Provider } from "@auth0/auth0-react";
-import type { ReactNode } from "react";
+import {
+  Auth0Context,
+  Auth0Provider,
+  initialContext,
+} from "@auth0/auth0-react";
+import type { Auth0ContextInterface, User } from "@auth0/auth0-react";
+import { createElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AUTH0_AUDIENCE,
   AUTH0_CLIENT_ID,
   AUTH0_DOMAIN,
   isAuthConfigured,
+  isE2EQuery,
 } from "../lib/auth";
 
 interface AuthProviderProps {
@@ -30,6 +36,40 @@ interface AuthProviderProps {
  */
 export function AuthProvider({ children }: AuthProviderProps) {
   const navigate = useNavigate();
+
+  // E2E browser-probe mode (?kiseki_e2e=1 — automated tests only): stub the
+  // Auth0 context as signed-in and hand the injected access token
+  // (window.__KISEKI_ACCESS_TOKEN__, the same seam the PDF renderer uses) to
+  // every API call. No Auth0 session, no cache seeding. The backend still
+  // enforces each request against the presented token.
+  if (typeof window !== "undefined" && isE2EQuery(window.location.search)) {
+    const token = window.__KISEKI_ACCESS_TOKEN__ ?? "";
+    const user: User = {
+      sub: "e2e-probe",
+      name: "E2E probe",
+      email: "e2e@kiseki.invalid",
+    };
+    // Cast: the stub's getAccessTokenSilently is a plain (async () => token)
+    // arrow; the SDK's overloaded signature (detailedResponse variant) can't
+    // structurally match it, which is fine — no consumer uses verbose mode.
+    const e2eContext = {
+      ...initialContext,
+      isAuthenticated: true,
+      isLoading: false,
+      error: undefined,
+      user,
+      getAccessTokenSilently: async () => token,
+      getAccessTokenWithPopup: async () => token,
+      loginWithRedirect: async () => {},
+      loginWithPopup: async () => {},
+      logout: async () => {},
+    } as unknown as Auth0ContextInterface;
+    return createElement(
+      Auth0Context.Provider,
+      { value: e2eContext },
+      children,
+    );
+  }
 
   if (!isAuthConfigured()) {
     return <>{children}</>;

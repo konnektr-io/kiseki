@@ -15,7 +15,12 @@ import type { UIMessage, UIMessageChunk } from "ai";
  * `prepareSendMessagesRequest` maps the transcript to the relay's
  * `{messages, threadId, tripId}` body, and a fetch wrapper maps 401/403 to
  * `ChatAuthError`. `useChat` still owns all message/state management.
- * The relay keeps dropping tool events by design — v1 renders text only.
+ *
+ * Agent tool calls (issue #151) arrive as activity chunks
+ * (`tool-input-start` / `tool-input-available` / `tool-output-available`,
+ * toolName `kiseki-activity`) — one activity row per call, rendered by the
+ * panel from the assistant message's tool parts. The relay maps real tool
+ * names to friendly labels server-side; raw names never reach the UI.
  */
 
 const THREADS_KEY = "kiseki.chat.threads.v1";
@@ -300,6 +305,52 @@ export function messageToText(message: UIMessage): string {
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("");
+}
+
+/**
+ * Agent activity rows for one assistant message (issue #151) — one entry
+ * per `tool-kiseki-activity` part the relay emitted, in message order.
+ * `label` is the relay's friendly text ("Searching the web…"); `done` flips
+ * when the call's output lands. Messages without tool parts yield [].
+ */
+export interface ChatActivity {
+  label: string;
+  done: boolean;
+}
+
+export function messageActivities(message: UIMessage): ChatActivity[] {
+  const rows: ChatActivity[] = [];
+  for (const part of message.parts) {
+    if (
+      typeof part.type !== "string" ||
+      !part.type.startsWith("tool-") ||
+      !("toolCallId" in part)
+    ) {
+      continue;
+    }
+    const tool = part as {
+      type: string;
+      toolCallId?: unknown;
+      toolName?: unknown;
+      input?: unknown;
+      state?: unknown;
+    };
+    if (tool.toolName !== "kiseki-activity") continue;
+    if (typeof tool.toolCallId !== "string" || !tool.toolCallId) continue;
+    if (tool.type === "tool-kiseki-activity") {
+      const input = tool.input as { label?: unknown } | undefined;
+      const label =
+        typeof input?.label === "string" && input.label
+          ? input.label
+          : "Working…";
+      const state = typeof tool.state === "string" ? tool.state : "";
+      rows.push({
+        label,
+        done: state === "output-available" || state === "output-error",
+      });
+    }
+  }
+  return rows;
 }
 
 /** Whether the last assistant message ended on a CUT connection (issue #152).

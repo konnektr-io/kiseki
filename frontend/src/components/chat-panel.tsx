@@ -10,6 +10,7 @@ import {
   chatContextKey,
   findTripIds,
   loadThreadId,
+  messageActivities,
   messageInterrupted,
   messageToText,
   newThreadId,
@@ -177,13 +178,19 @@ function ChatThread({
   useEffect(() => {
     const el = draftRef.current;
     if (!el) return;
+    // Measure with the scrollbar suppressed: a visible gutter narrows the box
+    // and rounds scrollHeight up past clientHeight (~1px with leading-relaxed),
+    // which made overflow-y-auto paint a permanent scrollbar even on empty
+    // drafts. Restore auto only at the 128px cap, where scrolling is real.
+    el.style.overflowY = "hidden";
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+    const next = Math.min(el.scrollHeight, 128);
+    el.style.height = `${next}px`;
+    el.style.overflowY = next >= 128 ? "auto" : "hidden";
   }, [draft]);
 
   const readyFiles = attachments.filter(
-    (a): a is { state: "ready"; file: UploadedChatFile } =>
-      a.state === "ready",
+    (a): a is { state: "ready"; file: UploadedChatFile } => a.state === "ready",
   );
   const uploading = attachments.some((a) => a.state === "uploading");
   const canSend =
@@ -220,9 +227,7 @@ function ChatThread({
     const picked = Array.from(files);
     setAttachments((prev) => [
       ...prev,
-      ...picked.map(
-        (f): Attachment => ({ state: "uploading", name: f.name }),
-      ),
+      ...picked.map((f): Attachment => ({ state: "uploading", name: f.name })),
     ]);
     await Promise.all(
       picked.map(async (file) => {
@@ -242,8 +247,7 @@ function ChatThread({
             ),
           );
         } catch (e) {
-          const message =
-            e instanceof Error ? e.message : "Upload failed.";
+          const message = e instanceof Error ? e.message : "Upload failed.";
           setAttachments((prev) =>
             prev.map((a) =>
               a.state === "uploading" && a.name === file.name
@@ -309,15 +313,13 @@ function ChatThread({
             <AgentBubble key={message.id} message={message} />
           ),
         )}
+        {busy && <AgentActivity messages={messages} />}
         {status === "submitted" && (
           <div
             role="status"
             className="flex items-center gap-2 text-sm text-muted-foreground"
           >
-            <Loader2
-              className="h-4 w-4 animate-spin"
-              aria-hidden="true"
-            />
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             Agent is thinking…
           </div>
         )}
@@ -369,9 +371,7 @@ function ChatThread({
                     type="button"
                     aria-label={`Remove ${a.file.name}`}
                     onClick={() =>
-                      setAttachments((prev) =>
-                        prev.filter((_, j) => j !== i),
-                      )
+                      setAttachments((prev) => prev.filter((_, j) => j !== i))
                     }
                     className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
                   >
@@ -431,7 +431,7 @@ function ChatThread({
           aria-label="Chat message"
           rows={1}
           disabled={busy}
-          className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-auto rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
+          className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-hidden rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
         />
         {busy ? (
           <Button
@@ -518,6 +518,54 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
       >
         Reconnect
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Live agent-activity feed (issue #151) — what the agent is doing RIGHT
+ * NOW, while the turn runs. One row per `tool-kiseki-activity` part across
+ * the streamed assistant messages (friendly labels from the relay, never raw
+ * tool names): the latest open call spins, finished calls show a check.
+ * Falls back to the plain "thinking" row when no activity arrived yet —
+ * a text-only turn (or a slow first byte) still shows something alive.
+ */
+function AgentActivity({ messages }: { messages: UIMessage[] }) {
+  const rows = messages.flatMap((message) => messageActivities(message));
+  if (rows.length === 0) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+      >
+        <Loader2
+          className="h-4 w-4 animate-spin"
+          aria-hidden="true"
+        />
+        Agent is thinking…
+      </div>
+    );
+  }
+  return (
+    <div role="status" aria-label="Agent activity" className="flex flex-col gap-1.5">
+      {rows.map((row, i) => (
+        <div
+          key={`${i}-${row.label}`}
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          {row.done ? (
+            <span aria-hidden="true" className="text-xs">
+              ✓
+            </span>
+          ) : (
+            <Loader2
+              className="h-4 w-4 animate-spin"
+              aria-hidden="true"
+            />
+          )}
+          <span>{row.label}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -632,4 +680,3 @@ export function ChatPopup({
     </div>
   );
 }
-
