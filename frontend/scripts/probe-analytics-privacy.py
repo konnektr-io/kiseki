@@ -223,6 +223,12 @@ def main() -> int:
         consent_cookie = next((c for c in cookie_blob if c.get("name") == "kiseki_consent"), None)
         consent_value = consent_cookie.get("value") if consent_cookie else None
         print(f"  consent cookie: {consent_value}")
+        # PostHog's own persistence cookie (`ph_<token>_posthog`) only exists in the
+        # COOKIE-BACKED mode. Its absence is how v0.25.0 hid: `cookieless_mode:
+        # "always"` sets nothing locally, and the project's cookieless server hash
+        # mode was off, so every event was accepted (HTTP 200) and discarded.
+        ph_cookie = next((c for c in cookie_blob if c.get("name", "").startswith("ph_")), None)
+        print(f"  posthog cookie present (proves cookie mode): {ph_cookie is not None}")
         banner_after = page.locator('[role="dialog"][aria-label="Anonymous analytics"]').count()
         print(f"  banner hidden after choice: {banner_after == 0}")
 
@@ -269,6 +275,11 @@ def main() -> int:
         failures.append("no analytics events were delivered after consent (silent no-op)")
     if consent_value != "granted":
         failures.append(f"consent cookie not written as 'granted' (got {consent_value!r})")
+    if not ph_cookie:
+        failures.append(
+            "no PostHog cookie after consent — the SDK is still cookieless, so the "
+            "project will discard every event (v0.25.0 regression)"
+        )
     if re_shown:
         failures.append("banner re-showed on reload despite a stored choice")
 
