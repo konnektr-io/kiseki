@@ -99,7 +99,7 @@ def test_delete_trip_204_and_trip_is_gone(client, rsa_keypair, graph) -> None:
         | {d.id for d in trip.days}
         | {s.id for s in trip.sections}
         | {b.id for d in trip.days for b in d.blocks}
-        | {b.id for s in trip.sections for b in s.get("blocks", [])}
+        | {b.id for s in trip.sections for b in (s.blocks or [])}
     )
     before_twin_kinds = {t["$dtId"]: t["$metadata"]["$model"] for t in g.twins}
 
@@ -282,26 +282,30 @@ def test_delete_trip_agent_act_as_owner_allowed(
     assert all(h.get("x-user-id") != f"{AGENT_CLIENT}@clients" for h in g.write_headers)
 
 
-def test_delete_trip_agent_without_act_as_403(
+def test_delete_trip_agent_owner_fallback_unattended(
     client, rsa_keypair, graph, monkeypatch
 ) -> None:
-    """The sanctioned M2M token with NO act-as resolves no crew role (the
-    client sub holds no hasCrew edge, and the unattended owner fallback is
-    deliberately NOT wired through _resolve_actor for require_trip_role-style
-    gates) → 403, and the trip survives. A whole-trip delete must always ride
-    a resolved USER identity (mode 2 act-as), never a bare service principal."""
+    """Unattended mode (no ACT_AS): the sanctioned M2M token is the
+    documented owner-level service principal (AGENTS.md mode 3) — it may
+    delete, attribution is the client sub, and NO twin is ever provisioned
+    for it. Same contract as every other write gate (test_write_api.py
+    test_agent_m2m_owner_fallback_without_twin); a whole-trip delete is not
+    special-cased away from it."""
     AGENT_CLIENT = "cyKpzLkq8J5LMFPfWYOioG8VzYsMgm8U"
     from app import acl as acl_module
 
     monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT)
-    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "")  # no act-as
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "")  # unattended
     g = graph()
     trip = _trip_of(g)
-    claims = _claims()
+    agent_sub = f"{AGENT_CLIENT}@clients"
+    claims = _claims(sub=agent_sub)
     claims.update(azp=AGENT_CLIENT, gty="client-credentials")
     agent_token = _sign(rsa_keypair, claims)
 
     r = _authz(client, "delete", f"/api/trips/{trip.id}", agent_token)
-    assert r.status_code == 403
-    # the trip survived
-    assert g.fetch_graph(trip.id) is not None
+    assert r.status_code == 204, r.text[:300]
+    assert g.fetch_graph(trip.id) is None
+    # attribution rode the client sub; nothing was provisioned for it
+    assert any(h.get("x-user-id") == agent_sub for h in g.write_headers)
+    assert all(t.get("$dtId") != agent_sub for t in g.twins)
