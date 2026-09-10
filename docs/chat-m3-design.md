@@ -34,7 +34,10 @@ Ground truth gathered this session:
   call, 2026-09-09).
 - kiseki deployment env already carries `KISEKI_AGENT_CLIENT_ID` +
   `KISEKI_AGENT_ACT_AS` (single-user pin, temporary per #9) → the relay reuses
-  these; `KISEKI_AGENT_ACT_AS` remains the no-envelope fallback.
+  these; `KISEKI_AGENT_ACT_AS` remains the no-envelope fallback. **Update
+  2026-09-10**: mode 1 is live in the SPA, so the pin no longer serves the chat
+  UI — it remains only for callers with no request envelope (content-agent CLI
+  writes). See §6.
 - API server / Responses-API streaming emits per-event SSE frames
   (`response.output_text.delta` / `response.completed` on the
   `/v1/responses` surface). The relay translates to Vercel-ai wire
@@ -180,8 +183,10 @@ store, no raw bytes through the chat endpoint.
   Generative-UI cards for content proposals later).
 - Per-user agent memory (#10) — the envelope carries identity; memory nodes
   in the graph come with #10.
-- Removing the `KISEKI_AGENT_ACT_AS` static pin — it stays as the fallback
-  until the UI ships mode-1 tokens for all users.
+- Removing the `KISEKI_AGENT_ACT_AS` static pin — **still open (2026-09-10)**:
+  the UI now ships mode-1 tokens (landed in M4), but the pin is still needed by
+  envelope-less callers — `api_write.py` sends no act-as and the write routes
+  don't accept one. Removal is blocked on **write-route act-as**, not on the UI.
 - Multi-instance / `hermes peer` — deferred capability (M5).
 
 ## Review asks
