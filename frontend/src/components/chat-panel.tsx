@@ -10,6 +10,7 @@ import {
   chatContextKey,
   findTripIds,
   loadThreadId,
+  messageActivities,
   messageToText,
   newThreadId,
   uploadChatFile,
@@ -294,6 +295,7 @@ function ChatThread({
             <AgentBubble key={message.id} message={message} />
           ),
         )}
+        {busy && <AgentActivity messages={messages} />}
         {status === "submitted" && (
           <div
             role="status"
@@ -472,6 +474,54 @@ function AgentBubble({ message }: { message: UIMessage }) {
   return (
     <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
       <Markdown>{withInlineMediaImages(text)}</Markdown>
+    </div>
+  );
+}
+
+/**
+ * Live agent-activity feed (issue #151) — what the agent is doing RIGHT
+ * NOW, while the turn runs. One row per `tool-kiseki-activity` part across
+ * the streamed assistant messages (friendly labels from the relay, never raw
+ * tool names): the latest open call spins, finished calls show a check.
+ * Falls back to the plain "thinking" row when no activity arrived yet —
+ * a text-only turn (or a slow first byte) still shows something alive.
+ */
+function AgentActivity({ messages }: { messages: UIMessage[] }) {
+  const rows = messages.flatMap((message) => messageActivities(message));
+  if (rows.length === 0) {
+    return (
+      <div
+        role="status"
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+      >
+        <Loader2
+          className="h-4 w-4 animate-spin"
+          aria-hidden="true"
+        />
+        Agent is thinking…
+      </div>
+    );
+  }
+  return (
+    <div role="status" aria-label="Agent activity" className="flex flex-col gap-1.5">
+      {rows.map((row, i) => (
+        <div
+          key={`${i}-${row.label}`}
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+        >
+          {row.done ? (
+            <span aria-hidden="true" className="text-xs">
+              ✓
+            </span>
+          ) : (
+            <Loader2
+              className="h-4 w-4 animate-spin"
+              aria-hidden="true"
+            />
+          )}
+          <span>{row.label}</span>
+        </div>
+      ))}
     </div>
   );
 }

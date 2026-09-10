@@ -22,8 +22,8 @@ downstream by the kiseki API ACL.
 
 The translation is deliberately pure: ``iter_wire_frames`` maps Responses-API
 SSE lines (``event:`` + ``data:``) to Vercel-ai UI-message-stream v1 chunk
-dicts (``text-start`` / ``text-delta`` / ``text-end`` / ``finish`` / ``error``,
-serialized by the route as ``data: {…}`` SSE events per
+dicts (``text-start`` / ``text-delta`` / ``text-end`` / ``data-activity`` /
+``finish`` / ``error``, serialized by the route as ``data: {…}`` SSE events per
 ``x-vercel-ai-ui-message-stream: v1``) so the wire contract is unit-testable
 without any upstream. The IO seam (``fetch_upstream_lines``) is monkeypatched
 in tests.
@@ -106,6 +106,55 @@ def finish_chunk() -> dict:
     return {"type": "finish", "finishReason": "stop"}
 
 
+#: Friendly activity labels for the agent's tool names (issue #151).
+#: The panel renders these, never the raw tool names — unknown tools fall
+#: back to "Working…". Keep in sync with the content agent's toolset.
+TOOL_ACTIVITY_LABELS: dict[str, str] = {
+    "web_search": "Searching the web…",
+    "web_extract": "Reading a page…",
+    "terminal": "Running a command…",
+    "read_file": "Reading trip data…",
+    "write_file": "Writing trip data…",
+    "patch": "Updating trip content…",
+    "search_files": "Searching files…",
+    "skill_view": "Checking how to help…",
+    "skills_list": "Checking how to help…",
+    "vision_analyze": "Looking at an image…",
+    "execute_code": "Running a calculation…",
+}
+
+
+def tool_activity_label(tool_name: str) -> str:
+    """User-friendly label for an agent tool call (never the raw name)."""
+    return TOOL_ACTIVITY_LABELS.get(tool_name, "Working…")
+
+
+#: The single synthetic tool name the activity feed uses (issue #151). The
+#: relay drops the REAL upstream tool names on purpose — raw names
+#: (``terminal``, ``execute_code``, …) never reach the UI; the friendly label
+#: travels as the chunk input instead.
+_ACTIVITY_TOOL = "kiseki-activity"
+
+
+def tool_start_chunk(tool_call_id: str, tool_name: str) -> dict:
+    """Announce an agent tool call (start) — renders as one activity row."""
+    return {
+        "type": "tool-input-start",
+        "toolCallId": tool_call_id,
+        "toolName": _ACTIVITY_TOOL,
+    }
+
+
+def tool_available_chunk(tool_call_id: str, tool_name: str) -> dict:
+    """Mark an agent tool call resolved — completes its activity row."""
+    return {
+        "type": "tool-input-available",
+        "toolCallId": tool_call_id,
+        "toolName": _ACTIVITY_TOOL,
+        "input": {"label": tool_activity_label(tool_name)},
+    }
+
+
 def error_chunk(message: str) -> dict:
     """In-stream error signal (terminal — replaces text-end/finish)."""
     return {"type": "error", "errorText": message}
@@ -154,8 +203,20 @@ class WireTranslator:
       ``text-end`` (only if text started) + ``finish`` on
       ``response.completed``/``[DONE]``, or from ``finish`` when the stream
       ends without a terminal event (cut connection). Lifecycle events
-      (``response.created``, ``output_item.*``, ``output_text.done``) are
-      consumed and dropped, never echoed as chunks.
+      (``response.created``, ``output_item.*`` without tool payloads,
+      ``output_text.done``) are consumed and dropped, never echoed as chunks.
+
+    Agent tool calls (issue #151) forward as activity chunks, not text: each
+    upstream ``output_item.added`` carrying a ``function_call`` item emits a
+    ``tool-input-start`` (one activity row per call), and the matching
+    ``output_item.done`` for that call emits ``tool-input-available``
+    (completing the row). The REAL upstream tool name never leaves the
+    server — the friendly label travels as the chunk input. Chunks are
+    ``toolName``-namespaced under the relay's own synthetic tool
+    (``kiseki-activity``), so the SPA can render activity rows from message
+    parts alone with no transport changes. Emitted BEFORE any
+    ``response.completed`` terminal, so mid-turn tool calls render while the
+    agent still works.
 
     Tool/lifecycle events stay agent-side by design — v1 renders text only.
     """
@@ -165,6 +226,8 @@ class WireTranslator:
         self._done = False
         self._started = False
         self._part_id = part_id or uuid.uuid4().hex[:16]
+        self._call_seq = 0
+        self._open_calls: dict[str, str] = {}  # item id → activity call id
 
     def feed(self, line: str) -> list[dict]:
         """Translate one raw upstream line. Empty when consumed/dropped."""
@@ -210,9 +273,60 @@ class WireTranslator:
                 detail = detail.get("message", "agent error")
             self._done = True
             chunks.append(error_chunk(str(detail)))
-        # Everything else (created / output_item.* / output_text.done) is
-        # lifecycle or tool metadata — ignored for text-only rendering.
+        elif name in ("response.output_item.added", "response.output_item.done"):
+            chunks.extend(self._feed_tool_item(name, data))
+        # Everything else (created / output_text.done) is lifecycle —
+        # ignored for text-only rendering.
         return chunks
+
+    def _feed_tool_item(self, event: str, data: dict) -> list[dict]:
+        """Translate one tool ``output_item`` event → activity chunks.
+
+        ``output_item.added`` with a ``function_call`` item opens an activity
+        row; ``output_item.done`` for the same item id closes it. Anything
+        else (message items, ``function_call_output`` items, unknown shapes)
+        is consumed silently. Unknown tool names still open a row — the label
+        falls back to "Working…", never the raw name.
+        """
+        item = data.get("item")
+        if not isinstance(item, dict):
+            return []
+        item_id = item.get("id")
+        if not isinstance(item_id, str) or not item_id:
+            return []
+        if item.get("type") != "function_call":
+            return []  # message / function_call_output items stay server-side
+        if event == "response.output_item.added":
+            tool_name = item.get("name")
+            label = tool_activity_label(
+                tool_name if isinstance(tool_name, str) else ""
+            )
+            self._call_seq += 1
+            call_id = f"{self._part_id}-tool-{self._call_seq}"
+            self._open_calls[item_id] = call_id
+            return [
+                {
+                    "type": "tool-input-start",
+                    "toolCallId": call_id,
+                    "toolName": _ACTIVITY_TOOL,
+                },
+                {
+                    "type": "tool-input-available",
+                    "toolCallId": call_id,
+                    "toolName": _ACTIVITY_TOOL,
+                    "input": {"label": label},
+                },
+            ]
+        call_id = self._open_calls.pop(item_id, None)
+        if call_id is None:
+            return []  # orphan done (no matching added) — ignore
+        return [
+            {
+                "type": "tool-output-available",
+                "toolCallId": call_id,
+                "output": {"done": True},
+            }
+        ]
 
     def finish(self) -> list[dict]:
         """Signal stream end. Emits the terminal sequence ONLY if no terminal
