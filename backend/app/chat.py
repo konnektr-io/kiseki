@@ -487,12 +487,17 @@ def identity_instructions(
     """Ephemeral system prompt (Responses ``instructions``) telling the agent
     which user it is acting for. Never stored in the history chain.
 
-    The envelope carries the sub the agent's write-API calls act as — and an
-    explicit silence rule: never narrate the machinery (tokens, M2M, minting,
-    act-as — issue #158) nor any other plumbing (tools, skills, scripts,
-    paths, endpoints, HTTP codes, JSON, field names — issue #179); the app
-    shows a live activity line while the agent works, so step narration is
-    redundant. The write path stays correct, the narration stays invisible.
+    The envelope carries the sub the write-API calls act as — and one silence
+    rule: never narrate the machinery (tokens, M2M, minting, act-as — issue
+    #158) nor any other plumbing (tools, skills, scripts, paths, endpoints,
+    HTTP codes, JSON, field names — issue #179). The write path stays correct,
+    the plumbing stays invisible.
+
+    Deliberately NOT a gag on progress narrative: #181 also told the agent that
+    step commentary was redundant, and live use showed the opposite need — a
+    turn that streams only tool calls leaves the traveler with no idea what
+    happened ("it just says Handled and the trip is unchanged"). The rule is
+    vocabulary, not volume: speak in traveler terms, one short line at a time.
     """
     if trip_id:
         scope = (
@@ -514,12 +519,14 @@ def identity_instructions(
         "you authenticate — to the user you simply act on their behalf. If "
         "asked about access, say you act as them through Kiseki and offer "
         "to continue the task. "
-        "The same silence covers your whole plumbing: never narrate tools, "
+        "The same silence covers your plumbing: never narrate tools, "
         "skills, scripts, file paths, endpoints, API verbs, HTTP status "
-        "codes, JSON, schemas, or field names in chat — the app already "
-        "shows a live activity line while you work, so step-by-step "
-        "commentary is redundant. Speak only in traveler terms: outcomes, "
-        "questions, and problems that change the trip."
+        "codes, JSON, schemas, or field names. "
+        "Do keep talking to the traveler, though — say what you are doing "
+        "and what you found in plain trip language ('pulling the Seoul days "
+        "together now', '3 of 11 days have activities'), and end every turn "
+        "that changed something with one short line naming what changed. "
+        "Never claim a change you did not verify."
     )
 
 

@@ -756,10 +756,16 @@ def test_identity_instructions_carry_credential_silence_rule() -> None:
 
 
 def test_identity_instructions_forbid_all_plumbing_narration() -> None:
-    """Issue #179: the silence rule extends past credentials to every
+    """Issues #179/#181: the silence rule extends past credentials to every
     internal the chat must not surface — tools, skills, scripts, paths,
-    endpoints, HTTP codes, JSON, field names — on BOTH envelope shapes,
-    and states the live activity line makes narration redundant."""
+    endpoints, HTTP codes, JSON, field names — on BOTH envelope shapes.
+
+    It is a VOCABULARY rule, not a gag on progress. #181 also told the agent
+    that step commentary was redundant; live use showed the opposite need (a
+    turn that streamed only tool calls left the traveler with no idea what
+    happened). The envelope must still ask for traveler-language narration and
+    a closing line naming what changed.
+    """
     for text in (
         chat_module.identity_instructions(OTHER_SUB, TRIP),
         chat_module.identity_instructions(OTHER_SUB, None),
@@ -768,8 +774,8 @@ def test_identity_instructions_forbid_all_plumbing_narration() -> None:
         assert "skills, scripts, file paths, endpoints" in text
         assert "HTTP status" in text
         assert "JSON, schemas, or field names" in text
-        assert "live activity line" in text
-        assert "step-by-step commentary is redundant" in text
+        assert "keep talking to the traveler" in text
+        assert "end every turn" in text
         # #158's credential rule must still hold verbatim
         assert "tokens, M2M, minting, act-as, credentials" in text
 

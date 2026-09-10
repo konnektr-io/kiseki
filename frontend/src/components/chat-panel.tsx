@@ -12,7 +12,6 @@ import {
   findTripIds,
   loadThreadId,
   messageActivities,
-  messageFinalText,
   messageInterrupted,
   messageToText,
   newThreadId,
@@ -44,6 +43,9 @@ export function withInlineMediaImages(text: string): string {
 interface ChatPanelProps {
   tripId?: string;
   onTripCreated?: (tripId: string) => void;
+  /** Fired once after each COMPLETED agent turn — the caller refetches the
+   *  trip so the surfaces behind the drawer show what the agent just wrote. */
+  onTurnComplete?: () => void;
   onClose?: () => void;
   className?: string;
 }
@@ -51,6 +53,7 @@ interface ChatPanelProps {
 export function ChatPanel({
   tripId,
   onTripCreated,
+  onTurnComplete,
   onClose,
   className,
 }: ChatPanelProps) {
@@ -104,6 +107,7 @@ export function ChatPanel({
       threadId={threadId}
       onNewChat={() => setThreadId(newThreadId(context))}
       onTripCreated={onTripCreated}
+      onTurnComplete={onTurnComplete}
       onClose={onClose}
       className={className}
     />
@@ -120,6 +124,7 @@ function ChatThread({
   threadId,
   onNewChat,
   onTripCreated,
+  onTurnComplete,
   onClose,
   className,
 }: {
@@ -127,6 +132,7 @@ function ChatThread({
   threadId: string;
   onNewChat: () => void;
   onTripCreated?: (tripId: string) => void;
+  onTurnComplete?: () => void;
   onClose?: () => void;
   className?: string;
 }) {
@@ -144,6 +150,23 @@ function ChatThread({
   });
   const { messages, status, error } = chat;
   const busy = status === "submitted" || status === "streaming";
+  // The agent edits the trip server-side, while the trip page keeps the
+  // document it read at load (api.ts memoizes it for the session) and the
+  // activity row unmounts at settle — so a turn's own result is otherwise
+  // invisible until a manual reload. Fire once per COMPLETED turn so the
+  // caller can refetch the trip (issue #179 follow-up: "you don't see the
+  // result in the UI"). Errors do not fire it: a failed turn changed nothing.
+  const ranTurn = useRef(false);
+  useEffect(() => {
+    if (busy) {
+      ranTurn.current = true;
+      return;
+    }
+    if (ranTurn.current && !error) {
+      ranTurn.current = false;
+      onTurnComplete?.();
+    }
+  }, [busy, error, onTurnComplete]);
   // A dropped turn (issue #152): the relay closed the stream without the
   // agent's terminal event, so it marked the finish `interrupted`. The turn
   // looks "done" but the agent never finished — offer Reconnect, which
@@ -326,7 +349,7 @@ function ChatThread({
           message.role === "user" ? (
             <UserBubble key={message.id} message={message} />
           ) : (
-            <AgentBubble key={message.id} message={message} busy={busy} />
+            <AgentBubble key={message.id} message={message} />
           ),
         )}
         {busy && <AgentActivity messages={messages} />}
@@ -497,45 +520,29 @@ function UserBubble({ message }: { message: UIMessage }) {
   );
 }
 
-function AgentBubble({
-  message,
-  busy,
-}: {
-  message: UIMessage;
-  busy: boolean;
-}) {
-  // Issue #179: pre-tool narration — "let me load the skill…", raw JSON,
-  // HTTP codes — is build log, never a chat bubble, however chatty the
-  // model is. The relay rotates the text part id on every tool call, so
-  // the parts order carries the turn shape: narration parts sit BEFORE
-  // the activity parts, the answer after the last one.
-  const hasActivity = messageActivities(message).length > 0;
-  const text = messageFinalText(message);
-  if (busy && !hasActivity) {
-    // Pre-first-tool text is unclassifiable while it streams (it could be
-    // a plain answer OR narration) — show nothing; the thinking row below
-    // is the live feedback. Plain Q&A answers render at settle (rule 2),
-    // and narration is retracted the moment the first activity part lands.
-    return null;
-  }
-  if (text) {
-    return (
-      <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
-        <Markdown>{withInlineMediaImages(text)}</Markdown>
-      </div>
-    );
-  }
-  // Settled, the turn DID work (activity rows ran) but streamed no final
-  // prose: acknowledge plainly (traveler terms, no plumbing) instead of
-  // reading as "nothing happened".
-  if (!busy && hasActivity) {
-    return (
-      <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm text-muted-foreground">
-        Handled — your trip is up to date.
-      </div>
-    );
-  }
-  return null;
+/**
+ * The agent's own words — every text part, exactly as it streamed.
+ *
+ * History (issue #179/#181, reverted after live use in the app): #181 rendered
+ * only text positioned AFTER the last activity part so pre-tool narration could
+ * never become a bubble. In practice it (a) hid the running commentary the user
+ * actually wants — "Days are in. Now the section chapters." — (b) delayed every
+ * plain answer until the turn settled, so an answer could surface after the
+ * user's NEXT message, and (c) blanked earlier agent messages the moment a new
+ * turn started, because `busy` was passed to every bubble. The narration
+ * problem was the weak model producing it, not the rendering: with a capable
+ * model the narrative is the product. So the bubble shows everything, always.
+ */
+function AgentBubble({ message }: { message: UIMessage }) {
+  const text = messageToText(message);
+  // A tool-only stretch has no words of its own — the activity row below is
+  // the feedback; an empty bubble would be a blank slate.
+  if (!text.trim()) return null;
+  return (
+    <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
+      <Markdown>{withInlineMediaImages(text)}</Markdown>
+    </div>
+  );
 }
 
 function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
@@ -565,9 +572,16 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
  * NOW, while the turn runs. Shows ONE row: the latest `data-kiseki-activity`
  * part of the current turn (issue #175 — rows replace each other instead of
  * piling up; friendly labels from the relay, never raw tool names). The row
- * spins while open, shows a check once its call finishes, and the whole feed
- * unmounts when the turn ends (`{busy && <AgentActivity/>}` at the mount
- * site) — nothing lingers after the answer.
+ * spins for the WHOLE turn and the feed unmounts when the turn ends
+ * (`{busy && <AgentActivity/>}` at the mount site) — nothing lingers after the
+ * answer.
+ *
+ * Issue #181 follow-up: the row used to flip to a check as soon as the wire
+ * closed that call (`done: true` when the tool result lands). In a single-row
+ * feed that reads as a premature "finished" claim — the user sees a tick while
+ * the turn is still working, and the next call replaces it a moment later. The
+ * row is a live indicator: it spins while the turn runs; the outcome arrives as
+ * the agent's own words plus the refetched trip.
  * Falls back to the plain "thinking" row when no activity arrived yet —
  * a text-only turn (or a slow first byte) still shows something alive.
  * This fallback is the ONLY thinking indicator (issue #157): it renders for
@@ -601,16 +615,10 @@ function AgentActivity({ messages }: { messages: UIMessage[] }) {
         key={`${rows.length - 1}-${latest.label}`}
         className="flex items-center gap-2 text-sm text-muted-foreground"
       >
-        {latest.done ? (
-          <span aria-hidden="true" className="text-xs">
-            ✓
-          </span>
-        ) : (
-          <Loader2
-            className="h-4 w-4 animate-spin"
-            aria-hidden="true"
-          />
-        )}
+        <Loader2
+          className="h-4 w-4 animate-spin"
+          aria-hidden="true"
+        />
         <span>{latest.label}</span>
       </div>
     </div>
@@ -687,12 +695,14 @@ export function ChatPopup({
   tripId,
   onClose,
   onTripCreated,
+  onTurnComplete,
   label,
   banner,
 }: {
   tripId?: string;
   onClose: () => void;
   onTripCreated?: (tripId: string) => void;
+  onTurnComplete?: () => void;
   label: string;
   banner?: ReactNode;
 }) {
@@ -721,6 +731,7 @@ export function ChatPopup({
           tripId={tripId}
           onClose={onClose}
           onTripCreated={onTripCreated}
+          onTurnComplete={onTurnComplete}
           className="h-[60dvh] border-0 md:h-full"
         />
       </div>
