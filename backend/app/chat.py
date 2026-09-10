@@ -27,11 +27,18 @@ dicts (``text-start`` / ``text-delta`` / ``text-end`` / ``data-activity`` /
 ``x-vercel-ai-ui-message-stream: v1``) so the wire contract is unit-testable
 without any upstream. The IO seam (``fetch_upstream_lines``) is monkeypatched
 in tests.
+
+Credential silence (#158): the identity envelope instructs the agent never to
+narrate tokens/M2M/act-as, and the delta path redacts ``eyJ…``-shaped JWTs
+from streamed text (held-back-tail handling so a token split across deltas
+cannot leak in fragments) — the user never sees credential mechanics, even by
+accident.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import AsyncIterator, Iterable, Iterator
 
@@ -181,6 +188,42 @@ def sse_data(chunk: dict) -> str:
 SSE_DONE = "data: [DONE]\n\n"
 
 
+# ------------------------------------------------------- secret scrub (#158)
+
+#: Replacement for redacted credential material. Deliberately free of
+#: credential vocabulary — ``[token removed]`` would name the machinery the
+#: chat must never talk about (issue #158).
+_REDACTED = "[redacted]"
+
+#: A JWT-shaped run: three ``eyJ…`` base64url segments separated by dots.
+#: Auth0 access/id tokens (RS256/HS256/…) all start with an ``eyJ`` header
+#: segment; the ≥8/≥4/≥4 minimums keep natural ``eyJ``-prefixed words safe.
+_JWT_RE = re.compile(
+    r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}"
+)
+
+#: A dangling PARTIAL JWT at a delta boundary — header (``eyJ…``, any
+#: length), optionally followed by whole ``.payload`` segments and a
+#: trailing dot/partial-signature. Held back until the next delta or the
+#: stream end resolves it, so a token split across deltas at ANY point
+#: (mid-header, mid-payload, mid-signature, at a dot) never streams in
+#: fragments. The ``eyJ`` anchor makes false positives on natural prose
+#: essentially impossible.
+_JWT_PARTIAL_RE = re.compile(
+    r"eyJ[A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]{4,})*(?:\.[A-Za-z0-9_-]*)?$"
+)
+
+
+def scrub_jwt(text: str) -> str:
+    """Redact ``eyJ…``-shaped JWTs from agent text.
+
+    Defense in depth (issue #158): the agent is instructed never to
+    narrate credentials, but a token that nonetheless gets pasted through
+    must never reach the UI either.
+    """
+    return _JWT_RE.sub(_REDACTED, text)
+
+
 def iter_wire_frames(
     lines: Iterable[str], *, part_id: str | None = None
 ) -> Iterator[dict]:
@@ -211,6 +254,10 @@ class WireTranslator:
       separate lines);
     - whether text started (``text-start`` is emitted lazily before the
       first delta — the SDK requires start before delta/end);
+    - the held-back scrub tail: a delta ending in a dangling ``eyJ…``
+      JWT-charset run is withheld until the next delta / stream end
+      resolves it, so a token SPLIT across deltas is never streamed in
+      fragments (JWT redaction, issue #158);
     - the terminal flag, so exactly ONE terminal sequence is ever emitted —
       ``text-end`` (only if text started) + ``finish`` on
       ``response.completed``/``[DONE]``, or from ``finish`` when the stream
@@ -246,6 +293,11 @@ class WireTranslator:
         self._part_id = part_id or uuid.uuid4().hex[:16]
         self._call_seq = 0
         self._open_calls: dict[str, tuple[str, str]] = {}  # item id → (call id, label)
+        # Held-back tail of the last delta (issue #158): a delta that ENDS
+        # with a dangling ``eyJ…`` JWT-charset run — the token may complete
+        # in the next delta, so the fragment is withheld (never streamed)
+        # until the next delta or the stream end resolves it.
+        self._partial = ""
 
     def feed(self, line: str) -> list[dict]:
         """Translate one raw upstream line. Empty when consumed/dropped."""
@@ -263,6 +315,7 @@ class WireTranslator:
         payload = line[len("data:"):].strip()
         if payload == "[DONE]":
             self._done = True
+            chunks.extend(self._flush_tail())
             if self._started:
                 chunks.append(text_end_chunk(self._part_id))
             chunks.append(finish_chunk())
@@ -279,9 +332,10 @@ class WireTranslator:
                 if not self._started:
                     self._started = True
                     chunks.append(text_start_chunk(self._part_id))
-                chunks.append(text_delta_chunk(self._part_id, delta))
+                chunks.extend(self._scrub_delta(delta))
         elif name in ("response.completed", "response.done"):
             self._done = True
+            chunks.extend(self._flush_tail())
             if self._started:
                 chunks.append(text_end_chunk(self._part_id))
             chunks.append(finish_chunk())
@@ -290,12 +344,50 @@ class WireTranslator:
             if isinstance(detail, dict):
                 detail = detail.get("message", "agent error")
             self._done = True
+            chunks.extend(self._flush_tail())
             chunks.append(error_chunk(str(detail)))
         elif name in ("response.output_item.added", "response.output_item.done"):
             chunks.extend(self._feed_tool_item(name, data))
         # Everything else (created / output_text.done) is lifecycle —
         # ignored for text-only rendering.
         return chunks
+
+    def _scrub_delta(self, delta: str) -> list[dict]:
+        """Redact JWT-shaped material from one text delta (issue #158).
+
+        The tricky case is a token SPLIT across deltas — ``eyJhbGciOi…`` in
+        one delta and the rest in the next — where a naive per-delta regex
+        would stream half the token. So: the accumulated text (held-back
+        tail + this delta) is scrubbed for complete JWTs; if it still ENDS
+        with a dangling ``eyJ…`` run, that tail is held back (never
+        streamed) until the next delta or the stream end resolves it.
+        """
+        text = self._partial + delta
+        self._partial = ""
+        text = scrub_jwt(text)
+        m = _JWT_PARTIAL_RE.search(text)
+        if m:
+            self._partial = m.group(0)
+            text = text[: m.start()]
+        out: list[dict] = []
+        if text:
+            out.append(text_delta_chunk(self._part_id, text))
+        return out
+
+    def _flush_tail(self) -> list[dict]:
+        """Resolve the held-back tail at stream end.
+
+        The tail was held because it looks like the START of a JWT header
+        segment. If the stream ends before it completes (cut stream, text
+        ending mid-token), the fragment must not stream either — redact it.
+        (False positives cost a phantom ``[redacted]`` on a rare
+        ``eyJ…word``; the alternative risks streaming a credential
+        fragment.)
+        """
+        if not self._partial:
+            return []
+        self._partial = ""
+        return [text_delta_chunk(self._part_id, _REDACTED)]
 
     def _feed_tool_item(self, event: str, data: dict) -> list[dict]:
         """Translate one tool ``output_item`` event → activity parts.
@@ -333,13 +425,16 @@ class WireTranslator:
     def finish(self) -> list[dict]:
         """Signal stream end. Emits the terminal sequence ONLY if no terminal
         event was seen (cut connection must still resolve the turn — with an
-        ``interrupted`` finish so the UI offers Reconnect, issue #152)."""
+        ``interrupted`` finish so the UI offers Reconnect, issue #152). Any
+        held-back scrub tail is flushed/redacted first (#158)."""
         if self._done:
             return []
         self._done = True
+        chunks = self._flush_tail()
         if self._started:
-            return [text_end_chunk(self._part_id), finish_chunk(interrupted=True)]
-        return [finish_chunk(interrupted=True)]
+            chunks.append(text_end_chunk(self._part_id))
+        chunks.append(finish_chunk(interrupted=True))
+        return chunks
 
 
 # ------------------------------------------------------------------ identity
@@ -351,7 +446,13 @@ def identity_instructions(
     thread_id: str | None = None,
 ) -> str:
     """Ephemeral system prompt (Responses ``instructions``) telling the agent
-    which user it is acting for. Never stored in the history chain."""
+    which user it is acting for. Never stored in the history chain.
+
+    The envelope carries the sub the agent's write-API calls act as — and an
+    explicit credential-silence rule (issue #158): the model must never
+    narrate the machinery (tokens, M2M, minting, act-as) to the user; the
+    write path stays correct, the narration stays invisible.
+    """
     if trip_id:
         scope = (
             f"The trip anchored to this thread is {trip_id}. You may read "
@@ -367,7 +468,11 @@ def identity_instructions(
         )
     return (
         "You are the Kiseki trip-content agent. The person you are helping "
-        f"has identity sub={actor_sub}. {scope}"
+        f"has identity sub={actor_sub}. {scope} "
+        "Never mention tokens, M2M, minting, act-as, credentials, or how "
+        "you authenticate — to the user you simply act on their behalf. If "
+        "asked about access, say you act as them through Kiseki and offer "
+        "to continue the task."
     )
 
 
