@@ -92,16 +92,17 @@ describe("ChatPanel messages", () => {
     expect(html).toContain("<strong>there</strong>");
   });
 
-  it("holds a streaming pre-tool answer back until the turn settles (issue #179)", () => {
-    // While a turn streams with no activity parts yet, its text is
-    // unclassifiable (plain answer OR narration) — the thinking row is the
-    // feedback; the text renders once the turn settles.
+  it("streams a plain answer while the turn is still running (issue #181 revert)", () => {
+    // #181 held pre-tool text back mid-stream (unclassifiable as answer vs
+    // narration) and rendered it only at settle — which also delayed every
+    // plain answer, so it could surface after the user's NEXT message. Text
+    // renders as it arrives.
     stubChat({
       messages: [userText("Hi"), assistantText("Hello **there**")],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    expect(html).not.toContain("<strong>there</strong>");
+    expect(html).toContain("<strong>there</strong>");
     expect(html).toContain("Agent is thinking");
   });
 
