@@ -650,6 +650,43 @@ def test_post_section_validation_and_roles(client, rsa_keypair, graph) -> None:
                   json={"days": [0, 0]}).status_code == 403
 
 
+def test_post_section_422_leaves_graph_untouched(client, rsa_keypair, graph) -> None:
+    """POST /sections atomicity (issue #172): a 422 (out-of-range days,
+    overlapping days, or unknown locationRefs) must leave the graph UNCHANGED —
+    no stray section twin, no hasSection edge, no other mutation. The old code
+    validated AFTER the twin + edge upserts, so a rejected payload still left a
+    section behind."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/sections"
+
+    before = graph_to_trip(g.fetch_graph(g.root))
+    n_sections = len(before.sections)
+
+    for bad_payload in (
+        {"title": "Too early", "days": [0, 1]},      # trip has 16 days, [0,1] overlaps
+        {"title": "Too late", "days": [15, 16]},     # last index is 15
+        {"title": "Nope refs", "locationRefs": ["Nopeville"]},
+    ):
+        r = _authz(client, "post", url, token, json=bad_payload)
+        assert r.status_code == 422, f"{bad_payload} should be a 422"
+        after = graph_to_trip(g.fetch_graph(g.root))
+        assert len(after.sections) == n_sections, (
+            f"{bad_payload} left a stray section behind — non-atomic write"
+        )
+        assert after == before, (
+            f"{bad_payload} mutated the trip document — non-atomic write"
+        )
+
+    # a VALID create still works after all the rejected ones (ideation section
+    # — no days, so it never overlaps)
+    r = _authz(client, "post", url, token, json={"title": "Valid"})
+    assert r.status_code == 201
+    assert next(s for s in r.json()["sections"] if s["title"] == "Valid")["days"] == []
+    assert len(r.json()["sections"]) == n_sections + 1
+
+
 # ---------------------------------------------------------------- crew
 def test_crew_note_editor_role_owner(client, rsa_keypair, graph) -> None:
     g = graph(role="editor")
