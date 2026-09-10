@@ -508,7 +508,7 @@ def test_wire_translation_function_call_opens_and_closes_activity_row() -> None:
             },
         })),
         ("response.completed", json.dumps({"type": "response.completed"})),
-    ])
+    ]).splitlines()
     chunks = list(chat_module.iter_wire_frames(lines, part_id="t1"))
     assert chunks == [
         # open: friendly label from the map, done=false (spins)
