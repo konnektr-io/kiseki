@@ -12,6 +12,7 @@ import {
   findTripIds,
   loadThreadId,
   messageActivities,
+  messageFinalText,
   messageInterrupted,
   messageToText,
   newThreadId,
@@ -325,7 +326,7 @@ function ChatThread({
           message.role === "user" ? (
             <UserBubble key={message.id} message={message} />
           ) : (
-            <AgentBubble key={message.id} message={message} />
+            <AgentBubble key={message.id} message={message} busy={busy} />
           ),
         )}
         {busy && <AgentActivity messages={messages} />}
@@ -496,14 +497,45 @@ function UserBubble({ message }: { message: UIMessage }) {
   );
 }
 
-function AgentBubble({ message }: { message: UIMessage }) {
-  const text = messageToText(message);
-  if (!text) return null;
-  return (
-    <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
-      <Markdown>{withInlineMediaImages(text)}</Markdown>
-    </div>
-  );
+function AgentBubble({
+  message,
+  busy,
+}: {
+  message: UIMessage;
+  busy: boolean;
+}) {
+  // Issue #179: pre-tool narration — "let me load the skill…", raw JSON,
+  // HTTP codes — is build log, never a chat bubble, however chatty the
+  // model is. The relay rotates the text part id on every tool call, so
+  // the parts order carries the turn shape: narration parts sit BEFORE
+  // the activity parts, the answer after the last one.
+  const hasActivity = messageActivities(message).length > 0;
+  const text = messageFinalText(message);
+  if (busy && !hasActivity) {
+    // Pre-first-tool text is unclassifiable while it streams (it could be
+    // a plain answer OR narration) — show nothing; the thinking row below
+    // is the live feedback. Plain Q&A answers render at settle (rule 2),
+    // and narration is retracted the moment the first activity part lands.
+    return null;
+  }
+  if (text) {
+    return (
+      <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm">
+        <Markdown>{withInlineMediaImages(text)}</Markdown>
+      </div>
+    );
+  }
+  // Settled, the turn DID work (activity rows ran) but streamed no final
+  // prose: acknowledge plainly (traveler terms, no plumbing) instead of
+  // reading as "nothing happened".
+  if (!busy && hasActivity) {
+    return (
+      <div className="mr-auto max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-muted/60 px-3.5 py-2 text-sm text-muted-foreground">
+        Handled — your trip is up to date.
+      </div>
+    );
+  }
+  return null;
 }
 
 function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {

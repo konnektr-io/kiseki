@@ -42,6 +42,29 @@ function userText(text: string): UIMessage {
   return { id: "u1", role: "user", parts: [{ type: "text", text }] };
 }
 
+/** An assistant message shaped like a REAL tool-using turn (issue #179):
+ *  narration text parts, `data-kiseki-activity` parts, then the answer. */
+function toolTurn(
+  segments: Array<
+    | { kind: "text"; text: string }
+    | { kind: "activity"; id: string; label: string; done: boolean }
+  >,
+): UIMessage {
+  return {
+    id: "a1",
+    role: "assistant",
+    parts: segments.map((s) =>
+      s.kind === "text"
+        ? { type: "text", text: s.text }
+        : {
+            type: "data-kiseki-activity",
+            id: s.id,
+            data: { label: s.label, done: s.done },
+          },
+    ),
+  } as unknown as UIMessage;
+}
+
 function stubChat(overrides: Record<string, unknown> = {}) {
   chatMock.current = {
     messages: [],
@@ -59,14 +82,27 @@ function renderPanel(tripId?: string): string {
 }
 
 describe("ChatPanel messages", () => {
-  it("renders streamed assistant markdown", () => {
+  it("renders settled assistant markdown", () => {
+    stubChat({
+      messages: [userText("Hi"), assistantText("Hello **there**")],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Hi");
+    expect(html).toContain("<strong>there</strong>");
+  });
+
+  it("holds a streaming pre-tool answer back until the turn settles (issue #179)", () => {
+    // While a turn streams with no activity parts yet, its text is
+    // unclassifiable (plain answer OR narration) — the thinking row is the
+    // feedback; the text renders once the turn settles.
     stubChat({
       messages: [userText("Hi"), assistantText("Hello **there**")],
       status: "streaming",
     });
     const html = renderPanel("trip-1");
-    expect(html).toContain("Hi");
-    expect(html).toContain("<strong>there</strong>");
+    expect(html).not.toContain("<strong>there</strong>");
+    expect(html).toContain("Agent is thinking");
   });
 
   it("renders a bare /media/ URL as an inline image", () => {
@@ -188,6 +224,79 @@ describe("ChatPanel messages", () => {
     stubChat({ messages: [assistantText("partial")], status: "streaming" });
     const html = renderPanel("trip-1");
     expect(html).toContain("Agent is thinking");
+  });
+
+  it("hides pre-tool narration — only the post-activity answer is a bubble (issue #179)", () => {
+    // The reported defect: the agent's step-by-step narration ("let me load
+    // the skill…", raw JSON, HTTP 422) streamed as ordinary text and
+    // rendered as chat bubbles in a travel app. AgentBubble renders only
+    // messageFinalText — text after the LAST activity part.
+    stubChat({
+      messages: [
+        userText("Plan day 3"),
+        toolTurn([
+          { kind: "text", text: "I'll start by loading the trip-content skill…" },
+          { kind: "activity", id: "c1", label: "Checking trip data…", done: true },
+          { kind: "text", text: 'HTTP 422: [{"type": "extra_forbidden", "loc": ["body", "coverStats"]}]' },
+          { kind: "activity", id: "c2", label: "Writing trip data…", done: false },
+          { kind: "text", text: "Day 3 is in — heli day, lunch in Catomba." },
+        ]),
+      ],
+      status: "streaming",
+    });
+    const html = renderPanel("trip-1");
+    // the answer renders
+    expect(html).toContain("Day 3 is in");
+    // the narration — model chatter, raw JSON, HTTP codes — NEVER renders
+    expect(html).not.toContain("trip-content skill");
+    expect(html).not.toContain("HTTP 422");
+    expect(html).not.toContain("extra_forbidden");
+    // the live activity row still works
+    expect(html).toContain("Writing trip data…");
+  });
+
+  it("shows NO bubble for a narration-only turn (tool still running)", () => {
+    stubChat({
+      messages: [
+        userText("Plan day 3"),
+        toolTurn([
+          { kind: "text", text: "Let me check the trip data first…" },
+          { kind: "activity", id: "c1", label: "Checking trip data…", done: false },
+        ]),
+      ],
+      status: "streaming",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).not.toContain("Let me check the trip data first");
+    expect(html).toContain("Checking trip data…");
+  });
+
+  it("acknowledges a settled narration-only turn in traveler terms (issue #179)", () => {
+    // The turn DID work (activity rows completed) but streamed no final
+    // prose — after settle the user must not read dead silence. The
+    // acknowledgement is plain, never plumbing.
+    stubChat({
+      messages: [
+        userText("Plan day 3"),
+        toolTurn([
+          { kind: "text", text: "Let me check the trip data first…" },
+          { kind: "activity", id: "c1", label: "Checking trip data…", done: true },
+        ]),
+      ],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Handled — your trip is up to date.");
+    expect(html).not.toContain("Let me check the trip data first");
+  });
+
+  it("keeps plain Q&A turns fully visible (no activity parts)", () => {
+    stubChat({
+      messages: [userText("Hi"), assistantText("Hello — where to next?")],
+      status: "ready",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Hello — where to next?");
   });
 
   it("renders user image attachments as thumbnails", () => {

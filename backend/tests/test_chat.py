@@ -446,9 +446,12 @@ def test_wire_translation_of_failed_stream() -> None:
         ("response.failed", json.dumps({"type": "response.failed", "error": "boom"})),
     ])
     chunks = list(chat_module.iter_wire_frames(body.splitlines(), part_id="t1"))
+    # The open text part is closed before the error chunk (issue #179: an
+    # unterminated `text-start` would leave a dangling streaming part).
     assert chunks == [
         {"type": "text-start", "id": "t1"},
         {"type": "text-delta", "id": "t1", "delta": "partial"},
+        {"type": "text-end", "id": "t1"},
         {"type": "error", "errorText": "boom"},
     ]
 
@@ -644,6 +647,100 @@ def test_wire_translator_stream_cut_mid_turn_still_terminates() -> None:
 # ------------------------------------------------ credential silence (#158)
 
 
+def test_wire_translator_rotates_text_part_on_tool_calls() -> None:
+    """Issue #179: narration (pre-tool text) and the final answer must land
+    in SEPARATE text parts, with the activity parts between them.
+
+    The SDK stores one `text` part per `text-start` id in arrival order —
+    one part for the whole turn merged narration + answer into a single
+    bubble the end user read as build log ("let me load the skill…", raw
+    JSON, HTTP 422). Rotating the part id on each function_call open makes
+    the ORDER itself carry the segmentation: text parts before the last
+    activity part are narration, the text after it is the answer — and
+    `messageFinalText` (frontend/src/lib/chat.ts) renders only the latter.
+    """
+    lines = _responses_sse([
+        # narration, then a tool call
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Let me check the trip data."})),
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {"type": "function_call", "id": "fc_1", "name": "terminal"},
+        })),
+        ("response.output_item.done", json.dumps({
+            "type": "response.output_item.done",
+            "item": {"type": "function_call", "id": "fc_1", "name": "terminal"},
+        })),
+        # narration round two, then another tool
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Now the write API."})),
+        ("response.output_item.added", json.dumps({
+            "type": "response.output_item.added",
+            "item": {"type": "function_call", "id": "fc_2", "name": "edit_trip"},
+        })),
+        ("response.output_item.done", json.dumps({
+            "type": "response.output_item.done",
+            "item": {"type": "function_call", "id": "fc_2", "name": "edit_trip"},
+        })),
+        # the answer
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Done — trip updated."})),
+        ("response.completed", json.dumps({"type": "response.completed"})),
+    ]).splitlines()
+    chunks = list(chat_module.iter_wire_frames(lines, part_id="t1"))
+    assert chunks == [
+        # narration segment 1 (closes when the first tool opens)
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "Let me check the trip data."},
+        {"type": "text-end", "id": "t1"},
+        {"type": "data-kiseki-activity", "id": "t1-tool-1", "data": {"label": "Running a command…", "done": False}},
+        {"type": "data-kiseki-activity", "id": "t1-tool-1", "data": {"label": "Running a command…", "done": True}},
+        # narration segment 2 (fresh part AFTER the first activity pair)
+        {"type": "text-start", "id": "t1-seg1"},
+        {"type": "text-delta", "id": "t1-seg1", "delta": "Now the write API."},
+        {"type": "text-end", "id": "t1-seg1"},
+        {"type": "data-kiseki-activity", "id": "t1-tool-2", "data": {"label": "Working…", "done": False}},
+        {"type": "data-kiseki-activity", "id": "t1-tool-2", "data": {"label": "Working…", "done": True}},
+        # the answer: the LAST text part, after the LAST activity part
+        {"type": "text-start", "id": "t1-seg2"},
+        {"type": "text-delta", "id": "t1-seg2", "delta": "Done — trip updated."},
+        {"type": "text-end", "id": "t1-seg2"},
+        {"type": "finish", "finishReason": "stop"},
+    ]
+    # the same wire, fed line-by-line (the live route path)
+    t = chat_module.WireTranslator(part_id="t1")
+    incremental: list[dict] = []
+    for line in lines:
+        incremental.extend(t.feed(line))
+    incremental.extend(t.finish())
+    assert incremental == chunks
+    assert _finish_count(incremental) == 1
+
+
+def test_wire_translator_narration_only_turn_terminates_cleanly() -> None:
+    """A turn whose stream dies before any tool call keeps the plain
+    one-part shape (text-start … text-end on the turn id) — no dangling
+    segment ids, one interrupted finish."""
+    lines = _responses_sse([
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "par"})),
+        ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "tial"})),
+    ]).splitlines()
+    t = chat_module.WireTranslator(part_id="t1")
+    chunks: list[dict] = []
+    for line in lines:
+        chunks.extend(t.feed(line))
+    chunks.extend(t.finish())  # upstream closed without response.completed
+    assert chunks == [
+        {"type": "text-start", "id": "t1"},
+        {"type": "text-delta", "id": "t1", "delta": "par"},
+        {"type": "text-delta", "id": "t1", "delta": "tial"},
+        {"type": "text-end", "id": "t1"},
+        {
+            "type": "finish",
+            "finishReason": "stop",
+            "messageMetadata": {"interrupted": True},
+        },
+    ]
+    assert _finish_count(chunks) == 1
+
+
 def test_identity_instructions_carry_credential_silence_rule() -> None:
     """The identity envelope keeps the act-as sub for write calls but
     explicitly forbids narrating credential mechanics (issue #158)."""
@@ -656,6 +753,25 @@ def test_identity_instructions_carry_credential_silence_rule() -> None:
         "tokens, M2M, minting, act-as, credentials"
         in chat_module.identity_instructions(OTHER_SUB, None)
     )
+
+
+def test_identity_instructions_forbid_all_plumbing_narration() -> None:
+    """Issue #179: the silence rule extends past credentials to every
+    internal the chat must not surface — tools, skills, scripts, paths,
+    endpoints, HTTP codes, JSON, field names — on BOTH envelope shapes,
+    and states the live activity line makes narration redundant."""
+    for text in (
+        chat_module.identity_instructions(OTHER_SUB, TRIP),
+        chat_module.identity_instructions(OTHER_SUB, None),
+    ):
+        assert "never narrate tools, " in text
+        assert "skills, scripts, file paths, endpoints" in text
+        assert "HTTP status" in text
+        assert "JSON, schemas, or field names" in text
+        assert "live activity line" in text
+        assert "step-by-step commentary is redundant" in text
+        # #158's credential rule must still hold verbatim
+        assert "tokens, M2M, minting, act-as, credentials" in text
 
 
 def test_scrub_jwt_redacts_complete_tokens() -> None:
