@@ -49,21 +49,25 @@ Endpoint reference: AGENTS.md → "Content update".
 Canonical trip fill order — the agent's recipe (issue #160). TripPatch is
 scalars-only (`extra=forbid`): PUT /api/trips/<id> takes title/subtitle/
 summary/stage/startDate/endDate/timezone/theme/cover/coverCredit/map/
-visibility and NOTHING else — locations, sections, stats, days and blocks
-all live behind their own nested endpoints. Build a trip in this order:
+visibility/coverStats/stats and NOTHING else — locations, features, sections,
+days and blocks all live behind their own nested endpoints. Build a trip in
+this order:
 
 1. create-trip --title "…" [--subtitle "…"]      POST /api/trips (201)
 2. PUT /api/trips/<trip_id>                      scalars via --json/--file
+   (incl. coverStats lines + stats [{label,value}] rows, issue #178)
 3. PUT /api/trips/<trip_id>/locations            full-array replace
    (or PATCH …/locations for named upserts)
-4. POST /api/trips/<trip_id>/days                insert/append days FIRST
-5. POST /api/trips/<trip_id>/sections            chapters; a `days` range
+4. PUT /api/trips/<trip_id>/features             editorial overview cards
+   (or PATCH …/features for id/title upserts — issue #178)
+5. POST /api/trips/<trip_id>/days                insert/append days FIRST
+6. POST /api/trips/<trip_id>/sections            chapters; a `days` range
    (+ PUT …/sections/<id> to move it)            must be in-bounds, so days
                                                  must already exist — an
    out-of-range range is a 422 ("Section days [0, 1] out of range — trip has
    0 days"). Omit `days` for a pure ideation section. Verify with a GET
    after a rejected section POST: the section twin can persist anyway.
-6. POST /api/trips/<trip_id>/blocks              `order` is server-managed
+7. POST /api/trips/<trip_id>/blocks              `order` is server-managed
    (container: {"type": "day"|"section", "id": …}) — never send it
 
 Botched a half-create? DELETE /api/trips/<trip_id> (owner-only) removes the

@@ -57,6 +57,8 @@ from .write import (
     CrewPatch,
     DayCreate,
     DayPatch,
+    FeaturesPatch,
+    FeaturesPut,
     LocationsPatch,
     LocationsPut,
     PracticalPut,
@@ -699,6 +701,39 @@ def patch_locations(
     the payload are a 409; an unknown ``id`` is a 404.
     """
     trip = _write(write_svc.patch_locations, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/features")
+def put_features(
+    trip_id: str,
+    body: FeaturesPut,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Full-array replace of the trip's editorial overview cards (issue #178).
+
+    Diff by title: kept features are patched, gone ones deleted, new ones
+    created; card order = list position (hasFeature edge index). Duplicated
+    titles are a 422. Mirrors PUT /locations.
+    """
+    trip = _write(write_svc.put_features, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.patch("/api/trips/{trip_id}/features")
+def patch_features(
+    trip_id: str,
+    body: FeaturesPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Incremental feature edits — upserts by `id` else `title` (issue #178).
+
+    Only the supplied fields are patched and unmentioned features are
+    untouched, so a partial payload can never delete a card the way PUT does.
+    New titles are appended to the card order. Duplicate titles (or ids) in
+    the payload are a 409; an unknown `id` is a 404.
+    """
+    trip = _write(write_svc.patch_features, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])
 
 

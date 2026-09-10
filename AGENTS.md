@@ -60,7 +60,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill via the nested endpoints below — canonical order in `api_write.py --help` |
-| PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates; `visibility` owner-only |
+| PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates + `coverStats`/`stats` (#178); `visibility` owner-only |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
@@ -82,6 +82,8 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | DELETE | `/api/trips/{trip_id}/crew/{person_id}` | owner-only |
 | PUT | `/api/trips/{trip_id}/locations` | replace registry (`locations: [...]`, incl. durable place metadata `placeId`/`address`/`website`/`phone`/`openingHours`/`types`/`wheelchairAccessible` + short-lived `rating`); explicit null clears the field, `[]` clears a list field, absent fields untouched |
 | PATCH | `/api/trips/{trip_id}/locations` | named upserts only (match by `id` else `name`; new names append, nothing deleted); explicit null clears the field, absent fields untouched |
+| PUT | `/api/trips/{trip_id}/features` | replace editorial overview cards (`features: [...]`, #178) — diff by `title`: kept patched, gone deleted, new created; card order = list position; explicit null clears the field, `[]` empties a list field, absent fields untouched; duplicate titles 422, unknown explicit `id` 404 |
+| PATCH | `/api/trips/{trip_id}/features` | feature upserts only (match by `id` else `title`; new titles append, nothing deleted, edge order of existing cards never moves); duplicate titles/ids 409, unknown `id` 404, retitle onto another title 409 |
 
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>

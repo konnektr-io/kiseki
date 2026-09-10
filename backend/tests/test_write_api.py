@@ -118,6 +118,8 @@ def test_write_requires_graph_role(client, rsa_keypair) -> None:
     ("patch", "/crew/PER", {"note": "gear"}),
     ("post", "/crew", {"name": "New Person"}),
     ("put", "/locations", {"locations": []}),
+    ("put", "/features", {"features": []}),
+    ("patch", "/features", {"features": [{"title": "ACL Matrix Card"}]}),
 ])
 def test_write_acl_matrix(client, rsa_keypair, graph, method, path_suffix, body) -> None:
     """Every write endpoint: 401 anonymous, 403 for viewer/follower, 200/201
@@ -1047,3 +1049,237 @@ def test_patch_locations_acl(client, rsa_keypair, graph) -> None:
         g.add_user_role(trip.id, SUB, "owner")
     g.add_user_role(trip.id, SUB, "editor")
     assert _authz(client, "patch", url, _token_of(rsa_keypair), json=body).status_code == 200
+
+
+# ------------------------------------------------------------- editorial #178
+def test_put_trip_sets_cover_stats_and_stats(client, rsa_keypair, graph) -> None:
+    """TripPatch accepts coverStats + stats (#178) — the cover strip and the
+    'at a glance' row are plain trip props. Explicit-clear: a present null/[]
+    clears, an absent field is left untouched."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}"
+    orig_stats = [s.model_dump() for s in trip.stats]
+
+    r = _authz(client, "put", url, token, json={
+        "coverStats": ["10 days · 3 cities · 2 countries · 1 dream"],
+        "stats": [{"label": "Days", "value": "10"}, {"label": "Cities", "value": "3"}],
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["coverStats"] == ["10 days · 3 cities · 2 countries · 1 dream"]
+    assert body["stats"] == [
+        {"label": "Days", "value": "10"}, {"label": "Cities", "value": "3"},
+    ]
+
+    # absent fields keep their stored value
+    r = _authz(client, "put", url, token, json={"title": "Retitle"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["coverStats"] == ["10 days · 3 cities · 2 countries · 1 dream"]
+    assert body["stats"] == [
+        {"label": "Days", "value": "10"}, {"label": "Cities", "value": "3"},
+    ]
+
+    # explicit [] / null clears
+    r = _authz(client, "put", url, token, json={"coverStats": [], "stats": None})
+    assert r.status_code == 200
+    assert r.json()["coverStats"] == []
+    assert r.json()["stats"] == []
+    # and the original values restore cleanly (PUT is idempotent)
+    r = _authz(client, "put", url, token, json={
+        "coverStats": trip.coverStats, "stats": orig_stats,
+    })
+    assert r.status_code == 200
+    assert r.json()["coverStats"] == trip.coverStats
+    assert r.json()["stats"] == orig_stats
+
+
+def test_put_features_reconciles_by_title(client, rsa_keypair, graph) -> None:
+    """PUT /features (#178): full-array replace diff-by-title, card order =
+    list position (hasFeature edge index)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/features"
+    old_titles = [f.title for f in trip.features]
+    assert len(old_titles) >= 2  # fixture carries 3 features
+    kept = old_titles[0]
+    dropped = old_titles[1]
+
+    r = _authz(client, "put", url, token, json={"features": [
+        {"title": kept, "chips": ["Updated chip"], "cards": [
+            {"title": "Revelstoke", "value": "1,915 m vertical",
+             "links": [{"label": "Resort", "url": "https://example.test/revy"}]},
+        ]},
+        {"title": "Brand New Card", "kicker": "Centerpiece",
+         "description": "Fresh markdown body", "map": True,
+         "images": ["c383ce57.jpg"]},
+    ]})
+    assert r.status_code == 200, r.text
+    feats = r.json()["features"]
+    assert [f["title"] for f in feats] == [kept, "Brand New Card"]
+    assert dropped not in [f["title"] for f in feats]
+    kept_out = feats[0]
+    assert kept_out["chips"] == ["Updated chip"]
+    assert kept_out["cards"][0]["title"] == "Revelstoke"
+    assert kept_out["cards"][0]["links"][0]["label"] == "Resort"
+    new_out = feats[1]
+    assert new_out["kicker"] == "Centerpiece" and new_out["map"] is True
+    assert new_out["images"] == [f"/media/{trip.id}/c383ce57.jpg"]  # canonicalized
+    # duplicate titles -> 422
+    r = _authz(client, "put", url, token, json={"features": [
+        {"title": "A"}, {"title": "A"},
+    ]})
+    assert r.status_code == 422
+    # unknown explicit id -> 404
+    r = _authz(client, "put", url, token, json={"features": [
+        {"id": "00000000-0000-4000-8000-000000000000", "title": "Ghost"},
+    ]})
+    assert r.status_code == 404
+
+
+def test_put_features_preserves_and_reorders(client, rsa_keypair, graph) -> None:
+    """A PUT that only reorders keeps every twin (no delete/recreate churn)
+    and rewrites the edge indexes; the reorder regression (#178) — fields the
+    payload omits stay on kept features."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/features"
+    old_ids = [f.id for f in trip.features]
+    old_kickers = {f.id: f.kicker for f in trip.features}
+
+    r = _authz(client, "put", url, token, json={"features": [
+        {"title": f.title} for f in reversed(trip.features)
+    ]})
+    assert r.status_code == 200, r.text
+    feats = r.json()["features"]
+    assert [f["id"] for f in feats] == list(reversed(old_ids))
+    for f in feats:  # untouched fields survive a title-only replace
+        assert f["kicker"] == old_kickers[f["id"]]
+    # the edges really reindexed (0,1,2 in the new order)
+    edge_by_target = {
+        r["$targetId"]: r.get("index") for r in g.rels
+        if r.get("$relationshipName") == "hasFeature"
+    }
+    assert [edge_by_target[i] for i in reversed(old_ids)] == [0, 1, 2]
+
+
+def test_patch_features_upserts_without_touching_others(client, rsa_keypair, graph) -> None:
+    """PATCH /features (#178): match by id else title, supplied fields only,
+    unmentioned features untouched, new titles appended — never a delete."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/features"
+
+    target = trip.features[0]
+    untouched = trip.features[1]
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"title": target.title, "description": "Patched description"},
+        {"title": "Appended Card", "kicker": "New"},
+    ]})
+    assert r.status_code == 200, r.text
+    feats = r.json()["features"]
+    assert [f["title"] for f in feats] == [f.title for f in trip.features] + ["Appended Card"]
+    out = next(f for f in feats if f["id"] == target.id)
+    assert out["description"] == "Patched description"
+    # untouched fields on the patched feature survive
+    assert out["kicker"] == target.kicker
+    # the unmentioned feature keeps its stored body
+    left = next(f for f in feats if f["id"] == untouched.id)
+    assert left["description"] == untouched.description
+    # appended card sits last (edge index = 3)
+    edge_by_target = {
+        r["$targetId"]: r.get("index") for r in g.rels
+        if r.get("$relationshipName") == "hasFeature"
+    }
+    assert edge_by_target[next(f["id"] for f in feats if f["title"] == "Appended Card")] == 3
+
+
+def test_patch_features_matches_by_id_and_renames(client, rsa_keypair, graph) -> None:
+    """PATCH matching by id, 404 on unknown id, 409 on dupes + retitle clash;
+    an id-matched retitle keeps the twin."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/features"
+    target = trip.features[0]
+    other_title = trip.features[1].title
+
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"id": target.id, "title": "Retitled Card"},
+    ]})
+    assert r.status_code == 200, r.text
+    feats = r.json()["features"]
+    assert [f["title"] for f in feats] == ["Retitled Card"] + [f.title for f in trip.features[1:]]
+    assert feats[0]["id"] == target.id  # same twin, renamed
+
+    # unknown id -> 404
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"id": "00000000-0000-4000-8000-000000000000", "title": "Ghost"},
+    ]})
+    assert r.status_code == 404
+    # duplicate titles in payload -> 409
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"title": "A"}, {"title": "A"},
+    ]})
+    assert r.status_code == 409
+    # duplicate ids in payload -> 409
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"id": target.id, "title": "One"}, {"id": target.id, "title": "Two"},
+    ]})
+    assert r.status_code == 409
+    # retitle onto an existing other title -> 409
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"id": target.id, "title": other_title},
+    ]})
+    assert r.status_code == 409
+
+
+def test_put_features_clear_and_explicit_null(client, rsa_keypair, graph) -> None:
+    """Explicit-clear contract on features: a present null clears the field,
+    a present [] empties a list field, absent fields are untouched."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/features"
+    target = next(f for f in trip.features if f.chips)  # has chips
+
+    r = _authz(client, "patch", url, token, json={"features": [
+        {"title": target.title, "chips": [], "kicker": None},
+    ]})
+    assert r.status_code == 200, r.text
+    out = next(f for f in r.json()["features"] if f["id"] == target.id)
+    assert out["chips"] == []
+    assert "kicker" not in out or out["kicker"] in (None, "")
+    # description survived the chips clear (absent field untouched)
+    assert out["description"] == target.description
+
+
+def test_features_acl(client, rsa_keypair, graph) -> None:
+    """PUT/PATCH /features are editor+ writes: 401 anonymous, 403
+    viewer/follower, 200 editor — same as every other content write."""
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}/features"
+    body = {"features": [{"title": "ACL Probe"}]}
+
+    for method in ("put", "patch"):
+        assert client.request(method, url, json=body).status_code == 401
+        for low_role in ("viewer", "follower"):
+            g.add_user_role(trip.id, SUB, low_role)
+            low = _token_of(rsa_keypair)
+            assert _authz(client, method, url, low, json=body).status_code == 403
+            g.add_user_role(trip.id, SUB, "owner")
+        g.add_user_role(trip.id, SUB, "editor")
+        assert _authz(client, method, url, _token_of(rsa_keypair), json=body).status_code == 200
+        # cleanup for the next method leg: strip the probe card
+        titles = [f["title"] for f in _authz(
+            client, "put", url, _token_of(rsa_keypair),
+            json={"features": [{"title": f.title} for f in _trip_of(g).features
+                               if f.title != "ACL Probe"]},
+        ).json()["features"]]
+        assert "ACL Probe" not in titles
