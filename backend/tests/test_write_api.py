@@ -222,6 +222,39 @@ def test_stage_machine_rules(client, rsa_keypair, graph) -> None:
     assert r.status_code == 200 and r.json()["stage"] == "booked"
 
 
+def test_scalar_put_retires_the_owners_trip_list_cache(client, rsa_keypair, graph) -> None:
+    """A trip-scalar write must retire the OWNER'S memoized trip list (#185).
+
+    The trip document is cached per TRIP but "my trips" is cached per USER, so
+    invalidating only ``trip_dtid`` left the landing page serving the pre-write
+    row (title + stage) for the rest of the TTL: the owner moved a trip
+    planned → idea and the landing page kept rendering "planned" (2026-09-10).
+    """
+    from app.graph import client as client_mod
+
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+
+    forever = 9e9
+    client_mod._GRAPH_CACHE.update(
+        {
+            ("fetch_graph", (trip.id,), ()): (forever, g.fetch_graph(trip.id)),
+            ("list_trips_for_user", (SUB,), ()): (forever, []),
+            ("list_trips_for_user", ("google-oauth2|someone-else",), ()): (forever, []),
+        }
+    )
+
+    r = _authz(client, "put", f"/api/trips/{trip.id}", token, json={"stage": "archive"})
+    assert r.status_code == 200
+    assert r.json()["stage"] == "archive"  # returned document is a FRESH read
+
+    assert ("fetch_graph", (trip.id,), ()) not in client_mod._GRAPH_CACHE
+    assert ("list_trips_for_user", (SUB,), ()) not in client_mod._GRAPH_CACHE
+    # Another user's list is not this write's business.
+    assert ("list_trips_for_user", ("google-oauth2|someone-else",), ()) in client_mod._GRAPH_CACHE
+
+
 def test_visibility_owner_only(client, rsa_keypair, graph) -> None:
     g = graph(role="editor")
     trip = _trip_of(g)

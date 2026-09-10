@@ -575,10 +575,18 @@ def _renumber(client, trip_dtid: str, container_id: str, block_ids: list[str], s
         )
 
 
-def _rebuild(client, trip_dtid: str, graph: dict | None = None) -> Trip:
-    """Return the canonical Trip document (fresh read after the write)."""
+def _rebuild(client, trip_dtid: str, graph: dict | None = None,
+             user_dtid: str | None = None) -> Trip:
+    """Return the canonical Trip document (fresh read after the write).
+
+    ``user_dtid`` additionally retires THAT user's memoized reads. The trip
+    document is cached per TRIP but the "my trips" listing is cached per USER,
+    so a trip-scalar write (title/stage/cover/visibility) that invalidated only
+    ``trip_dtid`` left the landing page serving the pre-write row until the TTL
+    expired (issue #185). ``delete_trip``/claim already pass both ids.
+    """
     if graph is None:
-        _invalidate_graph_cache(trip_dtid=trip_dtid)
+        _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
         graph = client.fetch_graph(trip_dtid)
         if not graph:
             raise WriteError(503, "Trip could not be re-read after write")
@@ -817,7 +825,7 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     ops += _scalar_ops(trip_twin, [("updated", _today())])
     if ops:
         client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
-    return _rebuild(client, trip_dtid)
+    return _rebuild(client, trip_dtid, user_dtid=actor["sub"])
 
 
 # ---------------------------------------------------------------- practical
