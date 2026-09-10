@@ -9,48 +9,70 @@
  *
  * Every analytics SDK records the page URL by default, so a naive install
  * silently exports each trip's link to a SaaS, where it lands in dashboards,
- * exports and support access. These functions are PURE (no SDK, no DOM) and are
- * unit-tested in `analytics-privacy.test.ts`, which asserts that no raw token can
- * survive into an outbound payload.
+ * exports and support access.
  *
- * Scrubbing runs in the SDK's `before_send` hook — client-side, BEFORE the HTTP
- * request. It is deliberately NOT a vendor-UI display filter: those filter after
- * ingestion, by which point the secret has already been stored.
+ * SCOPE MATTERS — and getting it wrong is the subtle part. A key-by-key guard on
+ * `$current_url` is NOT enough: posthog-js derives several other URL-bearing
+ * properties from the same address, independently. A live probe caught the raw
+ * path surviving in:
+ *     $pathname            /t/<id>/itinerary
+ *     $initial_current_url (inside $set_once)   http://…/t/<id>/itinerary
+ *     $initial_pathname    (inside $set_once)   /t/<id>/itinerary
+ *     $referrer / $initial_referrer             carries the token onward
+ * So the scrubber walks EVERY string in the event's property bags and rewrites
+ * any value that carries a secret path, rather than trusting a key list. New
+ * SDK properties therefore stay covered by construction.
+ *
+ * These functions are PURE (no SDK, no DOM) and unit-tested in
+ * `analytics-privacy.test.ts`. Scrubbing runs in the SDK's `before_send` hook —
+ * client-side, BEFORE the HTTP request, not as a vendor-UI display filter which
+ * would filter after ingestion, when the secret is already stored.
  */
 
-/** URL-bearing default properties stripped from every event. */
+/** Properties that are URLs even when they carry no secret — they get their
+ *  query string/fragment dropped (an e2e probe flag should not be ingested). */
 export const SECRET_URL_PROPERTIES = [
   "$current_url",
   "$referrer",
   "$entry_url",
   "$exit_url",
+  "$initial_current_url",
+  "$initial_referrer",
 ] as const;
 
-/** Paths whose second segment is a secret capability. */
-const SECRET_PATH_ROOTS = new Set(["t", "join"]);
+/** Path roots whose second segment is a secret capability. */
+const SECRET_PATH_ROOTS = ["t", "join"];
+
+/** Matches an absolute URL (`https://…`, `//host/…`) so output shape is preserved. */
+const ABSOLUTE_URL_RE = /^(?:[a-z][a-z0-9+.-]*:)?\/\//i;
 
 /**
- * `/t/bf29a027-…/itinerary?x=1` → `/t/:token/itinerary`
- * `/join/ck_abc123`             → `/join/:token`
+ * Normalize a URL *or* a bare path, preserving which of the two it was:
  *
- * The query string and fragment are dropped too: they can carry tokens (and an
- * outbound referrer carries the token on to the next origin's analytics).
+ *   https://x.io/t/<id>/itinerary?y=1  →  https://x.io/t/:token/itinerary
+ *   /t/<id>/itinerary                  →  /t/:token/itinerary
+ *   /join/<claimToken>                 →  /join/:token
+ *
+ * Shape preservation is not cosmetic: `$pathname` is a PATH to PostHog, so
+ * returning an absolute URL there would corrupt its path breakdown.
  */
-export function normalizeSecretPath(url: string, origin = "http://localhost"): string {
+export function normalizeSecretPath(value: string, origin = "http://localhost"): string {
   let u: URL;
   try {
-    u = new URL(url, origin);
+    u = new URL(value, origin);
   } catch {
-    return url; // not URL-shaped — leave it alone rather than mangle it
+    return value; // not URL-shaped — leave it alone rather than mangle it
   }
+  // The query string and fragment can carry secrets too (and a referrer carries
+  // one onward to the next origin's analytics), so they never ship.
   u.search = "";
   u.hash = "";
   const parts = u.pathname.split("/").filter(Boolean);
-  if (parts.length >= 2 && SECRET_PATH_ROOTS.has(parts[0])) {
+  if (parts.length >= 2 && SECRET_PATH_ROOTS.includes(parts[0])) {
     parts[1] = ":token";
   }
   u.pathname = "/" + parts.join("/");
-  return u.toString();
+  return ABSOLUTE_URL_RE.test(value) ? u.toString() : u.pathname;
 }
 
 /**
@@ -60,25 +82,47 @@ export function normalizeSecretPath(url: string, origin = "http://localhost"): s
  */
 export interface ScrubbableEvent {
   properties?: unknown;
+  $set?: unknown;
+  $set_once?: unknown;
 }
 
-/** Rewrite every secret-bearing URL property in place; returns the same event. */
+/** Rewrite every secret-bearing value in the event in place; returns the event. */
 export function scrubSecretTokens<T extends ScrubbableEvent>(event: T): T {
-  const props = event?.properties;
-  if (!props || typeof props !== "object") return event;
-  const record = props as Record<string, unknown>;
-  for (const key of SECRET_URL_PROPERTIES) {
-    const v = record[key];
-    if (typeof v === "string" && v) {
-      record[key] = normalizeSecretPath(v);
-    }
-  }
+  if (!event || typeof event !== "object") return event;
+  scrubBag(event.properties);
+  scrubBag(event.$set);
+  scrubBag(event.$set_once);
   return event;
 }
 
-/** True when a string still contains something that looks like a live secret path. */
+/** Walk one property bag, scrubbing strings (recursing into nested objects). */
+function scrubBag(bag: unknown, depth = 0): void {
+  if (!bag || typeof bag !== "object" || depth > 4) return;
+  const record = bag as Record<string, unknown>;
+  for (const [key, value] of Object.entries(record)) {
+    if (typeof value === "string" && value) {
+      if (containsRawSecretPath(value) || isUrlProperty(key)) {
+        record[key] = normalizeSecretPath(value);
+      }
+    } else if (value && typeof value === "object") {
+      scrubBag(value, depth + 1);
+    }
+  }
+}
+
+function isUrlProperty(key: string): boolean {
+  return (SECRET_URL_PROPERTIES as readonly string[]).includes(key);
+}
+
+/** True when a string still carries something that looks like a live secret path. */
 export function containsRawSecretPath(value: unknown): boolean {
   if (typeof value !== "string") return false;
-  const m = value.match(/(?:^|[/\s"'(])(t|join)\/([^/\s"')?#]+)/);
-  return Boolean(m && m[2] !== ":token");
+  for (const root of SECRET_PATH_ROOTS) {
+    // The secret segment is whatever follows `/t/` or `/join/` — matched at the
+    // start of a path or after a separator, and never the `:token` placeholder.
+    const re = new RegExp(`(?:^|[/\\s"'=(])${root}/([^/\\s"')?#]+)`);
+    const m = value.match(re);
+    if (m && m[1] !== ":token") return true;
+  }
+  return false;
 }
