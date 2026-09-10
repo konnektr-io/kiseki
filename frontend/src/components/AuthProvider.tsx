@@ -1,4 +1,8 @@
-import { Auth0Context, Auth0Provider, initialContext } from "@auth0/auth0-react";
+import {
+  Auth0Context,
+  Auth0Provider,
+  initialContext,
+} from "@auth0/auth0-react";
 import type { Auth0ContextInterface, User } from "@auth0/auth0-react";
 import { createElement, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -60,7 +64,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       loginWithPopup: async () => {},
       logout: async () => {},
     } as unknown as Auth0ContextInterface;
-    return createElement(Auth0Context.Provider, { value: e2eContext }, children);
+    return createElement(
+      Auth0Context.Provider,
+      { value: e2eContext },
+      children,
+    );
   }
 
   if (!isAuthConfigured()) {

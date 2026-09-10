@@ -171,8 +171,7 @@ function ChatThread({
   }, [draft]);
 
   const readyFiles = attachments.filter(
-    (a): a is { state: "ready"; file: UploadedChatFile } =>
-      a.state === "ready",
+    (a): a is { state: "ready"; file: UploadedChatFile } => a.state === "ready",
   );
   const uploading = attachments.some((a) => a.state === "uploading");
   const canSend =
@@ -209,9 +208,7 @@ function ChatThread({
     const picked = Array.from(files);
     setAttachments((prev) => [
       ...prev,
-      ...picked.map(
-        (f): Attachment => ({ state: "uploading", name: f.name }),
-      ),
+      ...picked.map((f): Attachment => ({ state: "uploading", name: f.name })),
     ]);
     await Promise.all(
       picked.map(async (file) => {
@@ -231,8 +228,7 @@ function ChatThread({
             ),
           );
         } catch (e) {
-          const message =
-            e instanceof Error ? e.message : "Upload failed.";
+          const message = e instanceof Error ? e.message : "Upload failed.";
           setAttachments((prev) =>
             prev.map((a) =>
               a.state === "uploading" && a.name === file.name
@@ -303,10 +299,7 @@ function ChatThread({
             role="status"
             className="flex items-center gap-2 text-sm text-muted-foreground"
           >
-            <Loader2
-              className="h-4 w-4 animate-spin"
-              aria-hidden="true"
-            />
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
             Agent is thinking…
           </div>
         )}
@@ -354,9 +347,7 @@ function ChatThread({
                     type="button"
                     aria-label={`Remove ${a.file.name}`}
                     onClick={() =>
-                      setAttachments((prev) =>
-                        prev.filter((_, j) => j !== i),
-                      )
+                      setAttachments((prev) => prev.filter((_, j) => j !== i))
                     }
                     className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
                   >
@@ -595,4 +586,3 @@ export function ChatPopup({
     </div>
   );
 }
-

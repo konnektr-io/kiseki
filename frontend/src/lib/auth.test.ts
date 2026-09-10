@@ -38,21 +38,50 @@ describe("isSessionExpiredError", () => {
   });
 
   it("classifies login_required (silent iframe found no SSO session)", () => {
-    expect(isSessionExpiredError({ error: "login_required", error_description: "Login required" })).toBe(true);
+    expect(
+      isSessionExpiredError({
+        error: "login_required",
+        error_description: "Login required",
+      }),
+    ).toBe(true);
   });
 
   it("classifies invalid_grant (refresh token rejected by the token endpoint)", () => {
-    expect(isSessionExpiredError({ error: "invalid_grant", error_description: "The refresh token is expired" })).toBe(true);
+    expect(
+      isSessionExpiredError({
+        error: "invalid_grant",
+        error_description: "The refresh token is expired",
+      }),
+    ).toBe(true);
   });
 
   it("leaves transient failures alone", () => {
     // Plain network error: no `.error` code at all.
     expect(isSessionExpiredError(new TypeError("Failed to fetch"))).toBe(false);
     // SDK timeout carries a non-session code.
-    expect(isSessionExpiredError({ error: "timeout", error_description: "Timeout" })).toBe(false);
+    expect(
+      isSessionExpiredError({ error: "timeout", error_description: "Timeout" }),
+    ).toBe(false);
     // Server-side API failures surfaced by fetchTrip are not auth errors.
     expect(isSessionExpiredError(null)).toBe(false);
     expect(isSessionExpiredError("login_required")).toBe(false);
     expect(isSessionExpiredError(undefined)).toBe(false);
+  });
+});
+
+describe("isE2EQuery (browser-probe auth mode)", () => {
+  it("returns false when the e2e param is absent", () => {
+    expect(isE2EQuery("")).toBe(false);
+    expect(isE2EQuery("?trip=abc&kiseki=1")).toBe(false);
+  });
+  it("returns true only for kiseki_e2e=1 or a bare flag", () => {
+    expect(isE2EQuery("?kiseki_e2e=1")).toBe(true);
+    expect(isE2EQuery("?kiseki_e2e")).toBe(true);
+    expect(isE2EQuery("/t/abc/itinerary?kiseki_e2e=1&draft=1")).toBe(true);
+  });
+  it("ignores other values of the param", () => {
+    expect(isE2EQuery("?kiseki_e2e=0")).toBe(false);
+    expect(isE2EQuery("?kiseki_e2e=anything-else")).toBe(true);
+    expect(isE2EQuery("?not_kiseki_e2e=1")).toBe(false);
   });
 });

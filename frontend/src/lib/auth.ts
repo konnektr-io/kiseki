@@ -76,8 +76,17 @@ export function isSessionExpiredError(e: unknown): boolean {
  * no X-Act-As-Sub header rides along).
  */
 
-/** True when ``window.location`` carries a ``kiseki_e2e`` query param. */
+/** True when ``window.location`` carries a ``kiseki_e2e`` query param.
+
+The param is a signal flag only — the actual token is injected via the
+``window.__KISEKI_ACCESS_TOKEN__`` global (see backend/app/pdf.py for the same
+pattern), never placed in the URL. A bare ``?kiseki_e2e`` or any non-``0``
+value enables the mode; ``?kiseki_e2e=0`` disables it. ``search`` may be a full
+``location.search`` (``?kiseki_e2e=1``) or a path-with-query. */
 export function isE2EQuery(search: string): boolean {
-  const params = new URLSearchParams(search);
-  return params.has("kiseki_e2e");
+  const q = search.includes("?")
+    ? search.slice(search.indexOf("?") + 1)
+    : search;
+  const v = new URLSearchParams(q).get("kiseki_e2e");
+  return v !== null && v !== "0";
 }
