@@ -530,9 +530,12 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
 
 /**
  * Live agent-activity feed (issue #151) — what the agent is doing RIGHT
- * NOW, while the turn runs. One row per `data-kiseki-activity` part across
- * the streamed assistant messages (friendly labels from the relay, never raw
- * tool names): the latest open call spins, finished calls show a check.
+ * NOW, while the turn runs. Shows ONE row: the latest `data-kiseki-activity`
+ * part of the current turn (issue #175 — rows replace each other instead of
+ * piling up; friendly labels from the relay, never raw tool names). The row
+ * spins while open, shows a check once its call finishes, and the whole feed
+ * unmounts when the turn ends (`{busy && <AgentActivity/>}` at the mount
+ * site) — nothing lingers after the answer.
  * Falls back to the plain "thinking" row when no activity arrived yet —
  * a text-only turn (or a slow first byte) still shows something alive.
  * This fallback is the ONLY thinking indicator (issue #157): it renders for
@@ -540,8 +543,13 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
  * alongside it — that used to show "Agent is thinking" twice.
  */
 function AgentActivity({ messages }: { messages: UIMessage[] }) {
-  const rows = messages.flatMap((message) => messageActivities(message));
-  if (rows.length === 0) {
+  // The current turn is the LAST message while busy (the streaming assistant
+  // message; nothing is appended after it until the turn completes). Reading
+  // only it keeps a fresh turn from inheriting the previous turn's last row.
+  const current = messages.length > 0 ? messages[messages.length - 1] : null;
+  const rows = current ? messageActivities(current) : [];
+  const latest = rows.length > 0 ? rows[rows.length - 1] : null;
+  if (!latest) {
     return (
       <div
         role="status"
@@ -557,24 +565,22 @@ function AgentActivity({ messages }: { messages: UIMessage[] }) {
   }
   return (
     <div role="status" aria-label="Agent activity" className="flex flex-col gap-1.5">
-      {rows.map((row, i) => (
-        <div
-          key={`${i}-${row.label}`}
-          className="flex items-center gap-2 text-sm text-muted-foreground"
-        >
-          {row.done ? (
-            <span aria-hidden="true" className="text-xs">
-              ✓
-            </span>
-          ) : (
-            <Loader2
-              className="h-4 w-4 animate-spin"
-              aria-hidden="true"
-            />
-          )}
-          <span>{row.label}</span>
-        </div>
-      ))}
+      <div
+        key={`${rows.length - 1}-${latest.label}`}
+        className="flex items-center gap-2 text-sm text-muted-foreground"
+      >
+        {latest.done ? (
+          <span aria-hidden="true" className="text-xs">
+            ✓
+          </span>
+        ) : (
+          <Loader2
+            className="h-4 w-4 animate-spin"
+            aria-hidden="true"
+          />
+        )}
+        <span>{latest.label}</span>
+      </div>
     </div>
   );
 }
