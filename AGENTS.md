@@ -59,7 +59,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill via the nested endpoints below — canonical order in `api_write.py --help` |
+| POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill it in one go — `api_write.py fill <trip_id> --file plan.json` (plan shape in `api_write.py --help`) |
 | PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates + `coverStats`/`stats` (#178); `visibility` owner-only |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
@@ -88,6 +88,20 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 `order` is always server-managed (never send it); `claimToken` is never
 accepted or returned. Agent one-liner: `backend/scripts/api_write.py <method>
 <path> [--json '…'|--file -]`.
+
+**Bulk fill — the default for building a trip** (one validated plan, one run;
+~11 calls instead of ~100, and the whole 422 class is checked before the first
+write): `scripts/api_write.py fill <trip_id> --file plan.json [--dry-run]`.
+The plan carries `scalars`, `locations`, `features`, `days` (with `blocks`),
+`sections`, `practical`, `crew`; validation rejects unknown `scalars` keys
+(TripPatch is `extra=forbid`), non-numeric `cost`, block kinds outside the ten,
+out-of-bounds/overlapping section ranges, duplicate day dates and
+`order`/`container` in a block body — and warns on a transport without `mode`,
+a `from`/`to` matching no location name, or a day with no blocks. It ends with
+a re-GET summary (`days_without_blocks` must be empty) and re-runs are
+idempotent: days match by date, sections by title, blocks by
+(container, kind, title), crew by name. Full recipe the agent reads:
+`api_write.py --help`.
 
 **Relationship writes are scoped under the edge's SOURCE twin (issue #89).**
 The Konnektr Graph stores every relationship with a `$relationshipId`
