@@ -54,6 +54,11 @@ def test_docstring_documents_canonical_fill_order_and_quoting_rule() -> None:
     assert "POST /api/trips/<trip_id>/sections" in text
     assert "POST /api/trips/<trip_id>/days" in text
     assert "POST /api/trips/<trip_id>/blocks" in text
+    # Order is load-bearing: a section's `days` range must be in-bounds, so
+    # days must exist before the section that ranges over them is created.
+    assert text.index("POST /api/trips/<trip_id>/days") < text.index(
+        "POST /api/trips/<trip_id>/sections"
+    )
     # The --file quoting rule (the apostrophe fight the agent hit).
     assert "--file" in text
     # The botched-half-create exit (#163 DELETE /api/trips/{id}).

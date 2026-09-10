@@ -56,9 +56,13 @@ all live behind their own nested endpoints. Build a trip in this order:
 2. PUT /api/trips/<trip_id>                      scalars via --json/--file
 3. PUT /api/trips/<trip_id>/locations            full-array replace
    (or PATCH …/locations for named upserts)
-4. POST /api/trips/<trip_id>/sections            (+ PUT …/sections/<id>
-   to set/move the day range; inclusive [first, last], no overlap)
-5. POST /api/trips/<trip_id>/days                insert/append days
+4. POST /api/trips/<trip_id>/days                insert/append days FIRST
+5. POST /api/trips/<trip_id>/sections            chapters; a `days` range
+   (+ PUT …/sections/<id> to move it)            must be in-bounds, so days
+                                                 must already exist — an
+   out-of-range range is a 422 ("Section days [0, 1] out of range — trip has
+   0 days"). Omit `days` for a pure ideation section. Verify with a GET
+   after a rejected section POST: the section twin can persist anyway.
 6. POST /api/trips/<trip_id>/blocks              `order` is server-managed
    (container: {"type": "day"|"section", "id": …}) — never send it
 
