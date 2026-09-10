@@ -639,6 +639,81 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
     return _rebuild(client, trip_id)
 
 
+def delete_trip(trip_dtid: str, actor: dict) -> None:
+    """Owner-only: delete a trip twin and EVERYTHING scoped to it (issue #163).
+
+    The graph server does NOT cascade twin deletes — a twin with incident
+    edges refuses deletion ("Cannot delete a vertex that has edge(s)", #89) —
+    so this walks the whole trip subgraph edges-first: every relationship
+    SOURCED inside the trip (the trip's own ``hasDay``/``hasSection``/
+    ``hasFeature``/root ``atLocation`` edges, plus every section/day/block's
+    outgoing ``hasDay``/``hasBlock``/``atLocation`` edges) is deleted before
+    any twin, then the Trip/Day/Section/Block/Feature twins go, then finally
+    the Trip twin itself.
+
+    Crew-linked Person twins: a placeholder Person (claimed via #6 pending)
+    only makes sense inside its trip, so it goes with the trip; a **claimed
+    User twin** is a global identity (``$dtId`` = the auth sub) that belongs
+    to its human across every trip and is NEVER deleted here — only the
+    ``hasCrew`` edge (an inside-the-trip edge, already removed above) tied it
+    to this trip.
+
+    Order matters everywhere: edges before their twins, targets before the
+    trip. Returns None — there is nothing left to rebuild; the route answers
+    204. Re-runnable by construction: every pass re-fetches the CURRENT
+    bundle and removes what remains, so a run that failed mid-way converges
+    to fully deleted on the next attempt (the second DELETE of a finished
+    cleanup is a plain 404 at the route gate).
+    """
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can delete a trip")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    _trip_twin(graph, trip_dtid)  # presence + model check (404 on mismatch)
+    sub = actor["sub"]
+
+    relationships = graph.get("relationships", [])
+    twins = {t.get("$dtId"): t for t in graph.get("twins", [])}
+
+    # 1) Edges first — everything SOURCED inside the trip is trip-scoped.
+    #    (An edge sourced OUTSIDE the trip could only point INTO it from
+    #    another trip — the graph has no cross-trip edges; crew hasCrew is
+    #    trip-sourced, so it is covered.)
+    for r in relationships:
+        src = r.get("$sourceId")
+        rel_id = r.get("$relationshipId")
+        if not src or not rel_id or src not in twins:
+            continue
+        client.delete_relationship(src, rel_id, x_user_id=sub)
+
+    # 2) Twin deletes, leaves first — Feature/Location/Block/Section/Day
+    #    before the Trip root. Person placeholders go with the trip; claimed
+    #    User twins (global identities, $dtId = auth sub) are never deleted.
+    leaf_order = ("Feature", "Location", "Block", "TripSection", "Day", "Trip")
+    ordered = sorted(
+        twins.items(),
+        key=lambda kv: leaf_order.index(_model_kind(kv[1]))
+        if _model_kind(kv[1]) in leaf_order else len(leaf_order),
+    )
+    for dtid, twin in ordered:
+        kind = _model_kind(twin)
+        if kind == "User":
+            continue  # global identity — outlives the trip
+        if kind == "Person":
+            continue  # crew-linked placeholders ride below, never via this loop
+        client.delete_twin(trip_dtid, dtid, x_user_id=sub)
+    # Person twins here are crew placeholders (#6): identity-less twins whose
+    # whole meaning is this trip's crew — remove them (no crew graph is left
+    # behind; claimed users were User twins, handled above).
+    for dtid, twin in twins.items():
+        if _model_kind(twin) == "Person":
+            client.delete_twin(trip_dtid, dtid, x_user_id=sub)
+
+    # The trip is gone — retire its cached reads (and the owner's trip list,
+    # which no longer contains it).
+    _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=actor["sub"])
+
+
 def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     """Trip scalar edits + stage machine + owner-only visibility.
 

@@ -226,3 +226,33 @@ def require_trip_role(min_role: str):
         return actor
 
     return dependency
+
+
+def require_trip_owner(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+    """The DELETE /api/trips/{trip_id} gate (issue #163) — existence FIRST.
+
+    Unlike ``require_trip_role`` (which gates on the crew role alone and lets
+    the write service 404 later), a trip-level delete must 404 BEFORE any
+    role verdict: the caller (user or content agent) needs "this trip is
+    gone" on the SECOND delete (the cleanup loop's termination condition) —
+    a role-shaped 403 there would read as "still exists, just denied". Order
+    here: 401 (no/bad token) → 404 (trip gone — for anyone, any identity) →
+    403 (exists, caller is not the owner). The write service re-checks the
+    owner role (belt and braces) and does the graph work.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = get_current_user(authorization)  # validates; 401 on invalid
+    if get_trip_by_id(trip_id.lower()) is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    actor = _resolve_actor(user, trip_id.lower())
+    if not actor or actor["role"] != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="You need the 'owner' role for this trip",
+        )
+    return actor

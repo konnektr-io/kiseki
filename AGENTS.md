@@ -60,6 +60,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | Method | Path | Notes |
 |---|---|---|
 | PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates; `visibility` owner-only |
+| DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | PUT | `/api/trips/{trip_id}/practical` | whole practical object |
 | POST | `/api/trips/{trip_id}/practical/todos` | append todo |
 | POST | `/api/trips/{trip_id}/practical/todos/{i}/toggle` | per-item `{"done": bool}` |
