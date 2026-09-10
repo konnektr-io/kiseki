@@ -1236,6 +1236,22 @@ def _validate_section_days(days: Any, n_days: int) -> tuple[int, int]:
     return first, last
 
 
+def _validate_location_refs_exist(graph: dict, names: list[str]) -> None:
+    """Check that every ``locationRefs`` name maps to a Location twin.
+
+    Pure validation — no writes (issue #172: validate-then-write). ``create_section``
+    calls this before any upsert so a 422 leaves the graph untouched; the shared
+    ``_sync_section_location_refs`` re-runs it after the twin is created.
+    """
+    locations = {
+        t.get("name")
+        for t in graph.get("twins", []) if _model_kind(t) == "Location"
+    }
+    for n in names:
+        if n not in locations:
+            raise WriteError(422, f"Unknown location {n!r} — add it to the trip first")
+
+
 def _sync_section_location_refs(
     client: Any, trip_dtid: str, graph: dict, section_id: str, names: list[str], x_user_id: str
 ) -> None:
@@ -1400,11 +1416,41 @@ def create_section(trip_dtid: str, actor: dict, payload: SectionCreate) -> Trip:
     root = _trip_twin(graph, trip_dtid)
     section_id = _new_id()
 
+    # Validate the payload against the CURRENT graph state BEFORE any writes,
+    # so a 422 leaves the graph untouched (issue #172 — validate-then-write).
+    day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
+    n_days = len(day_ids)
+    days_prop: list[int] = []
+    has_day_rows: list[tuple[str, str, int]] = []
+    if payload.days is not None:
+        first, last = _validate_section_days(payload.days, n_days)
+        # Overlap guard against every existing section (the new one has none yet).
+        for r in graph.get("relationships", []):
+            if (r.get("$sourceId") == root["$dtId"]
+                    and r.get("$relationshipName") == "hasSection"):
+                other = _twin(graph, r.get("$targetId"))
+                if other is None or _model_kind(other) != "TripSection":
+                    continue
+                covered = set(_section_day_indices(graph, r["$targetId"], day_ids))
+                clash = sorted(set(range(first, last + 1)) & covered)
+                if clash:
+                    raise WriteError(
+                        422,
+                        f"Section days {payload.days} overlap '{other.get('title')}' "
+                        f"(already covers day {clash[0]}) — sections must not share days",
+                    )
+        day_id_for = {i: tid for i, tid in enumerate(day_ids)}
+        days_prop = [first, last]
+        has_day_rows = [(section_id, day_id_for[i], i) for i in range(first, last + 1)]
+    # locationRefs are validated up-front too (unknown location = 422, no write).
+    location_names = payload.locationRefs or []
+    _validate_location_refs_exist(graph, location_names)
+
     props: dict[str, Any] = {
         "$dtId": section_id,
         "$metadata": {"$model": SECTION_MODEL},
         "title": payload.title,
-        "days": [],
+        "days": days_prop,
         "fold": [],
     }
     client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
@@ -1426,48 +1472,32 @@ def create_section(trip_dtid: str, actor: dict, payload: SectionCreate) -> Trip:
         x_user_id=actor["sub"],
     )
 
-    ops: list[dict[str, Any]] = []
-    if payload.days is not None:
-        day_ids = _trip_day_ids_by_index(graph, root["$dtId"])
-        n_days = len(day_ids)
-        first, last = _validate_section_days(payload.days, n_days)
-        # Overlap guard against every existing section (the new one has none yet).
-        for r in graph.get("relationships", []):
-            if (r.get("$sourceId") == root["$dtId"]
-                    and r.get("$relationshipName") == "hasSection"):
-                other = _twin(graph, r["$targetId"])
-                if other is None or _model_kind(other) != "TripSection":
-                    continue
-                covered = set(_section_day_indices(graph, r["$targetId"], day_ids))
-                clash = sorted(set(range(first, last + 1)) & covered)
-                if clash:
-                    raise WriteError(
-                        422,
-                        f"Section days {payload.days} overlap '{other.get('title')}' "
-                        f"(already covers day {clash[0]}) — sections must not share days",
-                    )
-        day_id_for = {i: tid for i, tid in enumerate(day_ids)}
-        for i in range(first, last + 1):
-            client.upsert_relationship(
-                trip_dtid,
-                {
-                    "$relationshipId": _rel_id(section_id, "hasDay", day_id_for[i]),
-                    "$sourceId": section_id,
-                    "$relationshipName": "hasDay",
-                    "$targetId": day_id_for[i],
-                    "index": i,
-                },
-                x_user_id=actor["sub"],
-            )
-        ops.append({"op": "replace", "path": "/days", "value": [first, last]})
-
-    if payload.locationRefs:
-        _sync_section_location_refs(
-            client, trip_dtid, graph, section_id, payload.locationRefs, actor["sub"]
+    # Write phase — validation already happened above, so these writes always
+    # succeed on a valid payload (issue #172: validate-then-write atomicity).
+    for section_day, day_tid, idx in has_day_rows:
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(section_id, "hasDay", day_tid),
+                "$sourceId": section_id,
+                "$relationshipName": "hasDay",
+                "$targetId": day_tid,
+                "index": idx,
+            },
+            x_user_id=actor["sub"],
+        )
+    if days_prop:
+        client.update_twin_props(
+            trip_dtid, section_id,
+            [{"op": "replace", "path": "/days", "value": days_prop}],
+            x_user_id=actor["sub"],
         )
 
-    if ops:
-        client.update_twin_props(trip_dtid, section_id, ops, x_user_id=actor["sub"])
+    if location_names:
+        _sync_section_location_refs(
+            client, trip_dtid, graph, section_id, location_names, actor["sub"]
+        )
+
     client.update_twin_props(
         trip_dtid, trip_dtid,
         _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
