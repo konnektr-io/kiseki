@@ -119,6 +119,32 @@ def main() -> int:
             check("PUT /sections extend days (hasDay upsert)", st == 200)
         else:
             print("  (skip) last section covers a single day — nothing to trim")
+
+        # --- 4. editorial fields (#178): coverStats/stats via PUT trip, features ---
+        orig_cover_stats = trip.get("coverStats") or []
+        orig_stats = trip.get("stats") or []
+        st, _ = _req("PUT", f"/api/trips/{tid}",
+                     {"coverStats": ["SMOKE · probe line"], "stats": [{"label": "smoke", "value": "1"}]})
+        check("PUT /trips set coverStats+stats", st == 200)
+        st, _ = _req("PUT", f"/api/trips/{tid}",
+                     {"coverStats": orig_cover_stats, "stats": orig_stats})
+        check("PUT /trips restore coverStats+stats", st == 200)
+
+        st, doc5 = _req("PUT", f"/api/trips/{tid}/features", {"features": [
+            {"title": "smoke-write-path-card", "kicker": "SMOKE", "chips": ["probe"]},
+        ] + [
+            {"title": f["title"]} for f in trip.get("features", []) if f["title"] != "smoke-write-path-card"
+        ]})
+        probe = next((f for f in doc5.get("features", [])
+                      if f.get("title") == "smoke-write-path-card"), None)
+        check("PUT /features (Feature twin + hasFeature edge)", st == 200 and probe is not None)
+        st, doc6 = _req("PATCH", f"/api/trips/{tid}/features", {"features": [
+            {"id": probe["id"], "title": probe["title"], "description": "patched by smoke"} if probe else {}
+        ]} if probe else None)
+        patched = next((f for f in doc6.get("features", [])
+                        if f.get("id") == (probe or {}).get("id")), None)
+        check("PATCH /features (named upsert)", bool(st == 200 and patched
+               and patched.get("description") == "patched by smoke"))
     finally:
         # --- always restore ---
         st, _ = _req("DELETE", f"/api/trips/{tid}/blocks/{block_id}")
@@ -133,6 +159,11 @@ def main() -> int:
                             {"days": [last_sec["days"][0], last_sec["days"][1]]})
             s = next((x for x in doc4.get("sections", []) if x["id"] == last_sec["id"]), {})
             check("cleanup: section days restored", st == 200 and s.get("days") == last_sec["days"])
+        st, doc7 = _req("PUT", f"/api/trips/{tid}/features",
+                        {"features": [{"title": f["title"]} for f in trip.get("features", [])]})
+        feats = [f["title"] for f in doc7.get("features", [])] if st == 200 else []
+        check("cleanup: original features restored",
+              st == 200 and feats == [f["title"] for f in trip.get("features", [])])
 
     print()
     if FAILURES:

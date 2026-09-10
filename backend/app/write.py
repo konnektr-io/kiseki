@@ -40,10 +40,12 @@ from .models import (
     BlockKind,
     BlockStatus,
     Contact,
+    FeatureCard,
     Link,
     Practical,
     Role,
     Stage,
+    Stat,
     Theme,
     TodoItem,
     Trip,
@@ -56,6 +58,7 @@ from . import tricount as tricount_svc
 # trip/user/person ones; the rest are needed verbatim here).
 BLOCK_MODEL = "dtmi:kiseki:travel:Block;1"
 DAY_MODEL = "dtmi:kiseki:travel:Day;1"
+FEATURE_MODEL = "dtmi:kiseki:travel:Feature;1"
 LOCATION_MODEL = "dtmi:kiseki:travel:Location;1"
 PERSON_MODEL = "dtmi:kiseki:travel:Person;1"
 SECTION_MODEL = "dtmi:kiseki:travel:TripSection;1"
@@ -107,6 +110,11 @@ class TripPatch(_Strict):
     coverCredit: Optional[str] = None
     map: Optional[str] = None
     visibility: Optional[Visibility] = None
+    # Cover-strip lines + the "at a glance" row (issue #178) — plain scalar
+    # list props on the Trip twin, patched like any other scalar. A present
+    # ``null`` (or ``[]``) clears; an absent field is left untouched.
+    coverStats: Optional[list[str]] = None
+    stats: Optional[list[Stat]] = None
 
 
 class PracticalPut(_Strict):
@@ -368,6 +376,44 @@ class LocationsPatch(_Strict):
     """Incremental location edits — named upserts only, never a replace."""
 
     locations: list[LocationUpsert]
+
+
+class FeatureWrite(_Strict):
+    """One editorial overview card for PUT/PATCH /features (issue #178).
+
+    A Feature is a twin joined to the trip by an indexed ``hasFeature`` edge
+    (card order = edge index, matching the seed). ``title`` is the natural
+    match key for PATCH (features have no unique human key); ``id`` pins an
+    exact twin when supplied. Only fields PRESENT in the payload are written;
+    a present ``null`` clears that field, a present list — including ``[]`` —
+    is written verbatim, and absent fields keep their stored value.
+    """
+
+    id: Optional[str] = Field(
+        default=None,
+        description="Feature twin id ($dtId). When supplied, the entry matches that twin (unknown id = 404); otherwise matching is by `title`.",
+    )
+    title: str = Field(min_length=1, description="Feature title (the canonical match key). New titles are appended.")
+    kicker: Optional[str] = None
+    description: Optional[str] = None
+    image: Optional[str] = None
+    images: Optional[list[str]] = None
+    chips: Optional[list[str]] = None
+    cards: Optional[list[FeatureCard]] = None
+    map: Optional[bool] = None
+    links: Optional[list[Link]] = None
+
+
+class FeaturesPut(_Strict):
+    """Full-array replace of the trip's editorial overview cards."""
+
+    features: list[FeatureWrite]
+
+
+class FeaturesPatch(_Strict):
+    """Incremental feature edits — upserts by `id`/`title`, never a replace."""
+
+    features: list[FeatureWrite]
 
 
 # ---------------------------------------------------------------- validation
@@ -738,6 +784,18 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
         if prop in fields:
             _validate_iso_date(fields[prop], prop)
             ops += _scalar_ops(trip_twin, [(prop, fields[prop])])
+    for prop in ("coverStats", "stats"):
+        # Issue #178: list-valued trip scalars. A PRESENT ``null`` (or ``[]``)
+        # clears the prop; an ABSENT field keeps the stored value — the same
+        # explicit-clear contract as PATCH /locations, so a partial PUT can
+        # never wipe a strip the caller didn't mean to touch.
+        if prop in patch.model_fields_set:
+            value = getattr(patch, prop)
+            if prop == "stats" and value is not None:
+                value = [
+                    s.model_dump() if isinstance(s, Stat) else dict(s) for s in value
+                ]
+            ops += _scalar_ops(trip_twin, [(prop, value)])
     if "timezone" in fields and fields["timezone"] is not None:
         # Cheap sanity: must look like an IANA zone; the frontend degrades
         # gracefully on unknown zones (Intl fallback), so no hard lookup here.
@@ -2075,6 +2133,252 @@ def patch_locations(trip_dtid: str, actor: dict, body: LocationsPatch) -> Trip:
                 by_id[lid] = by_name[entry.name]
             else:
                 ops = _scalar_ops(twin, _location_upsert_pairs(entry))
+                if ops:
+                    client.update_twin_props(trip_dtid, twin["$dtId"], ops, x_user_id=actor["sub"])
+
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
+    )
+    return _rebuild(client, trip_dtid)
+
+
+# ---------------------------------------------------------------- features
+# Feature twin props managed by put_features/patch_features (issue #178).
+# `title` is written on create + rename only (it is the match key); the rest
+# follow the explicit-clear contract. `id` maps to $dtId, never a property.
+_FEATURE_PROPS = (
+    "kicker", "description", "image", "images", "chips", "cards", "map", "links",
+)
+
+
+def _feature_pairs(entry: FeatureWrite, *, include_title: bool) -> list[tuple[str, Any]]:
+    """(prop, value) pairs to write for one feature entry.
+
+    Explicit-clear contract (``model_fields_set``): absent fields are left
+    untouched; a present ``null`` emits ``(prop, None)`` so ``_scalar_ops``
+    removes the prop from the twin; a present list — including ``[]`` — is
+    written verbatim. Nested cards/links serialize as plain dicts (the twin
+    stores object arrays; the read path re-validates into the model).
+    """
+    pairs: list[tuple[str, Any]] = []
+    if include_title:
+        pairs.append(("title", entry.title))
+    for prop in _FEATURE_PROPS:
+        if prop not in entry.model_fields_set:
+            continue
+        value = getattr(entry, prop)
+        if value is None:
+            pairs.append((prop, None))
+        elif prop in ("cards", "links"):
+            pairs.append((prop, [
+                (c.model_dump(exclude_none=True, by_alias=True)
+                 if not isinstance(c, dict) else c)
+                for c in value
+            ]))
+        else:
+            pairs.append((prop, value))
+    return pairs
+
+
+def _feature_features(graph: dict) -> dict[str, dict]:
+    """Feature twins keyed by $dtId."""
+    return {
+        t["$dtId"]: t for t in graph.get("twins", [])
+        if _model_kind(t) == "Feature"
+    }
+
+
+def _has_feature_edges(graph: dict, trip_dtid: str) -> list[dict]:
+    return [
+        r for r in graph.get("relationships", [])
+        if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasFeature"
+    ]
+
+
+def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
+    """Full-array replace of the trip's editorial overview cards (issue #178).
+
+    Diff by title: kept features are patched, gone ones deleted, new ones
+    created; the hasFeature edge set is rebuilt with ``index`` = list position
+    (card order). Deleting a removed Feature twin requires its edges gone
+    first — the graph server refuses a non-cascade twin delete (#89 rule) —
+    so ALL old edges are dropped before the twin deletes, then the new edge
+    set is upserted (the same order put_locations established).
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+
+    entries = body.features
+    titles = [e.title for e in entries]
+    if len(titles) != len(set(titles)):
+        raise WriteError(422, "Feature titles must be unique")
+
+    features = _feature_features(graph)
+    old_edges = _has_feature_edges(graph, trip_dtid)
+    keep_titles = set(titles)
+    # Survivors: explicit ids AND twins currently holding a payload title —
+    # an id-matched entry that RENAMES its feature keeps the twin even though
+    # its old title is gone from the payload.
+    survivor_ids = {e.id for e in entries if e.id is not None} | {
+        f["$dtId"] for f in features.values() if f.get("title") in keep_titles
+    }
+
+    # Deletes: old features no longer in the list. Drop every old edge first
+    # (they are replaced below anyway), then the removed twins are edge-free.
+    for r in old_edges:
+        if r.get("$relationshipId"):
+            client.delete_relationship(
+                r.get("$sourceId") or trip_dtid, r["$relationshipId"],
+                x_user_id=actor["sub"],
+            )
+    for r in old_edges:
+        fid = r.get("$targetId")
+        if not isinstance(fid, str):
+            continue
+        if fid not in survivor_ids and fid in features:
+            client.delete_twin(trip_dtid, fid, x_user_id=actor["sub"])
+            features.pop(fid, None)
+
+    # Upserts (new) + patches (existing) in payload order.
+    current_ids: list[str] = []
+    for entry in entries:
+        matched = next(
+            (f for f in features.values() if f.get("title") == entry.title), None
+        )
+        if entry.id is not None:
+            twin = features.get(entry.id)
+            if twin is None:
+                raise WriteError(404, f"Unknown feature id {entry.id!r}")
+            if entry.title != twin.get("title") and matched is not None:
+                raise WriteError(409, f"{entry.title!r} is already a feature on this trip")
+        else:
+            twin = matched
+        if twin is None:
+            fid = _new_id()
+            props: dict[str, Any] = {
+                "$dtId": fid,
+                "$metadata": {"$model": FEATURE_MODEL},
+                "title": entry.title,
+            }
+            for prop, value in _feature_pairs(entry, include_title=False):
+                if value is not None:
+                    props[prop] = value
+            client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+            twin = {"$dtId": fid, "title": entry.title}
+            features[fid] = twin
+        else:
+            fid = twin["$dtId"]
+            ops = _scalar_ops(twin, _feature_pairs(entry, include_title=(
+                entry.title != twin.get("title")
+            )))
+            if ops:
+                client.update_twin_props(trip_dtid, fid, ops, x_user_id=actor["sub"])
+            twin["title"] = entry.title
+        current_ids.append(fid)
+
+    # (Re)create the hasFeature edges: index = position (card order).
+    for i, fid in enumerate(current_ids):
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(trip_dtid, "hasFeature", fid),
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasFeature",
+                "$targetId": fid,
+                "index": i,
+            },
+            x_user_id=actor["sub"],
+        )
+
+    client.update_twin_props(
+        trip_dtid, trip_dtid,
+        _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],
+    )
+    return _rebuild(client, trip_dtid)
+
+
+def patch_features(trip_dtid: str, actor: dict, body: FeaturesPatch) -> Trip:
+    """Incremental feature edits — the safe complement to put_features (#178).
+
+    Each entry matches by ``id`` when supplied, otherwise by ``title``. Only
+    the supplied fields are patched; features not mentioned are untouched (no
+    deletes, no edge rebuild — card order of existing features never moves).
+    New titles are appended (edge index = current count). Duplicate titles
+    (or ids) in the payload are a 409; an unknown ``id`` is a 404; retitling
+    onto another feature's title is a 409.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    root = _trip_twin(graph, trip_dtid)
+
+    entries = body.features
+    titles = [e.title for e in entries]
+    if len(titles) != len(set(titles)):
+        raise WriteError(409, "Feature titles must be unique")
+    given_ids = [e.id for e in entries if e.id is not None]
+    if len(given_ids) != len(set(given_ids)):
+        raise WriteError(409, "Feature ids must be unique")
+
+    by_id = _feature_features(graph)
+    by_title = {t.get("title"): t for t in by_id.values()}
+    used = [
+        r["index"] for r in _has_feature_edges(graph, trip_dtid)
+        if isinstance(r.get("index"), int)
+    ]
+    next_index = (max(used) + 1) if used else 0
+
+    for entry in entries:
+        if entry.id is not None:
+            twin = by_id.get(entry.id)
+            if twin is None:
+                raise WriteError(404, f"Unknown feature id {entry.id!r}")
+            if entry.title != twin.get("title") and entry.title in by_title \
+                    and by_title[entry.title] is not twin:
+                raise WriteError(409, f"{entry.title!r} is already a feature on this trip")
+            ops = _scalar_ops(twin, [("title", entry.title)]
+                              if entry.title != twin.get("title") else [])
+            ops += _scalar_ops(twin, _feature_pairs(entry, include_title=False))
+            if ops:
+                client.update_twin_props(trip_dtid, twin["$dtId"], ops, x_user_id=actor["sub"])
+            old_title = twin.get("title")
+            if entry.title != old_title:
+                del by_title[old_title]
+                by_title[entry.title] = twin
+        else:
+            twin = by_title.get(entry.title)
+            if twin is None:
+                fid = _new_id()
+                props: dict[str, Any] = {
+                    "$dtId": fid,
+                    "$metadata": {"$model": FEATURE_MODEL},
+                    "title": entry.title,
+                }
+                for prop, value in _feature_pairs(entry, include_title=False):
+                    if value is not None:
+                        props[prop] = value
+                client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+                client.upsert_relationship(
+                    trip_dtid,
+                    {
+                        "$relationshipId": _rel_id(trip_dtid, "hasFeature", fid),
+                        "$sourceId": trip_dtid,
+                        "$relationshipName": "hasFeature",
+                        "$targetId": fid,
+                        "index": next_index,
+                    },
+                    x_user_id=actor["sub"],
+                )
+                next_index += 1
+                # Keep the in-memory maps in sync so a later entry in the same
+                # payload matching this title patches instead of re-creating
+                # (duplicate payload titles are a 409 above; an id-matched
+                # retitle onto a just-created title is the only path here).
+                by_title[entry.title] = {"$dtId": fid, "title": entry.title}
+                by_id[fid] = by_title[entry.title]
+            else:
+                ops = _scalar_ops(twin, _feature_pairs(entry, include_title=False))
                 if ops:
                     client.update_twin_props(trip_dtid, twin["$dtId"], ops, x_user_id=actor["sub"])
 
