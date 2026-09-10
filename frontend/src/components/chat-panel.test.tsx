@@ -82,7 +82,7 @@ describe("ChatPanel messages", () => {
     expect(renderPanel("trip-1")).toContain("Agent is thinking");
   });
 
-  it("renders the activity feed while the agent calls tools", () => {
+  it("renders ONLY the latest activity row — rows replace each other (issue #175)", () => {
     const activity = {
       id: "a1",
       role: "assistant",
@@ -104,10 +104,68 @@ describe("ChatPanel messages", () => {
     stubChat({ messages: [activity], status: "streaming" });
     const html = renderPanel("trip-1");
     expect(html).toContain("Agent activity");
-    expect(html).toContain("Searching the web…");
+    // the latest call's row is the one on screen
     expect(html).toContain("Running a command…");
+    // earlier calls do NOT pile up (issue #175) — one row, not a stack
+    expect(html).not.toContain("Searching the web…");
+    const rows = html.split("Running a command…").length - 1;
+    expect(rows).toBe(1);
     // raw tool names never render
     expect(html).not.toContain("kiseki-activity");
+  });
+
+  it("scopes the feed to the current turn — later messages replace earlier ones", () => {
+    // Two streamed assistant segments in one busy window (text deltas can
+    // split a turn into several messages): only the LAST message's latest
+    // part is live — earlier segments' rows are replaced, not stacked.
+    const earlier = {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-kiseki-activity",
+          id: "c1",
+          data: { label: "Checking how to help…", done: true },
+        },
+      ],
+    } as unknown as UIMessage;
+    const current = {
+      id: "a2",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-kiseki-activity",
+          id: "c3",
+          data: { label: "Writing trip data…", done: false },
+        },
+      ],
+    } as unknown as UIMessage;
+    stubChat({ messages: [earlier, current], status: "streaming" });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Writing trip data…");
+    expect(html).not.toContain("Checking how to help…");
+  });
+
+  it("a fresh turn starts from thinking, not the previous turn's last row (issue #175)", () => {
+    const previous = {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        {
+          type: "data-kiseki-activity",
+          id: "c1",
+          data: { label: "Writing trip data…", done: true },
+        },
+        { type: "text", text: "Done — trip created." },
+      ],
+    } as unknown as UIMessage;
+    stubChat({
+      messages: [previous, userText("Add a day in Banff")],
+      status: "submitted",
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Agent is thinking");
+    expect(html).not.toContain("Writing trip data…");
   });
 
   it("shows the thinking indicator at most ONCE per turn (issue #157)", () => {
