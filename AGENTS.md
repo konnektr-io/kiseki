@@ -117,10 +117,19 @@ Three modes, in order of preference:
 2. **Act-as (TEMPORARY, single-user interim only)**: the agent authenticates
    with the sanctioned M2M client token and the backend resolves the actor
    as Niko (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role,
-   attribution = his sub. No user token needed. This static env pin exists
-   ONLY until the chat UI (#9) ships; it must never become multi-user
-   identity plumbing. Target: per-request identity — the caller presents the
-   end user's token, or the M2M token + a request-scoped act-as sub.
+   attribution = his sub. No user token needed. **Since the chat UI shipped
+   (v0.24.x, #9 closed 2026-09-10) the pin no longer
+   serves the chat path** — the SPA presents the user's own token (mode 1), so
+   the actor is the real user. The pin is **deliberately retained** for callers
+   with no request envelope: the content agent's `scripts/api_write.py` sends only
+   `Authorization`, and the write routes resolve identity through
+   `_resolve_actor`/`_agent_actor` (pin only — just `/api/chat` + `/api/files`
+   accept `X-Act-As-Sub`, via `acl.resolve_request_actor_sub`). It must never
+   become multi-user identity plumbing: deleting it before the write routes
+   accept a request-scoped act-as would silently flip unattended writes to mode 3
+   (owner-level service principal). Target: per-request identity everywhere — the
+   caller presents the end user's token, or the M2M token + a request-scoped
+   act-as sub.
 3. **Unattended fallback**: M2M token with no act-as → owner-level service
    principal (`KISEKI_AGENT_CLIENT_ID`), last resort only.
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).

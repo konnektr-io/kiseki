@@ -1,12 +1,25 @@
 # M4 — Kiseki chat: frontend integration (issues #9, #144 companion scope)
 
-Status: **DRAFT for review** · 2026-09-09 · Code agent (Hermes) → delegate to
-opencode (muse-spark-1.3-contributor-free)
+Status: **SHIPPED** · designed 2026-09-09, landed in v0.24.0–v0.24.3 (PRs #147,
+#148, #149, #150, #153; issue #9 closed 2026-09-10) · Code agent (Hermes) →
+delegate to opencode (muse-spark-1.3-contributor-free). Kept as the **design of
+record** — the deltas below are what actually shipped.
 
 Backend relay (`/api/chat`, `/api/files`) shipped in M3 (v0.23.24/v0.23.25).
 This slice puts chat in the SPA and closes the loop: the agent can answer
 questions, edit the trip you're viewing, and — new in this slice — **create a
 new trip from scratch**.
+
+## Shipped deltas (2026-09-10)
+
+- **Transport**: shipped as `@ai-sdk/react` `useChat` + a custom `DefaultChatTransport`
+  subclass (`frontend/src/lib/chat.ts`), **not** Vercel `ai-elements`; the relay emits
+  `x-vercel-ai-ui-message-stream: v1` SSE (PR #150).
+- **Decision 2 superseded**: user-inbox uploads DID ship — `POST /api/files` without a
+  `tripId` stages a content-addressed file in `inbox/<hash>` and the agent promotes it via
+  `POST /api/files/promote` (PRs #148/#160). Trip-scoped uploads still require editor+.
+- **Decision 3 partly overtaken**: the dropped tool events became the *data-part* activity
+  feed (PRs #151/#154/#157/#169/#176) rather than waiting for the generative-UI slice.
 
 ## Decisions (Niko, 2026-09-09)
 
@@ -16,7 +29,8 @@ new trip from scratch**.
 2. **Uploads stay anchored-only** — `/api/files` keeps requiring `tripId` +
    editor+ (already shipped). Files arrive only in a trip-scoped chat, where
    they land in the trip's Garage media namespace. No user-inbox upload in
-   this slice. (Photo-reconstruction flow: create the trip first → chat
+   this slice. **Superseded 2026-09-10 — inbox uploads landed in v0.24.0 (see
+   Shipped deltas).** (Photo-reconstruction flow: create the trip first → chat
    anchored to it → upload photos/docs there.)
 3. **Generative UI (PlaceFacts / DaySummaryRow / BlockSummaryRow as agent
    output) is a SECOND pass.** v1 = streamed text + markdown + inline image
@@ -130,7 +144,7 @@ render of streamed text, error state, attach-button visibility
 - Generative UI cards (PlaceFacts/DaySummaryRow/BlockSummaryRow) — second
   pass (decision 3).
 - Day/block anchoring as chat context (open question, recommended v1.1).
-- User-inbox uploads for unanchored chats (decision 2).
+- ~~User-inbox uploads for unanchored chats (decision 2)~~ — **shipped** (v0.24.0; see Shipped deltas).
 - Thread list/history management UI beyond one-active-thread-per-context.
 - The `/api/chat` relay's dropped tool events (wire is ready; forwarding is
   the generative-UI slice).
