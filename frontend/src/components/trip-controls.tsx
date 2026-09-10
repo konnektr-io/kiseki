@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import {
   EllipsisVertical,
   FileDown,
   Globe,
   Link2,
   Lock,
+  Trash2,
 } from "lucide-react";
 import { useTripState } from "./theme";
 import { useTripWrite } from "../lib/useTripWrite";
-import { putTrip } from "../lib/api";
+import { deleteTrip, putTrip, TripAccessError } from "../lib/api";
+import { isSessionExpiredError } from "../lib/auth";
 import {
   roleAtLeast,
   stageOptions,
@@ -23,7 +26,7 @@ import type { Stage, Visibility } from "../lib/types";
  * header stays a single row (issue #46 follow-up). Contents are role-gated:
  *
  *   everyone      → Booklet PDF
- *   owner         → Copy crew join link · Sharing (public/private)
+ *   owner         → Copy crew join link · Sharing (public/private) · Delete trip
  *   editor+       → Stage (owner: any move; editor: forward minus archive)
  *
  * The server is always the enforcement point — the menu only gates what is
@@ -35,17 +38,28 @@ export function TripActionsMenu({
   onDownloadPdf,
   joinCopied = false,
   onCopyJoinLink,
+  onDeleted,
 }: {
   pdfBusy?: boolean;
   onDownloadPdf: () => void;
   joinCopied?: boolean;
   /** Present when the caller can offer it (owner) — row is hidden otherwise. */
   onCopyJoinLink?: () => void;
+  /** Owner-only: called after DELETE /api/trips/{id} succeeds (204) — the
+   *  trip is gone, the caller navigates away (landing). */
+  onDeleted?: () => void;
 }) {
   const { trip } = useTripState();
   const { busy, error, run } = useTripWrite();
+  const { getAccessTokenSilently } = useAuth0();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Delete is a two-step arm→confirm INSIDE the menu (same arm pattern as
+  // block-edit): first click arms (3s timeout de-arms), second click fires
+  // the irreversible owner-only DELETE. No dialog — the menu is the dialog.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const isOwner = trip.myRole === "owner";
   const canEdit = roleAtLeast(trip.myRole, "editor");
@@ -67,6 +81,16 @@ export function TripActionsMenu({
     };
   }, [open]);
 
+  // A closed menu never keeps an armed destructive control: reopen shows the
+  // plain "Delete trip…" row again, and the confirm button can't outlive the
+  // menu it lives in (the 3s auto-de-arm only covers the menu staying open).
+  useEffect(() => {
+    if (!open) {
+      setDeleteArmed(false);
+      setDeleteError(null);
+    }
+  }, [open]);
+
   const changeStage = (stage: Stage) => {
     void run(
       (token) => putTrip(trip.id, { stage }, token),
@@ -78,6 +102,35 @@ export function TripActionsMenu({
       (token) => putTrip(trip.id, { visibility }, token),
       (t) => withTripVisibility(t, visibility),
     );
+  };
+
+  // Owner-only, irreversible (#163): DELETE /api/trips/{id} takes the whole
+  // trip with it. On 204 there is no document left — `onDeleted` sends the
+  // caller away (landing). A 403 here means the resolved actor lost the
+  // owner role meanwhile; anything else surfaces as a menu-line error.
+  const removeTrip = async () => {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      const token = await getAccessTokenSilently();
+      await deleteTrip(trip.id, token);
+      onDeleted?.();
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        setDeleteError("Session expired — sign in again.");
+      } else if (e instanceof TripAccessError && e.status === 403) {
+        setDeleteError("Only the trip owner can delete this trip.");
+      } else if (e instanceof TripAccessError && e.status === 404) {
+        // Already gone (another window beat us to it) — the goal is met;
+        // navigate away exactly like a success.
+        onDeleted?.();
+      } else {
+        setDeleteError(e instanceof Error ? e.message : "Couldn't delete the trip.");
+      }
+    } finally {
+      setDeleteBusy(false);
+      setDeleteArmed(false);
+    }
   };
 
   const options = stageOptions(trip.stage, trip.myRole);
@@ -209,6 +262,68 @@ export function TripActionsMenu({
                   </p>
                 )}
               </div>
+            </>
+          )}
+
+          {/* Delete trip — owner-only, terminal (#163). Two-step arm→confirm
+              inside the menu: the first click arms (with the trip title and
+              the irreversibility warning), the second click — within 3s —
+              fires the DELETE. The armed row carries its own de-arm (×) so a
+              misclick can always be walked back without waiting. */}
+          {isOwner && onDeleted && (
+            <>
+              <div className="mx-1.5 my-1 h-px bg-border" role="separator" />
+              {deleteArmed ? (
+                <div className="px-1.5 pb-1.5">
+                  <p className="mb-1.5 text-xs leading-snug text-foreground">
+                    Delete <span className="font-semibold">{trip.title}</span> and
+                    everything in it — days, sections, blocks and the crew list?
+                    <span className="font-medium text-destructive"> This cannot be undone.</span>
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={deleteBusy}
+                      onClick={() => void removeTrip()}
+                      aria-label={`Permanently delete ${trip.title}`}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-destructive px-2 py-1.5 text-xs font-semibold text-destructive-foreground transition-colors hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      {deleteBusy ? "Deleting…" : "Delete trip"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deleteBusy}
+                      onClick={() => setDeleteArmed(false)}
+                      aria-label="Cancel delete"
+                      className="rounded-md border border-border px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {deleteError && (
+                    <p role="alert" className="pt-1.5 text-xs font-medium text-destructive">
+                      {deleteError}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-destructive transition-colors hover:bg-muted focus-visible:focus-ring"
+                  onClick={() => {
+                    setDeleteArmed(true);
+                    // Auto-de-arm: an armed destructive control must not sit
+                    // waiting in a menu the user opened minutes ago.
+                    window.setTimeout(() => setDeleteArmed(false), 3000);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+                  <span>Delete trip…</span>
+                </button>
+              )}
             </>
           )}
         </div>
