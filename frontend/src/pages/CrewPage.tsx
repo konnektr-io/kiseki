@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Check, Link2, Pencil, Trash2, UserPlus, X } from "lucide-react";
 import { useTrip } from "../components/theme";
@@ -350,7 +351,16 @@ export function CrewPage() {
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <p className="font-semibold">{p.name}</p>
+                {p.claimed ? (
+                  <Link
+                    to={`/u/${encodeURIComponent(p.id)}`}
+                    className="font-semibold text-primary underline underline-offset-2 focus-visible:focus-ring"
+                  >
+                    {p.name}
+                  </Link>
+                ) : (
+                  <p className="font-semibold">{p.name}</p>
+                )}
                 <Badge variant={p.role === "owner" ? "default" : "outline"}>
                   {ROLE_LABELS[p.role]}
                 </Badge>
