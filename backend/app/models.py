@@ -94,7 +94,7 @@ class Block(BaseModel):
     order: Optional[int] = Field(default=None, description="Sort order within the day (0-based).")
     # todo: [{label, done}] · gallery: [image urls] · custom: raw html
     items: list[Any] = Field(default_factory=list, description="todo → [{label,done}] · gallery → [bare media filenames] · custom → raw (sanitized) html.")
-    html: Optional[str] = Field(default=None, description="Raw HTML for `custom` blocks (client-sanitized).")
+    html: Optional[str] = Field(default=None, description="Raw HTML for `custom` blocks (server-sanitized on write; DOMPurify client-side stays as a backstop).")
     # drive/route info (transport blocks) — renders as the booklet's drive card
     distance: Optional[str] = Field(default=None, description="Drive distance, e.g. '143 km' (transport blocks).")
     duration: Optional[str] = Field(default=None, description="Drive duration, e.g. '1 h 35' (transport blocks).")
@@ -318,6 +318,12 @@ class User(Person):
     email: str = Field(..., description="Primary login email (unique).")
     displayName: str = Field(..., description="Name shown in the UI.")
     authProvider: str = Field(default="password", description="Auth origin: password | auth0 | google (P2).")
+    publicName: bool = Field(
+        default=False,
+        description="Opt-in (#196): when True, a listed (discoverable) trip renders this "
+                    "person's real crew name to viewers who are not on the crew. When False "
+                    "(default), outsiders see initials only.",
+    )
 
 
 class Trip(BaseModel):

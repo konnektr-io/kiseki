@@ -166,7 +166,7 @@
         "name": "html",
         "schema": "string",
         "writable": true,
-        "description": "Raw HTML for `custom` blocks (client-sanitized)."
+        "description": "Raw HTML for `custom` blocks (server-sanitized on write; DOMPurify client-side stays as a backstop)."
       },
       {
         "@type": "Property",
@@ -1160,6 +1160,13 @@
         "schema": "string",
         "writable": true,
         "description": "Auth origin: password | auth0 | google (P2)."
+      },
+      {
+        "@type": "Property",
+        "name": "publicName",
+        "schema": "boolean",
+        "writable": true,
+        "description": "Opt-in (#196): when True, a listed (discoverable) trip renders this person's real crew name to viewers who are not on the crew. When False (default), outsiders see initials only."
       },
       {
         "@type": "Relationship",

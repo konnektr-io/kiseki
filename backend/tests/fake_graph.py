@@ -306,6 +306,7 @@ class FakeGraph:
                         "stage": t.get("stage", "idea"), "startDate": t.get("startDate"),
                         "endDate": t.get("endDate"), "slug": t.get("slug", ""),
                         "cover": t.get("cover"), "role": r.get("role"),
+                        "discoverable": bool(t.get("discoverable", False)),
                     })
         return out
 
@@ -429,3 +430,37 @@ class FakeGraph:
         return [r["$targetId"] for r in self.rels
                 if r.get("$relationshipName") == "follows"
                 and r.get("$sourceId") == user_dtid]
+
+    # ------------------------------------------------------- profiles (#196 phase B)
+    def get_user_profile(self, user_dtid: str) -> dict | None:
+        """Mirror the real ``get_user_profile``: the flat User twin dict, or
+        None when absent (or not a User twin — placeholders are not profiles)."""
+        import copy as _copy
+
+        t = self.twin(user_dtid)
+        if t is None:
+            return None
+        if (t.get("$metadata") or {}).get("$model") != "dtmi:kiseki:travel:User;1":
+            return None
+        return _copy.deepcopy(t)
+
+    def get_user_profiles(self, user_dtids: list[str]) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for sub in user_dtids or []:
+            if not isinstance(sub, str) or sub in out:
+                continue
+            node = self.get_user_profile(sub)
+            if node is not None:
+                out[sub] = node
+        return out
+
+    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
+        """Mirror the real ``set_user_public_name``: preserve every prop, flip
+        only ``publicName``. None when the twin does not exist."""
+        import copy as _copy
+
+        t = self.twin(user_dtid)
+        if t is None or (t.get("$metadata") or {}).get("$model") != "dtmi:kiseki:travel:User;1":
+            return None
+        t["publicName"] = bool(public_name)
+        return _copy.deepcopy(t)

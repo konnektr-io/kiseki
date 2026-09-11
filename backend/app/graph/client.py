@@ -187,13 +187,16 @@ RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.r
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
 # Returns a flat LIST per trip [dtId, visibility, title, subtitle, stage, startDate,
-# endDate, slug, cover, role] (map keys with `$` are rejected by AGE, so we
+# endDate, slug, cover, role, discoverable] (map keys with `$` are rejected by AGE, so we
 # assemble the summary dict in Python). `$uid` is a bound parameter.
+# `discoverable` (#196 phase B) rides along so profile listings can apply the
+# discoverable-only rule without a second query per trip.
 _Q_TRIPS_FOR_USER = """
 MATCH (t:Twin)-[crew:hasCrew]->(u:Twin)
 WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT [t.`$dtId`, t.visibility, t.title, t.subtitle, t.stage,
-                         t.startDate, t.endDate, t.slug, t.cover, crew.role]) AS trips
+                         t.startDate, t.endDate, t.slug, t.cover, crew.role,
+                         t.discoverable]) AS trips
 """
 
 # ACL: the role a user has on ONE trip (issue #5). Trip-scoped via `$dtid`;
@@ -666,6 +669,96 @@ class GraphReadClient:
         raw = (rows[0] or {}).get("following") or []
         return [u for u in raw if isinstance(u, str) and u]
 
+    # ------------------------------------------------------- profiles (#196 phase B)
+    # Public-ish person reads: one twin fetch per sub (the proven
+    # ``get_digital_twin`` path ``user_twin_exists`` already uses — no new
+    # query surface), plus the single-hop follow queries above. A profile read
+    # is therefore a bounded handful of round-trips, never a node-by-node walk.
+
+    def get_user_profile(self, user_dtid: str) -> dict | None:
+        """Flat props of one ``User`` twin (``GET /api/users/{sub}``, #196).
+
+        Returns the ADT-style twin dict (``$dtId`` / ``$metadata`` / props) or
+        None when the twin is absent, malformed, or not a ``User``. Uncached on
+        purpose, like ``user_twin_exists``: a profile must reflect the latest
+        write (e.g. a just-flipped ``publicName``).
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return None
+        try:
+            from konnektr_graph import ResourceNotFoundError
+
+            twin = self._client.get_digital_twin(user_dtid)  # type: ignore[union-attr]
+        except ResourceNotFoundError:
+            return None
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[kiseki] graph user profile({user_dtid}) failed: {exc}")
+            return None
+        node = self._norm_node(
+            twin.to_dict() if hasattr(twin, "to_dict") else twin
+        )
+        if not node or node.get("$dtId") != user_dtid:
+            return None
+        if node.get("$metadata", {}).get("$model") != USER_MODEL:
+            return None
+        return node
+
+    def get_user_profiles(self, user_dtids: list[str]) -> dict[str, dict]:
+        """Batch twin fetch for people lists (followers/following, crew render).
+
+        Serial ``get_digital_twin`` calls — one proven op per sub, capped by
+        the caller (people lists cap at 200; crews are a handful). Dangling
+        ids (edge without a twin) are skipped, never fabricated.
+        """
+        out: dict[str, dict] = {}
+        for sub in user_dtids or []:
+            if not isinstance(sub, str) or sub in out:
+                continue
+            node = self.get_user_profile(sub)
+            if node is not None:
+                out[sub] = node
+        return out
+
+    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
+        """Write the caller's own ``User.publicName`` opt-in (``PUT /api/me``).
+
+        Get-then-upsert-full: the existing props (name/email/displayName/…)
+        are preserved and only ``publicName`` changes. Returns those props, or
+        None when the twin does not exist (the route maps this to 404 — the
+        client calls ``ensure`` first).
+
+        "The twin is missing" and "the graph refused the write" are DIFFERENT
+        answers: a failed write raises ``GraphWriteError`` (mapped to 503), it
+        never collapses into None — reporting a failed write as 404 would tell
+        the caller to re-provision an identity that already exists.
+
+        The upsert body is rebuilt from the current props with only ``$dtId`` +
+        ``$metadata.$model``: a read's ``$etag`` / ``$lastUpdateTime`` is never
+        echoed back into a write (stale-etag rule, cf. ``trip_to_graph.py``).
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return None
+        current = self.get_user_profile(user_dtid)
+        if current is None:
+            return None
+        props = {
+            k: v
+            for k, v in current.items()
+            if not (isinstance(k, str) and k.startswith("$"))
+        }
+        props["publicName"] = bool(public_name)
+        try:
+            from konnektr_graph import BasicDigitalTwin
+
+            twin = BasicDigitalTwin.from_dict(
+                {"$dtId": user_dtid, "$metadata": {"$model": USER_MODEL}, **props}
+            )
+            self._client.upsert_digital_twin(user_dtid, twin)  # type: ignore[union-attr]
+        except Exception as exc:
+            print(f"[kiseki] graph set publicName({user_dtid}) failed: {exc}")
+            raise GraphWriteError(503, f"graph write failed for {user_dtid}") from exc
+        return props
+
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
@@ -698,11 +791,12 @@ class GraphReadClient:
     @staticmethod
     def _trip_summary_from_list(row: Any) -> dict:
         """Map a [dtId, visibility, title, subtitle, stage, start, end, slug,
-        cover, role] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
+        cover, role, discoverable] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
 
         AGE rejects `$`-prefixed map keys, so the query returns a plain list and
         we name the fields here. ``$model`` is set so the caller's model-kind
-        guard works uniformly.
+        guard works uniformly. Pre-#196-phase-B rows (10 wide, no discoverable)
+        read back as ``discoverable: False``.
         """
         if not isinstance(row, (list, tuple)):
             return {}
@@ -710,6 +804,7 @@ class GraphReadClient:
             dt_id, visibility, title, subtitle, stage,
             start, end, slug, cover, role,
         ) = (list(row) + [None] * 10)[:10]
+        discoverable = row[10] if isinstance(row, (list, tuple)) and len(row) > 10 else None
         return {
             "$dtId": dt_id,
             "$model": TRIP_MODEL,
@@ -723,6 +818,7 @@ class GraphReadClient:
             "slug": slug,
             "cover": cover,
             "role": role,
+            "discoverable": bool(discoverable),
         }
 
     @staticmethod
