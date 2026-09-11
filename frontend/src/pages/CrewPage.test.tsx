@@ -108,3 +108,29 @@ describe("CrewPage add/remove (#198)", () => {
     expect(html).toContain("Add crew member");
   });
 });
+
+describe("CrewPage profile links (#196)", () => {
+  it("a claimed crew member renders a link to /u/<percent-encoded sub>", () => {
+    const claimed: Person = {
+      id: "google-oauth2|100613034256980569871",
+      name: "Niko Claimed",
+      role: "editor",
+      claimed: true,
+    };
+    const html = renderCrew(crewTrip({ myRole: "viewer", crew: [claimed] }));
+    expect(html).toContain('href="/u/google-oauth2%7C100613034256980569871"');
+    expect(html).toContain("Niko Claimed");
+  });
+
+  it("an unclaimed placeholder does NOT render its name as a link", () => {
+    const placeholder: Person = {
+      id: "0f1e2d3c-4b5a-6789-abcd-ef0123456789",
+      name: "Alex Placeholder",
+      role: "viewer",
+      claimed: false,
+    };
+    const html = renderCrew(crewTrip({ myRole: "viewer", crew: [placeholder] }));
+    expect(html).toContain("Alex Placeholder");
+    expect(html).not.toContain('href="/u/');
+  });
+});
