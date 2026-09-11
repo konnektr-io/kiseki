@@ -174,7 +174,7 @@ def test_put_trip_edits_fields_and_attribution(client, rsa_keypair, graph) -> No
         "title": "Canada Heliski + Resorts",
         "stage": "live",
         "timezone": "America/Vancouver",
-        "theme": {"primary": "#7f1d1d"},
+        "theme": {"preset": "ember"},
         "cover": "c383ce57.jpg",  # bare media filename, canonicalized on write-back
     })
     assert r.status_code == 200
@@ -182,12 +182,51 @@ def test_put_trip_edits_fields_and_attribution(client, rsa_keypair, graph) -> No
     assert body["title"] == "Canada Heliski + Resorts"
     assert body["stage"] == "live"
     assert body["timezone"] == "America/Vancouver"
-    assert body["theme"]["primary"] == "#7f1d1d"
-    assert body["theme"]["accent"] == trip.theme.accent  # untouched partial theme
+    assert body["theme"] == {"preset": "ember"}  # full replace: legacy keys stripped
     assert body["cover"] == f"/media/{trip.id}/c383ce57.jpg"  # canonicalized, not bare
     assert "claimToken" not in body
     # x-user-id attribution reached the graph client
     assert any(h.get("x-user-id") == SUB for h in g.write_headers)
+
+
+def test_put_trip_rejects_retired_theme_fields(client, rsa_keypair, graph) -> None:
+    """Retired per-trip overrides are a 422, never silently ignored (#40 follow-up)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    for theme in (
+        {"primary": "#7f1d1d"},
+        {"accent": "#0f766e"},
+        {"font": "Georgia, serif"},
+        {"radius": "1rem"},
+        {"mapStyle": {"basemap": "liberty"}},
+        {"preset": "ember", "primary": "#7f1d1d"},
+    ):
+        r = _authz(client, "put", f"/api/trips/{trip.id}", token, json={"theme": theme})
+        assert r.status_code == 422, f"theme={theme}: {r.status_code} {r.text[:200]}"
+
+
+def test_theme_ops_full_replace_strips_legacy_keys() -> None:
+    """One PUT with {"theme": {"preset": ...}} sets the preset AND removes
+    every retired key in a single op list (#40 follow-up)."""
+    from app.models import Theme
+    from app.write import _theme_ops
+
+    existing = {"theme": {"preset": "nordic", "primary": "#334155", "accent": "#b45309",
+                          "font": "Georgia, serif",
+                          "mapStyle": {"basemap": "liberty", "route": "#123456"}}}
+    ops = _theme_ops(existing, Theme.model_validate({"preset": "alpine"}))
+    by_path = {op["path"]: op for op in ops}
+    assert by_path["/theme/preset"] == {"op": "replace", "path": "/theme/preset", "value": "alpine"}
+    for legacy in ("primary", "accent", "font", "mapStyle"):
+        assert by_path[f"/theme/{legacy}"] == {"op": "remove", "path": f"/theme/{legacy}"}
+    assert len(ops) == 5
+
+    # Preset not yet set → add; no legacy keys → preset op only.
+    ops = _theme_ops({}, Theme.model_validate({"preset": "alpine"}))
+    assert ops == [{"op": "add", "path": "/theme/preset", "value": "alpine"}]
+    ops = _theme_ops({"theme": {"preset": "alpine"}}, Theme.model_validate({"preset": "ember"}))
+    assert ops == [{"op": "replace", "path": "/theme/preset", "value": "ember"}]
 
 
 def test_put_trip_rejects_claim_token_and_unknown_fields(client, rsa_keypair, graph) -> None:

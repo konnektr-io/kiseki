@@ -570,29 +570,27 @@ def _scalar_ops(existing: dict, pairs: list[tuple[str, Any]]) -> list[dict]:
 
 
 def _theme_ops(existing: dict, theme: Theme) -> list[dict]:
+    """Full replace of the theme block (preset-only, #40 follow-up).
+
+    When ``theme`` is present in the PATCH body, the twin's theme dict is
+    replaced wholesale: ``preset`` is added/replaced, and EVERY other key in
+    the current theme dict (legacy primary/accent/surface/font/…/radius/
+    mapStyle) is removed. Only ``remove`` ops for keys that actually exist
+    are emitted — a ``remove`` on a missing path fails the whole patch.
+    When ``theme`` is absent from the body, the caller emits nothing."""
     ops: list[dict] = []
     cur = existing.get("theme") if isinstance(existing.get("theme"), dict) else {}
-    for prop in ("preset", "primary", "accent", "surface", "font", "displayFont", "headingFont", "bodyFont", "radius"):
-        value = getattr(theme, prop)
-        if value is None:
-            continue  # partial theme: absent keys untouched
+    if not isinstance(cur, dict):
+        cur = {}
+    if theme.preset is not None:
         ops.append({
-            "op": "replace" if isinstance(cur, dict) and prop in cur else "add",
-            "path": f"/theme/{prop}",
-            "value": value,
+            "op": "replace" if "preset" in cur else "add",
+            "path": "/theme/preset",
+            "value": theme.preset,
         })
-    # Nested map overrides patch per sub-key (same partial semantics).
-    if theme.mapStyle is not None:
-        cur_map = cur.get("mapStyle") if isinstance(cur, dict) and isinstance(cur.get("mapStyle"), dict) else {}
-        for prop in ("basemap", "styleUrl", "route", "routeCasing", "marker", "markerFg"):
-            value = getattr(theme.mapStyle, prop)
-            if value is None:
-                continue
-            ops.append({
-                "op": "replace" if isinstance(cur_map, dict) and prop in cur_map else "add",
-                "path": f"/theme/mapStyle/{prop}",
-                "value": value,
-            })
+    for key in cur:
+        if key != "preset":
+            ops.append({"op": "remove", "path": f"/theme/{key}"})
     return ops
 
 

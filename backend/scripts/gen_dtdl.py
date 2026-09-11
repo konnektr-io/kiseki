@@ -73,7 +73,6 @@ OBJECT_MODELS = {
     "FeatureCard",
     "Contact",
     "Theme",
-    "ThemeMapStyle",
     "Practical",
     "TricountConfig",
     "BlockItem",
