@@ -284,6 +284,37 @@ describe("ProfilePage — a peer's profile", () => {
     expect(container.textContent).toContain("Sam Fan");
     expect(container.textContent).toContain("Showing 1 of 250.");
   });
+
+  it("never renders an email smuggled into the drill-in payload", async () => {
+    // The follower/following list is the second path a peer's address could
+    // ride along on, and the one an earlier leak hid behind — prove this
+    // path drops it too, not just the profile doc.
+    stubFetch((url) => {
+      if (url.endsWith("/followers")) {
+        return {
+          ok: true,
+          status: 200,
+          body: {
+            count: 1,
+            people: [
+              { sub: "auth0|fan", name: "Sam Fan", email: "sam-private@example.com" },
+            ],
+          },
+        };
+      }
+      return okProfile();
+    });
+    mount(peerPath);
+    await flush();
+
+    const followersBtn = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "3Followers",
+    )!;
+    await click(followersBtn);
+
+    expect(container.textContent).toContain("Sam Fan");
+    expect(container.textContent).not.toContain("sam-private@example.com");
+  });
 });
 
 describe("ProfilePage — your own profile (viewer.isSelf)", () => {
