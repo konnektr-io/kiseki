@@ -92,6 +92,7 @@ from .ratelimit import allow
 from .pdf import render_booklet_pdf
 from .tricount import TriCountError, fetch_snapshot
 from .store import get_trip_by_id as get_trip_by_id_store
+from .store import get_graph_client
 from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
@@ -352,6 +353,92 @@ def follow_claim(
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     return _public_trip(trip)
+
+
+@app.post("/api/me/ensure")
+def ensure_my_twin(
+    x_act_as_sub: str | None = Header(default=None),
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Ensure the caller's User twin exists (issue #196).
+
+    An account can exist WITHOUT having claimed a crew identity — a logged-in
+    user gets their twin (and is therefore reachable at a profile) on first
+    call. Idempotent: calling twice provisions nothing new.
+
+    Identity follows the chat relay (``acl.resolve_request_actor_sub``): the
+    end user's own token (mode 1) or the sanctioned agent M2M token + a
+    request-scoped act-as sub (mode 2). A bare M2M token is rejected — the
+    agent has no identity in the graph and must never provision one for
+    itself. When the token carries no usable email, nothing is created and
+    the response reports ``ensured: false`` (the SPA keeps working).
+    """
+    actor_sub = resolve_request_actor_sub(session.user, x_act_as_sub)
+    # The token claims may carry email/name when userinfo is unavailable —
+    # userinfo (fresher) wins over claims (mirrors post_trip).
+    profile = {
+        **{k: session.user[k] for k in ("email", "name") if session.user.get(k)},
+        **(session.profile or {}),
+    }
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    email = (profile.get("email") or "").strip()
+    name = (profile.get("name") or "").strip() or (email.split("@")[0] if email else "")
+    if not email or not client.create_user_twin(actor_sub, profile):
+        return {
+            "sub": actor_sub,
+            "ensured": False,
+            "name": name,
+            "email": email,
+            "reason": "no verified email — sign in with an identity that carries one",
+        }
+    return {"sub": actor_sub, "ensured": True, "name": name, "email": email}
+
+
+@app.post("/api/users/{sub}/follow")
+def follow_user(
+    sub: str,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Follow a person (issue #196): one-directional, no approval.
+
+    The actor is the RESOLVED sub (never the path/body). Following grants NO
+    trip access — visibility still gates every trip read. 400 on self-follow,
+    404 when the target twin does not exist, 200 (idempotent no-op) when
+    already following.
+    """
+    actor_sub = resolve_actor_sub(session.user)
+    if actor_sub == sub:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if not client.user_twin_exists(sub):
+        raise HTTPException(status_code=404, detail="Unknown user")
+    if not client.follow_user(actor_sub, sub):
+        raise HTTPException(status_code=503, detail="Could not follow user")
+    return {"sub": sub, "following": True}
+
+
+@app.delete("/api/users/{sub}/follow")
+def unfollow_user(
+    sub: str,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Unfollow a person (issue #196). Idempotent: unfollowing someone not
+    followed is a 200 no-op. The actor is the RESOLVED sub."""
+    actor_sub = resolve_actor_sub(session.user)
+    if actor_sub == sub:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if not client.user_twin_exists(sub):
+        raise HTTPException(status_code=404, detail="Unknown user")
+    if not client.unfollow_user(actor_sub, sub):
+        raise HTTPException(status_code=503, detail="Could not unfollow user")
+    return {"sub": sub, "following": False}
 
 
 @app.get("/api/trips/{trip_id}/join-link")

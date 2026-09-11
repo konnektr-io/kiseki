@@ -110,6 +110,7 @@ class TripPatch(_Strict):
     coverCredit: Optional[str] = None
     map: Optional[str] = None
     visibility: Optional[Visibility] = None
+    discoverable: Optional[bool] = None
     # Cover-strip lines + the "at a glance" row (issue #178) — plain scalar
     # list props on the Trip twin, patched like any other scalar. A present
     # ``null`` (or ``[]``) clears; an absent field is left untouched.
@@ -724,6 +725,7 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
         subtitle=(payload.subtitle or "").strip(),
         stage="idea",
         visibility="private",
+        discoverable=False,
         claimToken=secrets.token_urlsafe(24),
         updated=_today(),
     )
@@ -734,6 +736,11 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
     twin: dict[str, Any] = {"$dtId": trip_id, "$metadata": {"$model": TRIP_MODEL}}
     twin.update(_drop_nones(props))
     client.upsert_twin(trip_id, twin, x_user_id=actor_sub)
+    # The owner's crew name on THIS trip rides the edge (issue #196) — the
+    # User twin's account name must never leak in as the crew label.
+    owner_name = ((profile or {}).get("name") or "").strip()
+    if not owner_name:
+        owner_name = ((profile or {}).get("email") or "").split("@")[0].strip()
     client.upsert_relationship(
         trip_id,
         {
@@ -743,6 +750,7 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
             "$targetId": actor_sub,
             "role": "owner",
             "index": 0,
+            "displayName": owner_name or actor_sub,
         },
         x_user_id=actor_sub,
     )
@@ -841,7 +849,7 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     trip = _trip_of(graph)
     ops: list[dict] = []
 
-    fields = patch.model_dump(exclude_unset=True, exclude={"theme", "visibility", "stage"})
+    fields = patch.model_dump(exclude_unset=True, exclude={"theme", "visibility", "stage", "discoverable"})
     for prop in ("title", "subtitle", "summary", "cover", "coverCredit", "map"):
         if prop in fields:
             ops += _scalar_ops(trip_twin, [(prop, fields[prop])])
@@ -878,6 +886,11 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
         if actor["role"] != "owner":
             raise WriteError(403, "Only the trip owner can change visibility")
         ops += _scalar_ops(trip_twin, [("visibility", patch.visibility)])
+
+    if "discoverable" in patch.model_fields_set and patch.discoverable != trip.discoverable:
+        if actor["role"] != "owner":
+            raise WriteError(403, "Only the trip owner can change discoverability")
+        ops += _scalar_ops(trip_twin, [("discoverable", patch.discoverable)])
 
     ops += _scalar_ops(trip_twin, [("updated", _today())])
     if ops:
@@ -1976,6 +1989,10 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
         "$targetId": person_id,
         "role": body.role,
         "index": index,
+        # The crew's OWN name for this trip rides the edge (#196) — the read
+        # path renders Person.name from here, so a later claim (which swaps
+        # the twin to the account's User) never renames the crew member.
+        "displayName": body.name,
     }
     if body.note:
         rel["note"] = body.note
