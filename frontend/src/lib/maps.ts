@@ -1,4 +1,5 @@
 import type { Trip, TripLocation } from "./types";
+import { presetById, type PresetBasemap, type PresetMapStyle } from "./theme-presets";
 
 /**
  * The basemap style (#18 decision 2).
@@ -11,10 +12,135 @@ import type { Trip, TripLocation } from "./types";
  * It is community-funded infrastructure with no SLA. Swapping it is deliberately
  * a one-line change: point VITE_MAP_STYLE_URL at a self-hosted PMTiles style on
  * Garage (or a hosted vendor) and nothing else in the app moves. Per-trip map
- * styling is #40 and belongs here too.
+ * styling is #40 and lives in resolveMapStyle() below.
  */
 export const MAP_STYLE_URL =
   import.meta.env.VITE_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/positron";
+
+/**
+ * Prebuilt OpenFreeMap styles a preset may name (#40 D2).
+ *
+ * Verified live 2026-09-11 against https://tiles.openfreemap.org/styles/:
+ * positron, bright, liberty, dark and fiord all return 200 with the same
+ * OpenMapTiles schema (source-layers include water/landcover/park/boundary,
+ * which is what the runtime tint below keys on). The issue text warned that
+ * swapping MAP_STYLE_URL at a different URL cannot work — right, because only
+ * this fixed set exists; `basemap` density (positron minimal ↔ liberty dense)
+ * is the per-trip knob, and anything beyond it is a full custom style JSON
+ * via `styleUrl`.
+ */
+export const OPENFREEMAP_STYLES: Record<PresetBasemap, string> = {
+  positron: "https://tiles.openfreemap.org/styles/positron",
+  bright: "https://tiles.openfreemap.org/styles/bright",
+  liberty: "https://tiles.openfreemap.org/styles/liberty",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+function isBasemapKey(value: unknown): value is PresetBasemap {
+  return typeof value === "string" && value in OPENFREEMAP_STYLES;
+}
+
+export interface ResolvedMapStyle {
+  /** The style JSON URL to construct the map with. */
+  styleUrl: string;
+  /** Runtime tint of the base layers, applied after style load. */
+  tint: PresetMapStyle["tint"];
+  /** Terrain voice for lib/terrain.ts. */
+  terrain: PresetMapStyle["terrain"];
+}
+
+/**
+ * Which map a trip gets (#40 D2). Precedence, highest first:
+ *
+ * 1. `VITE_MAP_STYLE_URL` (deploy-level escape hatch — today's behaviour),
+ * 2. `theme.mapStyle.styleUrl` (per-trip escape hatch — the future "our own
+ *    style JSON" stays a data change, no code),
+ * 3. the preset's own `styleUrl`,
+ * 4. `theme.mapStyle.basemap` → preset `basemap` (validated keys only).
+ *
+ * Tint and terrain always come from the preset: an un-themed trip resolves to
+ * exactly MAP_STYLE_URL with the default terrain, i.e. today's map.
+ */
+export function resolveMapStyle(trip: Trip): ResolvedMapStyle {
+  const preset = presetById(trip.theme?.preset);
+  const override = trip.theme?.mapStyle;
+  const envUrl =
+    typeof import.meta.env.VITE_MAP_STYLE_URL === "string" && import.meta.env.VITE_MAP_STYLE_URL !== ""
+      ? import.meta.env.VITE_MAP_STYLE_URL
+      : undefined;
+  const basemap = isBasemapKey(override?.basemap) ? override.basemap : preset.mapStyle.basemap;
+  return {
+    styleUrl: envUrl ?? override?.styleUrl ?? preset.mapStyle.styleUrl ?? OPENFREEMAP_STYLES[basemap],
+    tint: preset.mapStyle.tint,
+    terrain: preset.mapStyle.terrain,
+  };
+}
+
+/** The style layers applyBasemapTint() may repaint — structural, so tests use fakes. */
+export interface TintableStyleLayer {
+  id: string;
+  type: string;
+  source?: string;
+  "source-layer"?: string;
+}
+
+export interface TintableMap {
+  getStyle(): { layers?: TintableStyleLayer[] };
+  setPaintProperty(layerId: string, name: string, value: unknown): void;
+}
+
+/**
+ * Runtime tint of the loaded basemap from the preset (#40 D2).
+ *
+ * This is what makes `nordic` near-monochrome and `archive` sepia WITHOUT
+ * authoring our own style JSON and without hosting glyphs/sprites: the
+ * prebuilt style's own colour layers are repainted from preset tokens.
+ *
+ * Guardrails: only colour layers (background fills, water/landcover/park
+ * fills, boundary lines) — label/glyph (`symbol`) layers are never touched,
+ * an absent layer is a no-op, and a layer that rejects the paint property is
+ * skipped, never thrown. Route/marker colours are NOT set here; they arrive
+ * via the --trip-route/--trip-marker tokens (tokens.ts).
+ */
+export function applyBasemapTint(map: TintableMap, tint: PresetMapStyle["tint"]): void {
+  if (!tint) return;
+  let layers: TintableStyleLayer[];
+  try {
+    layers = map.getStyle().layers ?? [];
+  } catch {
+    return;
+  }
+  const paint = (layerId: string, name: string, value: string) => {
+    try {
+      map.setPaintProperty(layerId, name, value);
+    } catch {
+      // A layer that rejects the property (type mismatch on a style we did
+      // not author) keeps its own colour — tint is atmosphere, not content.
+    }
+  };
+  for (const layer of layers) {
+    if (layer.type === "symbol") continue; // labels and glyphs are untouchable
+    try {
+      if (layer.type === "background" && tint.background) {
+        paint(layer.id, "background-color", tint.background);
+      } else if (layer.type === "fill") {
+        const sourceLayer = layer["source-layer"] ?? "";
+        if (sourceLayer === "water" && tint.water) paint(layer.id, "fill-color", tint.water);
+        else if (sourceLayer === "landcover" && tint.landcover)
+          paint(layer.id, "fill-color", tint.landcover);
+        else if (sourceLayer === "park" && tint.park) paint(layer.id, "fill-color", tint.park);
+      } else if (
+        layer.type === "line" &&
+        (layer["source-layer"] ?? "") === "boundary" &&
+        tint.boundary
+      ) {
+        paint(layer.id, "line-color", tint.boundary);
+      }
+    } catch {
+      continue;
+    }
+  }
+}
 
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {

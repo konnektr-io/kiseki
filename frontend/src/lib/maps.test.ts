@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { CHROME_PADDING, clampPadding, findLocation, markerNumber } from "./maps";
+import {
+  applyBasemapTint,
+  CHROME_PADDING,
+  clampPadding,
+  findLocation,
+  MAP_STYLE_URL,
+  markerNumber,
+  OPENFREEMAP_STYLES,
+  resolveMapStyle,
+  type TintableMap,
+} from "./maps";
 import type { Trip } from "./types";
 
 const trip = {
@@ -56,5 +66,120 @@ describe("clampPadding", () => {
   it("handles an unmeasured box without producing NaN", () => {
     const p = clampPadding(CHROME_PADDING, 0, 0);
     expect(Object.values(p).every((v) => Number.isFinite(v))).toBe(true);
+  });
+});
+
+describe("resolveMapStyle", () => {
+  const themed = (theme: Trip["theme"]) => ({ theme }) as Trip;
+
+  it("is today's map for an un-themed trip", () => {
+    const r = resolveMapStyle(themed(undefined));
+    expect(r.styleUrl).toBe(MAP_STYLE_URL);
+    expect(r.styleUrl).toBe(OPENFREEMAP_STYLES.positron);
+    expect(r.tint).toBeUndefined();
+    expect(r.terrain).toEqual({ hillshade: true, exaggeration: 0.7, terrain3d: true });
+  });
+
+  it("picks the preset basemap (density varies per trip)", () => {
+    expect(resolveMapStyle(themed({ preset: "ember" })).styleUrl).toBe(OPENFREEMAP_STYLES.liberty);
+    expect(resolveMapStyle(themed({ preset: "nocturne" })).styleUrl).toBe(OPENFREEMAP_STYLES.dark);
+    expect(resolveMapStyle(themed({ preset: "archive" })).tint?.background).toBe("#f5efe2");
+  });
+
+  it("lets a per-trip basemap and styleUrl win, in that order", () => {
+    expect(resolveMapStyle(themed({ preset: "alpine", mapStyle: { basemap: "liberty" } })).styleUrl).toBe(
+      OPENFREEMAP_STYLES.liberty,
+    );
+    expect(
+      resolveMapStyle(
+        themed({
+          preset: "alpine",
+          mapStyle: { basemap: "liberty", styleUrl: "https://example.com/custom.json" },
+        }),
+      ).styleUrl,
+    ).toBe("https://example.com/custom.json");
+  });
+
+  it("falls back to positron on an unknown basemap key, never throws", () => {
+    expect(resolveMapStyle(themed({ preset: "alpine", mapStyle: { basemap: "atlantis" } })).styleUrl).toBe(
+      OPENFREEMAP_STYLES.positron,
+    );
+    expect(resolveMapStyle(themed({ preset: "atlantis" })).styleUrl).toBe(OPENFREEMAP_STYLES.positron);
+  });
+
+  it("hands the preset terrain through untouched", () => {
+    expect(resolveMapStyle(themed({ preset: "nordic" })).terrain).toEqual({
+      hillshade: false,
+      exaggeration: 0,
+      terrain3d: false,
+    });
+  });
+});
+
+describe("applyBasemapTint", () => {
+  function fakeMap(): TintableMap & { painted: Array<[string, string, string]> } {
+    const painted: Array<[string, string, string]> = [];
+    return {
+      painted,
+      getStyle: () => ({
+        layers: [
+          { id: "background", type: "background" },
+          { id: "water", type: "fill", "source-layer": "water" },
+          { id: "land", type: "fill", "source-layer": "landcover" },
+          { id: "park", type: "fill", "source-layer": "park" },
+          { id: "border", type: "line", "source-layer": "boundary" },
+          { id: "road-label", type: "symbol", "source-layer": "place" },
+          { id: "road", type: "line", "source-layer": "transportation" },
+        ],
+      }),
+      setPaintProperty: (id, name, value) => {
+        painted.push([id, name, String(value)]);
+      },
+    };
+  }
+
+  it("repaints colour layers and never labels", () => {
+    const map = fakeMap();
+    applyBasemapTint(map, {
+      background: "#f5efe2",
+      water: "#ddd2b8",
+      landcover: "#ece3cb",
+      park: "#e0d7b8",
+      boundary: "#b8a67e",
+    });
+    expect(map.painted).toContainEqual(["background", "background-color", "#f5efe2"]);
+    expect(map.painted).toContainEqual(["water", "fill-color", "#ddd2b8"]);
+    expect(map.painted).toContainEqual(["land", "fill-color", "#ece3cb"]);
+    expect(map.painted).toContainEqual(["park", "fill-color", "#e0d7b8"]);
+    expect(map.painted).toContainEqual(["border", "line-color", "#b8a67e"]);
+    expect(map.painted.some(([id]) => id === "road-label")).toBe(false);
+    expect(map.painted.some(([id]) => id === "road")).toBe(false);
+  });
+
+  it("no-ops cleanly on absent layers, missing tint and hostile maps", () => {
+    const map = fakeMap();
+    expect(() => applyBasemapTint(map, undefined)).not.toThrow();
+    expect(map.painted).toEqual([]);
+    expect(() =>
+      applyBasemapTint({ getStyle: () => ({ layers: [] }), setPaintProperty: () => {} }, { water: "#fff" }),
+    ).not.toThrow();
+    expect(() =>
+      applyBasemapTint(
+        {
+          getStyle: () => {
+            throw new Error("style gone");
+          },
+          setPaintProperty: () => {},
+        },
+        { water: "#fff" },
+      ),
+    ).not.toThrow();
+    const rejecting: TintableMap = {
+      getStyle: () => ({ layers: [{ id: "water", type: "fill", "source-layer": "water" }] }),
+      setPaintProperty: () => {
+        throw new Error("type mismatch");
+      },
+    };
+    expect(() => applyBasemapTint(rejecting, { water: "#fff" })).not.toThrow();
   });
 });

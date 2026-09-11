@@ -4,11 +4,12 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Maximize2 } from "lucide-react";
 import { useTrip } from "./theme";
 import {
-  MAP_STYLE_URL,
+  applyBasemapTint,
   fetchRouteLegs,
   hasWebGL2,
   markerNumber,
   prefersReducedMotion,
+  resolveMapStyle,
   type MapPadding,
   type RouteLeg,
 } from "../lib/maps";
@@ -243,9 +244,11 @@ export function RouteMap({
         journeyRef.current.stops.forEach((s) => bounds.extend([s.lng!, s.lat!]));
         journeyRef.current.excursions.forEach((s) => bounds.extend([s.lng!, s.lat!]));
 
+        // Same preset voice as the card maps (#40) — one derivation, both surfaces.
+        const mapStyle = resolveMapStyle(trip);
         map = new lib.Map({
           container: ref.current,
-          style: MAP_STYLE_URL,
+          style: mapStyle.styleUrl,
           attributionControl: { compact: true },
           bounds: journeyRef.current.stops.length > 1 ? bounds : undefined,
           center:
@@ -275,10 +278,13 @@ export function RouteMap({
         });
         if (cancelled || !map) return;
 
+        // Preset tint of the base layers (#40 D2) — repaint, never re-author.
+        applyBasemapTint(map, mapStyle.tint);
+
         // Elevation first, so the route lands ON TOP of the hillshade (#38).
         // Deliberately not awaited — a slow DEM must not hold up the line the
         // surface exists to draw.
-        void addTerrain(map, lib);
+        void addTerrain(map, lib, mapStyle.terrain);
 
         // Real geometry when the backend can give it; the trip's own
         // coordinates when it can't (maps unconfigured, or a leg with no road
