@@ -8,6 +8,7 @@ import {
   fetchRouteLegs,
   hasWebGL2,
   markerNumber,
+  markerPinClass,
   prefersReducedMotion,
   resolveMapStyle,
   type MapPadding,
@@ -388,11 +389,9 @@ export function RouteMap({
       } else {
         el.className = "route-pin grid h-11 w-11 cursor-pointer place-items-center";
         const pin = document.createElement("span");
-        // Pin colours are Tailwind utilities off --color-marker /
-        // --color-marker-fg, so the pin is per-trip for free and no colour
-        // is written in JS at all.
-        pin.className =
-          "route-pin-dot grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card transition-transform duration-120";
+        // Pin colours are the shared stage-aware class map (lib/maps.ts) —
+        // the surface, the card maps and the booklet render the same pin.
+        pin.className = `route-pin-dot ${markerPinClass(trip, loc)} transition-transform duration-120`;
         pin.textContent = String(markerNumber(trip, loc));
         el.appendChild(pin);
       }

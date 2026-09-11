@@ -180,6 +180,69 @@ export function markerNumber(trip: Trip, loc: TripLocation): number {
 }
 
 /**
+ * A location's stage, derived from the blocks that reference it — never
+ * modelled (no `stage` on Location, no fourth place a stage can be set, #40
+ * D6). Day blocks and section-level (unscheduled pool) blocks both speak;
+ * a block references a location through `location`/`from`/`to`, matched by
+ * name/alias exactly like the map does.
+ *
+ * Rule (mirrors `legStage` in route-surface.ts): a `booked`/`done` block
+ * commits the place; an explicit `planned` softens it; a block with no
+ * status says nothing (an idea trip's undescribed blocks are not a plan).
+ * With no speaking block the trip stage answers — an idea trip's places
+ * really are provisional, and a booked trip's are booked.
+ */
+export function locationStage(trip: Trip, loc: TripLocation): Trip["stage"] {
+  const names = new Set([loc.name.toLowerCase(), ...(loc.alias ?? []).map((a) => a.toLowerCase())]);
+  const refers = (value: string | undefined): boolean => {
+    if (!value) return false;
+    const target = findLocation(trip, value);
+    return !!target && names.has(target.name.toLowerCase());
+  };
+  let planned = false;
+  const blocks = [
+    ...(trip.days ?? []).flatMap((d) => d.blocks ?? []),
+    ...(trip.sections ?? []).flatMap((s) => s.blocks ?? []),
+  ];
+  for (const b of blocks) {
+    if (!refers(b.location) && !refers(b.from) && !refers(b.to)) continue;
+    if (b.status === "booked" || b.status === "done") return "booked";
+    if (b.status === "planned") planned = true;
+  }
+  if (planned) return "planned";
+  return trip.stage;
+}
+
+/**
+ * The numbered pin's visual spec as a class map (DESIGN.md §8.3) —
+ * outline/dashed while provisional, solid muted when planned, filled accent
+ * once booked, primary while live, desaturated in the archive. Provisional
+ * plans must LOOK provisional.
+ *
+ * One `<span>` of Tailwind classes, shared by MapView and RouteMap; the
+ * booklet prints through MapView (#37), so print follows for free. Colours
+ * stay utilities off tokens — no colour is written in JS. Booked/live keep
+ * the long-standing filled pin byte-identical, so staged trips do not shift.
+ */
+export function markerPinClass(trip: Trip, loc: TripLocation): string {
+  const base =
+    "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card";
+  switch (locationStage(trip, loc)) {
+    case "idea":
+    case "options":
+    case "shortlist":
+      return `${base} border-2 border-dashed border-marker bg-surface text-marker`;
+    case "planned":
+      return `${base} border border-marker-fg/60 bg-marker/70 text-marker-fg`;
+    case "booked":
+    case "live":
+      return `${base} border border-marker-fg bg-marker text-marker-fg`;
+    case "archive":
+      return `${base} border border-border bg-muted text-muted-foreground`;
+  }
+}
+
+/**
  * Real driving route for a set of places, from the backend (#27).
  *
  * HERE Routing v8 still produces the geometry — MapLibre renders, it does not

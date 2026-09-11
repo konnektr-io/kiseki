@@ -4,8 +4,10 @@ import {
   CHROME_PADDING,
   clampPadding,
   findLocation,
+  locationStage,
   MAP_STYLE_URL,
   markerNumber,
+  markerPinClass,
   OPENFREEMAP_STYLES,
   resolveMapStyle,
   type TintableMap,
@@ -181,5 +183,82 @@ describe("applyBasemapTint", () => {
       },
     };
     expect(() => applyBasemapTint(rejecting, { water: "#fff" })).not.toThrow();
+  });
+});
+
+describe("locationStage", () => {
+  const banff = { name: "Banff", alias: [], lat: 51.1, lng: -115.5 };
+  const revy = { name: "Revelstoke", alias: ["Hillcrest"], lat: 51.0, lng: -118.1 };
+  const staged = (stage: Trip["stage"], days: Trip["days"], sections?: Trip["sections"]) =>
+    ({ stage, locations: [banff, revy], days, sections }) as unknown as Trip;
+
+  it("falls back to the trip stage with no speaking block", () => {
+    expect(locationStage(staged("idea", []), banff)).toBe("idea");
+    expect(locationStage(staged("booked", []), banff)).toBe("booked");
+  });
+
+  it("derives booked from a booked/done block, planned from an explicit planned", () => {
+    const days = [
+      { blocks: [{ kind: "lodging", location: "Banff", status: "booked" }] },
+      { blocks: [{ kind: "activity", location: "Hillcrest", status: "planned" }] },
+    ] as unknown as Trip["days"];
+    const t = staged("idea", days);
+    expect(locationStage(t, banff)).toBe("booked");
+    expect(locationStage(t, revy)).toBe("planned");
+  });
+
+  it("matches by alias and by transport endpoints", () => {
+    const days = [
+      { blocks: [{ kind: "transport", from: "Hillcrest", to: "Banff", status: "done" }] },
+    ] as unknown as Trip["days"];
+    const t = staged("planned", days);
+    expect(locationStage(t, banff)).toBe("booked");
+    expect(locationStage(t, revy)).toBe("booked");
+  });
+
+  it("ignores status-less blocks and section-pool blocks speak too", () => {
+    const days = [{ blocks: [{ kind: "meal", location: "Banff" }] }] as unknown as Trip["days"];
+    expect(locationStage(staged("idea", days), banff)).toBe("idea");
+    const sections = [{ blocks: [{ kind: "meal", location: "Banff", status: "booked" }] }] as unknown as Trip["sections"];
+    expect(locationStage(staged("idea", [], sections), banff)).toBe("booked");
+  });
+
+  it("a booked block wins over a planned one for the same place", () => {
+    const days = [
+      {
+        blocks: [
+          { kind: "meal", location: "Banff", status: "planned" },
+          { kind: "lodging", location: "Banff", status: "booked" },
+        ],
+      },
+    ] as unknown as Trip["days"];
+    expect(locationStage(staged("idea", days), banff)).toBe("booked");
+  });
+});
+
+describe("markerPinClass", () => {
+  const loc = { name: "Banff", alias: [], lat: 51.1, lng: -115.5 };
+  const pin = (stage: Trip["stage"]) => markerPinClass({ stage, locations: [loc], days: [] } as unknown as Trip, loc);
+
+  it("implements the §8.3 variants — outline while provisional, muted when planned, desaturated in archive", () => {
+    expect(pin("idea")).toContain("border-dashed");
+    expect(pin("options")).toContain("border-dashed");
+    expect(pin("shortlist")).toContain("border-dashed");
+    expect(pin("planned")).toContain("bg-marker/70");
+    expect(pin("archive")).toContain("bg-muted");
+    expect(pin("archive")).not.toContain("bg-marker");
+  });
+
+  it("keeps the long-standing filled pin for booked and live", () => {
+    const filled =
+      "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card border border-marker-fg bg-marker text-marker-fg";
+    expect(pin("booked")).toBe(filled);
+    expect(pin("live")).toBe(filled);
+  });
+
+  it("never writes a colour in JS — utilities off tokens only", () => {
+    for (const s of ["idea", "planned", "booked", "live", "archive"] as const) {
+      expect(pin(s)).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+    }
   });
 });

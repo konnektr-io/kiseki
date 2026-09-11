@@ -10,6 +10,7 @@ import {
   hasWebGL2,
   locatedPlaces,
   markerNumber,
+  markerPinClass,
   resolveMapStyle,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
@@ -178,8 +179,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           el.setAttribute("aria-hidden", "true");
           el.title = l.name;
           const pin = document.createElement("span");
-          pin.className =
-            "grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card";
+          // Stage-aware pin (DESIGN.md §8.3): one class map in lib/maps.ts, so
+          // the card maps, the surface and the booklet (#37, same component)
+          // cannot drift apart. No colour is written in JS.
+          pin.className = markerPinClass(trip, l);
           pin.textContent = String(n);
           el.appendChild(pin);
           new lib.Marker({ element: el }).setLngLat([l.lng!, l.lat!]).addTo(map!);
