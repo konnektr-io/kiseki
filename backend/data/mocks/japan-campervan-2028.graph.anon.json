@@ -883,9 +883,7 @@
       "map": "/media/REDACTED",
       "summary": "Fly to Sapporo, pick up a campervan, chase snow. No fixed bookings except the van — the weather decides where we ride. Hokkaido's powder belt stretches from the **Niseko volcano cluster** in the southwest up the central spine to the **Daisetsuzan range** in the northeast: one logical road trip. Niseko, Rusutsu, Kiroro, Kokusai, then up past Furano and Kamui to Asahidake. Two missions make the trip: **climbing Mt Yotei** and the **Asahidake volcanic bowls**.",
       "theme": {
-        "preset": "nordic",
-        "primary": "#334155",
-        "accent": "#b45309"
+        "preset": "tundra"
       },
       "coverStats": [
         "10 days · late Jan 2028",

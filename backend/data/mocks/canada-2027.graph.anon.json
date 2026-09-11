@@ -1241,9 +1241,7 @@
       "map": "/media/REDACTED",
       "summary": "16 days, 3 riders (**Niko** — snowboard, **Person 2**, **Person 3** — skis), ~10.5–11 ski days across four big resorts **plus 3 heli days with Selkirk Tangiers**. The heli block (Feb 20–24, Coast Hillcrest) is the fixed anchor; everything else is a condition-chasing loop: Sunshine first (arrival-day resort, 2h from Calgary), then Revelstoke (biggest lift-served vertical in North America), the STHS heli, then Kicking Horse and Lake Louise.\n\n**Booked**: flights BRU↔YYC (€1,005.81 pp, booking 9GMOL3) · STHS 3-Day Classic deposit paid ($2,964.15 CAD, 35%) · group locked at 3 · family room confirmed.\n\n**Flex by design**: Day 3 is a *decide-on-the-hill* day, Day 10's KH afternoon is a skippable buffer, and Mar 1 flexes between a Lake Louise morning and a relaxed drive home. Heli down days (STHS averages 2–3/month) fall back to Revelstoke Mountain Resort.",
       "theme": {
-        "preset": "alpine",
-        "primary": "#1e3a8a",
-        "accent": "#0f766e"
+        "preset": "alpine"
       },
       "coverStats": [
         "16 days · Feb 15 – Mar 2",
