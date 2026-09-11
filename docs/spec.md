@@ -208,7 +208,7 @@ Order = priority; each independently pick-up-able (issues in this repo's backlog
 
 - **#85** (granular twin permissions) — still backlogged; revisit only if public. P2–3 per-trip permissions are app-level ACLs, not twin-level.
 - **DTDL model evolution**: new block kinds = new models; keep the model coarse. Auto-generation from Python models must stay bidirectional-safe (Python stays the source until proven otherwise).
-- **HTML sanitization** for `custom` blocks (XSS) — acceptable under link-trust in P0; solve before any public sharing (DOMPurify client-side + server-side).
+- **HTML sanitization** for `custom` blocks (XSS) — ✅ satisfied (#196 phase B): server-side nh3 allow-list cleaned once at write, DOMPurify client-side as a backstop.
 - **LLM provider / GDPR**: parked until public (trusted group now; models swappable).
 - **"Kiseki" availability** (domain, app stores, collisions): still open.
 - **P1 backend swap**: trip.json → graph via SDK must keep the P0 API contract stable (the swap is invisible to the frontend).

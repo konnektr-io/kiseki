@@ -97,7 +97,7 @@ def test_user_extends_person_and_has_no_role():
     user_props = {c["name"] for c in user["contents"] if c["@type"] == "Property"}
     # own fields only — name/contact come from Person via `extends`
     # (role/note ride the hasCrew edge, never a node)
-    assert user_props == {"email", "displayName", "authProvider"}
+    assert user_props == {"email", "displayName", "authProvider", "publicName"}
     assert "role" not in user_props
     person_props = {c["name"] for c in by_id[mid("Person")]["contents"] if c["@type"] == "Property"}
     assert "role" not in person_props, "role must not be a Person property (carried on hasCrew edge)"
