@@ -6,10 +6,11 @@ REAL auth/ACL/store/service code (same harness as ``test_write_api.py``):
 1. ``Trip.discoverable`` — model default, owner-only PATCH, converter round-trip.
 2. ``hasCrew.displayName`` — written on add-crew, carried through a claim
    (the trip keeps the crew's own name, not the account's), legacy fallback.
-3. ``POST /api/me/ensure`` — idempotent twin provisioning, bare-M2M refusal,
-   no-email ``ensured: false``.
+3. ``POST /api/me/ensure`` — idempotent twin provisioning, M2M refusal (403,
+   act-as included), no-email ``ensured: false``, graph failure 503.
 4. ``follows`` — follow/unfollow happy path, idempotency, self-follow 400,
-   unknown target 404, one-directionality, and NO trip access granted.
+   unknown target 404, one-directionality, M2M refusal, and NO trip access
+   granted.
 """
 
 from __future__ import annotations
@@ -197,6 +198,21 @@ def test_crew_without_edge_displayName_falls_back_to_twin_name() -> None:
 
 # ------------------------------------------------------- 3. ensure-my-twin
 
+def test_ensure_graph_failure_is_503_never_ensured_false(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed twin write is a 503 — NOT ``ensured: false``, which the SPA
+    reads as "no verified email, carry on". An outage must never be disguised
+    as the benign missing-email case."""
+    g = graph(role="owner")
+    monkeypatch.setattr(g, "create_user_twin", lambda *a, **k: False)
+    token = _token_of(rsa_keypair)
+
+    r = client.post("/api/me/ensure", headers=_auth(token))
+    assert r.status_code == 503
+    assert "ensured" not in r.json()
+
+
 def test_ensure_creates_twin_and_is_idempotent(client, rsa_keypair, graph) -> None:
     g = graph(role="owner")
     assert g.twin(SUB) is not None  # crew role fixture already made the twin
@@ -218,17 +234,30 @@ def test_ensure_creates_twin_and_is_idempotent(client, rsa_keypair, graph) -> No
     assert len(g.twins) == before + 1  # second call duplicates nothing
 
 
-def test_ensure_refuses_bare_agent_m2m_token(
+def test_ensure_refuses_m2m_token_even_with_act_as(
     client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A bare sanctioned-agent M2M token (no act-as) has no user identity to
-    ensure — rejected, and nothing is provisioned for the client itself."""
-    graph(role="owner")
+    """``ensure`` PROVISIONS graph identity, so it obeys the claim/follow rule
+    (``acl.require_user_token``): a sanctioned-agent M2M token is refused
+    (403) — bare or carrying an act-as sub, because act-as must never
+    provision a twin on the mapped user's behalf. Nothing is created for
+    either sub."""
+    g = graph(role="owner")
     monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT)
     token = _token_of(rsa_keypair, gty="client-credentials", azp=AGENT_CLIENT,
                       sub=f"{AGENT_CLIENT}@clients")
+    before = len(g.twins)
+
     r = client.post("/api/me/ensure", headers=_auth(token))
-    assert r.status_code == 401
+    assert r.status_code == 403
+
+    r = client.post(
+        "/api/me/ensure", headers={**_auth(token), "X-Act-As-Sub": OTHER}
+    )
+    assert r.status_code == 403
+
+    assert len(g.twins) == before
+    assert g.twin(OTHER) is None  # no twin for the client, none for the act-as sub
 
 
 def test_ensure_without_email_reports_not_ensured(
@@ -333,6 +362,29 @@ def test_following_grants_no_trip_access(client, rsa_keypair, graph) -> None:
 
     r = client.get(f"/api/trips/{trip.id}", headers=_auth(follower_tok))
     assert r.status_code == 403
+
+
+def test_follow_unfollow_refuse_m2m_token(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Follow writes a graph edge from the actor's own twin, so it obeys the
+    claim/follow rule (``acl.require_user_token``): an M2M client token is
+    refused (403) — bare or with an act-as sub — and no edge is written for
+    anyone, not even for the mapped user."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT)
+    token = _token_of(rsa_keypair, gty="client-credentials", azp=AGENT_CLIENT,
+                      sub=f"{AGENT_CLIENT}@clients")
+
+    for headers in (_auth(token), {**_auth(token), "X-Act-As-Sub": SUB}):
+        r = client.post(f"/api/users/{OTHER}/follow", headers=headers)
+        assert r.status_code == 403
+        r = client.delete(f"/api/users/{OTHER}/follow", headers=headers)
+        assert r.status_code == 403
+
+    assert g.following_of(SUB) == []
+    assert g.followers_of(OTHER) == []
 
 
 def test_follow_queries_are_parameterized_single_hop(monkeypatch) -> None:

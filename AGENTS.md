@@ -61,8 +61,8 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 |---|---|---|
 | POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill it in one go — `api_write.py fill <trip_id> --file plan.json` (plan shape in `api_write.py --help`) |
 | PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates + `coverStats`/`stats` (#178); `visibility` + `discoverable` owner-only (#196) |
-| POST | `/api/me/ensure` | ensure the caller's `User` twin exists without claiming anything (#196) — idempotent; bare agent M2M rejected; `ensured: false` when no email |
-| POST / DELETE | `/api/users/{sub}/follow` | follow / unfollow a person (#196) — one-directional, grants NO trip access; 400 self, 404 unknown |
+| POST | `/api/me/ensure` | ensure the caller's `User` twin exists without claiming anything (#196) — idempotent; user-token-only (M2M refused 403, act-as included); `ensured: false` when no email, `503` when the graph write fails |
+| POST / DELETE | `/api/users/{sub}/follow` | follow / unfollow a person (#196) — one-directional, grants NO trip access; user-token-only (M2M refused 403); 400 self, 404 unknown |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
@@ -191,14 +191,16 @@ and forwarded to the content agent as an identity envelope — the agent's
 own write-API calls act-as that sub, enforced downstream by the API ACL.
 
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
-/api/trips` (my trips), `GET /api/auth/me` and `POST/DELETE /api/users/{sub}/follow`
+/api/trips` (my trips) and `GET /api/auth/me`
 follow the RESOLVED identity —
 with act-as configured, the agent lists and identifies as the mapped user,
-never as `<client>@clients` (which holds no crew edges). `POST /api/claims`
-and `/api/claims/follow` PROVISION graph identity (User twin / hasCrew edge)
-and are **user-token-only**: a client-credentials (M2M) token is refused 403 —
-the agent never claims/follows, and act-as must never provision identity for
-the mapped user behind their back (mode 1 only).
+never as `<client>@clients` (which holds no crew edges). `POST /api/claims`,
+`/api/claims/follow`, `POST /api/me/ensure` and `POST/DELETE /api/users/{sub}/follow`
+PROVISION graph identity (User twin / hasCrew edge / follows edge)
+and are **user-token-only** (`acl.require_user_token`): a client-credentials
+(M2M) token is refused 403 —
+the agent never claims, follows or ensures, and act-as must never provision
+identity for the mapped user behind their back (mode 1 only).
 
 **Agent fleet (2026-09-08, #9/#140 — see `docs/spec.md` §8):** two Hermes
 agents. The **content agent** (dedicated profile `kiseki`) edits trip content
@@ -461,7 +463,7 @@ import after first paint) or moving to self-hosted Umami are the levers.
 - **Public vs private trips (#64)** — `visibility` on the Trip twin: `public` serves anonymously at `GET /api/trips/{id}`, `private` requires a crew `hasCrew` edge. `discoverable` (#196) is an ADDITIVE opt-in listing flag (default `False`, owner-only): a discoverable `private` trip may be listed on crew profiles / the follower feed but still requires follower+ to read. Join links carry `claimToken` (copy of the trip's `claimToken`) to let a new user `follow` as `follower` or claim a `Person` placeholder. The graph is the only store; there is no `token` flag and no file fallback.
 - Placeholder→real-user migration (#6, `app/claims.py`): a **claim token** (separate secret, sibling of `token`) authorizes claiming a crew identity. `GET /join/<claimToken>` shows the trip + crew; `POST /api/claims {claimToken, personId}` creates the User twin (`$dtId` = auth sub) + transfers the `hasCrew` edge (same role/index) + **deletes the placeholder**. No name/email matching — the user picks the person explicitly.
   - The crew's OWN trip name rides the `hasCrew` edge as `displayName` (#196) — written on add-crew / the create-trip owner edge, carried through a claim, read back as `Person.name` (twin-name fallback for pre-#196 edges). A claim never renames the crew member.
-  - `POST /api/me/ensure` provisions nothing new on re-call: it PUTs the caller's `User` twin (own token, or M2M + request act-as; bare M2M 401s) so an account exists before any claim. Person→person `follows` edges (`POST/DELETE /api/users/{sub}/follow`) are social only — they grant no trip access.
+  - `POST /api/me/ensure` provisions nothing new on re-call: it PUTs the caller's `User` twin (user token only — M2M refused 403, act-as included: identity is never provisioned on someone else's behalf) so an account exists before any claim; a graph failure is a `503`, never `ensured: false`. Person→person `follows` edges (`POST/DELETE /api/users/{sub}/follow`) are social only — they grant no trip access. Both are user-token-only (M2M refused 403).
   - **`claimToken` is NEVER included in trip documents** (any route) — it is only obtainable via the owner-only `GET /api/trips/{id}/join-link` (role `owner` required). The read link can never claim.
   - The protected id route reports the caller's `myRole`; the frontend shows an owner-only "Join link" button (copies the join URL).
 
