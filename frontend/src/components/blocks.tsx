@@ -29,6 +29,7 @@ import type { Block, BlockKind, BlockStatus, Trip, TripLocation } from "../lib/t
 import { classifyTransportMode, type TransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
+import { PhotoGallery, PhotoStrip } from "./photos";
 
 /* ---------- shared bits ---------- */
 
@@ -139,20 +140,15 @@ export function resolveBlockPlace(trip: Trip, b: Block): TripLocation | undefine
 }
 
 /** Card media strip: an image, or a mini MapLibre map centered on `location`.
+ *  Photos render through the shared PhotoStrip (decision A, #191 — N photos,
+ *  screen-capped with a +N lightbox affordance, print-capped per DESIGN §12).
  *  The MAP branch is the "minimap": on the trip map surface (#92) it is hidden
  *  — the surface map right beside the card is the spatial context — while the
  *  booklet keeps it (one component, a print-scope CSS rule serves both). */
 function CardMedia({ b }: { b: Block }) {
   const trip = useTrip();
   if (b.images?.length) {
-    const imgs = b.images.slice(0, 2);
-    return (
-      <div className={`mb-3 grid gap-2 ${imgs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-        {imgs.map((src) => (
-          <img key={src} src={src} alt={b.title ?? ""} className="h-28 w-full rounded-lg object-cover" />
-        ))}
-      </div>
-    );
+    return <PhotoStrip images={b.images} alt={b.title ?? ""} />;
   }
   if (b.location) {
     const loc = findLocation(trip, b.location);
@@ -647,11 +643,7 @@ function GalleryBlock({ b }: { b: Block }) {
   if (!imgs.length) return null;
   return (
     <BlockCard className="p-3">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-        {imgs.map((src, i) => (
-          <img key={i} src={src} alt="" loading="lazy" className="h-32 w-full rounded-lg object-cover" />
-        ))}
-      </div>
+      <PhotoGallery items={imgs} title={b.title ?? undefined} />
     </BlockCard>
   );
 }
