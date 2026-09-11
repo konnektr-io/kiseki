@@ -176,6 +176,15 @@ def graph_to_trip(graph: dict) -> M.Trip:
         # Trip-relative note lives on the edge (the Person/User node is shared
         # across trips after claim); missing on old edges -> None.
         d["note"] = r.get("note")
+        # The crew's OWN name for this trip rides the edge (#196) — a claim
+        # swaps the twin to the account's User but never renames the crew
+        # member. Edges written before #196 carry no displayName: fall back
+        # to the twin's name (User twins also carry displayName).
+        edge_name = r.get("displayName")
+        if isinstance(edge_name, str) and edge_name:
+            d["name"] = edge_name
+        elif not d.get("name"):
+            d["name"] = t.get("displayName") or t.get("name")
         # Placeholder-vs-claimed is the twin's model kind (Person vs User) —
         # surfaced as a view-only flag so the Crew page can show the invite
         # affordance exactly where a claim is still possible.
@@ -250,6 +259,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "endDate": base.get("endDate"),
             "timezone": base.get("timezone"),
             "visibility": base.get("visibility", "private"),
+            "discoverable": bool(base.get("discoverable", False)),
             "claimToken": base.get("claimToken") or None,
             "cover": base.get("cover"),
             "coverCredit": base.get("coverCredit"),

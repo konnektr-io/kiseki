@@ -182,6 +182,11 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
         twins.append(twin(lid, "Location", _strip_rel_fields("Location", loc.model_dump(by_alias=True))))
 
     # --- crew (role/note are moved onto the hasCrew edge, not the Person twin)
+    # `displayName` (#196) is deliberately NOT emitted here: Person.name in
+    # trip.json already carries the crew's own name, the read path falls back
+    # to the twin name for edges without it, and emitting it would break
+    # byte-stability against the committed fixtures. The write API sets it on
+    # newly created edges (add_crew / create_trip owner edge / claim carry).
     person_ids: list[str] = []
     for i, p in enumerate(trip.crew):
         pid = p.id
@@ -227,6 +232,11 @@ def trip_to_graph(trip: M.Trip, anonymize: bool = False) -> dict:
 
     # --- root trip twin ------------------------------------------------------
     tprops = _strip_rel_fields("Trip", trip.model_dump(by_alias=True))
+    # `discoverable` defaults False and pre-#196 twins carry no such property:
+    # emit it only when opted in so re-running the converter over an old trip
+    # stays byte-identical (the read path defaults a missing prop to False).
+    if not tprops.get("discoverable"):
+        tprops.pop("discoverable", None)
     twins.append(twin(tid, "Trip", tprops))
     for i, loc in enumerate(trip.locations):
         rels.append(relationship(_rel_id(tid, "atLocation", loc_ids[loc.name]), tid, "atLocation", loc_ids[loc.name], index=i))
