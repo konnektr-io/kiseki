@@ -475,6 +475,7 @@ import after first paint) or moving to self-hosted Umami are the levers.
   - **Server-side `custom`-block sanitization (#196, phase B)**: `Block.html` is cleaned once, at write (`app/sanitize.py`, nh3 allow-list — text tags, headings, lists, tables, `img`/`a`/`figure`/`video`; `class`/`style`/`href`/`src`/`alt`/`title`/sizing/span attrs; `http`/`https`/`mailto` + image `data:` URLs only; no `script`/`iframe`/`on*`/`javascript:`), so stored HTML is clean for every reader. Client-side DOMPurify stays as a backstop; nothing re-sanitizes on read.
   - **`claimToken` is NEVER included in trip documents** (any route) — it is only obtainable via the owner-only `GET /api/trips/{id}/join-link` (role `owner` required). The read link can never claim.
   - The protected id route reports the caller's `myRole`; the frontend shows an owner-only "Join link" button (copies the join URL).
+  - **Profile UI (#196, phase D)**: `/u/:sub` renders anyone's profile, `/me` the caller's own (ensure-once, then the same view with the `publicName` switch and no Follow button); the signed-in `AuthButton` avatar links to `/me`. The trip list is the server's discoverable-only rule rendered verbatim — `myRole` gets the role pill, anything else the `Discoverable` badge.
 
 ## Deployment flow (home-k8s)
 

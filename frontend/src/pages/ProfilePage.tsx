@@ -356,15 +356,10 @@ function ProfileView({ sub, selfHint = false }: { sub: string; selfHint?: boolea
     }
   };
 
-  const toggleList = async (which: ListKind) => {
-    if (listLoading) return;
-    if (openList === which) {
-      setOpenList(null);
-      return;
-    }
-    setOpenList(which);
-    setListError(null);
+  const loadList = async (which: ListKind) => {
+    // A failed fetch stores nothing, so retry is just another load.
     if (lists[which]) return;
+    setListError(null);
     setListLoading(true);
     try {
       const at = await getAccessTokenSilently();
@@ -382,6 +377,16 @@ function ProfileView({ sub, selfHint = false }: { sub: string; selfHint?: boolea
     } finally {
       setListLoading(false);
     }
+  };
+
+  const toggleList = (which: ListKind) => {
+    if (listLoading) return;
+    if (openList === which) {
+      setOpenList(null);
+      return;
+    }
+    setOpenList(which);
+    void loadList(which);
   };
 
   const flipPublicName = async () => {
@@ -568,11 +573,7 @@ function ProfileView({ sub, selfHint = false }: { sub: string; selfHint?: boolea
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    setLists((m) => ({ ...m, [openList]: undefined }));
-                    setListError(null);
-                    void toggleList(openList);
-                  }}
+                  onClick={() => void loadList(openList)}
                   className="mt-2"
                 >
                   Try again
