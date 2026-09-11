@@ -509,17 +509,22 @@ class GraphReadClient:
         index: int,
         note: Optional[str] = None,
         display_name: Optional[str] = None,
-        contact: Optional[str] = None,
     ) -> bool:
         """Revert one trip's ``hasCrew`` edge from a User twin back to a fresh
         placeholder Person (account erasure, #196 phase C).
 
         The exact inverse of ``claim_crew_person``: upserts a new Person twin
-        (trip-relative ``name`` + ``contact`` only — no account props), upserts
-        the trip->Person edge carrying the SAME ``role`` + ``index`` + ``note``
-        + ``displayName``, then deletes the old trip->User edge. The trip
-        renders identically for everyone else; only the account behind the row
-        is gone.
+        (trip-relative ``name`` only), upserts the trip->Person edge carrying
+        the SAME ``role`` + ``index`` + ``note`` + ``displayName``, then
+        deletes the old trip->User edge. The trip renders identically for
+        everyone else; only the account behind the row is gone.
+
+        Account-level props (``email``, ``contact`` — phone/email "when
+        available") are deliberately NOT carried over: the crew-authored
+        trip-relative row (name / role / index / note / displayName) survives,
+        the erased person's own contact details do not. Erasure that re-created
+        the person's phone number on a shared trip would defeat the point of
+        art. 17.
 
         Raw SDK ops (like ``claim_crew_person``): the guarded write-client
         wrappers reject non-UUID twin ids, and a User ``$dtId`` is an auth sub,
@@ -536,8 +541,6 @@ class GraphReadClient:
             return False
         if display_name is not None and not isinstance(display_name, str):
             return False
-        if contact is not None and not isinstance(contact, str):
-            return False
         try:
             from konnektr_graph import BasicDigitalTwin, BasicRelationship
 
@@ -546,8 +549,6 @@ class GraphReadClient:
                 "$metadata": {"$model": PERSON_MODEL},
                 "name": name,
             }
-            if contact:
-                twin_props["contact"] = contact
             self._client.upsert_digital_twin(  # type: ignore[union-attr]
                 person_dtid, BasicDigitalTwin.from_dict(twin_props)
             )

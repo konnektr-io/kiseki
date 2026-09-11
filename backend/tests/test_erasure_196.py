@@ -391,3 +391,106 @@ def test_both_routes_are_registered() -> None:
     routes = {(r.path, next(iter(getattr(r, "methods", []) or []))) for r in app.routes}
     assert ("/api/me", "DELETE") in routes
     assert ("/api/me/export", "GET") in routes
+
+
+# ----------------------------------- 11. review fix: erasure must not replay PII
+
+def test_erasure_does_not_replay_the_subjects_own_details(
+    client, rsa_keypair, graph,
+) -> None:
+    """Erasure keeps the crew-authored trip row, but must NOT re-create the
+    subject's own PII (#196 phase C review fix).
+
+    The first cut read the account twin and wrote its ``contact`` onto the
+    fresh placeholder, so a phone number/email held on the person's account
+    survived the erasure on every trip they were crew on — the opposite of
+    art. 17. The placeholder is name-only now; the trip-relative row
+    (name/role/index/note/displayName) still survives (test 1).
+    """
+    g = graph(role="viewer")
+    _erasure_setup(g)
+    account_before = dict(g.twin(SUB) or {})
+    secret_email = account_before.get("email")
+    assert secret_email, "fixture must create the User twin with an email"
+    secret_contact = "SUB-PHONE-555-0199"
+    g.twin(SUB)["contact"] = secret_contact  # e.g. crew-typed via patch_crew
+
+    assert client.delete(
+        "/api/me", headers=_auth(_token_of(rsa_keypair))
+    ).status_code == 200
+
+    # Nothing anywhere in the store still carries the subject's own details...
+    dump = json.dumps({"twins": g.twins, "rels": g.rels})
+    assert secret_contact not in dump
+    assert secret_email not in dump
+
+    # ...and the placeholder the crew reads back is name-only: the trip's
+    # trip-relative row survives, the person's contact details do not.
+    me = next(c for c in _trip_of(g).crew if c.name == "Crew Nick")
+    twin = g.twin(me.id)
+    assert twin is not None
+    assert "contact" not in twin
+    assert "email" not in twin
+    assert me.contact is None
+    assert me.note == "skis hard"
+    assert me.role == "viewer"
+    assert me.claimed is False
+
+
+# ------------------------------------- 12. review fix: partial failure resumes
+
+def _edges_to(g: FakeGraph, sub: str) -> list[dict]:
+    return [
+        r for r in g.rels
+        if r.get("$relationshipName") == "hasCrew" and r.get("$targetId") == sub
+    ]
+
+
+def test_erasure_is_retryable_after_a_partial_graph_failure(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-way graph failure must not leave a HALF-erased account, and the
+    retry must resume without double-reverting a crew row.
+
+    The twin is deleted last and the work list comes from the live edges, so
+    an already-reverted entry drops out of the list — this test pins both.
+    """
+    g = graph(role="viewer")
+    _erasure_setup(g)  # SUB is crew on the root trip (crew name "Crew Nick")
+    _add_trip(g, "Second Trip", crew={SUB: "viewer", OTHER: "editor"})
+    token = _token_of(rsa_keypair)
+    assert len(_edges_to(g, SUB)) == 2
+    edges_before = len([r for r in g.rels if r.get("$relationshipName") == "hasCrew"])
+
+    real = g.revert_crew_person
+    calls = {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:  # first revert succeeds, second one fails
+            return False
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(g, "revert_crew_person", flaky)
+    r = client.delete("/api/me", headers=_auth(token))
+    assert r.status_code == 503
+    assert calls["n"] == 2          # it stopped at the failure, no silent skip
+
+    # NOT half-erased: the account, its follows and its remaining crew edge are
+    # all still there, and only the one already-reverted row is a placeholder.
+    assert g.user_twin_exists(SUB) is True
+    assert g.following_of(SUB) == [OTHER]
+    assert g.followers_of(SUB) == [THIRD]
+    assert len(_edges_to(g, SUB)) == 1
+    # A revert swaps an edge, it never loses or duplicates a crew row.
+    assert len([r for r in g.rels if r.get("$relationshipName") == "hasCrew"]) == edges_before
+
+    # Retry with the graph healthy again: it resumes, reverts only what is left
+    # (one row, not two), and finishes the erasure.
+    monkeypatch.setattr(g, "revert_crew_person", real)
+    r2 = client.delete("/api/me", headers=_auth(token))
+    assert r2.status_code == 200
+    assert r2.json()["deleted"]["crewEntriesReverted"] == 1  # no double-revert
+    assert _edges_to(g, SUB) == []
+    assert g.user_twin_exists(SUB) is False
+    assert client.delete("/api/me", headers=_auth(token)).status_code == 404

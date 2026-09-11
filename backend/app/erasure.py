@@ -15,6 +15,12 @@ incident edges refuses deletion, #89 — so every edge goes before its twin):
   3. ``follows`` edges out + in (idempotent deletes),
   4. the ``User`` twin itself.
 
+Partial failure is loud and retryable: the twin is deleted LAST, so a failure
+part-way leaves the account (and its follows) intact rather than half-erased,
+and a retry resumes where it stopped — an already-reverted edge no longer
+points at the ``User`` twin, so it is not in the work list and no row is
+reverted twice (pinned by the resumability test).
+
 A trip the caller shared is never rewritten beyond the crew-row swap: the new
 placeholder carries the SAME trip-relative name (the edge's ``displayName``),
 role, index and note, so the trip renders identically for everyone else —
@@ -22,6 +28,14 @@ only the account behind the row is gone. An owner-less trip would be
 unadministrable, so callers who still own a trip are refused (409) instead of
 having their trips silently destroyed — a deliberate, overrule-able product
 decision (flag it with the product owner before changing it).
+
+What is deliberately dropped: the person's own contact details (phone/email —
+``contact`` on the twin, ``email``): they are the subject's PII, not
+crew-authored trip content, and #195's "avatar/notes dropped" is read as those
+account-level bits. The trip-relative ``note`` on the edge DOES survive — it is
+crew-authored content about the trip ("brings the stove") and the claim flow
+carries it through; if the product owner wants it dropped too, the change is
+``note=None`` in the ``revert_crew_person`` call below.
 
 Export (``GET /api/me/export``) returns one complete JSON document with the
 caller's own data only: their twin props, full documents of trips they own,
@@ -92,10 +106,10 @@ def erase_account(user_dtid: str) -> dict:
 
     node = client.get_user_profile(user_dtid) or {}
     # Pre-#196 edges carry no displayName: fall back to the User twin's name
-    # so the crew never sees a blank row after the revert.
+    # so the crew never sees a blank row after the revert. The account's own
+    # contact details are NOT carried over (see ``revert_crew_person``): the
+    # crew-authored trip-relative row survives, the person's PII does not.
     account_name = node.get("displayName") or node.get("name") or user_dtid
-    account_contact = node.get("contact")
-    account_contact = account_contact if isinstance(account_contact, str) else None
 
     crew_reverted = 0
     for row in rows:
@@ -120,7 +134,7 @@ def erase_account(user_dtid: str) -> dict:
         placeholder_name = display_name or account_name
         if not client.revert_crew_person(
             trip_dtid, user_dtid, str(uuid.uuid4()), placeholder_name,
-            role, index, note, display_name, account_contact,
+            role, index, note, display_name,
         ):
             raise ErasureError(503, f"Could not revert your crew entry on trip {trip_dtid}")
         crew_reverted += 1

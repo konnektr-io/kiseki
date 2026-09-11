@@ -270,11 +270,12 @@ class FakeGraph:
         return True
     def revert_crew_person(self, trip_dtid: str, user_dtid: str, person_dtid: str,
                            name: str, role: str, index: int, note: str | None = None,
-                           display_name: str | None = None,
-                           contact: str | None = None) -> bool:
+                           display_name: str | None = None) -> bool:
         """Mirror the real ``revert_crew_person`` (#196 phase C): upsert the
         fresh Person twin, upsert the trip->Person hasCrew edge (same role +
-        index + note + displayName), then delete the old trip->User edge."""
+        index + note + displayName), then delete the old trip->User edge.
+        No account-level props (email/contact) are carried over — erasure
+        drops the subject's PII, as the real client does."""
         old = next(
             (r for r in self.rels
              if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
@@ -288,8 +289,6 @@ class FakeGraph:
             "$metadata": {"$model": "dtmi:kiseki:travel:Person;1"},
             "name": name,
         }
-        if contact:
-            twin_props["contact"] = contact
         existing_twin = self.twin(person_dtid)
         if existing_twin is not None:
             self.twins.remove(existing_twin)
