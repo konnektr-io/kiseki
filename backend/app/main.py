@@ -41,6 +41,7 @@ from .chat import (
     sse_data,
 )
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
+from .erasure import ErasureError, erase_account, export_account
 from .config import (
     HERE_ACCESS_KEY_ID,
     HERE_ACCESS_KEY_SECRET,
@@ -591,6 +592,64 @@ def update_me(
         "email": email,
         "publicName": bool(updated.get("publicName", False)),
     }
+
+
+@app.delete("/api/me")
+def delete_me(
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Erase the caller's account (issue #196 phase C, GDPR art. 17).
+
+    IRREVERSIBLE. Reverts every crew entry to an unclaimed placeholder
+    (same trip-relative name, role and note — the trip renders identically
+    for everyone else), removes ``follows`` edges in both directions, and
+    deletes the ``User`` twin last. Refused with 409 while the caller still
+    owns a trip (the response names the blocking trips — delete or hand them
+    over first; shared trips are never silently destroyed). A second call
+    finds no twin and answers 404.
+
+    Like every self-mutating identity route this is user-token-only
+    (``acl.require_user_token``): an M2M token is refused 403.
+    """
+    require_user_token(session.user)
+    try:
+        summary = erase_account(session.user["sub"])
+    except ErasureError as exc:
+        if exc.status == 409 and exc.extra:
+            raise HTTPException(
+                status_code=exc.status,
+                detail={"message": exc.detail, **exc.extra},
+            ) from exc
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    return {"deleted": summary}
+
+
+@app.get("/api/me/export")
+def export_me(
+    session: AuthSession = Depends(get_current_session),
+) -> Response:
+    """Export the caller's own data (issue #196 phase C, GDPR art. 20).
+
+    One complete JSON document, always: twin props, full documents of owned
+    trips (the same shape ``GET /api/trips/{id}`` returns), the caller's crew
+    rows on other trips, and the social graph (peers' public-ish fields only
+    — never another user's email or trip-relative note). No query knobs.
+    Served as a file download (``Content-Disposition: attachment``).
+
+    User-token-only (``acl.require_user_token``): an M2M token is refused
+    403. 404 when the caller has no twin (call ``ensure`` first).
+    """
+    require_user_token(session.user)
+    try:
+        doc = export_account(session.user["sub"])
+    except ErasureError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    owned = [_public_trip(trip, my_role="owner") for trip in doc["ownedTrips"]]
+    body = {**doc, "ownedTrips": owned}
+    return JSONResponse(
+        body,
+        headers={"Content-Disposition": 'attachment; filename="kiseki-export.json"'},
+    )
 
 
 def _profile_trips(client, target_sub: str, viewer_sub: str) -> list[dict]:
