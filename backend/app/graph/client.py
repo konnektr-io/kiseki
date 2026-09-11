@@ -499,6 +499,104 @@ class GraphReadClient:
             print(f"[kiseki] graph claim transfer({person_dtid}) failed: {exc}")
             return False
 
+    def revert_crew_person(
+        self,
+        trip_dtid: str,
+        user_dtid: str,
+        person_dtid: str,
+        name: str,
+        role: str,
+        index: int,
+        note: Optional[str] = None,
+        display_name: Optional[str] = None,
+    ) -> bool:
+        """Revert one trip's ``hasCrew`` edge from a User twin back to a fresh
+        placeholder Person (account erasure, #196 phase C).
+
+        The exact inverse of ``claim_crew_person``: upserts a new Person twin
+        (trip-relative ``name`` only), upserts the trip->Person edge carrying
+        the SAME ``role`` + ``index`` + ``note`` + ``displayName``, then
+        deletes the old trip->User edge. The trip renders identically for
+        everyone else; only the account behind the row is gone.
+
+        Account-level props (``email``, ``contact`` — phone/email "when
+        available") are deliberately NOT carried over: the crew-authored
+        trip-relative row (name / role / index / note / displayName) survives,
+        the erased person's own contact details do not. Erasure that re-created
+        the person's phone number on a shared trip would defeat the point of
+        art. 17.
+
+        Raw SDK ops (like ``claim_crew_person``): the guarded write-client
+        wrappers reject non-UUID twin ids, and a User ``$dtId`` is an auth sub,
+        not a UUID.
+        """
+        if not (self.is_enabled() and _DTID_RE.match(trip_dtid or "")
+                and _USER_RE.match(user_dtid or "") and _DTID_RE.match(person_dtid or "")):
+            return False
+        if not isinstance(name, str) or not name:
+            return False
+        if role not in {"owner", "editor", "viewer", "follower"} or not isinstance(index, int):
+            return False
+        if note is not None and not isinstance(note, str):
+            return False
+        if display_name is not None and not isinstance(display_name, str):
+            return False
+        try:
+            from konnektr_graph import BasicDigitalTwin, BasicRelationship
+
+            twin_props: dict[str, Any] = {
+                "$dtId": person_dtid,
+                "$metadata": {"$model": PERSON_MODEL},
+                "name": name,
+            }
+            self._client.upsert_digital_twin(  # type: ignore[union-attr]
+                person_dtid, BasicDigitalTwin.from_dict(twin_props)
+            )
+            rel_id = f"{trip_dtid}__hasCrew__{person_dtid}"
+            props: dict[str, Any] = {
+                "$relationshipId": rel_id,
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasCrew",
+                "$targetId": person_dtid,
+                "role": role,
+                "index": index,
+            }
+            if note is not None:
+                props["note"] = note
+            if display_name:
+                props["displayName"] = display_name
+            self._client.upsert_relationship(  # type: ignore[union-attr]
+                trip_dtid, rel_id, BasicRelationship.from_dict(props)
+            )
+            self._client.delete_relationship(  # type: ignore[union-attr]
+                trip_dtid, f"{trip_dtid}__hasCrew__{user_dtid}"
+            )
+            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph crew revert({person_dtid}) failed: {exc}")
+            return False
+
+    def delete_user_twin(self, user_dtid: str) -> bool:
+        """Delete a ``User`` twin (account erasure, #196 phase C).
+
+        The caller removes every incident edge first (``hasCrew`` reverts +
+        ``follows`` deletes) — the server does NOT cascade twin deletes, so a
+        twin that still has edges refuses deletion and this returns False
+        (the route surfaces that honestly as a 503, never as success). False
+        when the twin does not exist either; the route checks existence first
+        so a second erasure is a clean 404 there.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return False
+        try:
+            self._client.delete_digital_twin(user_dtid)  # type: ignore[union-attr]
+            _invalidate_graph_cache(user_dtid=user_dtid)
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph delete user twin({user_dtid}) failed: {exc}")
+            return False
+
     def follow_trip(self, trip_dtid: str, user_dtid: str, profile: dict[str, Any]) -> bool:
         """Create a `hasCrew` edge with `role=follower` for a non-crew user (#65).
 

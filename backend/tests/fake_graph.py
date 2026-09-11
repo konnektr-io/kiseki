@@ -268,6 +268,63 @@ class FakeGraph:
         if person is not None:
             self.twins.remove(person)
         return True
+    def revert_crew_person(self, trip_dtid: str, user_dtid: str, person_dtid: str,
+                           name: str, role: str, index: int, note: str | None = None,
+                           display_name: str | None = None) -> bool:
+        """Mirror the real ``revert_crew_person`` (#196 phase C): upsert the
+        fresh Person twin, upsert the trip->Person hasCrew edge (same role +
+        index + note + displayName), then delete the old trip->User edge.
+        No account-level props (email/contact) are carried over — erasure
+        drops the subject's PII, as the real client does."""
+        old = next(
+            (r for r in self.rels
+             if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
+             and r.get("$targetId") == user_dtid),
+            None,
+        )
+        if old is None:
+            return False
+        twin_props: dict = {
+            "$dtId": person_dtid,
+            "$metadata": {"$model": "dtmi:kiseki:travel:Person;1"},
+            "name": name,
+        }
+        existing_twin = self.twin(person_dtid)
+        if existing_twin is not None:
+            self.twins.remove(existing_twin)
+        self.twins.append(twin_props)
+        edge: dict = {
+            "$relationshipId": f"{trip_dtid}__hasCrew__{person_dtid}",
+            "$sourceId": trip_dtid,
+            "$relationshipName": "hasCrew",
+            "$targetId": person_dtid,
+            "role": role,
+            "index": index,
+        }
+        if note is not None:
+            edge["note"] = note
+        if display_name:
+            edge["displayName"] = display_name
+        existing = self.rel(edge["$relationshipId"])
+        if existing is not None:
+            self.rels.remove(existing)
+        self.rels.append(edge)
+        self.rels.remove(old)
+        return True
+
+    def delete_user_twin(self, user_dtid: str) -> bool:
+        """Mirror the real ``delete_user_twin`` (#196 phase C): refuse (False)
+        when the twin still has incident edges — exactly like the server, and
+        like ``delete_twin`` above — so the tests catch an ordering bug."""
+        t = self.twin(user_dtid)
+        if t is None:
+            return False
+        touching = [r for r in self.rels
+                    if r.get("$sourceId") == user_dtid or r.get("$targetId") == user_dtid]
+        if touching:
+            return False
+        self.twins.remove(t)
+        return True
     def create_user_twin(self, user_dtid: str, profile: dict) -> bool:
         """Mirror the real ``create_user_twin`` (claim flow, #6): a User twin
         without a verified email is refused (False) — the server invents no
