@@ -176,16 +176,28 @@ export function JoinPage() {
                           {person.note ? ` — ${person.note}` : ""}
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleClaim(person.id)}
-                        disabled={claiming !== null || following}
-                        aria-label={`Claim the crew identity ${person.name}`}
-                        className="shrink-0 bg-transparent"
-                      >
-                        {claiming === person.id ? "Claiming…" : "This is me"}
-                      </Button>
+                      {person.claimed === true ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled
+                          aria-label={`Already joined — ${person.name} is linked to an account`}
+                          className="shrink-0 bg-transparent"
+                        >
+                          Already joined
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleClaim(person.id)}
+                          disabled={claiming !== null || following}
+                          aria-label={`Claim the crew identity ${person.name}`}
+                          className="shrink-0 bg-transparent"
+                        >
+                          {claiming === person.id ? "Claiming…" : "This is me"}
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>

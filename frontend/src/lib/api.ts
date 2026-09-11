@@ -265,6 +265,47 @@ export async function patchCrewMember(
   return doc;
 }
 
+export interface AddCrewMemberBody {
+  name: string;
+  role: Role;
+  note?: string;
+  contact?: string;
+}
+
+/** Add a placeholder crew member (editor+; granting `owner` is owner-only on
+ *  the server). Returns the canonical trip doc. */
+export async function addCrewMember(
+  tripId: string,
+  body: AddCrewMemberBody,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "POST",
+    `/api/trips/${encodeURIComponent(tripId)}/crew`,
+    accessToken,
+    body as unknown as JsonBody,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+/** Remove a crew member (owner-only on the server). A placeholder Person twin
+ *  is deleted with the edge; a claimed User twin survives — only the crew
+ *  entry on this trip goes. Returns the canonical trip doc. */
+export async function removeCrewMember(
+  tripId: string,
+  personId: string,
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "DELETE",
+    `/api/trips/${encodeURIComponent(tripId)}/crew/${encodeURIComponent(personId)}`,
+    accessToken,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
 export async function putTripBlock(
   tripId: string,
   blockId: string,
