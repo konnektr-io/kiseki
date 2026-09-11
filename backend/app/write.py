@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
 from .graph.convert import GraphNotFound, graph_to_trip
+from .sanitize import sanitize_custom_html
 from .models import (
     BlockKind,
     BlockStatus,
@@ -1686,6 +1687,10 @@ def create_block(trip_dtid: str, actor: dict, payload: BlockCreate) -> Trip:
     fields = dict(given)
     if "items" in payload.model_fields_set:
         fields["items"] = _validate_items(payload.kind, payload.items or [])
+    # `custom`-block HTML is sanitized once, at write (#196 phase B) — what is
+    # stored is clean for every reader (bulk `fill` funnels through here too).
+    if isinstance(fields.get("html"), str):
+        fields["html"] = sanitize_custom_html(fields["html"])
 
     container_id = payload.container.id
     block_ids = _container_blocks(graph, container_id)
@@ -1738,6 +1743,10 @@ def update_block(trip_dtid: str, actor: dict, block_id: str, payload: BlockField
     if "order" in given:
         raise WriteError(422, "'order' is managed by the server — use move/block-order")
     _validate_block_kind_fields(kind, set(given) | ({"items"} if "items" in payload.model_fields_set else set()))
+    given = {
+        k: (sanitize_custom_html(v) if k == "html" and isinstance(v, str) else v)
+        for k, v in given.items()
+    }
     ops = _scalar_ops(twin, [(k, v) for k, v in given.items()])
     if "items" in payload.model_fields_set:
         ops += [{
