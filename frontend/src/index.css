@@ -51,21 +51,25 @@
   --color-marker: var(--map-marker);
   --color-marker-fg: var(--map-marker-fg);
 
-  /* Radius scale — values are Tailwind's current defaults on purpose, so this
-     is a scale, not a restyle. A preset shifts it later (sharp → soft). */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  /* Radius scale — a preset shifts the whole ladder through --trip-radius-*
+     (one knob in the data, sharp editorial ↔ soft album). Fallbacks are
+     Tailwind's defaults, so an un-themed trip is byte-identical. */
+  --radius-sm: var(--trip-radius-sm, 0.25rem);
+  --radius-md: var(--trip-radius-md, 0.375rem);
+  --radius-lg: var(--trip-radius-lg, 0.5rem);
+  --radius-xl: var(--trip-radius-xl, 0.75rem);
 
   /* Elevation (DESIGN.md §2.4). --shadow-card matches Tailwind's `shadow-sm`
      exactly — adopting it changes nothing on screen or on paper. */
   --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-floating: 0 2px 12px rgb(0 0 0 / 0.12);
 
-  --font-sans: "Inter", var(--trip-font, ui-sans-serif, system-ui, sans-serif);
-  --font-heading: "Oswald", sans-serif;
-  --font-display: "Bebas Neue", sans-serif;
+  /* Type roles (#40): families change per preset, roles never do. The --trip-*
+     hooks carry full stacks ("Fraunces", Georgia, serif); --trip-font stays
+     as the legacy alias of the body role. */
+  --font-sans: var(--trip-font-body, var(--trip-font, "Inter", ui-sans-serif, system-ui, sans-serif));
+  --font-heading: var(--trip-font-heading, "Oswald", sans-serif);
+  --font-display: var(--trip-font-display, "Bebas Neue", sans-serif);
 }
 
 /* Map colours as real custom properties, declared on EVERY element rather than

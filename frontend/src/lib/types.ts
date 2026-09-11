@@ -188,10 +188,27 @@ export interface TripSummary {
   role?: Role;
 }
 
+export interface ThemeMapStyle {
+  basemap?: string;
+  styleUrl?: string;
+  route?: string;
+  routeCasing?: string;
+  marker?: string;
+  markerFg?: string;
+}
+
 export interface Theme {
+  preset?: string;
   primary?: string;
   accent?: string;
+  surface?: string;
+  /** Legacy body-font scalar — still honoured as the body role (see theme.tsx). */
   font?: string;
+  displayFont?: string;
+  headingFont?: string;
+  bodyFont?: string;
+  radius?: string;
+  mapStyle?: ThemeMapStyle;
 }
 
 export interface Practical {
