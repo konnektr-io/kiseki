@@ -60,7 +60,9 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/api/trips` | create an empty trip (M4) — body `{"title", "subtitle?"}`; the resolved actor becomes `owner` (act-as OK; act-as never provisions a User twin, #142). Then fill it in one go — `api_write.py fill <trip_id> --file plan.json` (plan shape in `api_write.py --help`) |
-| PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates + `coverStats`/`stats` (#178); `visibility` owner-only |
+| PUT | `/api/trips/{trip_id}` | scalars + stage + theme + dates + `coverStats`/`stats` (#178); `visibility` + `discoverable` owner-only (#196) |
+| POST | `/api/me/ensure` | ensure the caller's `User` twin exists without claiming anything (#196) — idempotent; bare agent M2M rejected; `ensured: false` when no email |
+| POST / DELETE | `/api/users/{sub}/follow` | follow / unfollow a person (#196) — one-directional, grants NO trip access; 400 self, 404 unknown |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
 | POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
@@ -189,7 +191,8 @@ and forwarded to the content agent as an identity envelope — the agent's
 own write-API calls act-as that sub, enforced downstream by the API ACL.
 
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
-/api/trips` (my trips) and `GET /api/auth/me` follow the RESOLVED identity —
+/api/trips` (my trips), `GET /api/auth/me` and `POST/DELETE /api/users/{sub}/follow`
+follow the RESOLVED identity —
 with act-as configured, the agent lists and identifies as the mapped user,
 never as `<client>@clients` (which holds no crew edges). `POST /api/claims`
 and `/api/claims/follow` PROVISION graph identity (User twin / hasCrew edge)
@@ -235,7 +238,9 @@ writeup; in short:
   Twins: `Trip` `Day` `Block` `Location` `Person` `User` (extends Person) `Feature` `TripSection`; inline value
   objects (`Link`, `Stat`, `Theme`, `TodoItem`, `BlockItem` …); enums `BlockKind`/`Stage`/
   `BlockStatus`/`Role`. Entities are linked by **relationship edges** (`hasDay`, `hasBlock`,
-  `atLocation`, `hasCrew`, `hasFeature`, `hasSection`), not nested documents.
+  `atLocation`, `hasCrew`, `hasFeature`, `hasSection`), not nested documents. `hasCrew`
+  carries `role` + `note` + `displayName` (#196, all trip-relative edge props);
+  person→person `follows` edges (`User`→`User`, #196) are social only.
 - **`$dtId` is an opaque GUID**, stored verbatim from each node's `id` field in
   `trip.json` (e.g. `bf29a027-…`). No type/slug/date prefix — all meaning lives
   in `$metadata.$model` + content. `token` and `slug` are editable Properties
@@ -453,8 +458,10 @@ import after first paint) or moving to self-hosted Umami are the levers.
 - Auth0 tenant `dev-zv5urb33g0msy7bc.eu.auth0.com`, app client `jbMyX3scNHkECOF1lNJTOovXe8fOBmiq` (SPA; Refresh Token Rotation on).
 - Backend identity layer (issue #5): `backend/app/auth.py` — stateless RS256 JWT validation against the tenant JWKS (PyJWT; keys cached, re-fetched on rotation). `GET /api/auth/me` returns `sub` (+ profile claims if the token carries them); `get_current_user` / `get_current_user_optional` FastAPI dependencies for future endpoints. Trip endpoints stay anonymous (public-by-link). `AUTH0_AUDIENCE` env optional — without a custom API, tokens are issued for the client itself (aud = client id); with a tenant API, set it and `VITE_AUTH0_AUDIENCE` to match.
 - ACL enforcement (issue #5, `app/acl.py`): `GET /api/trips/<dashed-uuid>` is PROTECTED — valid Auth0 token + crew role (`hasCrew` edge, viewer+). `GET /api/trips/<token>` stays public-by-link. One route branches on the param SHAPE (Starlette's `:uuid` converter accepts compact dashless UUIDs, indistinguishable from share tokens — do NOT reintroduce it). Role matches ONLY the User twin whose `$dtId` IS the auth `sub` — **never name/email** (self-asserted claims are not credentials). Until a user claims their identity (issue #6), protected routes are 403.
-- **Public vs private trips (#64)** — `visibility` on the Trip twin: `public` serves anonymously at `GET /api/trips/{id}`, `private` requires a crew `hasCrew` edge. Join links carry `claimToken` (copy of the trip's `claimToken`) to let a new user `follow` as `follower` or claim a `Person` placeholder. The graph is the only store; there is no `token` flag and no file fallback.
+- **Public vs private trips (#64)** — `visibility` on the Trip twin: `public` serves anonymously at `GET /api/trips/{id}`, `private` requires a crew `hasCrew` edge. `discoverable` (#196) is an ADDITIVE opt-in listing flag (default `False`, owner-only): a discoverable `private` trip may be listed on crew profiles / the follower feed but still requires follower+ to read. Join links carry `claimToken` (copy of the trip's `claimToken`) to let a new user `follow` as `follower` or claim a `Person` placeholder. The graph is the only store; there is no `token` flag and no file fallback.
 - Placeholder→real-user migration (#6, `app/claims.py`): a **claim token** (separate secret, sibling of `token`) authorizes claiming a crew identity. `GET /join/<claimToken>` shows the trip + crew; `POST /api/claims {claimToken, personId}` creates the User twin (`$dtId` = auth sub) + transfers the `hasCrew` edge (same role/index) + **deletes the placeholder**. No name/email matching — the user picks the person explicitly.
+  - The crew's OWN trip name rides the `hasCrew` edge as `displayName` (#196) — written on add-crew / the create-trip owner edge, carried through a claim, read back as `Person.name` (twin-name fallback for pre-#196 edges). A claim never renames the crew member.
+  - `POST /api/me/ensure` provisions nothing new on re-call: it PUTs the caller's `User` twin (own token, or M2M + request act-as; bare M2M 401s) so an account exists before any claim. Person→person `follows` edges (`POST/DELETE /api/users/{sub}/follow`) are social only — they grant no trip access.
   - **`claimToken` is NEVER included in trip documents** (any route) — it is only obtainable via the owner-only `GET /api/trips/{id}/join-link` (role `owner` required). The read link can never claim.
   - The protected id route reports the caller's `myRole`; the frontend shows an owner-only "Join link" button (copies the join URL).
 
