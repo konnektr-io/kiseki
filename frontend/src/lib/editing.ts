@@ -1,4 +1,4 @@
-import type { Block, Role, Stage, TodoItem, Trip } from "./types";
+import type { Block, Person, Role, Stage, TodoItem, Trip } from "./types";
 
 /**
  * Pure, immutable helpers for the #46 write UI (milestone C).
@@ -208,6 +208,21 @@ export function withCrewMember(
   });
   if (crew.every((p, i) => p === trip.crew[i])) return trip;
   return { ...trip, crew };
+}
+
+/** Optimistically append a crew member (the canonical doc replaces the
+ *  snapshot; the server assigns the real id). Returns the same reference
+ *  when a member with the same id already exists (helps memoization). */
+export function withAddedCrew(trip: Trip, member: Person): Trip {
+  if (trip.crew.some((p) => p.id === member.id)) return trip;
+  return { ...trip, crew: [...trip.crew, member] };
+}
+
+/** Optimistically drop a crew member. Returns the same reference when the
+ *  id is not on the crew (helps memoization). */
+export function withRemovedCrew(trip: Trip, personId: string): Trip {
+  if (!trip.crew.some((p) => p.id === personId)) return trip;
+  return { ...trip, crew: trip.crew.filter((p) => p.id !== personId) };
 }
 
 /** Block ids: Block carries `id` from the graph document. */

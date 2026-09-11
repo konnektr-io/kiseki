@@ -9,7 +9,14 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { TripAccessError, clearTripCache, fetchTrip, refetchTrip } from "./api";
+import {
+  TripAccessError,
+  addCrewMember,
+  clearTripCache,
+  fetchTrip,
+  refetchTrip,
+  removeCrewMember,
+} from "./api";
 
 const TRIP_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -110,5 +117,48 @@ describe("fetchTrip", () => {
       message: "You don't have access to this trip",
     });
     await expect(fetchTrip(TRIP_ID, "tok-123")).rejects.toBeInstanceOf(TripAccessError);
+  });
+});
+
+describe("crew writes (#198)", () => {
+  /** Stub fetch capturing method + url + body + bearer for write assertions. */
+  function stubWrite(doc: Record<string, unknown>) {
+    const sent: Array<{
+      method?: string;
+      url: string;
+      body?: string;
+      auth?: string;
+    }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }) => {
+        sent.push({ method: init?.method, url, body: init?.body, auth: init?.headers?.Authorization });
+        return { ok: true, json: async () => doc } as unknown as Response;
+      }),
+    );
+    return sent;
+  }
+
+  it("addCrewMember POSTs the body to /api/trips/<id>/crew with the bearer token", async () => {
+    const sent = stubWrite(crewDoc);
+    await addCrewMember(TRIP_ID, { name: "Stefan De Pauw", role: "editor", note: "gear" }, "tok-123");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].method).toBe("POST");
+    expect(sent[0].url).toBe(`/api/trips/${TRIP_ID}/crew`);
+    expect(sent[0].auth).toBe("Bearer tok-123");
+    expect(JSON.parse(sent[0].body ?? "{}")).toEqual({
+      name: "Stefan De Pauw",
+      role: "editor",
+      note: "gear",
+    });
+  });
+
+  it("removeCrewMember DELETEs /api/trips/<id>/crew/<personId> with the bearer token", async () => {
+    const sent = stubWrite(crewDoc);
+    await removeCrewMember(TRIP_ID, "person-1", "tok-123");
+    expect(sent).toHaveLength(1);
+    expect(sent[0].method).toBe("DELETE");
+    expect(sent[0].url).toBe(`/api/trips/${TRIP_ID}/crew/person-1`);
+    expect(sent[0].auth).toBe("Bearer tok-123");
   });
 });
