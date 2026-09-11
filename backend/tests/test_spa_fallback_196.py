@@ -12,6 +12,10 @@ the index shell.
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -22,9 +26,23 @@ client = TestClient(app)
 
 
 def _require_shell() -> None:
-    """Skip when the built SPA is absent (bare checkout, no frontend build)."""
-    if not (STATIC_DIR / "index.html").is_file():
-        pytest.skip("built SPA not present — build frontend/ or set KISEKI_STATIC_DIR")
+    """Refuse to run without the built SPA.
+
+    Locally a missing build is acceptable (skip — a bare checkout has no ``dist/``).
+    In CI it is a hard failure: the workflow must point ``KISEKI_STATIC_DIR`` at
+    ``frontend/dist``, otherwise the history-mode catch-all is never registered and
+    every test below silently proves nothing. That is exactly how the v0.29.0 deep-link
+    404 shipped with a green release run (453 passed, 2 skipped).
+    """
+    if (STATIC_DIR / "index.html").is_file():
+        return
+    msg = (
+        "built SPA not present — build frontend/ or set KISEKI_STATIC_DIR "
+        f"(STATIC_DIR={STATIC_DIR})"
+    )
+    if os.environ.get("CI"):
+        pytest.fail(f"{msg} — refusing to skip in CI: this test would prove nothing")
+    pytest.skip(msg)
 
 
 def _assert_shell(r) -> None:  # type: ignore[no-untyped-def]
@@ -60,3 +78,23 @@ def test_unknown_paths_must_not_be_masked_by_the_shell() -> None:
             continue
         assert r.status_code == 404, path
         assert r.headers["content-type"].startswith("application/json")
+
+
+def test_missing_shell_is_fatal_in_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The guard itself is under test: in CI a missing shell must FAIL, not skip.
+
+    Without this, the guard could rot back into a silent skip and nobody would
+    notice — which is the exact failure mode it exists to prevent.
+    """
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setattr(sys.modules[__name__], "STATIC_DIR", Path("/nonexistent-spa-dir"))
+    with pytest.raises(pytest.fail.Exception):
+        _require_shell()
+
+
+def test_missing_shell_still_skips_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off CI the same missing shell is a skip — a bare checkout stays runnable."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(sys.modules[__name__], "STATIC_DIR", Path("/nonexistent-spa-dir"))
+    with pytest.raises(pytest.skip.Exception):
+        _require_shell()
