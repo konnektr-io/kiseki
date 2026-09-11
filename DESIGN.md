@@ -261,7 +261,7 @@ serif headings) · `monsoon` (deep green/teal) · `nordic` (near-monochrome, hig
 `archive` (sepia, book-like serif, minimal map). Names are per-*mood*, not per-destination — a trip
 picks the mood that fits it.
 
-Keep presets as **data** so the agent can pick one when it creates a trip ("Japan in winter → tundra").
+Keep presets as **data** so the agent can pick one when it creates a trip ("Japan in winter → nordic").
 `Theme` in `models.py` + `types.ts` is `{ preset }` only — extend the preset list, never the shape —
 and regenerate DTDL.
 
