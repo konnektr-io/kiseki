@@ -1,6 +1,6 @@
 ---
 name: kiseki-trip-identity
-description: How each Kiseki trip gets its own look — the curated theme-preset system (palette, type pairing, map style, radius), safe per-trip color overrides with contrast validation, lazy per-trip font loading, and keeping that identity intact in the PDF booklet and printed album. Use when setting or changing a trip's theme in trip.json, extending the Theme model, adding presets or fonts, generating a look for a new trip, or working on the booklet/album output.
+description: How each Kiseki trip gets its own look — the curated theme-preset system (palette, type pairing, map style, radius), lazy per-preset font loading, and keeping that identity intact in the PDF booklet and printed album. Use when setting or changing a trip's theme, extending the Theme model, adding presets, generating a look for a new trip, or working on the booklet/album output.
 ---
 
 # Kiseki per-trip identity
@@ -10,89 +10,98 @@ Rationale: [`DESIGN.md`](../../../DESIGN.md) §6 and §12.
 Per-trip identity is the product differentiator and the thing that makes a printed album
 worth paying for. It is a **system**, not a color picker.
 
-## Current state
+## Current state — the preset id is the whole contract (#40)
 
-`theme: { primary, accent, font }` in `trip.json` → three `--trip-*` CSS variables via
-`tripStyle()` in `frontend/src/components/theme.tsx` → consumed by the `@theme inline`
-tokens in `index.css`. The three live trips only set `primary` and `accent`:
+`theme` carries exactly one field:
 
-| Trip | primary | accent |
-|---|---|---|
-| canada-2027 | `#1e3a8a` | `#0f766e` |
-| chile-peru-2027 | `#7f1d1d` | `#b45309` |
-| japan-campervan-2028 | `#334155` | `#b45309` |
+```jsonc
+"theme": { "preset": "alpine" }
+```
+
+| Trip | preset |
+|---|---|
+| canada-2027 | `alpine` |
+| chile-peru-2027 | `ember` |
+| japan-campervan-2028 | `nordic` |
+| urban-legends-neon-dreams | `nocturne` |
+
+**There are no per-trip color, font, radius or map overrides, and no way to add one.**
+#40 first shipped an override surface and then removed it, deliberately: two ways to theme
+a trip confuse the agent, and an agent-authored hex is the free-form picker this whole
+system exists to avoid. `Theme` in `backend/app/models.py` is `extra="forbid"` (mirrored by
+`frontend/src/lib/types.ts`), so sending a retired field — `primary`, `accent`, `surface`,
+`font`, `displayFont`, `headingFont`, `bodyFont`, `radius`, `mapStyle` — is a **422** on
+`PUT /api/trips/{id}`, never silently ignored. You pick a preset; you do not pick a color.
+
+Presets are the only theming surface, and they live as **data** in
+`frontend/src/lib/theme-presets.ts` (12 of them), not as code branches.
 
 Authoritative model: `backend/app/models.py` (Python) mirrored by
 `frontend/src/lib/types.ts`. Changing `Theme` means changing **both**, then regenerating
 DTDL (`uv run python scripts/gen_dtdl.py`) — see `AGENTS.md`.
 
+### Migrating a trip to a preset
+
+`PUT /api/trips/{id}` with `{"theme": {"preset": "…"}}` is a **full replace** of the theme
+block (`_theme_ops` in `backend/app/write.py`): it sets `preset` and emits a `remove` for
+every *other* key currently on the twin. That is not incidental — DTDL validation rejects
+the retired fields, so a half-migrated twin (new preset + leftover `primary`) is invalid.
+One PUT replaces the block, so there is never an intermediate state to validate.
+
+On the **read** path `graph_to_trip()` drops unknown theme keys before validation, so a
+not-yet-migrated twin still renders (at the default preset) instead of 500ing. Keep that
+asymmetry: strict writes, tolerant reads — the graph is the source of truth and lags the
+code.
+
 ## The core rule: curated presets, not free-form
 
 Free-form color and font pickers reliably produce ugly trips, and an ugly trip is an
-unsellable album. Ship **8–12 named presets**; a trip picks one and may override a value.
+unsellable album. The catalogue is **12 named presets**; a trip picks one, full stop.
 
-```jsonc
-"theme": {
-  "preset": "alpine",      // identity: palette + type pairing + map style + radius
-  "primary": "#1e3a8a",    // optional override — validated, see below
-  "accent":  "#0f766e"
-}
-```
-
-A preset defines:
+A preset defines the whole identity:
 
 | Field | Why it matters |
 |---|---|
 | `primary`, `accent` | The trip's voice (DESIGN.md §5.1 for role rules) |
-| `surface` | Paper tint. **This is what actually makes two albums feel different** — more than the accent does. |
+| `surface` | Paper tint. This is what actually makes two albums feel different — more than the accent does. |
 | `display` / `heading` / `body` | The three font roles. Families change; roles never do. |
 | `radius` | Sharp (editorial) ↔ soft (album) |
-| `mapStyle` | Basemap identity + `--color-route` + marker fill |
+| `mapStyle` | Basemap identity + `--color-route` + marker fill + terrain |
 
-Presets are named by **mood, not destination** — a trip picks the mood that fits it.
-Sketch of the range: `alpine` (cold blue, condensed sans, terrain basemap) · `desert`
-(ochre/clay, warm serif headings) · `monsoon` (deep green/teal) · `nordic` (near-monochrome,
-high whitespace, minimal basemap) · `archive` (sepia, book serif).
-
-Keep presets as **data**, not code branches — so the agent can pick one when it creates a
-trip ("Japan in winter → nordic") and a human can override it later without a deploy.
+Presets are named by **mood, not destination** — a trip picks the mood that fits it:
+`alpine` (cold blue, condensed sans, full relief) · `nordic` (near-monochrome, high
+whitespace, quiet map) · `desert` (ochre/clay, warm serif) · `monsoon` (deep green/teal) ·
+`archive` (sepia, book serif) · `coastal` · `highland` · `ember` (warm red over dark
+earth) · `tundra` · `sakura` · `savanna` · `nocturne` (violet night, vivid signal colours).
 
 ## Identity must reach the map
 
-A trip whose UI is ochre and whose map is Google-default-blue has no identity. The preset's
-`mapStyle` drives the basemap, `--color-route`, and the marker fill. This is a large part of
-why the app is moving to MapLibre — Google's basemap isn't ours to theme. See
-**`kiseki-map-ux`**.
+A trip whose UI is ochre and whose map is default-blue has no identity. The preset's
+`mapStyle` drives the basemap (a prebuilt OpenFreeMap style per preset), a runtime tint of
+the base layers, `--color-route`, the marker fill, and the terrain/relief treatment — see
+`frontend/src/lib/maps.ts` and `terrain.ts`, and **`kiseki-map-ux`**.
 
-`MapView.tsx` currently hardcodes `#1e3a8a` as the route color (Canada's primary in shared
-code), so today every trip already draws Canada-blue routes. Fixing that is step one of
-making identity real.
+The route and marker colors follow the preset palette; the older hardcoded
+`#1e3a8a` route color is gone. Stage markers are **derived** from which blocks reference a
+place (`locationStage` / `markerPinClass`), not stored on the `Location` — no model field.
 
-## Validating per-trip colors — do this in `tripStyle()`, once
+## Contrast is enforced by test, not at render time
 
-Any value from `trip.json` is untrusted input. Before it becomes a CSS variable:
-
-1. **Parse strictly** — `#rgb` / `#rrggbb` only. Anything else → fall back to the preset value.
-2. **Check contrast** of `primary` against `background`, and `primary-foreground` against
-   `primary` — in **both** light and dark palettes (≥4.5:1 body, ≥3:1 large text and borders).
-3. **On failure, auto-derive** rather than reject: nudge lightness in OKLCH until it passes.
-   The trip keeps its color, just a usable one. Rejecting silently gives the author a broken
-   trip with no feedback; deriving gives them a working one.
-
-Do it in one place. Scattering validation across components guarantees a component that
-skips it.
+Because a preset is the only source of color, contrast is a property of the catalogue
+rather than something the render path sanitises. Every preset's light **and** dark palette
+is pinned by a unit test asserting the WCAG floors (≥4.5:1 body, ≥3:1 large text and
+borders). Add a preset and the test covers it — that test is the gate, so never weaken it.
 
 ## Fonts
 
-Today three families × 8 weights are `@import`ed eagerly in `index.css` for every trip. That
-does not scale once each preset brings its own type.
+Each preset brings its own type pairing, so fonts load **lazily, keyed by preset**
+(`frontend/src/lib/fonts.ts` → `ensurePresetFonts`), with `font-display: swap` and the
+system stack as fallback.
 
 - Prefer **variable** fontsource packages (`@fontsource-variable/*`) — one file per family.
-- Load a preset's non-default fonts **lazily**, keyed by preset, with `font-display: swap`
-  and the current stack as fallback.
 - **Booklet gotcha:** the Playwright PDF renderer must `await document.fonts.ready` before
-  printing, or the PDF silently falls back to system type. If you add lazy fonts, add this
-  in the same PR — otherwise the booklet regresses and nobody notices until a customer sees it.
+  printing, or the PDF silently falls back to system type. Lazy fonts and that await ship
+  together — otherwise the booklet regresses and nobody notices until a customer sees it.
 
 ## Print & album coherence
 
@@ -108,13 +117,16 @@ The identity has to survive the page — that's the whole value proposition of t
 
 ## Adding a preset — checklist
 
-- [ ] Palette passes contrast in **both** light and dark (§ validation above).
-- [ ] Type pairing uses exactly the three roles; families are variable-font capable.
-- [ ] `mapStyle` defined: basemap tone, `--color-route` (+ casing), marker fill/foreground.
+- [ ] Palette passes contrast in **both** light and dark — the pinned test is the gate.
+- [ ] Type pairing uses exactly the three roles; families are variable-font capable and
+      wired into the lazy per-preset loader.
+- [ ] `mapStyle` defined: basemap tone, `--color-route` (+ casing), marker fill/foreground,
+      terrain treatment.
 - [ ] Semantic status colors (`destructive`/`success`/`warning`) are **unchanged** — those
       are never per-trip.
 - [ ] Rendered as a booklet PDF and eyeballed at A4.
-- [ ] Added to `models.py` + `types.ts` together; DTDL regenerated.
+- [ ] Added to `theme-presets.ts` **and** to the `preset` description in `models.py` if the
+      catalogue size changes; DTDL regenerated.
 - [ ] Checked against a photo-heavy trip *and* a text-heavy one — presets that only work
       with great photography aren't presets.
 

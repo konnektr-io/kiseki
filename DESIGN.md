@@ -232,8 +232,10 @@ The differentiator, and the thing that makes a sellable album. Take it seriously
 
 ### 6.1 NOW
 
-`theme: { primary, accent, font }` → three CSS variables in
-[`theme.tsx`](frontend/src/components/theme.tsx). The three real trips only set `primary`/`accent`.
+`theme: { preset }` → CSS variables in
+[`theme.tsx`](frontend/src/components/theme.tsx), resolved from the preset only.
+The three real trips set only `preset` (canada-2027 `alpine`, chile-peru-2027
+`ember`, japan-campervan-2028 `tundra`).
 
 ### 6.2 The core rule: **curated presets, not free-form**
 
@@ -242,11 +244,14 @@ album. Ship **8–12 named presets**, each a tested bundle:
 
 ```jsonc
 "theme": {
-  "preset": "alpine",        // the identity — palette + type pairing + map style + radius
-  "primary": "#1e3a8a",      // optional per-trip override, validated (§6.4)
-  "accent":  "#0f766e"
+  "preset": "alpine"   // the identity — palette + type pairing + map style + radius
 }
 ```
+
+The preset id is the ONLY theming surface: no per-trip colour, font, radius or
+map overrides exist. Retired override fields were removed from the model and are
+rejected by the API with a 422; a document that still carries them is read as its
+preset only.
 
 A preset defines: `primary`, `accent`, `surface` (paper tint — this is what actually makes two
 albums feel different), the three font roles, `radius`, and `mapStyle` (§8.4).
@@ -256,8 +261,9 @@ serif headings) · `monsoon` (deep green/teal) · `nordic` (near-monochrome, hig
 `archive` (sepia, book-like serif, minimal map). Names are per-*mood*, not per-destination — a trip
 picks the mood that fits it.
 
-Keep presets as **data** so the agent can pick one when it creates a trip ("Japan in winter → nordic")
-and a human can override. Extend `Theme` in `models.py` + `types.ts` together, and regenerate DTDL.
+Keep presets as **data** so the agent can pick one when it creates a trip ("Japan in winter → nordic").
+`Theme` in `models.py` + `types.ts` is `{ preset }` only — extend the preset list, never the shape —
+and regenerate DTDL.
 
 ### 6.3 Identity must reach the map
 
@@ -265,17 +271,17 @@ A trip whose UI is ochre and whose map is Google-default-blue has no identity. T
 `mapStyle` sets the basemap, route colour, and marker fill. This is a large part of why we're moving
 to MapLibre (§8) — Google's basemap isn't ours to theme.
 
-### 6.4 Validating trip colours
+### 6.4 Guaranteeing preset contrast
 
-Any theme value that reaches the UI is untrusted. Before applying:
+There are no per-trip values to sanitise — the preset IS the theme. The guarantee
+moved from runtime override validation to the preset set itself:
 
-1. Parse strictly (`#rgb`/`#rrggbb` only). Reject anything else → fall back to the preset value.
-2. Check contrast of `primary` against `background` and of `primary-foreground` against `primary`,
-   in **both** light and dark palettes.
-3. If a check fails, **auto-derive** a compliant variant (nudge lightness in OKLCH) rather than
-   rejecting — the trip still gets its colour, just a usable one.
-
-Do this in one place (`tripStyle()`), not per component.
+1. All 12 presets pin contrast in CI (`theme-presets.test.ts`): `primary` vs
+   `background` ≥ 4.5, `foreground` vs `background` ≥ 4.5, `foreground-on-primary`
+   ≥ 4.5 and `accent` vs `background` ≥ 3, in **both** light and dark palettes —
+   a bad preset fails the build instead of shipping a bad trip.
+2. `tripStyle()` still applies `ensureContrast()` to the preset's own colours as a
+   defensive no-op, in one place, not per component.
 
 ---
 

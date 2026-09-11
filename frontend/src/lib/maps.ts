@@ -1,4 +1,5 @@
 import type { Trip, TripLocation } from "./types";
+import { presetById, type PresetBasemap, type PresetMapStyle } from "./theme-presets";
 
 /**
  * The basemap style (#18 decision 2).
@@ -11,10 +12,133 @@ import type { Trip, TripLocation } from "./types";
  * It is community-funded infrastructure with no SLA. Swapping it is deliberately
  * a one-line change: point VITE_MAP_STYLE_URL at a self-hosted PMTiles style on
  * Garage (or a hosted vendor) and nothing else in the app moves. Per-trip map
- * styling is #40 and belongs here too.
+ * styling is #40 and lives in resolveMapStyle() below.
  */
 export const MAP_STYLE_URL =
   import.meta.env.VITE_MAP_STYLE_URL ?? "https://tiles.openfreemap.org/styles/positron";
+
+/**
+ * Prebuilt OpenFreeMap styles a preset may name (#40 D2).
+ *
+ * Verified live 2026-09-11 against https://tiles.openfreemap.org/styles/:
+ * positron, bright, liberty, dark and fiord all return 200 with the same
+ * OpenMapTiles schema (source-layers include water/landcover/park/boundary,
+ * which is what the runtime tint below keys on). The issue text warned that
+ * swapping MAP_STYLE_URL at a different URL cannot work — right, because only
+ * this fixed set exists; `basemap` density (positron minimal ↔ liberty dense)
+ * is the per-trip knob, and anything beyond it is a full custom style JSON
+ * via `styleUrl`.
+ */
+export const OPENFREEMAP_STYLES: Record<PresetBasemap, string> = {
+  positron: "https://tiles.openfreemap.org/styles/positron",
+  bright: "https://tiles.openfreemap.org/styles/bright",
+  liberty: "https://tiles.openfreemap.org/styles/liberty",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+function isBasemapKey(value: unknown): value is PresetBasemap {
+  return typeof value === "string" && value in OPENFREEMAP_STYLES;
+}
+
+export interface ResolvedMapStyle {
+  /** The style JSON URL to construct the map with. */
+  styleUrl: string;
+  /** Runtime tint of the base layers, applied after style load. */
+  tint: PresetMapStyle["tint"];
+  /** Terrain voice for lib/terrain.ts. */
+  terrain: PresetMapStyle["terrain"];
+}
+
+/**
+ * Which map a trip gets (#40, preset-only follow-up). Precedence, highest first:
+ *
+ * 1. `VITE_MAP_STYLE_URL` (deploy-level escape hatch — today's behaviour),
+ * 2. the preset's own `styleUrl`,
+ * 3. the preset's `basemap` → `OPENFREEMAP_STYLES`.
+ *
+ * Tint and terrain always come from the preset: an un-themed trip resolves to
+ * exactly MAP_STYLE_URL with the default terrain, i.e. today's map. A legacy
+ * `theme.mapStyle` lingering in a trip document has no effect.
+ */
+export function resolveMapStyle(trip: Trip): ResolvedMapStyle {
+  const preset = presetById(trip.theme?.preset);
+  const envUrl =
+    typeof import.meta.env.VITE_MAP_STYLE_URL === "string" && import.meta.env.VITE_MAP_STYLE_URL !== ""
+      ? import.meta.env.VITE_MAP_STYLE_URL
+      : undefined;
+  const basemap = isBasemapKey(preset.mapStyle.basemap) ? preset.mapStyle.basemap : "positron";
+  return {
+    styleUrl: envUrl ?? preset.mapStyle.styleUrl ?? OPENFREEMAP_STYLES[basemap],
+    tint: preset.mapStyle.tint,
+    terrain: preset.mapStyle.terrain,
+  };
+}
+
+/** The style layers applyBasemapTint() may repaint — structural, so tests use fakes. */
+export interface TintableStyleLayer {
+  id: string;
+  type: string;
+  source?: string;
+  "source-layer"?: string;
+}
+
+export interface TintableMap {
+  getStyle(): { layers?: TintableStyleLayer[] };
+  setPaintProperty(layerId: string, name: string, value: unknown): void;
+}
+
+/**
+ * Runtime tint of the loaded basemap from the preset (#40 D2).
+ *
+ * This is what makes `nordic` near-monochrome and `archive` sepia WITHOUT
+ * authoring our own style JSON and without hosting glyphs/sprites: the
+ * prebuilt style's own colour layers are repainted from preset tokens.
+ *
+ * Guardrails: only colour layers (background fills, water/landcover/park
+ * fills, boundary lines) — label/glyph (`symbol`) layers are never touched,
+ * an absent layer is a no-op, and a layer that rejects the paint property is
+ * skipped, never thrown. Route/marker colours are NOT set here; they arrive
+ * via the --trip-route/--trip-marker tokens (tokens.ts).
+ */
+export function applyBasemapTint(map: TintableMap, tint: PresetMapStyle["tint"]): void {
+  if (!tint) return;
+  let layers: TintableStyleLayer[];
+  try {
+    layers = map.getStyle().layers ?? [];
+  } catch {
+    return;
+  }
+  const paint = (layerId: string, name: string, value: string) => {
+    try {
+      map.setPaintProperty(layerId, name, value);
+    } catch {
+      // A layer that rejects the property (type mismatch on a style we did
+      // not author) keeps its own colour — tint is atmosphere, not content.
+    }
+  };
+  for (const layer of layers) {
+    if (layer.type === "symbol") continue; // labels and glyphs are untouchable
+    try {
+      if (layer.type === "background" && tint.background) {
+        paint(layer.id, "background-color", tint.background);
+      } else if (layer.type === "fill") {
+        const sourceLayer = layer["source-layer"] ?? "";
+        if (sourceLayer === "water" && tint.water) paint(layer.id, "fill-color", tint.water);
+        else if (sourceLayer === "landcover" && tint.landcover)
+          paint(layer.id, "fill-color", tint.landcover);
+        else if (sourceLayer === "park" && tint.park) paint(layer.id, "fill-color", tint.park);
+      } else if (
+        layer.type === "line" &&
+        (layer["source-layer"] ?? "") === "boundary" &&
+        tint.boundary
+      ) {
+        paint(layer.id, "line-color", tint.boundary);
+      }
+    } catch {
+      continue;
+    }
+  }
+}
 
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {
@@ -51,6 +175,69 @@ export function locatedPlaces(trip: Trip): TripLocation[] {
  */
 export function markerNumber(trip: Trip, loc: TripLocation): number {
   return loc.marker ?? (trip.locations ?? []).indexOf(loc) + 1;
+}
+
+/**
+ * A location's stage, derived from the blocks that reference it — never
+ * modelled (no `stage` on Location, no fourth place a stage can be set, #40
+ * D6). Day blocks and section-level (unscheduled pool) blocks both speak;
+ * a block references a location through `location`/`from`/`to`, matched by
+ * name/alias exactly like the map does.
+ *
+ * Rule (mirrors `legStage` in route-surface.ts): a `booked`/`done` block
+ * commits the place; an explicit `planned` softens it; a block with no
+ * status says nothing (an idea trip's undescribed blocks are not a plan).
+ * With no speaking block the trip stage answers — an idea trip's places
+ * really are provisional, and a booked trip's are booked.
+ */
+export function locationStage(trip: Trip, loc: TripLocation): Trip["stage"] {
+  const names = new Set([loc.name.toLowerCase(), ...(loc.alias ?? []).map((a) => a.toLowerCase())]);
+  const refers = (value: string | undefined): boolean => {
+    if (!value) return false;
+    const target = findLocation(trip, value);
+    return !!target && names.has(target.name.toLowerCase());
+  };
+  let planned = false;
+  const blocks = [
+    ...(trip.days ?? []).flatMap((d) => d.blocks ?? []),
+    ...(trip.sections ?? []).flatMap((s) => s.blocks ?? []),
+  ];
+  for (const b of blocks) {
+    if (!refers(b.location) && !refers(b.from) && !refers(b.to)) continue;
+    if (b.status === "booked" || b.status === "done") return "booked";
+    if (b.status === "planned") planned = true;
+  }
+  if (planned) return "planned";
+  return trip.stage;
+}
+
+/**
+ * The numbered pin's visual spec as a class map (DESIGN.md §8.3) —
+ * outline/dashed while provisional, solid muted when planned, filled accent
+ * once booked, primary while live, desaturated in the archive. Provisional
+ * plans must LOOK provisional.
+ *
+ * One `<span>` of Tailwind classes, shared by MapView and RouteMap; the
+ * booklet prints through MapView (#37), so print follows for free. Colours
+ * stay utilities off tokens — no colour is written in JS. Booked/live keep
+ * the long-standing filled pin byte-identical, so staged trips do not shift.
+ */
+export function markerPinClass(trip: Trip, loc: TripLocation): string {
+  const base =
+    "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card";
+  switch (locationStage(trip, loc)) {
+    case "idea":
+    case "options":
+    case "shortlist":
+      return `${base} border-2 border-dashed border-marker bg-surface text-marker`;
+    case "planned":
+      return `${base} border border-marker-fg/60 bg-marker/70 text-marker-fg`;
+    case "booked":
+    case "live":
+      return `${base} border border-marker-fg bg-marker text-marker-fg`;
+    case "archive":
+      return `${base} border border-border bg-muted text-muted-foreground`;
+  }
 }
 
 /**

@@ -188,10 +188,11 @@ export interface TripSummary {
   role?: Role;
 }
 
+/** Trip theming — the preset id is the whole contract (#40 follow-up).
+ *  Retired per-trip override fields are not modelled; a document that still
+ *  carries them is read as its preset only (see theme.tsx). */
 export interface Theme {
-  primary?: string;
-  accent?: string;
-  font?: string;
+  preset?: string | null;
 }
 
 export interface Practical {

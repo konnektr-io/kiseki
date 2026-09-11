@@ -295,11 +295,18 @@ Practical.model_rebuild()  # resolve the forward ref to TricountConfig (defined 
 
 
 class Theme(BaseModel):
-    """UI theming — hex colors + font. The UI consumes CSS variables, never raw hex."""
+    """UI theming — the preset id is the whole contract (#40 follow-up).
 
-    primary: Optional[str] = Field(default=None, description="Primary hex color.")
-    accent: Optional[str] = Field(default=None, description="Accent hex color.")
-    font: Optional[str] = Field(default=None, description="Font family key (bundled via @fontsource).")
+    ``preset`` names one of the 12 curated presets in
+    ``frontend/src/lib/theme-presets.ts`` (palette + type pairing + map style
+    + radius). There are no per-trip overrides: retired scalar fields
+    (primary/accent/surface/font/…/radius/mapStyle) were removed, and this
+    model is strict (``extra="forbid"``), so a write that still sends one is
+    rejected with 422 rather than silently ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    preset: Optional[str] = Field(default=None, description="Preset id, e.g. 'alpine' — palette + fonts + map style + radius. The ONLY theming surface.")
 
 
 class User(Person):
@@ -331,7 +338,7 @@ class Trip(BaseModel):
     coverCredit: Optional[str] = Field(default=None, description="Cover image credit line.")
     map: Optional[str] = Field(default=None, description="Overview route-map image — bare media filename, served at /media/<trip_id>/<file>.")
     summary: Optional[str] = Field(default=None, description="Trip summary (markdown).")
-    theme: Theme = Field(default_factory=Theme, description="UI theme (colors + font).")
+    theme: Theme = Field(default_factory=Theme, description="UI theme — preset id only (#40 follow-up).")
     coverStats: list[str] = Field(default_factory=list, description="Cover strip lines, e.g. '16 DAYS · FEB 15 – MAR 2'.")
     locations: list[Location] = Field(default_factory=list, description="Places: drive loop markers + future map generation (atLocation edges).")
     stats: list[Stat] = Field(default_factory=list, description="'At a glance' stat rows.")

@@ -3,13 +3,15 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useTrip } from "./theme";
 import {
+  applyBasemapTint,
   CHROME_PADDING,
-  MAP_STYLE_URL,
   fetchRouteLegs,
   findLocation,
   hasWebGL2,
   locatedPlaces,
   markerNumber,
+  markerPinClass,
+  resolveMapStyle,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { legModes } from "../lib/route-surface";
@@ -111,6 +113,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // here is how every trip ended up drawing Canada-blue routes.
         const colors = mapColors(ref.current);
 
+        // The preset's map voice (#40): basemap density + tint + terrain.
+        // Un-themed trips resolve to exactly MAP_STYLE_URL + default terrain.
+        const mapStyle = resolveMapStyle(trip);
+
         // Single-pin thumbnail (hotel/restaurant card) — centered, zoom 13 like
         // the old Static Maps single-place proxy; multi-pin uses fitBounds.
         const single = located.length === 1;
@@ -119,7 +125,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
         const mapOpts: ConstructorParameters<typeof lib.Map>[0] = {
           container: ref.current,
-          style: MAP_STYLE_URL,
+          style: mapStyle.styleUrl,
           attributionControl: { compact: true },
         };
         if (single) {
@@ -173,8 +179,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           el.setAttribute("aria-hidden", "true");
           el.title = l.name;
           const pin = document.createElement("span");
-          pin.className =
-            "grid h-7 w-7 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg shadow-card";
+          // Stage-aware pin (DESIGN.md §8.3): one class map in lib/maps.ts, so
+          // the card maps, the surface and the booklet (#37, same component)
+          // cannot drift apart. No colour is written in JS.
+          pin.className = markerPinClass(trip, l);
           pin.textContent = String(n);
           el.appendChild(pin);
           new lib.Marker({ element: el }).setLngLat([l.lng!, l.lat!]).addTo(map!);
@@ -187,11 +195,14 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         });
         if (cancelled || !map) return;
 
+        // Preset tint of the base layers (#40 D2) — repaint, never re-author.
+        applyBasemapTint(map, mapStyle.tint);
+
         // Elevation first, so the route and markers added below land ON TOP of
         // the hillshade rather than under it (#38). Deliberately not awaited
         // for the route's sake — a slow DEM must not hold up the line the map
         // exists to draw.
-        void addTerrain(map, lib);
+        void addTerrain(map, lib, mapStyle.terrain);
 
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
         let legs: Awaited<ReturnType<typeof fetchRouteLegs>> = null;

@@ -834,21 +834,13 @@
           "@type": "Object",
           "fields": [
             {
-              "name": "primary",
-              "schema": "string"
-            },
-            {
-              "name": "accent",
-              "schema": "string"
-            },
-            {
-              "name": "font",
+              "name": "preset",
               "schema": "string"
             }
           ]
         },
         "writable": true,
-        "description": "UI theme (colors + font)."
+        "description": "UI theme — preset id only (#40 follow-up)."
       },
       {
         "@type": "Property",
