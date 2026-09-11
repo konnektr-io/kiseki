@@ -106,6 +106,7 @@ REL_PROPERTIES = {
     "hasCrew": [
         {"@type": "Property", "name": "role", "schema": "string", "writable": True, "description": "Trip-relative role of the crew member (e.g. owner | planner | guest). Carried on the edge, not on the person."},
         {"@type": "Property", "name": "note", "schema": "string", "writable": True, "description": "Trip-relative note about the crew member on this trip (e.g. gear). Carried on the edge, not on the person — the Person/User node is shared across trips after claim."},
+        {"@type": "Property", "name": "displayName", "schema": "string", "writable": True, "description": "The crew's OWN display name for this trip (#196). Carried on the edge, not on the person — a claim swaps the twin to the account's User but never renames the crew member."},
     ],
 }
 
@@ -116,6 +117,16 @@ REL_PROPERTIES = {
 EXTRA_RELATIONSHIPS = {
     "Block": [("atLocation", "Location")],
     "TripSection": [("hasDay", "Day"), ("atLocation", "Location")],
+    # Person->person social edge (#196): one-directional follow, no approval,
+    # no reciprocity. Written by the follow API, never by the trip converter.
+    "User": [("follows", "User")],
+}
+
+# Per-relationship description overrides for EXTRA_RELATIONSHIPS (the generic
+# builder text says "synthesized by the converter" — wrong for edges the API
+# writes directly, like a person->person follow).
+EXTRA_REL_DESCRIPTIONS = {
+    ("User", "follows"): "Social follow (#196): this User follows another User. One-directional, no approval, no reciprocity — and it grants NO trip access (visibility still gates every read).",
 }
 
 # P2+ models that are not yet in app/models.py but belong in the graph design
@@ -289,7 +300,10 @@ def build_interface(model_cls) -> dict:
             "@type": "Relationship",
             "name": rel_name,
             "target": mid(target),
-            "description": f"Synthesized by the converter (not a model field) — links this {model_cls.__name__} to its {target} twin(s).",
+            "description": EXTRA_REL_DESCRIPTIONS.get(
+                (model_cls.__name__, rel_name),
+                f"Synthesized by the converter (not a model field) — links this {model_cls.__name__} to its {target} twin(s).",
+            ),
         })
     iface: dict = {
         "@context": "dtmi:dtdl:context;4",

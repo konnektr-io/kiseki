@@ -118,10 +118,14 @@ def claim_identity(
     # so claiming never drops it.
     note = edge.get("note")
     note = note if isinstance(note, str) else None
+    # The crew's OWN name rides the edge too (#196) — carry it over so a
+    # claim never renames the crew member to the account's name.
+    display_name = edge.get("displayName")
+    display_name = display_name if isinstance(display_name, str) and display_name else None
 
     if not client.create_user_twin(user_dtid, profile):
         raise ClaimError(503, "Could not create your user identity")
-    if not client.claim_crew_person(trip_dtid, user_dtid, person_id, role, index, note):
+    if not client.claim_crew_person(trip_dtid, user_dtid, person_id, role, index, note, display_name):
         raise ClaimError(503, "Could not transfer your crew role")
 
     rebuilt = client.fetch_graph(trip_dtid)

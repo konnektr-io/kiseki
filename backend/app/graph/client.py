@@ -169,18 +169,20 @@ RETURN collect(DISTINCT n) AS nodes
 
 # All relationships whose source is in the trip's component. AGE rejects a `$`
 # map key (even quoted), so we collect each edge as a plain LIST
-# [sourceId, relationshipName, targetId, relationshipId, role, index, note] and
-# map it to the ADT relationship shape in Python. `type(r)` is the edge name;
-# the edge's own `$relationshipId` property is included because it is the
-# server's handle for get/delete-by-id (ADT scopes relationship ids per source
-# twin) — without it the fetched bundle cannot drive relationship writes
-# (issue #89: every relationship read back as id-less).
+# [sourceId, relationshipName, targetId, relationshipId, role, index, note,
+#  displayName] and map it to the ADT relationship shape in Python. `type(r)`
+# is the edge name; the edge's own `$relationshipId` property is included
+# because it is the server's handle for get/delete-by-id (ADT scopes
+# relationship ids per source twin) — without it the fetched bundle cannot
+# drive relationship writes (issue #89: every relationship read back as
+# id-less). `displayName` (#196) is the crew's own trip-relative name on
+# hasCrew edges; shorter rows (pre-#196 edges) simply omit it.
 _Q_RELS = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
 MATCH (trip)-[*0..{max_hops}]->(a:Twin)
 MATCH (a)-[r]->(b:Twin)
-RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.role, r.index, r.note]) AS rels
+RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.role, r.index, r.note, r.displayName]) AS rels
 """.format(max_hops=MAX_HOPS)
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
@@ -204,6 +206,22 @@ MATCH (trip:Twin)-[crew:hasCrew]->(u:Twin)
 WHERE trip.`$dtId` = $dtid AND u.`$dtId` = $uid
 RETURN crew.role AS role
 LIMIT 1
+"""
+
+# Person->person social graph (issue #196). Single-hop, user-scoped, one
+# round-trip each — never a node-by-node walk, never a full-store scan.
+# Returns plain id LISTS (AGE rejects `$`-prefixed map keys, so no maps).
+# `$uid` is a bound parameter.
+_Q_FOLLOWERS_OF = """
+MATCH (f:Twin)-[r:follows]->(u:Twin)
+WHERE u.`$dtId` = $uid
+RETURN collect(DISTINCT f.`$dtId`) AS followers
+"""
+
+_Q_FOLLOWING_OF = """
+MATCH (u:Twin)-[r:follows]->(t:Twin)
+WHERE u.`$dtId` = $uid
+RETURN collect(DISTINCT t.`$dtId`) AS following
 """
 
 
@@ -429,13 +447,17 @@ class GraphReadClient:
         role: str,
         index: int,
         note: Optional[str] = None,
+        display_name: Optional[str] = None,
     ) -> bool:
         """Transfer a trip's ``hasCrew`` edge from a placeholder Person to the
         User twin, then retire the placeholder (issue #6).
 
-        Upserts the trip->User edge (same ``role`` + ``index`` + ``note`` as the
-        placeholder's), deletes the old trip->Person edge, and deletes the
-        placeholder node itself — the placeholder is gone once claimed.
+        Upserts the trip->User edge (same ``role`` + ``index`` + ``note`` +
+        ``displayName`` as the placeholder's), deletes the old trip->Person
+        edge, and deletes the placeholder node itself — the placeholder is
+        gone once claimed. ``displayName`` (#196) is the crew's OWN name for
+        this trip: carried over so a claim never renames the crew member to
+        the account's name.
         """
         if not (self.is_enabled() and _DTID_RE.match(trip_dtid or "")
                 and _USER_RE.match(user_dtid or "") and _DTID_RE.match(person_dtid or "")):
@@ -443,6 +465,8 @@ class GraphReadClient:
         if role not in {"owner", "editor", "viewer", "follower"} or not isinstance(index, int):
             return False
         if note is not None and not isinstance(note, str):
+            return False
+        if display_name is not None and not isinstance(display_name, str):
             return False
         try:
             from konnektr_graph import BasicRelationship
@@ -458,6 +482,8 @@ class GraphReadClient:
             }
             if note is not None:
                 props["note"] = note
+            if display_name:
+                props["displayName"] = display_name
             rel = BasicRelationship.from_dict(props)
             self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
             self._client.delete_relationship(  # type: ignore[union-attr]
@@ -508,16 +534,20 @@ class GraphReadClient:
             from konnektr_graph import BasicRelationship
 
             rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
-            rel = BasicRelationship.from_dict(
-                {
-                    "$relationshipId": rel_id,
-                    "$sourceId": trip_dtid,
-                    "$relationshipName": "hasCrew",
-                    "$targetId": user_dtid,
-                    "role": "follower",
-                    "index": index,
-                }
-            )
+            follower_name = (profile.get("name") or "").strip() or (profile.get("email") or "").split("@")[0].strip()
+            rel_props: dict[str, Any] = {
+                "$relationshipId": rel_id,
+                "$sourceId": trip_dtid,
+                "$relationshipName": "hasCrew",
+                "$targetId": user_dtid,
+                "role": "follower",
+                "index": index,
+            }
+            if follower_name:
+                # The follower's own name for this trip rides the edge (#196),
+                # like every other hasCrew edge.
+                rel_props["displayName"] = follower_name
+            rel = BasicRelationship.from_dict(rel_props)
             self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
             # The miss memoized by the double-follow check above, plus this
             # trip's document and the user's trip list, are all stale now.
@@ -527,16 +557,127 @@ class GraphReadClient:
             print(f"[kiseki] graph follow({trip_dtid},{user_dtid}) failed: {exc}")
             return False
 
+    # ------------------------------------------------------- follows (#196)
+    # Person->person social graph: one-directional, no approval, no
+    # reciprocity. Following a person grants NO trip access — visibility still
+    # gates every trip read (phase B asserts this; the edge is social only).
+
+    def follow_user(self, actor_dtid: str, target_dtid: str) -> bool:
+        """Upsert the ``follows`` relationship ``{actor} → {target}`` (#196).
+
+        ADT-shaped body (only ``$relationshipId`` / ``$sourceId`` /
+        ``$relationshipName`` / ``$targetId`` — no ``$metadata``). Idempotent:
+        following twice upserts the same edge id, not an error. Self-follow
+        and an unknown target twin are refused (False).
+        """
+        if not (self.is_enabled() and _USER_RE.match(actor_dtid or "")
+                and _USER_RE.match(target_dtid or "")):
+            return False
+        if actor_dtid == target_dtid:
+            return False  # no self-follow
+        if not self.user_twin_exists(target_dtid):
+            return False  # unknown target — the route maps this to 404
+        try:
+            from konnektr_graph import BasicRelationship
+
+            rel_id = f"{actor_dtid}__follows__{target_dtid}"
+            rel = BasicRelationship.from_dict(
+                {
+                    "$relationshipId": rel_id,
+                    "$sourceId": actor_dtid,
+                    "$relationshipName": "follows",
+                    "$targetId": target_dtid,
+                }
+            )
+            self._client.upsert_relationship(actor_dtid, rel_id, rel)  # type: ignore[union-attr]
+            return True
+        except Exception as exc:
+            print(f"[kiseki] graph follow_user({actor_dtid},{target_dtid}) failed: {exc}")
+            return False
+
+    def unfollow_user(self, actor_dtid: str, target_dtid: str) -> bool:
+        """Delete the ``follows`` relationship ``{actor} → {target}`` (#196).
+
+        Idempotent: unfollowing someone not followed is a no-op (True), not
+        an error.
+        """
+        if not (self.is_enabled() and _USER_RE.match(actor_dtid or "")
+                and _USER_RE.match(target_dtid or "")):
+            return False
+        try:
+            rel_id = f"{actor_dtid}__follows__{target_dtid}"
+            self._client.delete_relationship(actor_dtid, rel_id)  # type: ignore[union-attr]
+            return True
+        except Exception as exc:
+            # Deleting a missing edge is the idempotent no-op, not a failure.
+            if getattr(exc, "status_code", None) == 404:
+                return True
+            try:
+                from konnektr_graph import ResourceNotFoundError
+
+                if isinstance(exc, ResourceNotFoundError):
+                    return True
+            except Exception:
+                pass
+            print(f"[kiseki] graph unfollow_user({actor_dtid},{target_dtid}) failed: {exc}")
+            return False
+
+    def followers_of(self, user_dtid: str) -> list[str]:
+        """``$dtId``s of every user following ``user_dtid`` (#196).
+
+        Single scoped Cypher query (one hop, ``$uid`` bound server-side) —
+        never an ADT ``SELECT *`` and never a node-by-node walk.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FOLLOWERS_OF, query_parameters={"uid": user_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph followers_of({user_dtid}) failed: {exc}")
+            return []
+        if not rows:
+            return []
+        raw = (rows[0] or {}).get("followers") or []
+        return [u for u in raw if isinstance(u, str) and u]
+
+    def following_of(self, user_dtid: str) -> list[str]:
+        """``$dtId``s of every user ``user_dtid`` follows (#196).
+
+        Single scoped Cypher query (one hop, ``$uid`` bound server-side) —
+        never an ADT ``SELECT *`` and never a node-by-node walk.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FOLLOWING_OF, query_parameters={"uid": user_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph following_of({user_dtid}) failed: {exc}")
+            return []
+        if not rows:
+            return []
+        raw = (rows[0] or {}).get("following") or []
+        return [u for u in raw if isinstance(u, str) and u]
+
 
     @staticmethod
     def _rel_from_list(r: Any) -> dict:
-        """Map a [src, name, tgt, relId, role, index, note] row into an ADT relationship.
+        """Map a [src, name, tgt, relId, role, index, note, displayName] row into
+        an ADT relationship.
 
         ``_Q_RELS`` returns each edge as a plain list (AGE rejects `$`-prefixed
         map keys), so we assemble the canonical ``$sourceId`` /
         ``$relationshipName`` / ``$targetId`` / ``$relationshipId`` keys plus any
-        edge properties (``role`` / ``index`` / ``note``) here. Shorter rows
-        (pre-id or pre-note edges) simply omit the missing properties.
+        edge properties (``role`` / ``index`` / ``note`` / ``displayName``) here.
+        Shorter rows (pre-id, pre-note or pre-#196 edges) simply omit the
+        missing properties.
         """
         if not isinstance(r, (list, tuple)):
             return dict(r) if isinstance(r, dict) else {}
@@ -549,7 +690,7 @@ class GraphReadClient:
         if rel_id is not None:
             out["$relationshipId"] = rel_id
         # edge properties ride in positions 4..n
-        for k, v in zip(("role", "index", "note"), r[4:]):
+        for k, v in zip(("role", "index", "note", "displayName"), r[4:]):
             if v is not None:
                 out[k] = v
         return out

@@ -92,6 +92,7 @@ from .ratelimit import allow
 from .pdf import render_booklet_pdf
 from .tricount import TriCountError, fetch_snapshot
 from .store import get_trip_by_id as get_trip_by_id_store
+from .store import get_graph_client
 from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
@@ -352,6 +353,103 @@ def follow_claim(
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     return _public_trip(trip)
+
+
+@app.post("/api/me/ensure")
+def ensure_my_twin(
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Ensure the caller's User twin exists (issue #196).
+
+    An account can exist WITHOUT having claimed a crew identity — a logged-in
+    user gets their twin (and is therefore reachable at a profile) on first
+    call. Idempotent: calling twice provisions nothing new.
+
+    This PROVISIONS graph identity, so it follows the claim/follow rule
+    (``acl.require_user_token``): only a real end-user token may provision —
+    an M2M client token is refused (403), and act-as is never used to
+    provision a twin on someone else's behalf. When the token carries no
+    usable email, nothing is created and the response reports
+    ``ensured: false`` (the SPA keeps working); a graph failure, by contrast,
+    is a 503 — never disguised as a missing email.
+    """
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    # The token claims may carry email/name when userinfo is unavailable —
+    # userinfo (fresher) wins over claims (mirrors post_trip).
+    profile = {
+        **{k: session.user[k] for k in ("email", "name") if session.user.get(k)},
+        **(session.profile or {}),
+    }
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    email = (profile.get("email") or "").strip()
+    name = (profile.get("name") or "").strip() or (email.split("@")[0] if email else "")
+    if not email:
+        return {
+            "sub": actor_sub,
+            "ensured": False,
+            "name": name,
+            "email": email,
+            "reason": "no verified email — sign in with an identity that carries one",
+        }
+    if not client.create_user_twin(actor_sub, profile):
+        # A graph failure is NOT the no-email case above — never disguise one
+        # as the other: the SPA treats "ensured: false" as "carry on".
+        raise HTTPException(status_code=503, detail="Could not create your user identity")
+    return {"sub": actor_sub, "ensured": True, "name": name, "email": email}
+
+
+@app.post("/api/users/{sub}/follow")
+def follow_user(
+    sub: str,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Follow a person (issue #196): one-directional, no approval.
+
+    The actor is the token's OWN sub (never the path/body). This WRITES a
+    graph edge, so it follows the claim/follow rule
+    (``acl.require_user_token``): an M2M client token is refused (403) and
+    act-as is never used to follow on someone else's behalf. Following grants
+    NO trip access — visibility still gates every trip read. 400 on
+    self-follow, 404 when the target twin does not exist, 200 (idempotent
+    no-op) when already following.
+    """
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    if actor_sub == sub:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if not client.user_twin_exists(sub):
+        raise HTTPException(status_code=404, detail="Unknown user")
+    if not client.follow_user(actor_sub, sub):
+        raise HTTPException(status_code=503, detail="Could not follow user")
+    return {"sub": sub, "following": True}
+
+
+@app.delete("/api/users/{sub}/follow")
+def unfollow_user(
+    sub: str,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Unfollow a person (issue #196). Idempotent: unfollowing someone not
+    followed is a 200 no-op. The actor is the token's OWN sub; like follow,
+    an M2M client token is refused (403)."""
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    if actor_sub == sub:
+        raise HTTPException(status_code=400, detail="You cannot follow yourself")
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if not client.user_twin_exists(sub):
+        raise HTTPException(status_code=404, detail="Unknown user")
+    if not client.unfollow_user(actor_sub, sub):
+        raise HTTPException(status_code=503, detail="Could not unfollow user")
+    return {"sub": sub, "following": False}
 
 
 @app.get("/api/trips/{trip_id}/join-link")

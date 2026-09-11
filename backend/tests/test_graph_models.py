@@ -105,16 +105,17 @@ def test_user_extends_person_and_has_no_role():
 
 
 def test_hascrew_edge_declares_role_and_note():
-    """Trip-relative crew metadata (role + note, e.g. gear) is declared on the
-    hasCrew edge — the Person/User node is shared across trips after claim,
-    so per-trip notes must not live on the node."""
+    """Trip-relative crew metadata (role + note, e.g. gear, + the crew's own
+    displayName for the trip) is declared on the hasCrew edge — the
+    Person/User node is shared across trips after claim, so per-trip names
+    and notes must not live on the node."""
     doc = json.loads(DTDL.read_text())
     by_id = {d["@id"]: d for d in doc}
     trip_iface = by_id[mid("Trip")]
     edges = [c for c in trip_iface["contents"]
              if c["@type"] == "Relationship" and c["name"] == "hasCrew"]
     assert len(edges) == 1, "Trip must expose exactly one hasCrew edge"
-    assert {p["name"] for p in edges[0].get("properties", [])} == {"role", "note"}
+    assert {p["name"] for p in edges[0].get("properties", [])} == {"role", "note", "displayName"}
 
 
 def test_tripsection_has_section_relationship_edges():
