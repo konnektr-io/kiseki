@@ -74,7 +74,7 @@ describe("preset shape", () => {
       expect(p.fonts.body.trim(), `${id} body`).not.toBe("");
       expect(p.radius, `${id} radius`).toMatch(/^\d+(\.\d+)?rem$/);
       expect(["positron", "bright", "liberty", "dark"], `${id} basemap`).toContain(p.mapStyle.basemap);
-      expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeGreaterThanOrEqual(0);
+      expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeGreaterThan(0);
       expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeLessThanOrEqual(2);
       for (const hex of Object.values(p.mapStyle.tint ?? {})) {
         expect(parseHexColor(hex), `${id} tint ${hex}`).not.toBeNull();
@@ -92,5 +92,13 @@ describe("preset shape", () => {
     const radii = PRESET_IDS.map((id) => parseFloat(presetById(id).radius));
     expect(Math.min(...radii)).toBeLessThanOrEqual(0.25);
     expect(Math.max(...radii)).toBeGreaterThanOrEqual(0.625);
+  });
+
+  it("elevation is never off (#201) — every preset resolves to a positive exaggeration", () => {
+    for (const id of PRESET_IDS) {
+      const terrain = presetById(id).mapStyle.terrain;
+      expect(Object.keys(terrain).sort(), `${id} terrain shape`).toEqual(["exaggeration"]);
+      expect(terrain.exaggeration, `${id} exaggeration`).toBeGreaterThan(0);
+    }
   });
 });

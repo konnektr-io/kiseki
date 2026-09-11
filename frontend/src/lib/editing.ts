@@ -55,6 +55,10 @@ export function withTripVisibility(trip: Trip, visibility: "public" | "private")
   return { ...trip, visibility };
 }
 
+export function withTripTheme(trip: Trip, preset: string): Trip {
+  return { ...trip, theme: { preset } };
+}
+
 export function withTodoDone(trip: Trip, index: number, done: boolean): Trip {
   const todos = trip.practical.todos ?? [];
   const target = todos[index];

@@ -18,8 +18,10 @@ import {
   stageOptions,
   STAGES,
   withTripStage,
+  withTripTheme,
   withTripVisibility,
 } from "../lib/editing";
+import { DEFAULT_PRESET_ID, PRESET_IDS, presetById } from "../lib/theme-presets";
 import type { Stage, Visibility } from "../lib/types";
 
 /**
@@ -28,7 +30,7 @@ import type { Stage, Visibility } from "../lib/types";
  *
  *   everyone      → Booklet PDF
  *   owner         → Copy crew join link · Sharing (public/private) · Delete trip
- *   editor+       → Stage (owner: any move; editor: forward minus archive)
+ *   editor+       → Stage (owner: any move; editor: forward minus archive) · Theme
  *
  * The server is always the enforcement point — the menu only gates what is
  * offered. Viewer/follower/anonymous see a single-item (PDF) menu, which is
@@ -113,6 +115,15 @@ export function TripActionsMenu({
       (t) => withTripVisibility(t, visibility),
     );
   };
+  const changeTheme = (preset: string) => {
+    if (isPostHogConfigured) {
+      posthog.capture("trip_theme_changed", { from_preset: trip.theme?.preset, to_preset: preset });
+    }
+    void run(
+      (token) => putTrip(trip.id, { theme: { preset } }, token),
+      (t) => withTripTheme(t, preset),
+    );
+  };
 
   // Owner-only, irreversible (#163): DELETE /api/trips/{id} takes the whole
   // trip with it. On 204 there is no document left — `onDeleted` sends the
@@ -145,6 +156,8 @@ export function TripActionsMenu({
 
   const options = stageOptions(trip.stage, trip.myRole);
   const currentIdx = STAGES.indexOf(trip.stage);
+  const currentPreset = trip.theme?.preset ?? DEFAULT_PRESET_ID;
+  const currentBlurb = presetById(currentPreset).blurb;
 
   const item =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:focus-ring disabled:pointer-events-none disabled:opacity-50";
@@ -229,6 +242,23 @@ export function TripActionsMenu({
                     </select>
                   </label>
                 )}
+                <label className="mb-1.5 block">
+                  <span className={menuLabel}>Theme</span>
+                  <select
+                    value={currentPreset}
+                    disabled={busy}
+                    onChange={(e) => changeTheme(e.target.value)}
+                    className={control}
+                    aria-label="Trip theme"
+                  >
+                    {PRESET_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        {id.charAt(0).toUpperCase() + id.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1 block text-xs text-muted-foreground">{currentBlurb}</span>
+                </label>
                 {isOwner && (
                   <div>
                     <span className={menuLabel}>Sharing</span>

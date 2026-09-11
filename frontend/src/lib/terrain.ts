@@ -36,18 +36,17 @@ const DEM_SOURCE_ID = "kiseki-dem";
 const CONTOUR_SOURCE_ID = "kiseki-contours";
 
 /**
- * What a preset may own (#40 D3): hillshade on/off, its exaggeration, and the
- * 3D switch with its exaggeration. Two things a preset must NEVER change, so
- * they are not fields here at all:
+ * What a preset may own (#40 D3, narrowed by #201): the relief intensity.
+ * Elevation is always on — a preset picks only how strongly the relief reads,
+ * never whether it exists. Two things a preset must NEVER change, so they are
+ * not fields here at all:
  *
  * - the `igor` hillshade method (multidirectional buries the pale roads and
  *   labels a quiet basemap draws on top — see addHillshade),
  * - DEM_MAXZOOM = 12 (a global-coverage floor, not a tuning knob).
  */
 export interface TerrainOptions {
-  hillshade?: boolean;
   exaggeration?: number;
-  terrain3d?: boolean;
 }
 
 /**
@@ -66,8 +65,8 @@ export interface TerrainOptions {
  * guardrail ("do not enable pitch/3D by default on mobile") precisely, rather
  * than by giving up the feature.
  *
- * The per-trip switch ("terrain on, exaggeration 1.3" vs "flat, minimal") is
- * TerrainOptions above (#40); these constants are the defaults it falls back to.
+ * The per-trip intensity (relief exaggeration) is TerrainOptions above
+ * (#40, #201); these constants are the defaults it falls back to.
  */
 export const TERRAIN_3D = true;
 /**
@@ -238,32 +237,27 @@ function attachTerrainOnPitch(map: MapLibreMap, exaggeration: number): void {
  * Put elevation on a loaded map. Never throws: terrain is atmosphere, so a DEM
  * that will not load must cost the trip its hillshade, not its route.
  *
- * `opts` is the preset's voice (#40): hillshade (shading + contours) on/off,
- * its exaggeration, and the 3D switch. Absent fields fall back to the
+ * `opts` is the preset's voice (#40, #201): the relief intensity only.
+ * Elevation is always on — every map gets the DEM, the hillshade, the
+ * tilt-gated 3D mesh and the contours. Absent fields fall back to the
  * long-standing defaults, so an un-themed trip renders exactly today's map.
- * A preset with both off skips the DEM entirely — a minimal map fetches no tiles.
  */
 export async function addTerrain(
   map: MapLibreMap,
   lib: typeof import("maplibre-gl"),
   opts: TerrainOptions = {},
 ): Promise<void> {
-  const hillshade = opts.hillshade ?? true;
   const exaggeration = opts.exaggeration ?? 0.7;
-  const terrain3d = opts.terrain3d ?? TERRAIN_3D;
   const terrainExaggeration = opts.exaggeration ?? TERRAIN_EXAGGERATION;
   try {
-    if (!hillshade && !terrain3d) return;
     const before = firstLineLayerId(map);
     addDemSource(map);
-    if (hillshade) addHillshade(map, before, exaggeration);
+    addHillshade(map, before, exaggeration);
 
-    if (terrain3d) attachTerrainOnPitch(map, terrainExaggeration);
+    attachTerrainOnPitch(map, terrainExaggeration);
 
-    if (hillshade) {
-      await addContours(map, lib);
-      addContourLayers(map, before);
-    }
+    await addContours(map, lib);
+    addContourLayers(map, before);
   } catch {
     /* no elevation this time — the map, the route and the markers are unaffected */
   }
