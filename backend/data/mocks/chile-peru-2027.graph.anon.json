@@ -783,6 +783,7 @@
       "map": "/media/REDACTED",
       "summary": "Family trip (Niko + **Person 2** 17 + **Person 3** 15) combining **3–4 ski days at Valle Nevado** (Chile) with the Peru spine: **Lima → Sacred Valley → Machu Picchu → Cusco**. July is the only month where both countries are simultaneously at their seasonal best — Chilean winter ski peak AND Peruvian dry-season hiking peak.\n\nThe linchpin: **LATAM flies Santiago → Cusco non-stop** (daily, ~2h30–3h30), so the two halves stitch together without backtracking through Lima. Bonus: 3–4 days above 3,000 m at Valle Nevado pre-acclimatises everyone for Cusco (3,400 m).\n\n**Stage: planned** — dates set (Sat Jul 17 → Mon Aug 2), nothing booked yet. Booking windows: international flights by Jan 2027, Valle Nevado by Mar 2027, Machu Picchu permits Jan–Feb 2027.",
       "theme": {
+        "preset": "ember",
         "primary": "#7f1d1d",
         "accent": "#b45309"
       },
