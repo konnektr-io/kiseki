@@ -868,6 +868,44 @@ def test_add_and_remove_crew(client, rsa_keypair, graph) -> None:
     assert all(c["name"] != "Stefan De Pauw" for c in r.json()["crew"])
 
 
+def test_remove_claimed_crew_keeps_user_twin(client, rsa_keypair, graph) -> None:
+    """Removing a crew member whose twin is a claimed User (#198): the
+    hasCrew edge goes, the User twin NEVER does — the person keeps their
+    account, only this trip's crew entry is gone from the document."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/crew"
+
+    claimed_sub = "google-oauth2|claimed-crew"
+    g.add_user_role(trip.id, claimed_sub, "viewer", name="Claimed Crew")
+    assert g.twin(claimed_sub) is not None  # the account exists before removal
+
+    r = client.delete(f"{url}/{claimed_sub}", headers=_auth(token))
+    assert r.status_code == 200, r.text[:300]
+    assert all(c["id"] != claimed_sub for c in r.json()["crew"])
+    assert g.twin(claimed_sub) is not None  # the account survives
+    assert g.role_for_user_on_trip(trip.id, claimed_sub) is None  # the edge goes
+
+
+def test_promote_follower_to_viewer_without_claim(client, rsa_keypair, graph) -> None:
+    """A follower is promoted by PATCHing the role (owner caller, #198 AC 5)
+    — no claim step: the same crew entry id remains, only the role changes."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+
+    follower_sub = "google-oauth2|follower-to-promote"
+    g.add_user_role(trip.id, follower_sub, "follower", name="Follower To Promote")
+
+    r = _authz(client, "patch", f"/api/trips/{trip.id}/crew/{follower_sub}",
+               token, json={"role": "viewer"})
+    assert r.status_code == 200, r.text[:300]
+    promoted = next(c for c in r.json()["crew"] if c["id"] == follower_sub)
+    assert promoted["role"] == "viewer"
+    assert promoted["name"] == "Follower To Promote"  # same entry, new role
+
+
 # ---------------------------------------------------------------- agent identity
 # The agent has NO identity in the graph (no User twin, no hasCrew edge).
 # User-initiated writes present the acting user's token. The sanctioned M2M
