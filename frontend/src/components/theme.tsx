@@ -1,6 +1,7 @@
-import { createContext, useContext, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, type CSSProperties, type ReactNode } from "react";
 import type { Trip } from "../lib/types";
 import { ensureContrast, parseHexColor, readableFgOn, rgbToHex } from "../lib/color";
+import { ensurePresetFonts } from "../lib/fonts";
 import { presetById, type ThemePreset } from "../lib/theme-presets";
 
 interface TripState {
@@ -22,6 +23,15 @@ export function TripProvider({
   apply: (trip: Trip) => void;
   children: ReactNode;
 }) {
+  // Preset fonts load lazily, keyed by preset (#40 D5) — here so every themed
+  // subtree (TripLayout, JoinPage, and the booklet under TripLayout) requests
+  // its families. The booklet PDF awaits document.fonts.ready AFTER content
+  // renders (pdf.py), i.e. after this effect has fired, so lazy families are
+  // in flight before the await — a fonts.ready that resolved before the CSS
+  // asked for the font would silently print the fallback stack.
+  useEffect(() => {
+    void ensurePresetFonts(trip.theme?.preset);
+  }, [trip.theme?.preset]);
   return <TripContext.Provider value={{ trip, apply }}>{children}</TripContext.Provider>;
 }
 

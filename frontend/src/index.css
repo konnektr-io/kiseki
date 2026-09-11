@@ -6,6 +6,12 @@
 @import "@fontsource/inter/500.css";
 @import "@fontsource/inter/600.css";
 @import "@fontsource/inter/700.css";
+/* Only the default trio loads eagerly: it is the fallback stack every preset
+   renders first paint in (font-display: swap), and six presets use it as-is.
+   All other families (@fontsource-variable/*) load lazily, keyed by preset
+   (lib/fonts.ts) — a trip on the default trio downloads nothing extra. The
+   trio stays on the static packages deliberately: switching it to variable
+   would re-cut every existing trip's type for no visual gain. */
 @import "tailwindcss";
 
 /* Design tokens — per-trip theming injects --trip-* variables at runtime.

@@ -171,6 +171,13 @@ async def render_booklet_pdf(
                     # Fonts: the Playwright PDF renderer must await the font
                     # load promise before printing, or text reflows and glyphs
                     # fallback silently (DESIGN.md §12 / §4.1).
+                    # Invariant with lazy per-preset fonts (#40 D5): this await
+                    # is correct only because it runs AFTER the booklet content
+                    # (above) renders — TripProvider's font effect fires with
+                    # the trip, so the preset's families are requested before
+                    # fonts.ready is observed. A fonts.ready awaited before the
+                    # CSS asked for the family would resolve early and print
+                    # the fallback stack with no error anywhere.
                     try:
                         await page.wait_for_function(
                             "document.fonts.status === 'loaded' || document.fonts.ready.then(() => true)",
