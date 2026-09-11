@@ -10,6 +10,7 @@ One process, one container:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import tempfile
 import time
@@ -48,6 +49,8 @@ from .config import (
     STATIC_DIR,
 )
 from . import write as write_svc
+from . import photos as photos_svc
+from .exif import extract_exif
 from .write import (
     BlockCreate,
     BlockFields,
@@ -1176,13 +1179,18 @@ async def post_files(
         raise HTTPException(422, "Empty file")
     ext = Path(file.filename or "").suffix.lower()
     name = content_addressed_key(raw, ext)
+    # Photo ingest (#190): the capture timestamp + GPS travel with the
+    # response so the client can place the batch without re-reading bytes.
+    # Additive — the `url` contract is unchanged.
+    sha = hashlib.sha256(raw).hexdigest()
+    exif = extract_exif(raw)
     if trip_id is None:
         # Inbox staging (landing chat). Content-addressed name = capability.
         store = get_media_store()
         if store is None:
             raise HTTPException(503, "Media storage is not configured")
         store.put(f"inbox/{name}", raw, media_content_type(name))
-        return {"url": f"/inbox/{name}"}
+        return {"url": f"/inbox/{name}", "sha256": sha, "exif": exif}
     require_actor_trip_access(actor_sub, trip_id, min_role="editor")
     store = get_media_store()
     if store is None:
@@ -1192,7 +1200,7 @@ async def post_files(
         raw,
         media_content_type(name),
     )
-    return {"url": f"/media/{trip_id.lower()}/{name}"}
+    return {"url": f"/media/{trip_id.lower()}/{name}", "sha256": sha, "exif": exif}
 
 
 class PromoteBody(BaseModel):
@@ -1236,6 +1244,45 @@ async def promote_file(
     )
     store.delete(inbox_key)
     return {"url": f"/media/{trip_id}/{body.file_name}"}
+
+
+@app.post("/api/trips/{trip_id}/photos/propose")
+def propose_photos_route(
+    trip_id: str,
+    body: photos_svc.ProposeBody,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Placement proposal for an uploaded photo batch (issue #190) — READ-ONLY.
+
+    Converts each photo's capture timestamp to the trip's timezone (#42)
+    and returns ``{placements, undated}`` for the human to confirm. Writes
+    NOTHING; the confirmed write is ``POST …/photos/confirm``. Identity
+    scoping rides the neighboring write-route gate (editor+).
+    """
+    _ = actor  # role verified by the dependency; the proposal itself is a pure read
+    return _write(photos_svc.propose_photos, trip_dtid=trip_id.lower(), body=body)
+
+
+@app.post("/api/trips/{trip_id}/photos/confirm")
+def confirm_photos_route(
+    trip_id: str,
+    body: photos_svc.ConfirmBody,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Apply human-confirmed photo placements (issue #190).
+
+    Block-targeted photos append to ``Block.images`` (render decision A,
+    #191); day-level photos append to (or create) a ``gallery`` block at
+    the chronologically correct position (decision B). Idempotent —
+    re-importing the same batch reports ``skipped`` instead of duplicating.
+    """
+    trip, written, skipped = _write(
+        photos_svc.confirm_placements,
+        trip_dtid=trip_id.lower(),
+        actor=actor,
+        body=body,
+    )
+    return {**_public_trip(trip, my_role=actor["role"]), "written": written, "skipped": skipped}
 
 
 # Built SPA with history-mode fallback

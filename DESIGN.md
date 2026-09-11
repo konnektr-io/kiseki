@@ -661,6 +661,36 @@ Photos carry most of the emotional weight; they're also the biggest layout risk.
 - Galleries: a 2-up strip on mobile, 3-up on desktop, consistent gap, no masonry (masonry breaks
   print).
 
+### 9.1 Placing photos in a day — decision A+B (#190/#191, Niko 2026-09-11)
+
+Two mechanisms, split by what the photo belongs to. **C is rejected.**
+
+| | Mechanism | Applies to |
+|---|---|---|
+| **A** | **Photo strip on the block card** — `Block.images` holds N (was 1–2) | a photo that belongs to a specific block |
+| **B** | **Photo card in the day** — a `gallery` block at the day's chronological position | a photo that belongs to no block |
+| ~~C~~ | ~~one day-level gallery for everything~~ | **rejected** — it weakens the link between a photo and what it is *of*, which is the whole point of attaching photos to a trip |
+
+**The rule that chooses between them:** a photo whose timestamp falls inside a
+block's window (±90 min of a timed block, `PHOTO_BLOCK_WINDOW_MIN` in
+`backend/app/photos.py`) renders on that block (A); everything else in the day
+becomes a gallery block at its chronologically correct place in the day (B).
+Photos that could not be dated at all come from the undated bucket in #190 and
+belong to whichever day a human puts them on (B). Ordering everywhere is by
+capture time (EXIF), never upload order.
+
+So a day reads as: the activities, each with its own photos inline, and a photo
+card for the rest — not one detached album at the end. Built on the existing
+block model — no new block kinds (spec §5, no component zoo); the strip and the
+gallery share one image component (`components/photos.tsx`: `TripPhoto`).
+
+**Overflow + print (stated caps, §12):** a card with 12 photos is not 12 images
+tall — the strip shows the first `STRIP_SCREEN_COUNT = 4` with a `+N` affordance
+into a screen-only lightbox dialog (`no-print` chrome). Print takes
+`STRIP_PRINT_COUNT = 4` (strip) / `GALLERY_PRINT_COUNT = 6` (gallery) followed
+by a `+N more in the online album` line — never the whole roll, never the
+browser's choice. Cards keep `break-inside: avoid` (`booklet-keep`).
+
 ---
 
 ## 10. Motion
