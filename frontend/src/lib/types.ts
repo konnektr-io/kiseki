@@ -188,27 +188,11 @@ export interface TripSummary {
   role?: Role;
 }
 
-export interface ThemeMapStyle {
-  basemap?: string;
-  styleUrl?: string;
-  route?: string;
-  routeCasing?: string;
-  marker?: string;
-  markerFg?: string;
-}
-
+/** Trip theming — the preset id is the whole contract (#40 follow-up).
+ *  Retired per-trip override fields are not modelled; a document that still
+ *  carries them is read as its preset only (see theme.tsx). */
 export interface Theme {
-  preset?: string;
-  primary?: string;
-  accent?: string;
-  surface?: string;
-  /** Legacy body-font scalar — still honoured as the body role (see theme.tsx). */
-  font?: string;
-  displayFont?: string;
-  headingFont?: string;
-  bodyFont?: string;
-  radius?: string;
-  mapStyle?: ThemeMapStyle;
+  preset?: string | null;
 }
 
 export interface Practical {

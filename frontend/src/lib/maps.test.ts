@@ -88,24 +88,18 @@ describe("resolveMapStyle", () => {
     expect(resolveMapStyle(themed({ preset: "archive" })).tint?.background).toBe("#f5efe2");
   });
 
-  it("lets a per-trip basemap and styleUrl win, in that order", () => {
-    expect(resolveMapStyle(themed({ preset: "alpine", mapStyle: { basemap: "liberty" } })).styleUrl).toBe(
-      OPENFREEMAP_STYLES.liberty,
+  it("ignores a legacy theme.mapStyle in the document — the preset wins", () => {
+    const legacy = {
+      preset: "alpine",
+      mapStyle: { basemap: "liberty", styleUrl: "https://example.com/evil.json" },
+    } as unknown as Trip["theme"];
+    expect(resolveMapStyle(themed(legacy)).styleUrl).toBe(
+      resolveMapStyle(themed({ preset: "alpine" })).styleUrl,
     );
-    expect(
-      resolveMapStyle(
-        themed({
-          preset: "alpine",
-          mapStyle: { basemap: "liberty", styleUrl: "https://example.com/custom.json" },
-        }),
-      ).styleUrl,
-    ).toBe("https://example.com/custom.json");
+    expect(resolveMapStyle(themed(legacy)).styleUrl).not.toBe("https://example.com/evil.json");
   });
 
-  it("falls back to positron on an unknown basemap key, never throws", () => {
-    expect(resolveMapStyle(themed({ preset: "alpine", mapStyle: { basemap: "atlantis" } })).styleUrl).toBe(
-      OPENFREEMAP_STYLES.positron,
-    );
+  it("falls back to positron on an unknown preset id, never throws", () => {
     expect(resolveMapStyle(themed({ preset: "atlantis" })).styleUrl).toBe(OPENFREEMAP_STYLES.positron);
   });
 

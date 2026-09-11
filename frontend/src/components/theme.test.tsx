@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { tripPreset, tripStyle } from "./theme";
-import { contrastRatio, parseHexColor } from "../lib/color";
 import type { Trip } from "../lib/types";
 
 function trip(theme: Trip["theme"]): Trip {
@@ -52,71 +51,50 @@ describe("tripStyle", () => {
     }
   });
 
-  it("falls back to the default preset on an unknown id", () => {
-    expect(vars(trip({ preset: "atlantis" }))["--trip-primary"]).toBe(
-      vars(trip(undefined))["--trip-primary"],
-    );
+  it("falls back to the default preset on an unknown/absent id and never throws", () => {
+    const fallback = vars(trip(undefined));
+    for (const theme of [undefined, { preset: "atlantis" }, { preset: "" }, { preset: null }]) {
+      const v = vars(trip(theme as Trip["theme"]));
+      expect(tripPreset(trip(theme as Trip["theme"])).id).toBe("alpine");
+      expect(v["--trip-primary"]).toBe(fallback["--trip-primary"]);
+    }
+    expect(() => tripStyle(trip({ preset: "atlantis" }))).not.toThrow();
   });
 
-  it("keeps a passing override byte-identical (canada keeps its blue)", () => {
-    const v = vars(trip({ preset: "alpine", primary: "#1e3a8a", accent: "#0f766e" }));
-    expect(v["--trip-primary"]).toBe("#1e3a8a");
-    expect(v["--trip-accent"]).toBe("#0f766e");
-    expect(v["--trip-primary-fg"]).toBe("#ffffff");
-  });
-
-  it("rejects non-hex input to the preset value, then auto-derives failures", () => {
-    const fallback = vars(trip({ preset: "alpine" }));
-    const v = vars(trip({ preset: "alpine", primary: "red", accent: "var(--x)" }));
-    expect(v["--trip-primary"]).toBe(fallback["--trip-primary"]);
-    expect(v["--trip-accent"]).toBe(fallback["--trip-accent"]);
-
-    // A pale override on light paper cannot stand — it comes back darker and passing.
-    const derived = vars(trip({ preset: "alpine", primary: "#d6cfff" }));
-    expect(derived["--trip-primary"]).not.toBe("#d6cfff");
-    expect(
-      contrastRatio(parseHexColor(derived["--trip-primary"])!, parseHexColor(derived["--trip-bg"])!),
-    ).toBeGreaterThanOrEqual(4.5);
-    expect(
-      contrastRatio(
-        parseHexColor(derived["--trip-primary-fg"])!,
-        parseHexColor(derived["--trip-primary"])!,
-      ),
-    ).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it("honours the legacy font scalar as the body role", () => {
-    expect(vars(trip({ font: "Georgia, serif" }))["--trip-font-body"]).toBe("Georgia, serif");
-    expect(vars(trip({ font: "Georgia, serif" }))["--trip-font"]).toBe("Georgia, serif");
-  });
-
-  it("sanitises hostile font and radius input to the preset", () => {
-    const fallback = vars(trip({ preset: "alpine" }));
-    const v = vars(
-      trip({ preset: "alpine", bodyFont: "x; color: red", radius: "10px; color:red" } as Trip["theme"]),
-    );
-    expect(v["--trip-font-body"]).toBe(fallback["--trip-font-body"]);
-    expect(v["--trip-radius"]).toBe(fallback["--trip-radius"]);
-    expect(vars(trip({ preset: "alpine", radius: "1rem" }))["--trip-radius"]).toBe("1rem");
+  it("ignores legacy per-trip fields — they never reach a --trip-* variable", () => {
+    const clean = vars(trip({ preset: "ember" }));
+    const legacy = {
+      preset: "ember",
+      primary: "#ff0000",
+      accent: "#00ff00",
+      surface: "#000000",
+      font: "Comic Sans MS",
+      displayFont: "Comic Sans MS",
+      headingFont: "Comic Sans MS",
+      bodyFont: "Comic Sans MS",
+      radius: "99px",
+      mapStyle: { basemap: "dark", styleUrl: "https://example.com/evil.json", route: "#ff0000" },
+    } as unknown as Trip["theme"];
+    const v = vars(trip(legacy));
+    expect(v).toEqual(clean);
+    for (const value of Object.values(v)) {
+      expect(value).not.toBe("#ff0000");
+      expect(value).not.toBe("#00ff00");
+      expect(value).not.toContain("Comic Sans");
+      expect(value).not.toContain("evil.json");
+    }
   });
 
   it("never emits semantic status colours", () => {
-    const v = vars(trip({ preset: "nocturne", primary: "#ff0000", accent: "#00ff00" }));
+    const v = vars(trip({ preset: "nocturne" }));
     for (const key of Object.keys(v)) {
       expect(key).not.toMatch(/destructive|success|warning/);
     }
   });
 
-  it("drives the map from the trip colour unless overridden", () => {
+  it("drives the map from the trip colour", () => {
     const v = vars(trip({ preset: "ember" }));
     expect(v["--trip-route"]).toBe(v["--trip-primary"]);
     expect(v["--trip-marker"]).toBe(v["--trip-primary"]);
-    const w = vars(trip({ preset: "ember", mapStyle: { route: "#123456" } }));
-    expect(w["--trip-route"]).toBe("#123456");
-    expect(w["--trip-marker"]).toBe(w["--trip-primary"]);
-  });
-
-  it("surface overrides tint the card without being derived away", () => {
-    expect(vars(trip({ preset: "alpine", surface: "#f5efe2" }))["--trip-card"]).toBe("#f5efe2");
   });
 });

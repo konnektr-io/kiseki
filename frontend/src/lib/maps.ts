@@ -50,27 +50,25 @@ export interface ResolvedMapStyle {
 }
 
 /**
- * Which map a trip gets (#40 D2). Precedence, highest first:
+ * Which map a trip gets (#40, preset-only follow-up). Precedence, highest first:
  *
  * 1. `VITE_MAP_STYLE_URL` (deploy-level escape hatch — today's behaviour),
- * 2. `theme.mapStyle.styleUrl` (per-trip escape hatch — the future "our own
- *    style JSON" stays a data change, no code),
- * 3. the preset's own `styleUrl`,
- * 4. `theme.mapStyle.basemap` → preset `basemap` (validated keys only).
+ * 2. the preset's own `styleUrl`,
+ * 3. the preset's `basemap` → `OPENFREEMAP_STYLES`.
  *
  * Tint and terrain always come from the preset: an un-themed trip resolves to
- * exactly MAP_STYLE_URL with the default terrain, i.e. today's map.
+ * exactly MAP_STYLE_URL with the default terrain, i.e. today's map. A legacy
+ * `theme.mapStyle` lingering in a trip document has no effect.
  */
 export function resolveMapStyle(trip: Trip): ResolvedMapStyle {
   const preset = presetById(trip.theme?.preset);
-  const override = trip.theme?.mapStyle;
   const envUrl =
     typeof import.meta.env.VITE_MAP_STYLE_URL === "string" && import.meta.env.VITE_MAP_STYLE_URL !== ""
       ? import.meta.env.VITE_MAP_STYLE_URL
       : undefined;
-  const basemap = isBasemapKey(override?.basemap) ? override.basemap : preset.mapStyle.basemap;
+  const basemap = isBasemapKey(preset.mapStyle.basemap) ? preset.mapStyle.basemap : "positron";
   return {
-    styleUrl: envUrl ?? override?.styleUrl ?? preset.mapStyle.styleUrl ?? OPENFREEMAP_STYLES[basemap],
+    styleUrl: envUrl ?? preset.mapStyle.styleUrl ?? OPENFREEMAP_STYLES[basemap],
     tint: preset.mapStyle.tint,
     terrain: preset.mapStyle.terrain,
   };
