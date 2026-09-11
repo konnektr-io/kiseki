@@ -476,6 +476,7 @@ import after first paint) or moving to self-hosted Umami are the levers.
   - **`claimToken` is NEVER included in trip documents** (any route) — it is only obtainable via the owner-only `GET /api/trips/{id}/join-link` (role `owner` required). The read link can never claim.
   - The protected id route reports the caller's `myRole`; the frontend shows an owner-only "Join link" button (copies the join URL).
   - **Profile UI (#196, phase D)**: `/u/:sub` renders anyone's profile, `/me` the caller's own (ensure-once, then the same view with the `publicName` switch and no Follow button); the signed-in `AuthButton` avatar links to `/me`. The trip list is the server's discoverable-only rule rendered verbatim — `myRole` gets the role pill, anything else the `Discoverable` badge.
+  - **Account UI (#196, phase E)**: `/me` renders the self-only `AccountPanel` below the trips — a bearer-blob data export (`kiseki-export.json`, art. 20) and account deletion (art. 17) behind a typed-display-name confirmation. A 409 (the caller still owns a trip) renders the blocking trips as `/t/<dtId>` links and never claims anything was deleted; 404-after-success is its own calm state. The panel keeps its own fetch state so a failure there can never blank the profile, and a successful delete renders a terminal state instead of re-reading a profile that no longer exists. The Auth0 login is **not** deleted — only Kiseki's data; the copy says so.
 
 ## Deployment flow (home-k8s)
 
