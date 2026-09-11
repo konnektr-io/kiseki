@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
 import { LandingPage } from "./pages/LandingPage";
 import { JoinPage } from "./pages/JoinPage";
+import { MePage, ProfilePage } from "./pages/ProfilePage";
 import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
 import { TodayPage } from "./pages/TodayPage";
@@ -38,6 +39,10 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/join/:claimToken" element={<JoinPage />} />
+      {/* User profiles (#196d): /u/:sub is anyone's profile, /me the
+          signed-in user's own (with the ensure step + publicName control). */}
+      <Route path="/u/:sub" element={<ProfilePage />} />
+      <Route path="/me" element={<MePage />} />
       <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
         <Route path="today" element={<TodayPage />} />
