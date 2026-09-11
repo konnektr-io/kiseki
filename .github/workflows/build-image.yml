@@ -48,6 +48,11 @@ jobs:
           cd backend
           uv sync
           uv run pytest
+        env:
+          # Point the app at the SPA that the step above just built: without
+          # this, STATIC_DIR (backend/app/static) is absent and every
+          # history-mode/SPA-shell test silently skips.
+          KISEKI_STATIC_DIR: ../frontend/dist
 
   build:
     name: Build and push image
