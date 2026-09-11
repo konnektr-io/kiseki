@@ -17,6 +17,7 @@ import { formatDate } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib/types";
 import { Badge, Button, Card, StageBadge } from "../components/ui";
+import { AccountPanel } from "../components/AccountPanel";
 
 /** "Niko Raes" → "NR"; single-word names keep their first two letters. */
 function initials(name: string) {
@@ -239,8 +240,20 @@ type ListKind = "followers" | "following";
  * name, follower/following counts, Follow button), the self-only
  * `publicName` opt-in, drill-in people lists, and the trip list. Never
  * renders an email address — the type has no email field to read.
+ *
+ * `account` (only ever set by `MePage`) renders the self-only export/delete
+ * area below the trips: its own component and fetch state, so a failure
+ * there can never blank the profile.
  */
-function ProfileView({ sub, selfHint = false }: { sub: string; selfHint?: boolean }) {
+function ProfileView({
+  sub,
+  selfHint = false,
+  account = false,
+}: {
+  sub: string;
+  selfHint?: boolean;
+  account?: boolean;
+}) {
   const {
     isAuthenticated,
     isLoading: authLoading,
@@ -629,6 +642,8 @@ function ProfileView({ sub, selfHint = false }: { sub: string; selfHint?: boolea
             </ul>
           )}
         </section>
+
+        {account && isSelf && <AccountPanel displayName={profile.name} />}
       </main>
     </div>
   );
@@ -718,7 +733,7 @@ export function MePage() {
           {ensureNote}
         </p>
       )}
-      <ProfileView sub={sub} selfHint />
+      <ProfileView sub={sub} selfHint account />
     </>
   );
 }

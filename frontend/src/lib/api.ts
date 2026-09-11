@@ -474,6 +474,109 @@ export async function setPublicName(
   return profileRequest("PUT", "/api/me", accessToken, { publicName });
 }
 
+/* ---------------- #196e account: export + erasure ----------------
+ * GDPR art. 20 (export) and art. 17 (erasure). Both are user-token-only
+ * on the server (M2M refused 403) and 404 when the caller has no User
+ * twin. Frontend-only phase: no backend or contract change here. */
+
+/** One trip blocking account deletion (the server names them on 409). */
+export interface OwnedTripRef {
+  dtId: string;
+  title: string;
+  slug: string;
+}
+
+/** Thrown by `deleteMyAccount` on 409: the caller still owns trips, so
+ *  nothing was deleted. Carries the server's message + the blocking list
+ *  (lives at `detail.ownedTrips` in the wire body). */
+export class AccountDeleteBlockedError extends TripAccessError {
+  ownedTrips: OwnedTripRef[];
+  constructor(message: string, ownedTrips: OwnedTripRef[]) {
+    super(409, message);
+    this.ownedTrips = ownedTrips;
+  }
+}
+
+/** Download the caller's portability document (GDPR art. 20).
+ *
+ *  A plain `<a href>` cannot send the `Authorization` header, so — like
+ *  `downloadBooklet` — this fetches with the bearer token and saves a
+ *  blob. The document is complete with no query knobs. */
+export async function downloadMyExport(accessToken: string): Promise<void> {
+  const res = await fetch("/api/me/export", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "kiseki-export.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Erase the caller's account (GDPR art. 17). IRREVERSIBLE — the caller
+ *  (AccountPanel) owns the slow confirmation, not this function.
+ *
+ *  Success answers `{"deleted": <summary>}` (shape `dict` — read keys
+ *  defensively). 409 throws `AccountDeleteBlockedError` (nothing deleted);
+ *  a second call after success 404s (already gone — not a failure to
+ *  panic about). */
+export async function deleteMyAccount(
+  accessToken: string,
+): Promise<{ deleted: Record<string, unknown> }> {
+  const res = await fetch("/api/me", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.ok) {
+    return (await res.json()) as { deleted: Record<string, unknown> };
+  }
+  // The body may only be read once — capture it, then interpret.
+  const text = await res.text();
+  if (res.status === 409) {
+    try {
+      const body = JSON.parse(text) as {
+        detail?: { message?: unknown; ownedTrips?: unknown };
+      };
+      const detail = body.detail;
+      if (detail && typeof detail === "object") {
+        const message =
+          typeof detail.message === "string" ? detail.message : "You still own trips.";
+        const raw = Array.isArray(detail.ownedTrips) ? detail.ownedTrips : [];
+        const ownedTrips: OwnedTripRef[] = raw
+          .filter(
+            (t): t is Record<string, unknown> =>
+              typeof t === "object" && t !== null,
+          )
+          .map((t) => ({
+            dtId: typeof t.dtId === "string" ? t.dtId : "",
+            title: typeof t.title === "string" ? t.title : "",
+            slug: typeof t.slug === "string" ? t.slug : "",
+          }))
+          .filter((t) => t.dtId);
+        throw new AccountDeleteBlockedError(message, ownedTrips);
+      }
+    } catch (e) {
+      if (e instanceof AccountDeleteBlockedError) throw e;
+      // Not the documented shape — fall through to the generic error below.
+    }
+  }
+  let message = text || `Request failed (${res.status})`;
+  try {
+    const body = JSON.parse(text) as { detail?: unknown };
+    if (typeof body.detail === "string") message = body.detail;
+  } catch {
+    // not JSON — keep the raw text
+  }
+  throw new TripAccessError(res.status, message);
+}
+
 /* ---------------- #111 Tricount (crew-only) ---------------- */
 
 /** Live (TTL-cached) expense snapshot from the trip's connected Tricount
