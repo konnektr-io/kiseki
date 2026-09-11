@@ -224,8 +224,8 @@ class _StubClient:
         )
         return True
 
-    def claim_crew_person(self, trip, user, person, role, index, note=None) -> bool:
-        self.transfer = (trip, user, person, role, index, note)
+    def claim_crew_person(self, trip, user, person, role, index, note=None, display_name=None) -> bool:
+        self.transfer = (trip, user, person, role, index, note, display_name)
         self.graph["twins"] = [
             t for t in self.graph["twins"] if t["$dtId"] != person
         ]
@@ -248,6 +248,8 @@ class _StubClient:
         )
         if note is not None:
             new_edge["note"] = note
+        if display_name is not None:
+            new_edge["displayName"] = display_name
         self.graph["relationships"].append(new_edge)
         return True
 
@@ -266,10 +268,11 @@ def test_claim_identity_success(stub: _StubClient) -> None:
     trip_model = claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
 
     assert stub.created_user == "google-oauth2|42"
-    trip_dtid, user, p, role, index, note = stub.transfer  # type: ignore[misc]
+    trip_dtid, user, p, role, index, note, display_name = stub.transfer  # type: ignore[misc]
     assert trip_dtid == trip and user == "google-oauth2|42" and p == person
     assert role == "owner"
     assert note is None  # anon fixture crew carry no notes
+    assert display_name is None  # ... and no edge displayName (pre-#196 edges)
     # rebuilt: the user is on the crew (placeholder gone) — names redacted in anon graph
     assert any(c.id == "google-oauth2|42" for c in trip_model.crew)
     assert len(trip_model.crew) == 3

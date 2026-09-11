@@ -219,6 +219,55 @@ class FakeGraph:
     def user_twin_exists(self, user_dtid: str) -> bool:
         return self.twin(user_dtid) is not None
 
+    def find_trip_dtid_by_claim_token(self, claim_token: str) -> str | None:
+        """Mirror the live claim-token lookup (claim flow, #6)."""
+        for t in self.twins:
+            if (t.get("$metadata") or {}).get("$model") == "dtmi:kiseki:travel:Trip;1":
+                if t.get("claimToken") == claim_token:
+                    return t["$dtId"]
+        return None
+
+    def claim_crew_person(self, trip_dtid: str, user_dtid: str, person_dtid: str,
+                          role: str, index: int, note: str | None = None,
+                          display_name: str | None = None) -> bool:
+        """Mirror the real ``claim_crew_person`` (#6 + #196): upsert the
+        trip->User hasCrew edge (same role + index + note + displayName as the
+        placeholder's), delete the old trip->Person edge, then delete the
+        placeholder node (edges first — the server refuses non-cascade
+        deletes, like ``delete_twin`` above)."""
+        old = next(
+            (r for r in self.rels
+             if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
+             and r.get("$targetId") == person_dtid),
+            None,
+        )
+        if old is None:
+            return False
+        edge: dict = {
+            "$relationshipId": f"{trip_dtid}__hasCrew__{user_dtid}",
+            "$sourceId": trip_dtid,
+            "$relationshipName": "hasCrew",
+            "$targetId": user_dtid,
+            "role": role,
+            "index": index,
+        }
+        if note is not None:
+            edge["note"] = note
+        if display_name:
+            edge["displayName"] = display_name
+        existing = self.rel(edge["$relationshipId"])
+        if existing is not None:
+            self.rels.remove(existing)
+        self.rels.append(edge)
+        self.rels.remove(old)
+        # The placeholder goes with the claim; a claimed User twin is global.
+        # Edges are gone first so the no-cascade guard below stays quiet.
+        self.rels = [r for r in self.rels
+                     if not (r.get("$sourceId") == person_dtid or r.get("$targetId") == person_dtid)]
+        person = self.twin(person_dtid)
+        if person is not None:
+            self.twins.remove(person)
+        return True
     def create_user_twin(self, user_dtid: str, profile: dict) -> bool:
         """Mirror the real ``create_user_twin`` (claim flow, #6): a User twin
         without a verified email is refused (False) — the server invents no
@@ -341,3 +390,42 @@ class FakeGraph:
                 f"(source is {existing.get('$sourceId')})"
             )
         return existing
+
+    # ------------------------------------------------------------ follows (#196)
+    def follow_user(self, actor_dtid: str, target_dtid: str) -> bool:
+        """Mirror the real ``follow_user``: upsert the ADT-shaped follows edge.
+        Idempotent; self-follow and unknown targets are refused (False)."""
+        if actor_dtid == target_dtid:
+            return False
+        if self.twin(target_dtid) is None:
+            return False
+        rel_id = f"{actor_dtid}__follows__{target_dtid}"
+        existing = self.rel(rel_id)
+        if existing is not None:
+            self.rels.remove(existing)
+        self.rels.append({
+            "$relationshipId": rel_id,
+            "$sourceId": actor_dtid,
+            "$relationshipName": "follows",
+            "$targetId": target_dtid,
+        })
+        return True
+
+    def unfollow_user(self, actor_dtid: str, target_dtid: str) -> bool:
+        """Mirror the real ``unfollow_user``: idempotent delete (missing edge
+        is a no-op, not an error)."""
+        rel_id = f"{actor_dtid}__follows__{target_dtid}"
+        existing = self.rel(rel_id)
+        if existing is not None:
+            self.rels.remove(existing)
+        return True
+
+    def followers_of(self, user_dtid: str) -> list[str]:
+        return [r["$sourceId"] for r in self.rels
+                if r.get("$relationshipName") == "follows"
+                and r.get("$targetId") == user_dtid]
+
+    def following_of(self, user_dtid: str) -> list[str]:
+        return [r["$targetId"] for r in self.rels
+                if r.get("$relationshipName") == "follows"
+                and r.get("$sourceId") == user_dtid]
