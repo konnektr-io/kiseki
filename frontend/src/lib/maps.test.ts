@@ -13,6 +13,7 @@ import {
   type TintableMap,
 } from "./maps";
 import type { Trip } from "./types";
+import { PRESET_IDS } from "./theme-presets";
 
 const trip = {
   locations: [
@@ -79,7 +80,7 @@ describe("resolveMapStyle", () => {
     expect(r.styleUrl).toBe(MAP_STYLE_URL);
     expect(r.styleUrl).toBe(OPENFREEMAP_STYLES.positron);
     expect(r.tint).toBeUndefined();
-    expect(r.terrain).toEqual({ hillshade: true, exaggeration: 0.7, terrain3d: true });
+    expect(r.terrain).toEqual({ exaggeration: 0.7 });
   });
 
   it("picks the preset basemap (density varies per trip)", () => {
@@ -105,10 +106,22 @@ describe("resolveMapStyle", () => {
 
   it("hands the preset terrain through untouched", () => {
     expect(resolveMapStyle(themed({ preset: "nordic" })).terrain).toEqual({
-      hillshade: false,
-      exaggeration: 0,
-      terrain3d: false,
+      exaggeration: 0.45,
     });
+  });
+
+  it("no preset can produce an elevation-free map (#201)", () => {
+    // addTerrain has no off-switch anymore — it always builds the DEM,
+    // hillshade, contours and tilt-gated 3D from this one intensity — so a
+    // positive exaggeration here means relief on the map, for every preset.
+    // (addTerrain itself is not importable under node-env vitest:
+    // maplibre-contour has no node-resolvable export — see blocks.test.tsx —
+    // so this pins the derivation it consumes.)
+    for (const id of PRESET_IDS) {
+      const terrain = resolveMapStyle(themed({ preset: id })).terrain;
+      expect(Object.keys(terrain).sort(), `${id} terrain shape`).toEqual(["exaggeration"]);
+      expect(terrain.exaggeration, `${id} exaggeration`).toBeGreaterThan(0);
+    }
   });
 });
 

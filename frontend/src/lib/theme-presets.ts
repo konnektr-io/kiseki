@@ -28,9 +28,9 @@ export interface PresetPalette {
 }
 
 export interface PresetTerrain {
-  hillshade: boolean;
+  /** Relief intensity. Elevation is always on (#201) — a preset picks only
+   *  how strongly the relief reads, never whether it exists. */
   exaggeration: number;
-  terrain3d: boolean;
 }
 
 export interface PresetMapStyle {
@@ -83,7 +83,7 @@ const PRESETS: ThemePreset[] = [
     radius: "0.25rem",
     mapStyle: {
       basemap: "positron",
-      terrain: { hillshade: true, exaggeration: 0.7, terrain3d: true },
+      terrain: { exaggeration: 0.7 },
     },
   },
   {
@@ -108,7 +108,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "positron",
       tint: { background: "#fafafa", water: "#e2e2e6", landcover: "#f0f0f2", park: "#e8ebe8", boundary: "#c9c9cf" },
-      terrain: { hillshade: false, exaggeration: 0, terrain3d: false },
+      terrain: { exaggeration: 0.45 },
     },
   },
   {
@@ -133,7 +133,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "liberty",
       tint: { background: "#faf5ec", water: "#e5d9bd", landcover: "#f3ead3", park: "#e4dfc0", boundary: "#c9b183" },
-      terrain: { hillshade: true, exaggeration: 0.5, terrain3d: true },
+      terrain: { exaggeration: 0.5 },
     },
   },
   {
@@ -158,7 +158,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "liberty",
       tint: { background: "#effaf4", water: "#bcdcc9", landcover: "#dcefe0", park: "#c4e2c9", boundary: "#9dbfa6" },
-      terrain: { hillshade: true, exaggeration: 0.6, terrain3d: true },
+      terrain: { exaggeration: 0.6 },
     },
   },
   {
@@ -183,7 +183,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "positron",
       tint: { background: "#f5efe2", water: "#ddd2b8", landcover: "#ece3cb", park: "#e0d7b8", boundary: "#b8a67e" },
-      terrain: { hillshade: false, exaggeration: 0, terrain3d: false },
+      terrain: { exaggeration: 0.45 },
     },
   },
   {
@@ -208,7 +208,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "bright",
       tint: { background: "#eef7fa", water: "#c2e2f0" },
-      terrain: { hillshade: false, exaggeration: 0, terrain3d: false },
+      terrain: { exaggeration: 0.45 },
     },
   },
   {
@@ -233,7 +233,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "bright",
       tint: { background: "#f1f4ec", water: "#c3d8c9", landcover: "#dfe8d2", park: "#ccd9b8", boundary: "#a3b184" },
-      terrain: { hillshade: true, exaggeration: 0.7, terrain3d: true },
+      terrain: { exaggeration: 0.7 },
     },
   },
   {
@@ -258,7 +258,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "liberty",
       tint: { background: "#faf1ec", water: "#e8cdb8", landcover: "#f2e2d2", park: "#e6d5b8", boundary: "#c8a181" },
-      terrain: { hillshade: true, exaggeration: 0.7, terrain3d: true },
+      terrain: { exaggeration: 0.7 },
     },
   },
   {
@@ -283,7 +283,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "positron",
       tint: { background: "#f4f8fa", water: "#cfe3ec", landcover: "#e8f0f3", boundary: "#b3c9d4" },
-      terrain: { hillshade: true, exaggeration: 0.4, terrain3d: false },
+      terrain: { exaggeration: 0.4 },
     },
   },
   {
@@ -308,7 +308,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "positron",
       tint: { background: "#fdf2f6", water: "#f2cddf", landcover: "#f8e4ec", park: "#f2d5de", boundary: "#d9a9bd" },
-      terrain: { hillshade: false, exaggeration: 0, terrain3d: false },
+      terrain: { exaggeration: 0.45 },
     },
   },
   {
@@ -333,7 +333,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "liberty",
       tint: { background: "#f8f4e4", water: "#ddd3a8", landcover: "#efe8c8", park: "#e2d8a8", boundary: "#bfae72" },
-      terrain: { hillshade: true, exaggeration: 0.4, terrain3d: false },
+      terrain: { exaggeration: 0.4 },
     },
   },
   {
@@ -357,7 +357,7 @@ const PRESETS: ThemePreset[] = [
     radius: "0.25rem",
     mapStyle: {
       basemap: "dark",
-      terrain: { hillshade: true, exaggeration: 0.6, terrain3d: true },
+      terrain: { exaggeration: 0.6 },
     },
   },
 ];
