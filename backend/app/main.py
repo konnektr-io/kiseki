@@ -1770,16 +1770,21 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         if full_path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
             return FileResponse(candidate)
         # History-mode fallback ONLY for real SPA routes (App.tsx: "/" +
-        # "/join/:claimToken" + "/t/:tripId/*"). Anything else — a normalized
-        # "/media/../pic.jpg" (-> "/pic.jpg"), a decoded traversal that missed
-        # the media route, a deleted endpoint — must 404, never the index
-        # shell (a 200 shell reads like the path exists and masks 404s).
+        # "/join/:claimToken" + "/t/:tripId/*" + "/u/:sub" + "/me"). Anything else
+        # — a normalized "/media/../pic.jpg" (-> "/pic.jpg"), a decoded traversal
+        # that missed the media route, a deleted endpoint — must 404, never the
+        # index shell (a 200 shell reads like the path exists and masks 404s).
+        # NB: adding a route to App.tsx means adding it here too, or the deep
+        # link / reload 404s while in-app navigation still works.
         is_spa_route = (
             full_path == ""
             or full_path == "t"
             or full_path.startswith("t/")
             or full_path == "join"
             or full_path.startswith("join/")
+            or full_path == "me"
+            or full_path == "u"
+            or full_path.startswith("u/")
         )
         if not is_spa_route:
             raise HTTPException(status_code=404, detail="Not Found")
