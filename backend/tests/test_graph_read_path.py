@@ -59,6 +59,31 @@ def test_graph_to_trip_preserves_block_location_alias() -> None:
     assert hillcrest is not None
 
 
+def test_graph_to_trip_drops_retired_theme_keys() -> None:
+    """A live twin that still carries pre-preset theme keys (primary/accent/
+    font) must read fine — retired keys are dropped on read, never a 500
+    (#40 follow-up). The strict ``Theme`` model stays a write-path gate only:
+    a write that sends one still 422s (see test_write_api.py)."""
+    graph = _load_graph("chile-peru-2027")
+    trip_twin = next(
+        t for t in graph["twins"]
+        if t.get("$metadata", {}).get("$model", "").startswith("dtmi:kiseki:travel:Trip")
+        and "theme" in t
+    )
+    # A pre-migration twin: legacy keys, no preset yet.
+    trip_twin["theme"] = {"primary": "#7f1d1d", "accent": "#b45309", "font": "inter"}
+    trip = graph_to_trip(graph)  # must not raise
+    assert trip.theme.preset is None
+    assert trip.theme.model_dump(exclude_none=True) == {}
+
+    # A twin mid-migration (preset set, legacy keys not yet stripped) keeps
+    # the preset and drops the rest.
+    trip_twin["theme"] = {"preset": "ember", "primary": "#7f1d1d", "accent": "#b45309"}
+    trip = graph_to_trip(graph)  # must not raise
+    assert trip.theme.preset == "ember"
+    assert trip.theme.model_dump(exclude_none=True) == {"preset": "ember"}
+
+
 def test_collapse_day_range() -> None:
     assert _collapse_day_range([]) == []
     assert _collapse_day_range([9]) == [9, 9]          # single-day section

@@ -229,6 +229,16 @@ def graph_to_trip(graph: dict) -> M.Trip:
     if _rating_expired(base.get("updated")):
         for loc in locations:
             loc.rating = None
+    # Theme (#40 follow-up): the preset id is the whole contract and `Theme`
+    # is strict on the WRITE path, but a live twin may still carry retired
+    # keys (primary/accent/…​) until it is migrated — drop them on read so a
+    # pre-migration twin never 500s. A write that sends one still 422s.
+    raw_theme = base.get("theme")
+    theme = (
+        {k: v for k, v in raw_theme.items() if k in M.Theme.model_fields}
+        if isinstance(raw_theme, dict)
+        else {}
+    )
     return M.Trip.model_validate(
         {
             "id": base["id"],
@@ -245,7 +255,7 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "coverCredit": base.get("coverCredit"),
             "map": base.get("map"),
             "summary": base.get("summary"),
-            "theme": base.get("theme", {}),
+            "theme": theme,
             "coverStats": base.get("coverStats", []),
             "locations": locations,
             "stats": base.get("stats", []),
