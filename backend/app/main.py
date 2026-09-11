@@ -142,8 +142,7 @@ _PDF_RENDER_LOCKS: dict[str, asyncio.Lock] = {}
 # globally at one and let the rest queue behind it.
 _PDF_RENDER_SLOT = asyncio.Semaphore(1)
 
-# Route results, keyed on (trip_id, places, loop) -> (expiry, legs). Every
-# map view would otherwise be one HERE call per leg, on every mount.
+# Route results, keyed on (trip_id, places, loop) -> (expiry, legs). Every# map view would otherwise be one HERE call per leg, on every mount.
 _route_cache: dict[tuple, tuple[float, list[dict]]] = {}
 _ROUTE_TTL = 300.0
 
@@ -176,7 +175,69 @@ def here_bearer_token() -> str | None:
     return _here_bearer_cache[0]
 
 
-def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
+def _crew_initials(name: str) -> str:
+    """Initials for one crew name (#196 phase B): first + last token's first
+    letter, uppercased ("Niko Raes" → "NR"); one token → its first letter;
+    empty → "?". Never blank, so existing renderers stay safe."""
+    tokens = (name or "").split()
+    if not tokens:
+        return "?"
+    if len(tokens) == 1:
+        return tokens[0][0].upper()
+    return (tokens[0][0] + tokens[-1][0]).upper()
+
+
+def _redact_crew_for_outsider(crew: list, viewer_sub: str | None) -> list:
+    """#196 phase B initials rule: on a DISCOVERABLE trip, a viewer with no
+    crew role sees every crew member (other than themselves) as initials —
+    unless that member opted in (`User.publicName`). Redacted entries keep
+    `id`/`role`/`claimed` but lose the trip-relative `note` and `contact`
+    (which may carry an email), and gain `initials` + `redactedName: True` so
+    the frontend can render an avatar/initials chip and tell it apart."""
+    client = get_graph_client()
+    ids = [m.get("id") for m in crew if isinstance(m, dict) and m.get("id")]
+    profiles = client.get_user_profiles(ids) if client is not None else {}
+    out = []
+    for member in crew:
+        if not isinstance(member, dict):
+            out.append(member)
+            continue
+        if viewer_sub and member.get("id") == viewer_sub:
+            out.append(member)  # the viewer's own entry always keeps its name
+            continue
+        if profiles.get(member.get("id") or "", {}).get("publicName") is True:
+            out.append(member)  # opted in — real name, unchanged
+            continue
+        redacted = dict(member)
+        initials = _crew_initials(str(redacted.get("name") or ""))
+        redacted["name"] = initials
+        redacted["initials"] = initials
+        redacted["redactedName"] = True
+        redacted.pop("note", None)
+        redacted.pop("contact", None)
+        out.append(redacted)
+    return out
+
+
+def _viewer_sub(authorization: str | None) -> str | None:
+    """Best-effort viewer sub for the initials exemption (#196 phase B).
+
+    Returns the token's own sub, or None for anonymous/invalid tokens (an
+    invalid token on a public trip reads as anonymous — same rule as
+    ``authorize_trip_path``). Never raises: identity here only decides whose
+    crew entry keeps its real name, never access.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        user = get_current_user(authorization)
+    except HTTPException:
+        return None
+    sub = user.get("sub")
+    return sub if isinstance(sub, str) and sub else None
+
+
+def _public_trip(trip: Trip, my_role: str | None = None, viewer_sub: str | None = None) -> dict:
     """Serialize a trip for API responses.
 
     ``claimToken`` is a SECRET (issue #6) — it is stripped from every trip
@@ -189,6 +250,11 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     followers the sharing key and, with it, the crew's expense registry in
     the Tricount app. Crew roles (viewer/editor/owner) keep it — the snapshot
     endpoint re-checks the role server-side.
+
+    ``crew`` on a DISCOVERABLE trip (#196 phase B) renders as initials for a
+    viewer with no crew role (``my_role`` None) — see
+    ``_redact_crew_for_outsider``. A trip that is not ``discoverable`` renders
+    exactly as before (public-by-link behaviour unchanged).
 
     Media fields are stored as BARE filenames in the data (trip.json / graph);
     the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
@@ -203,6 +269,8 @@ def _public_trip(trip: Trip, my_role: str | None = None) -> dict:
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
+    if trip.discoverable and not my_role and isinstance(data.get("crew"), list):
+        data["crew"] = _redact_crew_for_outsider(data["crew"], viewer_sub)
     return data
 
 
@@ -330,7 +398,7 @@ def create_claim(
         )
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return _public_trip(trip)
+    return _public_trip(trip, viewer_sub=session.user["sub"])
 
 
 @app.post("/api/claims/follow")
@@ -352,7 +420,7 @@ def follow_claim(
         trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return _public_trip(trip)
+    return _public_trip(trip, viewer_sub=session.user["sub"])
 
 
 @app.post("/api/me/ensure")
@@ -452,6 +520,187 @@ def unfollow_user(
     return {"sub": sub, "following": False}
 
 
+class MeUpdate(BaseModel):
+    """Self-service profile edit (issue #196 phase B) — exactly one knob.
+
+    Strict: any field besides ``publicName`` is a 422, so this can never grow
+    into a general twin editor by accident.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    publicName: bool
+
+
+@app.put("/api/me")
+def update_me(
+    body: MeUpdate,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Flip the caller's own ``User.publicName`` opt-in (issue #196).
+
+    Self-service: writes the caller's OWN twin only (404 when it does not
+    exist — the client calls ``ensure`` first). Like ``ensure``/claims/follow
+    this provisions graph identity, so it is user-token-only
+    (``acl.require_user_token``): an M2M token is refused 403. Returns the
+    ``ensure`` shape plus the new ``publicName`` value.
+    """
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    updated = client.set_user_public_name(actor_sub, body.publicName)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
+    name = (updated.get("displayName") or updated.get("name") or "").strip()
+    email = (updated.get("email") or "").strip()
+    return {
+        "sub": actor_sub,
+        "ensured": True,
+        "name": name,
+        "email": email,
+        "publicName": bool(updated.get("publicName", False)),
+    }
+
+
+def _profile_trips(client, target_sub: str, viewer_sub: str) -> list[dict]:
+    """Trip summaries for a profile (issue #196 phase B trip-list rule).
+
+    A trip is listed when EITHER it is ``discoverable`` OR the viewer already
+    has a role on it (crew/follower/editor/owner) — a private trip the viewer
+    was invited to still shows for them. Nothing else is ever listed: a
+    `private` trip the viewer is not on is absent, and a `public`
+    (non-discoverable) trip is listed nowhere — `public` keeps its exact
+    meaning (readable by whoever holds the id link).
+
+    Two round-trips total (the target's trips + the viewer's trips for the
+    role map), however many trips either side has. Summary shape reuses the
+    ``_Q_TRIPS_FOR_USER`` fields plus ``discoverable`` and the viewer's own
+    ``myRole`` (absent when they have none).
+    """
+    viewer_roles = {
+        s.get("dtId"): s.get("role") for s in client.list_trips_for_user(viewer_sub)
+    }
+    out = []
+    for s in client.list_trips_for_user(target_sub):
+        dtid = s.get("dtId")
+        discoverable = bool(s.get("discoverable", False))
+        my_role = viewer_roles.get(dtid)
+        if not (discoverable or my_role):
+            continue
+        row = {
+            key: s.get(key)
+            for key in ("dtId", "title", "subtitle", "stage", "startDate",
+                        "endDate", "cover", "visibility")
+        }
+        resolve_media_urls(row, dtid)
+        row["discoverable"] = discoverable
+        if my_role:
+            row["myRole"] = my_role
+        out.append(row)
+    return out
+
+
+def _profile_people(client, subs: list[str], viewer_sub: str, cap: int = 200) -> list[dict]:
+    """Drill-in people entries (followers/following): ``sub`` + ``name`` (+
+    ``avatar`` when the twin carries one, ``isSelf`` only for the viewer).
+
+    The name resolves from the twin's ``displayName`` (falling back to
+    ``name``); dangling ids (edge without a twin) are skipped, never
+    fabricated.
+    """
+    profiles = client.get_user_profiles(subs[:cap])
+    out = []
+    for sid in subs[:cap]:
+        node = profiles.get(sid)
+        if node is None:
+            continue
+        entry: dict = {
+            "sub": sid,
+            "name": node.get("displayName") or node.get("name") or "",
+        }
+        avatar = node.get("avatar") or node.get("picture")
+        if isinstance(avatar, str) and avatar:
+            entry["avatar"] = avatar
+        if sid == viewer_sub:
+            entry["isSelf"] = True
+        out.append(entry)
+    return out
+
+
+@app.get("/api/users/{sub}")
+def get_user_profile(sub: str, user: dict = Depends(get_current_user)) -> dict:
+    """The profile document (issue #196 phase B).
+
+    Public-ish read: any valid token works, for any user. 404 when that `sub`
+    has no `User` twin. `email` and `publicName` are self-only (omitted for
+    everyone else — no key at all); `avatar` rides along only when the twin
+    carries one. `trips` follows the discoverable-only list rule
+    (``_profile_trips``); counts come from the single-hop follow queries
+    (``followers_of`` / ``following_of``) — no per-follower node walk.
+    """
+    viewer_sub = user["sub"]
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    node = client.get_user_profile(sub)
+    if node is None:
+        raise HTTPException(status_code=404, detail="Unknown user")
+    is_self = viewer_sub == sub
+    followers = client.followers_of(sub)
+    following = client.following_of(sub)
+    trips = _profile_trips(client, sub, viewer_sub)
+    body: dict = {
+        "sub": sub,
+        "name": node.get("displayName") or node.get("name") or "",
+    }
+    avatar = node.get("avatar") or node.get("picture")
+    if isinstance(avatar, str) and avatar:
+        body["avatar"] = avatar
+    if is_self:
+        email = node.get("email")
+        if isinstance(email, str) and email:
+            body["email"] = email
+        body["publicName"] = bool(node.get("publicName", False))
+    body["counts"] = {
+        "followers": len(followers),
+        "following": len(following),
+        "trips": len(trips),
+    }
+    body["viewer"] = {"isSelf": is_self, "following": viewer_sub in followers}
+    body["trips"] = trips
+    return body
+
+
+@app.get("/api/users/{sub}/followers")
+def list_user_followers(sub: str, user: dict = Depends(get_current_user)) -> dict:
+    """Who follows this person (issue #196 phase B). Public-ish read, same
+    404 as the profile when the target has no twin. Capped at 200 entries;
+    ``count`` is the TRUE total (the id list arrives whole from one scoped
+    query — resolving names is what caps, not counting). No email, ever."""
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if client.get_user_profile(sub) is None:
+        raise HTTPException(status_code=404, detail="Unknown user")
+    ids = client.followers_of(sub)
+    return {"count": len(ids), "people": _profile_people(client, ids, user["sub"])}
+
+
+@app.get("/api/users/{sub}/following")
+def list_user_following(sub: str, user: dict = Depends(get_current_user)) -> dict:
+    """Who this person follows (issue #196 phase B). Same contract as the
+    followers drill-in: 200-entry cap, true-total ``count``, no email."""
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if client.get_user_profile(sub) is None:
+        raise HTTPException(status_code=404, detail="Unknown user")
+    ids = client.following_of(sub)
+    return {"count": len(ids), "people": _profile_people(client, ids, user["sub"])}
+
+
 @app.get("/api/trips/{trip_id}/join-link")
 def trip_join_link(
     trip_id: str,
@@ -475,6 +724,7 @@ def trip_join_link(
 def get_trip(
     trip_id: str,
     my_role: str | None = Depends(authorize_trip_path),
+    authorization: str | None = Header(default=None),
 ) -> dict:
     """Read a trip — single id route, gated by visibility (#64).
 
@@ -488,7 +738,7 @@ def get_trip(
     trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return _public_trip(trip, my_role=my_role)
+    return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization))
 
 
 # ------------------------------------------------------------------ write path (#46)
