@@ -119,6 +119,39 @@ def test_create_trip_provisions_user_twin(client, graph, rsa_keypair) -> None:
     assert twin["email"] == "agent@test.local"
 
 
+def test_create_trip_owner_row_names_the_owner_never_the_sub(
+    client, graph, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#213: a token whose profile carries no name/email (no userinfo — the
+    ordinary Auth0 access token) still labels the owner's crew row with the
+    account name, which the existing User twin holds. The opaque auth sub is
+    never a crew label."""
+    graph.twins.append({
+        "$dtId": SUB,
+        "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
+        "name": "Niko Raes",
+        "email": "niko@example.com",
+        "displayName": "Niko Raes",
+        "authProvider": "google",
+    })
+    monkeypatch.setattr(auth_module, "fetch_userinfo", lambda token: {})
+    token = _token_of(rsa_keypair)  # claims carry no email/name
+    r = client.post("/api/trips", headers=_auth(token), json={"title": "Burning Man 2027"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert [c["name"] for c in body["crew"]] == ["Niko Raes"]
+    edge = next(
+        x for x in graph.rels
+        if x.get("$relationshipName") == "hasCrew" and x.get("$targetId") == SUB
+    )
+    assert edge.get("displayName") == "Niko Raes"
+
+    # … and a re-read renders the same name (the bug was the rendered row).
+    got = client.get(f"/api/trips/{body['id']}", headers=_auth(token))
+    assert got.status_code == 200
+    assert [c["name"] for c in got.json()["crew"]] == ["Niko Raes"]
+
+
 def test_create_trip_title_required(client, graph, rsa_keypair) -> None:
     token = _token_of(rsa_keypair)
     assert client.post("/api/trips", headers=_auth(token), json={}).status_code == 422

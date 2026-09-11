@@ -737,24 +737,28 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
     twin: dict[str, Any] = {"$dtId": trip_id, "$metadata": {"$model": TRIP_MODEL}}
     twin.update(_drop_nones(props))
     client.upsert_twin(trip_id, twin, x_user_id=actor_sub)
-    # The owner's crew name on THIS trip rides the edge (issue #196) — the
-    # User twin's account name must never leak in as the crew label.
+    # The owner's crew name on THIS trip rides the edge (issue #196) — a claim
+    # or an account rename must never rewrite it. At creation the token profile
+    # is the source; when it carries no name/email (no userinfo — the ordinary
+    # Auth0 access token), the creator's own twin name is the honest fallback.
+    # The opaque auth sub is never a crew label (issue #213).
     owner_name = ((profile or {}).get("name") or "").strip()
     if not owner_name:
         owner_name = ((profile or {}).get("email") or "").split("@")[0].strip()
-    client.upsert_relationship(
-        trip_id,
-        {
-            "$relationshipId": _rel_id(trip_id, "hasCrew", actor_sub),
-            "$sourceId": trip_id,
-            "$relationshipName": "hasCrew",
-            "$targetId": actor_sub,
-            "role": "owner",
-            "index": 0,
-            "displayName": owner_name or actor_sub,
-        },
-        x_user_id=actor_sub,
-    )
+    if not owner_name:
+        twin = client.get_user_profile(actor_sub) or {}
+        owner_name = (twin.get("displayName") or twin.get("name") or "").strip()
+    rel: dict[str, Any] = {
+        "$relationshipId": _rel_id(trip_id, "hasCrew", actor_sub),
+        "$sourceId": trip_id,
+        "$relationshipName": "hasCrew",
+        "$targetId": actor_sub,
+        "role": "owner",
+        "index": 0,
+    }
+    if owner_name:
+        rel["displayName"] = owner_name
+    client.upsert_relationship(trip_id, rel, x_user_id=actor_sub)
     # The creator's trip list is cached per user — retire it so the new trip
     # shows up on the landing immediately.
     _invalidate_graph_cache(trip_dtid=trip_id, user_dtid=actor_sub)

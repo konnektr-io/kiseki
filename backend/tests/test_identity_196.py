@@ -196,6 +196,21 @@ def test_crew_without_edge_displayName_falls_back_to_twin_name() -> None:
         assert member.name == twin.get("name")
 
 
+def test_crew_edge_storing_the_person_id_is_not_a_name() -> None:
+    """#213: an owner edge written when the token profile had no name stored
+    the opaque auth sub as its ``displayName``. Readers treat that as "no
+    name" and fall back to the twin, so no surface renders a sub as a person."""
+    g = FakeGraph()
+    edge = next(r for r in g.rels if r.get("$relationshipName") == "hasCrew")
+    edge["displayName"] = edge["$targetId"]
+    trip = _trip_of(g)
+    member = next(c for c in trip.crew if c.id == edge["$targetId"])
+    twin = g.twin(member.id)
+    assert twin is not None
+    assert member.name == twin.get("name")
+    assert member.name != member.id
+
+
 # ------------------------------------------------------- 3. ensure-my-twin
 
 def test_ensure_graph_failure_is_503_never_ensured_false(

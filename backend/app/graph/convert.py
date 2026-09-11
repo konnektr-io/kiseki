@@ -67,6 +67,25 @@ def _bydict(twin: dict) -> dict:
     return d
 
 
+def crew_edge_name(edge: dict, target_id: str | None = None) -> str | None:
+    """The crew label a ``hasCrew`` edge carries, or None when it carries none.
+
+    ``displayName`` is the crew's trip-relative name (#196). One degenerate
+    write stored the person's own opaque auth id there instead of a name — the
+    owner edge ``POST /api/trips`` wrote when the caller's token profile was
+    empty (issue #213). An opaque id is not a label: every reader must treat it
+    as absent and fall back to the twin's name, so no surface can render an
+    auth ``sub`` as a person.
+    """
+    name = edge.get("displayName")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    target = target_id if target_id is not None else edge.get("$targetId")
+    if target and name.strip() == target:
+        return None
+    return name.strip()
+
+
 def _rating_expired(updated: Any) -> bool:
     """True when the trip's `updated` stamp is older than the rating TTL.
 
@@ -178,13 +197,14 @@ def graph_to_trip(graph: dict) -> M.Trip:
         d["note"] = r.get("note")
         # The crew's OWN name for this trip rides the edge (#196) — a claim
         # swaps the twin to the account's User but never renames the crew
-        # member. Edges written before #196 carry no displayName: fall back
-        # to the twin's name (User twins also carry displayName).
-        edge_name = r.get("displayName")
-        if isinstance(edge_name, str) and edge_name:
+        # member. Edges written before #196 carry no displayName, and an owner
+        # edge written before #213 carries the opaque id: both fall back to the
+        # twin's name (User twins also carry displayName) — never to the id.
+        edge_name = crew_edge_name(r)
+        if edge_name:
             d["name"] = edge_name
-        elif not d.get("name"):
-            d["name"] = t.get("displayName") or t.get("name")
+        elif not d.get("name") or d.get("name") == t.get("$dtId"):
+            d["name"] = t.get("displayName") or t.get("name") or d.get("name")
         # Placeholder-vs-claimed is the twin's model kind (Person vs User) —
         # surfaced as a view-only flag so the Crew page can show the invite
         # affordance exactly where a claim is still possible.
