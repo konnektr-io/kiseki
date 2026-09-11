@@ -9,6 +9,9 @@ import {
   withBlockItems,
   withCrewMember,
   withTodoDone,
+  withTripStage,
+  withTripTheme,
+  withTripVisibility,
 } from "./editing";
 import type { Trip } from "./types";
 
@@ -81,8 +84,41 @@ describe("stageOptions", () => {
   });
 });
 
-describe("withTodoDone", () => {
-  it("flips one todo and leaves the rest untouched (immutably)", () => {
+describe("trip scalar snapshots", () => {
+  it("withTripStage swaps the stage and nothing else", () => {
+    const t = fixture();
+    const next = withTripStage(t, "booked");
+    expect(next.stage).toBe("booked");
+    expect(t.stage).toBe("planned"); // original unchanged
+    expect(next.title).toBe(t.title);
+  });
+
+  it("withTripVisibility swaps visibility and nothing else", () => {
+    const t = fixture();
+    const next = withTripVisibility(t, "public");
+    expect(next.visibility).toBe("public");
+    expect(t.visibility).toBe("private"); // original unchanged
+  });
+
+  it("withTripTheme produces exactly { preset } and preserves the rest (#200)", () => {
+    const t = fixture();
+    const next = withTripTheme(t, "ember");
+    expect(next.theme).toEqual({ preset: "ember" });
+    expect(Object.keys(next.theme!)).toEqual(["preset"]);
+    expect(next.title).toBe(t.title);
+    expect(next.stage).toBe(t.stage);
+    expect(t.theme).toBeUndefined(); // original unchanged
+  });
+
+  it("withTripTheme replaces an existing preset with exactly { preset }", () => {
+    const t = { ...fixture(), theme: { preset: "nordic" } };
+    const next = withTripTheme(t, "sakura");
+    expect(next.theme).toEqual({ preset: "sakura" });
+    expect(Object.keys(next.theme!)).toEqual(["preset"]);
+  });
+});
+
+describe("withTodoDone", () => {  it("flips one todo and leaves the rest untouched (immutably)", () => {
     const t = fixture();
     const next = withTodoDone(t, 0, true);
     expect(next.practical.todos?.[0]?.done).toBe(true);
