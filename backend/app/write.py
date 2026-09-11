@@ -572,7 +572,7 @@ def _scalar_ops(existing: dict, pairs: list[tuple[str, Any]]) -> list[dict]:
 def _theme_ops(existing: dict, theme: Theme) -> list[dict]:
     ops: list[dict] = []
     cur = existing.get("theme") if isinstance(existing.get("theme"), dict) else {}
-    for prop in ("primary", "accent", "font"):
+    for prop in ("preset", "primary", "accent", "surface", "font", "displayFont", "headingFont", "bodyFont", "radius"):
         value = getattr(theme, prop)
         if value is None:
             continue  # partial theme: absent keys untouched
@@ -581,6 +581,18 @@ def _theme_ops(existing: dict, theme: Theme) -> list[dict]:
             "path": f"/theme/{prop}",
             "value": value,
         })
+    # Nested map overrides patch per sub-key (same partial semantics).
+    if theme.mapStyle is not None:
+        cur_map = cur.get("mapStyle") if isinstance(cur, dict) and isinstance(cur.get("mapStyle"), dict) else {}
+        for prop in ("basemap", "styleUrl", "route", "routeCasing", "marker", "markerFg"):
+            value = getattr(theme.mapStyle, prop)
+            if value is None:
+                continue
+            ops.append({
+                "op": "replace" if isinstance(cur_map, dict) and prop in cur_map else "add",
+                "path": f"/theme/mapStyle/{prop}",
+                "value": value,
+            })
     return ops
 
 

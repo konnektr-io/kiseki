@@ -294,12 +294,40 @@ class TricountSnapshot(BaseModel):
 Practical.model_rebuild()  # resolve the forward ref to TricountConfig (defined above)
 
 
-class Theme(BaseModel):
-    """UI theming — hex colors + font. The UI consumes CSS variables, never raw hex."""
+class ThemeMapStyle(BaseModel):
+    """Per-trip map overrides — every field optional, unset means "from the preset".
 
+    ``basemap`` is a key into the prebuilt OpenFreeMap style set (positron =
+    minimal, liberty = dense); ``styleUrl`` is the escape hatch for a full
+    custom style JSON and wins over everything (including VITE_MAP_STYLE_URL
+    on the client), so "our own style JSON" stays a data change (#40 D2)."""
+
+    basemap: Optional[str] = Field(default=None, description="Prebuilt basemap key (positron | bright | liberty | dark).")
+    styleUrl: Optional[str] = Field(default=None, description="Full custom style JSON URL — wins over basemap + env override.")
+    route: Optional[str] = Field(default=None, description="Route line hex override.")
+    routeCasing: Optional[str] = Field(default=None, description="Route casing hex override.")
+    marker: Optional[str] = Field(default=None, description="Marker fill hex override.")
+    markerFg: Optional[str] = Field(default=None, description="Marker foreground hex override.")
+
+
+class Theme(BaseModel):
+    """UI theming — a curated preset plus optional per-trip overrides.
+
+    ``preset`` is the identity (palette + type pairing + map style + radius,
+    #40); the scalar fields override the preset and are validated client-side
+    in ``tripStyle()`` (strict #rgb/#rrggbb parse, WCAG contrast, OKLCH
+    auto-derive). All Optional so existing twins stay valid."""
+
+    preset: Optional[str] = Field(default=None, description="Preset id, e.g. 'alpine' — palette + fonts + map style + radius.")
     primary: Optional[str] = Field(default=None, description="Primary hex color.")
     accent: Optional[str] = Field(default=None, description="Accent hex color.")
+    surface: Optional[str] = Field(default=None, description="Paper tint hex color.")
     font: Optional[str] = Field(default=None, description="Font family key (bundled via @fontsource).")
+    displayFont: Optional[str] = Field(default=None, description="Display-role font family override.")
+    headingFont: Optional[str] = Field(default=None, description="Heading-role font family override.")
+    bodyFont: Optional[str] = Field(default=None, description="Body-role font family override.")
+    radius: Optional[str] = Field(default=None, description="Corner radius override (CSS length, shifts the whole scale).")
+    mapStyle: Optional[ThemeMapStyle] = Field(default=None, description="Per-trip map overrides (from the preset when absent).")
 
 
 class User(Person):

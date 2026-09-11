@@ -834,6 +834,10 @@
           "@type": "Object",
           "fields": [
             {
+              "name": "preset",
+              "schema": "string"
+            },
+            {
               "name": "primary",
               "schema": "string"
             },
@@ -842,8 +846,60 @@
               "schema": "string"
             },
             {
+              "name": "surface",
+              "schema": "string"
+            },
+            {
               "name": "font",
               "schema": "string"
+            },
+            {
+              "name": "displayFont",
+              "schema": "string"
+            },
+            {
+              "name": "headingFont",
+              "schema": "string"
+            },
+            {
+              "name": "bodyFont",
+              "schema": "string"
+            },
+            {
+              "name": "radius",
+              "schema": "string"
+            },
+            {
+              "name": "mapStyle",
+              "schema": {
+                "@type": "Object",
+                "fields": [
+                  {
+                    "name": "basemap",
+                    "schema": "string"
+                  },
+                  {
+                    "name": "styleUrl",
+                    "schema": "string"
+                  },
+                  {
+                    "name": "route",
+                    "schema": "string"
+                  },
+                  {
+                    "name": "routeCasing",
+                    "schema": "string"
+                  },
+                  {
+                    "name": "marker",
+                    "schema": "string"
+                  },
+                  {
+                    "name": "markerFg",
+                    "schema": "string"
+                  }
+                ]
+              }
             }
           ]
         },
