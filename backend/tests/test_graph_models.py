@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 
 from app import models as M  # noqa: E402
 from scripts.gen_dtdl import main as gen_main, mid  # noqa: E402
-from scripts.trip_to_graph import trip_to_graph, MODEL  # noqa: E402
+from scripts.trip_to_graph import _emit_block, trip_to_graph, MODEL  # noqa: E402
 
 DTDL = ROOT / "dtdl" / "kiseki-models.json"
 TRIP = ROOT / "data" / "trips" / "canada-2027" / "trip.json"
@@ -277,3 +277,33 @@ def test_anon_mock_fixture_matches_converter(trip):
         trip_from_anon = graph_to_trip(anon)
         assert trip_from_anon.id == anon["$dtId"]
         assert trip_to_graph(trip_from_anon, anonymize=True) == anon
+
+
+def test_seed_path_sanitizes_custom_block_html() -> None:
+    """Re-seeding from trip.json is an ingestion route too, so custom-block HTML
+    is sanitized there as well — not only on the API write path. The API gate
+    can be bypassed by any re-seed/backfill, and the frontend's own DOMPurify
+    pass is a second line of defence, not a licence to store hostile markup
+    (#196 phase B).
+    """
+    blk = M.Block(
+        id="b1",
+        kind="custom",
+        title="Notice",
+        html=(
+            '<div>Keep this</div>'
+            '<script>alert("xss")</script>'
+            '<p onclick="evil()">text</p>'
+            '<a href="javascript:alert(1)">click</a>'
+        ),
+    )
+    twins: list[dict] = []
+    rels: list[dict] = []
+    _emit_block("b1", "d1", blk, twins, rels, set())
+
+    (emitted,) = twins
+    dumped = json.dumps(emitted)
+    assert "Keep this" in dumped  # benign markup survives
+    assert "<script" not in dumped
+    assert "onclick" not in dumped
+    assert "javascript:" not in dumped

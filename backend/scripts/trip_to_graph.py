@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app import models as M  # noqa: E402
+from app.sanitize import sanitize_custom_html  # noqa: E402
 
 MODEL = lambda name: f"dtmi:kiseki:travel:{name};1"
 
@@ -149,8 +150,17 @@ def _anonymize(trip: M.Trip) -> M.Trip:
 
 
 def _emit_block(bid, parent_did, blk, twins, rels, loc_ids):
-    """Create a Block twin + its hasBlock edge and any atLocation edge."""
+    """Create a Block twin + its hasBlock edge and any atLocation edge.
+
+    ``custom``-block HTML is sanitized HERE as well (#196 phase B), not only on
+    the API write path: re-seeding from trip.json is the canonical ingestion
+    route, so a hand-authored ``html`` would otherwise land in the graph and
+    bypass the gate entirely. The sanitizer is idempotent, so re-seeding
+    already-sanitized content is a no-op.
+    """
     bprops = _strip_rel_fields("Block", blk.model_dump(by_alias=True))
+    if isinstance(bprops.get("html"), str) and bprops["html"].strip():
+        bprops["html"] = sanitize_custom_html(bprops["html"])
     twins.append(twin(bid, "Block", bprops))
     rels.append(relationship(_rel_id(parent_did, "hasBlock", bid), parent_did, "hasBlock", bid))
     if blk.location and blk.location in loc_ids:

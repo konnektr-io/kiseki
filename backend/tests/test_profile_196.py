@@ -483,3 +483,94 @@ def test_trips_for_user_query_carries_discoverable() -> None:
     assert client_mod.GraphReadClient._trip_summary_from_list(ten)["discoverable"] is False
     eleven = ten + [True]
     assert client_mod.GraphReadClient._trip_summary_from_list(eleven)["discoverable"] is True
+
+
+# ------------------------------------------- 6. review fixes (#196 phase B review)
+
+
+def test_join_link_and_claim_response_are_crew_views(client, rsa_keypair, graph,
+                                                    monkeypatch) -> None:
+    """The claim token IS the invite and claiming makes the caller crew, so both
+    responses are crew views: real names come back, exactly as before #196.
+
+    The initials rule governs an OUTSIDER browsing a LISTED trip. The join page
+    must show the crew (that is how the invitee picks 'This is me'), so the
+    invite read is not a listed surface; and by the time the claim response is
+    built the caller holds a hasCrew edge on that trip — redacting their
+    crewmates there would silently regress #198's join flow.
+    """
+    g = graph(role="owner")
+    _redaction_setup(client, rsa_keypair, g)  # public + discoverable + named crew
+    trip = _trip_of(g)
+    assert trip.discoverable is True  # the gate WOULD fire on a plain public read
+
+    r = client.get(f"/api/trips/by-claim/{trip.claimToken}")
+    assert r.status_code == 200
+    assert "Niko Raes" in [c["name"] for c in r.json()["crew"]]
+    assert not any("redactedName" in c for c in r.json()["crew"])
+
+    monkeypatch.setattr("app.main.claim_identity", lambda token, person, sub, profile: trip)
+    r = client.post(
+        "/api/claims",
+        headers=_auth(_token_of(rsa_keypair, sub=STRANGER)),
+        json={"claimToken": trip.claimToken, "personId": "whatever"},
+    )
+    assert r.status_code == 200
+    assert "Niko Raes" in [c["name"] for c in r.json()["crew"]]
+    assert not any("redactedName" in c for c in r.json()["crew"])
+
+
+def test_set_user_public_name_write_shape_and_failure(monkeypatch) -> None:
+    """``PUT /api/me``'s graph write: the upsert body carries ONLY
+    ``$dtId`` + ``$metadata.$model`` plus the props — a read's ``$etag`` /
+    ``$lastUpdateTime`` must never ride back into a write (stale concurrency
+    token, cf. ``trip_to_graph.twin``) — and a WRITE failure raises
+    ``GraphWriteError`` (route → 503) instead of collapsing into None, which
+    would report "no such user, call ensure first" for an identity that exists.
+    """
+    import app.graph.client as gc
+
+    class _SDK:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+            self.fail = False
+
+        def upsert_digital_twin(self, dtid: str, twin) -> None:
+            if self.fail:
+                raise RuntimeError("graph 500")
+            self.calls.append(twin.to_dict())
+
+    sdk = _SDK()
+    client_obj = object.__new__(gc.GraphReadClient)
+    client_obj._client = sdk
+    monkeypatch.setattr(client_obj, "is_enabled", lambda: True)
+    monkeypatch.setattr(client_obj, "get_user_profile", lambda sub: {
+        "$dtId": sub,
+        "$etag": 'W/"stale"',
+        "$metadata": {
+            "$model": gc.USER_MODEL,
+            "$lastUpdateTime": "2020-01-01T00:00:00Z",
+        },
+        "name": "Niko Raes",
+        "email": "niko@example.com",
+        "displayName": "Niko Raes",
+        "authProvider": "google",
+    })
+
+    out = client_obj.set_user_public_name(SUB, True)
+    assert out is not None
+    assert out["publicName"] is True
+    assert out["email"] == "niko@example.com"  # existing props preserved
+    assert not any(k.startswith("$") for k in out)  # flat props, no ADT keys
+
+    (sent,) = sdk.calls
+    assert sent["$dtId"] == SUB
+    assert sent["$metadata"] == {"$model": gc.USER_MODEL}
+    assert "$etag" not in sent
+    assert "$lastUpdateTime" not in sent["$metadata"]
+    assert sent["publicName"] is True
+
+    sdk.fail = True
+    with pytest.raises(gc.GraphWriteError) as excinfo:
+        client_obj.set_user_public_name(SUB, False)
+    assert excinfo.value.status == 503

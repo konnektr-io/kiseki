@@ -723,26 +723,41 @@ class GraphReadClient:
         """Write the caller's own ``User.publicName`` opt-in (``PUT /api/me``).
 
         Get-then-upsert-full: the existing props (name/email/displayName/…)
-        are preserved and only ``publicName`` changes. Returns the updated flat
-        twin dict, or None when the twin does not exist (the route maps this
-        to 404 — the client calls ``ensure`` first).
+        are preserved and only ``publicName`` changes. Returns those props, or
+        None when the twin does not exist (the route maps this to 404 — the
+        client calls ``ensure`` first).
+
+        "The twin is missing" and "the graph refused the write" are DIFFERENT
+        answers: a failed write raises ``GraphWriteError`` (mapped to 503), it
+        never collapses into None — reporting a failed write as 404 would tell
+        the caller to re-provision an identity that already exists.
+
+        The upsert body is rebuilt from the current props with only ``$dtId`` +
+        ``$metadata.$model``: a read's ``$etag`` / ``$lastUpdateTime`` is never
+        echoed back into a write (stale-etag rule, cf. ``trip_to_graph.py``).
         """
         if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
             return None
         current = self.get_user_profile(user_dtid)
         if current is None:
             return None
+        props = {
+            k: v
+            for k, v in current.items()
+            if not (isinstance(k, str) and k.startswith("$"))
+        }
+        props["publicName"] = bool(public_name)
         try:
             from konnektr_graph import BasicDigitalTwin
 
-            updated = dict(current)
-            updated["publicName"] = bool(public_name)
-            twin = BasicDigitalTwin.from_dict(updated)
+            twin = BasicDigitalTwin.from_dict(
+                {"$dtId": user_dtid, "$metadata": {"$model": USER_MODEL}, **props}
+            )
             self._client.upsert_digital_twin(user_dtid, twin)  # type: ignore[union-attr]
-            return updated
         except Exception as exc:
             print(f"[kiseki] graph set publicName({user_dtid}) failed: {exc}")
-            return None
+            raise GraphWriteError(503, f"graph write failed for {user_dtid}") from exc
+        return props
 
 
     @staticmethod

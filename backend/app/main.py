@@ -77,6 +77,7 @@ from .write import (
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, search_place, photo_by_name as place_photo_bytes
+from .graph.client import GraphWriteError
 from .graph.convert import GraphNotFound
 from .media import (
     content_addressed_key,
@@ -231,13 +232,21 @@ def _viewer_sub(authorization: str | None) -> str | None:
         return None
     try:
         user = get_current_user(authorization)
-    except HTTPException:
+    except Exception:
+        # Broad on purpose: this read-path identity only decides whose crew
+        # entry keeps its real name — a JWKS/network hiccup (not an
+        # HTTPException) must degrade to anonymous, never 500 a public page.
         return None
     sub = user.get("sub")
     return sub if isinstance(sub, str) and sub else None
 
 
-def _public_trip(trip: Trip, my_role: str | None = None, viewer_sub: str | None = None) -> dict:
+def _public_trip(
+    trip: Trip,
+    my_role: str | None = None,
+    viewer_sub: str | None = None,
+    redact_crew: bool = True,
+) -> dict:
     """Serialize a trip for API responses.
 
     ``claimToken`` is a SECRET (issue #6) — it is stripped from every trip
@@ -256,6 +265,15 @@ def _public_trip(trip: Trip, my_role: str | None = None, viewer_sub: str | None 
     ``_redact_crew_for_outsider``. A trip that is not ``discoverable`` renders
     exactly as before (public-by-link behaviour unchanged).
 
+    ``redact_crew=False`` switches that rule off for the INVITE and CREW-VIEW
+    callers (``by-claim``, ``/api/claims``, ``/api/claims/follow``). The rule
+    governs surfaces where an outsider browses a LISTED trip; it does not apply
+    to the claim link (its documented trust model is possession of the secret
+    invite, and the join page must show the crew so the invitee can pick "This
+    is me" — redacting there would silently regress #198's join flow) nor to a
+    response rendered to a caller who is crew/follower the moment it returns
+    (crew see crew names — pre-#196 behaviour for exactly these three routes).
+
     Media fields are stored as BARE filenames in the data (trip.json / graph);
     the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
     only ever see full URLs, namespaced by the trip's durable id — never the
@@ -269,7 +287,7 @@ def _public_trip(trip: Trip, my_role: str | None = None, viewer_sub: str | None 
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
-    if trip.discoverable and not my_role and isinstance(data.get("crew"), list):
+    if redact_crew and trip.discoverable and not my_role and isinstance(data.get("crew"), list):
         data["crew"] = _redact_crew_for_outsider(data["crew"], viewer_sub)
     return data
 
@@ -364,7 +382,9 @@ def trip_by_claim(claim_token: str) -> dict:
     trip = trip_by_claim_token(claim_token)
     if trip is None:
         raise HTTPException(status_code=404, detail="Unknown join link")
-    return _public_trip(trip)
+    # The invite itself is not a listed surface: the token-holder is meant to
+    # see the crew (that is how they pick their row), so no initials rule here.
+    return _public_trip(trip, redact_crew=False)
 
 
 class ClaimRequest(BaseModel):
@@ -398,7 +418,9 @@ def create_claim(
         )
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return _public_trip(trip, viewer_sub=session.user["sub"])
+    # The caller is crew (claim) / follower (follow) the moment this returns,
+    # so the response is the crew view — not an outsider's listing.
+    return _public_trip(trip, redact_crew=False)
 
 
 @app.post("/api/claims/follow")
@@ -420,7 +442,9 @@ def follow_claim(
         trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-    return _public_trip(trip, viewer_sub=session.user["sub"])
+    # The caller is crew (claim) / follower (follow) the moment this returns,
+    # so the response is the crew view — not an outsider's listing.
+    return _public_trip(trip, redact_crew=False)
 
 
 @app.post("/api/me/ensure")
@@ -543,14 +567,19 @@ def update_me(
     exist — the client calls ``ensure`` first). Like ``ensure``/claims/follow
     this provisions graph identity, so it is user-token-only
     (``acl.require_user_token``): an M2M token is refused 403. Returns the
-    ``ensure`` shape plus the new ``publicName`` value.
+    ``ensure`` shape plus the new ``publicName`` value. A graph write failure
+    is 503 (``GraphWriteError``): a missing twin stays the only 404, because
+    "call ``ensure`` first" is only the right advice when it is really gone.
     """
     require_user_token(session.user)
     actor_sub = session.user["sub"]
     client = get_graph_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Graph not configured")
-    updated = client.set_user_public_name(actor_sub, body.publicName)
+    try:
+        updated = client.set_user_public_name(actor_sub, body.publicName)
+    except GraphWriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
     name = (updated.get("displayName") or updated.get("name") or "").strip()
