@@ -188,6 +188,56 @@ export interface TripSummary {
   role?: Role;
 }
 
+/* ---------------- #196d user profiles ----------------
+ * Shapes of GET /api/users/{sub} (+ followers/following drill-ins).
+ * The server omits `email` for anyone but the profile owner — the type
+ * deliberately has NO email field, so the UI cannot render (or source)
+ * another person's address even if a payload carried one. */
+
+/** One trip summary inside a profile document — the server already applied
+ *  the discoverable-only listing rule (discoverable, or the viewer has a
+ *  role). Rendered verbatim: never filtered, never widened. `myRole` is
+ *  absent when the viewer has no role on that trip. */
+export interface ProfileTrip {
+  dtId: string;
+  title: string;
+  subtitle?: string;
+  stage: Stage;
+  startDate?: string;
+  endDate?: string;
+  cover?: string;
+  visibility: Visibility;
+  discoverable?: boolean;
+  myRole?: Role;
+}
+
+export interface UserProfile {
+  sub: string;
+  name: string;
+  avatar?: string;
+  /** Self-only opt-in flag (key absent for every other viewer). */
+  publicName?: boolean;
+  counts: { followers: number; following: number; trips: number };
+  viewer: { isSelf: boolean; following: boolean };
+  trips: ProfileTrip[];
+}
+
+/** One row of a followers/following drill-in — name + avatar only, no
+ *  email, ever. `isSelf` marks the viewer's own row. */
+export interface ProfilePerson {
+  sub: string;
+  name: string;
+  avatar?: string;
+  isSelf?: boolean;
+}
+
+/** Drill-in list: `count` is the TRUE total; `people` is capped at 200
+ *  entries — when count exceeds the list, the UI must say so honestly. */
+export interface PeopleList {
+  count: number;
+  people: ProfilePerson[];
+}
+
 /** Trip theming — the preset id is the whole contract (#40 follow-up).
  *  Retired per-trip override fields are not modelled; a document that still
  *  carries them is read as its preset only (see theme.tsx). */

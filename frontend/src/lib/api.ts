@@ -1,4 +1,4 @@
-import type { Role, Trip, TripSummary, TricountSnapshot } from "./types";
+import type { PeopleList, Role, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -373,6 +373,105 @@ export async function putContainerOrder(
   );
   cacheTrip(tripId, doc);
   return doc;
+}
+
+/* ---------------- #196d user profiles ----------------
+ * Read: GET /api/users/{sub} (any valid token; 404 when that sub has no
+ * User twin) + the followers/following drill-ins (true-total `count`,
+ * max 200 entries). Writes (follow/unfollow/ensure/publicName) are
+ * user-token-only on the server (M2M refused 403). `{sub}` is the bare
+ * Auth0 subject — always URL-encoded when building a path. */
+
+async function profileRequest<T>(
+  method: string,
+  path: string,
+  accessToken: string,
+  body?: JsonBody,
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as T;
+}
+
+/** The profile document — trips already filtered server-side to the
+ *  discoverable-only listing rule. Rendered verbatim. */
+export async function fetchUserProfile(sub: string, accessToken: string): Promise<UserProfile> {
+  return profileRequest<UserProfile>(
+    "GET",
+    `/api/users/${encodeURIComponent(sub)}`,
+    accessToken,
+  );
+}
+
+/** Followers drill-in for a profile (same 404 contract as the profile). */
+export async function fetchUserFollowers(
+  sub: string,
+  accessToken: string,
+): Promise<PeopleList> {
+  return profileRequest<PeopleList>(
+    "GET",
+    `/api/users/${encodeURIComponent(sub)}/followers`,
+    accessToken,
+  );
+}
+
+/** Following drill-in for a profile. */
+export async function fetchUserFollowing(
+  sub: string,
+  accessToken: string,
+): Promise<PeopleList> {
+  return profileRequest<PeopleList>(
+    "GET",
+    `/api/users/${encodeURIComponent(sub)}/following`,
+    accessToken,
+  );
+}
+
+/** Follow a person — one-directional, grants NO trip access. 400 on
+ *  self-follow, 404 when the target has no twin. */
+export async function followUser(
+  sub: string,
+  accessToken: string,
+): Promise<{ sub: string; following: boolean }> {
+  return profileRequest("POST", `/api/users/${encodeURIComponent(sub)}/follow`, accessToken);
+}
+
+/** Unfollow a person (idempotent — a 200 no-op when not following). */
+export async function unfollowUser(
+  sub: string,
+  accessToken: string,
+): Promise<{ sub: string; following: boolean }> {
+  return profileRequest("DELETE", `/api/users/${encodeURIComponent(sub)}/follow`, accessToken);
+}
+
+/** Idempotent: provisions the caller's User twin so they are reachable at
+ *  a profile before ever claiming crew on a trip. `ensured: false` when
+ *  the token carries no usable email (the SPA keeps working); a graph
+ *  failure is a 503, never disguised. */
+export async function ensureMe(accessToken: string): Promise<{
+  sub: string;
+  ensured: boolean;
+  name?: string;
+  email?: string;
+  reason?: string;
+}> {
+  return profileRequest("POST", "/api/me/ensure", accessToken);
+}
+
+/** Flip the caller's own `User.publicName` opt-in — the ONLY accepted
+ *  field (anything else is a server-side 422). */
+export async function setPublicName(
+  publicName: boolean,
+  accessToken: string,
+): Promise<{ sub: string; ensured: boolean; publicName: boolean }> {
+  return profileRequest("PUT", "/api/me", accessToken, { publicName });
 }
 
 /* ---------------- #111 Tricount (crew-only) ---------------- */
