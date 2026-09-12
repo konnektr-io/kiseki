@@ -443,8 +443,20 @@ export function TripMapSurface() {
   /** In-app level transitions — navigate() keeps the surface mounted. */
   const showScan = (hash = "") => navigate(`/t/${tripId}/itinerary${hash}`);
 
-  /* Day → day: the content swaps; bring the rail/sheet back to the top. */
+  /* Day → day: the content swaps; bring the rail/sheet back to the top.
+   *
+   * DAY LEVEL ONLY. The scan level's arrival position is owned by
+   * ItineraryList, which resolves its own precedence chain (`#s-<n>` chapter
+   * anchor → the "you were here" restore → today). Layout effects fire
+   * CHILD-FIRST, so ItineraryList's anchor scroll has already happened by the
+   * time this parent effect runs — resetting here unconditionally clobbered it
+   * and dumped every Overview-TOC / DayNav "up" jump at the top of the
+   * itinerary (#218). Entering a day still resets (`isDayRoute` false → true,
+   * or day → day), which is what this effect was actually written for. A
+   * same-level hash change (an in-scan TOC tap) leaves both deps untouched, so
+   * this effect simply does not re-run there. */
   useLayoutEffect(() => {
+    if (!isDayRoute) return;
     const scroller = listRef.current?.closest("[data-scroll-root]") as HTMLElement | null;
     if (scroller) scroller.scrollTop = 0;
   }, [dayIdx, isDayRoute]);

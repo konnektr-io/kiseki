@@ -4,7 +4,7 @@ import { useTrip } from "./theme";
 import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "./DaySummaryRow";
 import { findLocation, markerNumber } from "../lib/maps";
 import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
-import { itineraryItems, sectionRange } from "../lib/sections";
+import { itineraryItems, sectionAnchorElement, sectionRange } from "../lib/sections";
 import { roleAtLeast } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { moveTripBlock } from "../lib/api";
@@ -163,14 +163,14 @@ export function ItineraryList({
   useLayoutEffect(() => {
     const root = innerRef.current;
     const scroller = (root?.closest("[data-scroll-root]") as HTMLElement | null) ?? null;
-    if (hash.startsWith("#s-")) {
-      const el = root?.querySelector(hash.slice(1));
-      if (el) {
-        el.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "instant" });
-        return;
-      }
-      // Hash present but no such chapter (stale link, section removed) —
-      // fall through to the next precedence rule rather than doing nothing.
+    // Chapter anchor first: it is the most specific thing the URL can ask for.
+    // A hash that names no chapter (stale link, section removed, or something
+    // that isn't a chapter at all) yields null and falls through to the rules
+    // below rather than doing nothing.
+    const anchor = sectionAnchorElement(root, hash);
+    if (anchor) {
+      anchor.scrollIntoView({ block: "start", behavior: reducedMotion() ? "auto" : "instant" });
+      return;
     }
     const saved = sessionStorage.getItem(key);
     if (saved != null && !Number.isNaN(Number(saved))) {
