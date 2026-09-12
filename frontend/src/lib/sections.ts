@@ -36,6 +36,28 @@ export function sectionIndexForDay(sections: TripSection[] | undefined, dayIdx: 
   return si === -1 ? undefined : si;
 }
 
+/** Resolve a `#s-<n>` chapter anchor to its `<section>` inside the itinerary
+ *  list, or null when the hash names something else (or nothing in this list).
+ *
+ *  `hash` comes straight from `useLocation().hash`, so it ALREADY carries its
+ *  leading `#` ("#s-2") — it *is* an id selector. Stripping the `#` and passing
+ *  the bare id handed querySelector a TAG selector ("s-2") matching nothing, so
+ *  every Overview-TOC card and day-page "up" jump fell through to the next
+ *  arrival rule and the itinerary opened at the top (#218).
+ *
+ *  The id is matched by SHAPE rather than escaped (as scrollToPlacePill does):
+ *  `\d+` cannot carry selector syntax, and it rejects a bare "#s-" whose empty
+ *  id would be a selector SYNTAX ERROR rather than a clean miss. */
+export function sectionAnchorElement(
+  root: ParentNode | null,
+  hash: string,
+): HTMLElement | null {
+  if (!root) return null;
+  const chapter = /^#s-(\d+)$/.exec(hash);
+  if (!chapter) return null;
+  return root.querySelector<HTMLElement>(`#s-${chapter[1]}`);
+}
+
 /** One renderable row inside a section: a single day, or a FOLDED group of
  *  consecutive days shown as one card (`fold` on the section — display-only,
  *  the days themselves still exist and keep their day pages). */
