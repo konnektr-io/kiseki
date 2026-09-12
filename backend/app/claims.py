@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .graph.convert import GraphNotFound, graph_to_trip
+from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
 from .graph.client import PERSON_MODEL, USER_MODEL
 from .models import Trip
 from .store import get_graph_client
@@ -119,9 +119,9 @@ def claim_identity(
     note = edge.get("note")
     note = note if isinstance(note, str) else None
     # The crew's OWN name rides the edge too (#196) — carry it over so a
-    # claim never renames the crew member to the account's name.
-    display_name = edge.get("displayName")
-    display_name = display_name if isinstance(display_name, str) and display_name else None
+    # claim never renames the crew member to the account's name. An edge that
+    # stored the person's own opaque id carries no name at all (#213).
+    display_name = crew_edge_name(edge, person_id)
 
     if not client.create_user_twin(user_dtid, profile):
         raise ClaimError(503, "Could not create your user identity")

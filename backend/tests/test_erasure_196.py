@@ -201,6 +201,34 @@ def test_erasure_reverts_crew_row_and_drops_identity(client, rsa_keypair, graph)
     assert client.delete("/api/me", headers=_auth(token)).status_code == 404
 
 
+def test_erasure_revert_never_names_the_placeholder_with_the_sub(
+    client, rsa_keypair, graph,
+) -> None:
+    """#213: a crew edge that stored the opaque auth sub as its label reverts
+    onto a placeholder named the ACCOUNT name — a sub is not a crew label."""
+    g = graph(role="viewer")
+    edge = _crew_edge(g, g.root, SUB)
+    assert edge is not None
+    edge["role"] = "viewer"
+    edge["displayName"] = SUB
+
+    r = client.delete("/api/me", headers=_auth(_token_of(rsa_keypair)))
+    assert r.status_code == 200
+    assert r.json()["deleted"]["crewEntriesReverted"] == 1
+
+    trip = _trip_of(g)
+    assert trip.crew
+    assert all(c.name != SUB for c in trip.crew)
+    mine = [c for c in trip.crew if c.name == "Test Owner"]  # the account name
+    assert len(mine) == 1
+    assert mine[0].id != SUB
+    assert mine[0].claimed is False
+    # The revert carries no label, so the read path falls back to the twin.
+    new_edge = _crew_edge(g, g.root, mine[0].id)
+    assert new_edge is not None
+    assert new_edge.get("displayName") is None
+
+
 def test_erasure_leaves_other_trips_and_users_untouched(
     client, rsa_keypair, graph,
 ) -> None:

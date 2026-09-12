@@ -49,7 +49,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from .graph.convert import GraphNotFound, graph_to_trip
+from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
 from .models import Trip
 from .store import get_graph_client, get_trip_by_id
 
@@ -129,8 +129,10 @@ def erase_account(user_dtid: str) -> dict:
         index = index if isinstance(index, int) else 0
         note = edge.get("note")
         note = note if isinstance(note, str) else None
-        display_name = edge.get("displayName")
-        display_name = display_name if isinstance(display_name, str) and display_name else None
+        # Same label rule as the read path (#213): an edge that stored the
+        # opaque id carries no name, so the placeholder falls back to the
+        # account name instead of inheriting a ``sub``.
+        display_name = crew_edge_name(edge, user_dtid)
         placeholder_name = display_name or account_name
         if not client.revert_crew_person(
             trip_dtid, user_dtid, str(uuid.uuid4()), placeholder_name,

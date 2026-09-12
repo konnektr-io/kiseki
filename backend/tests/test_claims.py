@@ -278,6 +278,23 @@ def test_claim_identity_success(stub: _StubClient) -> None:
     assert len(trip_model.crew) == 3
 
 
+def test_claim_never_carries_an_opaque_id_over_as_the_crew_name(stub: _StubClient) -> None:
+    """#213: an edge whose label IS the person's own id carries no name — the
+    claim carries none over instead of promoting the opaque id to a name."""
+    person = _person_id(stub.graph, "Niko Raes")
+    edge = next(
+        r for r in stub.graph["relationships"]
+        if r["$targetId"] == person and r["$relationshipName"] == "hasCrew"
+    )
+    edge["displayName"] = person
+
+    trip_model = claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
+
+    assert stub.transfer is not None
+    assert stub.transfer[-1] is None  # no displayName rode over
+    assert all(c.name != person for c in trip_model.crew)
+
+
 def test_claim_identity_unknown_claim_token(stub: _StubClient) -> None:
     with pytest.raises(claims_module.ClaimError) as ei:
         claims_module.claim_identity("deadbeef", "x", "u", PROFILE)
