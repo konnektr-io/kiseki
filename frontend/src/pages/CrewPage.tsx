@@ -76,7 +76,7 @@ function MemberEditor({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             disabled={busy}
-            placeholder="e.g. Skis — Elan Playmaker 111 · touring bindings?"
+            placeholder="e.g. dietary needs, gear, arrival details…"
           />
         </div>
         {isOwner && (
@@ -200,7 +200,7 @@ function AddCrewForm({
             value={note}
             onChange={(e) => setNote(e.target.value)}
             disabled={busy}
-            placeholder="e.g. Skis — touring bindings?"
+            placeholder="e.g. dietary needs, gear, arrival details…"
           />
         </div>
         <div>
