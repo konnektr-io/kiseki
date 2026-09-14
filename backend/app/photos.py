@@ -276,6 +276,8 @@ def _day_image_set(day: Day) -> set[str]:
             for item in b.items or []:
                 if isinstance(item, str):
                     present.add(item)
+                elif isinstance(item, dict) and isinstance(item.get("url"), str):
+                    present.add(item["url"])
     return present
 
 
@@ -384,17 +386,22 @@ def confirm_placements(
         existing = next((b for b in day.blocks if b.kind == "gallery"), None)
         if existing is not None:
             items = list(existing.items or [])
-            if not all(isinstance(x, str) for x in items):
+            if not all(isinstance(x, (str, dict)) for x in items):
                 raise WriteError(422, "gallery items must be media filenames/URLs")
+            # normalize to the stored object shape ({"url": name}) — same
+            # rule _validate_items enforces on the generic block write path
+            norm = [it if isinstance(it, dict) else {"url": it} for it in items]
+            fresh_names = [n for n in fresh_sorted]
+            merged_names = [it.get("url", "") for it in norm]
             merged = sorted(
-                items + fresh_sorted,
-                key=lambda n: (
+                norm + [{"url": n} for n in fresh_names if n not in merged_names],
+                key=lambda it: (
                     (
-                        sort_key(taken_of.get(n), result.timezone)
-                        if isinstance(n, str) and n in taken_of
+                        sort_key(taken_of.get(it["url"]), result.timezone)
+                        if it.get("url") in taken_of
                         else float("inf")
                     ),
-                    str(n),
+                    str(it.get("url", "")),
                 ),
             )
             result = write_svc.update_block(
@@ -414,6 +421,7 @@ def confirm_placements(
                     container=ContainerRef(type="day", id=day_id),
                     index=index,
                     title="Photos",
+                    # BlockCreate/_validate_items normalizes to {"url": n}
                     items=fresh_sorted,
                 ),
             )

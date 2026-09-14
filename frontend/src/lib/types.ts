@@ -46,7 +46,7 @@ export interface Block {
   status?: BlockStatus;
   bookingCode?: string;
   order?: number;
-  items?: string[] | TodoItem[];
+  items?: string[] | TodoItem[] | { url: string }[];
   html?: string;
   distance?: string;
   duration?: string;

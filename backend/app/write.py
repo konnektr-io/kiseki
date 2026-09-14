@@ -443,10 +443,15 @@ def _validate_items(kind: str, items: list[Any]) -> list[Any]:
             except Exception as exc:
                 raise WriteError(422, f"Invalid todo item: {exc}") from exc
         return out
-    # gallery: bare media filenames (or full URLs kept verbatim)
-    if not all(isinstance(x, str) for x in items):
+    # gallery: bare media filenames (or full URLs kept verbatim). Stored as
+    # {"url": f} — the one object shape the graph's DTDL `items` schema
+    # accepts (todo items already live there); readers unwrap both shapes.
+    if not all(isinstance(x, (str, dict)) for x in items):
         raise WriteError(422, "gallery items must be media filenames/URLs")
-    return list(items)
+    return [
+        it if isinstance(it, dict) else {"url": it}
+        for it in items
+    ]
 
 
 def _validate_iso_date(value: Optional[str], what: str) -> None:
