@@ -339,10 +339,11 @@ class Trip(BaseModel):
     timezone: Optional[str] = Field(default=None, description="IANA timezone, e.g. 'Asia/Tokyo' — resolves 'today' in the trip's local calendar date, not the viewer's. Optional; when absent, the viewer's local date is used.")
     visibility: Visibility = Field(default="private", description="Who may read the trip: 'public' = anyone with the id link (no auth); 'private' = crew only (JWT + hasCrew edge, follower+). Default private (issue #64 — replaces the old token-as-switch).")
     discoverable: bool = Field(
-        default=False,
-        description="Opt-in (#196): this trip may be LISTED on its crew's profiles and in the "
-                    "follower feed. Additive to `visibility`, never a replacement: a discoverable "
-                    "`private` trip is listed but still requires follower+ to read.",
+        default=True,
+        description="Listed by default (#228; opt-in in #196): this trip may be LISTED on its crew's "
+                    "profiles and in the follower feed. Additive to `visibility`, never a "
+                    "replacement: a discoverable `private` trip is listed but still requires "
+                    "follower+ to read. Owner-only to change.",
     )
     claimToken: Optional[str] = Field(default=None, description="Secret CLAIM key (issue #6 + #65) — authorizes claiming a crew identity or following this trip ('join link'). Separate from the read path: the read link is the trip id itself (gated by visibility). Editable (rotate without re-wiring the graph). None = no invite links issued.")
     followToken: Optional[str] = Field(default=None, description="Secret FOLLOW key (issue #197) — authorizes FOLLOWING this trip and nothing else: it can never claim a crew identity (claimToken is the only claim credential). Minted/rotated by the owner via POST /api/trips/{id}/follow-link; revocable without touching the claim link. Only needed for private trips — a public trip is followed by id.")

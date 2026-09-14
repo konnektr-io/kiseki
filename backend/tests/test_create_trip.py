@@ -91,6 +91,7 @@ def test_create_trip_201_owner_and_readable(client, graph, rsa_keypair) -> None:
     assert body["subtitle"] == "Powder pilimage"
     assert body["stage"] == "idea"
     assert body["visibility"] == "private"
+    assert body["discoverable"] is True  # #228: new trips are listed by default
     assert body["slug"] == "japan-2028"
     assert body["myRole"] == "owner"
     assert "claimToken" not in body
