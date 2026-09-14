@@ -25,6 +25,7 @@ import asyncio
 import hashlib
 import io
 import json
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -1061,6 +1062,195 @@ def test_chat_turn_status_unknown_turn_is_not_an_error(
     )
     assert resp.status_code == 200
     assert resp.json() == {"known": False}
+
+
+def test_chat_turn_status_finds_a_threads_turn_without_the_key(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A client OPENING a thread names it by threadId alone (#217).
+
+    That is the second way into the route, and the one the SPA has: a thread
+    that comes back to a turn it was mid-way through must be able to ask "is my
+    turn still there?" without holding the key, and the answer has to carry the
+    key so it can attach.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    assert (
+        _chat(
+            client,
+            token,
+            turn_key="turn-thread-1",
+            thread_id="thread-open",
+        ).status_code
+        == 200
+    )
+    resp = client.get(
+        f"/api/chat/turn?threadId=thread-open&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["known"] is True
+    assert body["turnKey"] == "turn-thread-1"  # adoptable by a client that lost it
+    assert body["cursor"] == 5
+    assert body["done"] is True
+    assert state["admissions"] == 1  # asking never starts work
+
+
+def test_chat_turn_status_reports_the_key_it_minted_for_an_old_wire_turn(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """An older SPA bundle sends no turnKey; the relay's own key comes back.
+
+    Nothing about the probe depends on the client having minted the key: the
+    turn is registered against its conversation, and the reply hands back what
+    the relay called it.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    assert _chat(client, token, thread_id="thread-legacy").status_code == 200
+    resp = client.get(
+        f"/api/chat/turn?threadId=thread-legacy&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["known"] is True
+    assert body["turnKey"]
+
+
+def test_chat_turn_status_finds_a_turn_submitted_before_the_trip_existed(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The landing chat's turn stays findable once its thread shows a trip.
+
+    A turn submitted from the landing page has no anchor, and the anchor is
+    part of the turn key — so the probe has to look in the unanchored scope
+    too, or resuming a "create me a trip" turn that the agent turned into a
+    trip would never find it.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    resp = client.post(
+        "/api/chat",
+        json={
+            "threadId": "thread-landing",
+            "turnKey": "turn-landing-1",
+            "messages": [{"role": "user", "content": "plan me a trip"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+
+    probe = client.get(
+        f"/api/chat/turn?threadId=thread-landing&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert probe.status_code == 200
+    assert probe.json()["known"] is True
+    assert probe.json()["turnKey"] == "turn-landing-1"
+
+
+def test_chat_turn_status_needs_a_turn_or_a_thread(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Asking nothing is a bad request, not a confident "no turn"."""
+    _role(monkeypatch, "owner")
+    token = _user_token(rsa_keypair)
+
+    resp = client.get(
+        "/api/chat/turn", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 400
+
+
+def test_chat_thread_lookup_is_scoped_to_the_acting_user(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Opening a thread must never reveal another user's turn."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    mine = _user_token(rsa_keypair)
+    theirs = _user_token(rsa_keypair, sub=OTHER_SUB)
+
+    assert (
+        _chat(client, mine, turn_key="turn-mine", thread_id="thread-shared").status_code
+        == 200
+    )
+    resp = client.get(
+        f"/api/chat/turn?threadId=thread-shared&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {theirs}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"known": False}
+
+
+def test_chat_thread_probe_answers_for_the_latest_turn(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Two turns in one thread: the probe reports the newer one."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    assert (
+        _chat(client, token, turn_key="turn-first", thread_id="thread-two").status_code
+        == 200
+    )
+    assert (
+        _chat(client, token, turn_key="turn-second", thread_id="thread-two").status_code
+        == 200
+    )
+    resp = client.get(
+        f"/api/chat/turn?threadId=thread-two&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.json()["turnKey"] == "turn-second"
+
+
+def test_chat_sweep_forgets_a_threads_expired_turn(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The index must not keep pointing at a turn the TTL dropped."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    token = _user_token(rsa_keypair)
+    scope = chat_module.thread_scope(USER_SUB, trip_id=TRIP, thread_id="thread-aged")
+    assert scope is not None
+    key = chat_module.turn_key_for(
+        USER_SUB, trip_id=TRIP, thread_id="thread-aged", turn_key="turn-aged"
+    )
+    chat_module._TURNS[key] = chat_module.Turn(
+        key=key,
+        run_id=RIDEALONG_RUN,
+        turn_key="turn-aged",
+        status="settled",
+        done=True,
+        created_at=time.monotonic() - chat_module.TURN_TTL_SECONDS - 1,
+    )
+    chat_module._THREAD_TURNS[scope] = key
+    try:
+        resp = client.get(
+            f"/api/chat/turn?threadId=thread-aged&tripId={TRIP}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.json() == {"known": False}
+        assert scope not in chat_module._THREAD_TURNS
+    finally:
+        chat_module._TURNS.pop(key, None)
+        chat_module._THREAD_TURNS.pop(scope, None)
 
 
 def test_chat_stop_interrupts_the_upstream_run(

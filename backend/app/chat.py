@@ -923,6 +923,14 @@ _END = object()
 #: Server-side turn registry (in-process: one relay process, one registry).
 _TURNS: dict[str, Turn] = {}
 
+#: ``thread_scope`` → registry key of that conversation's most recent turn.
+#:
+#: The turn key alone is enough for a client that kept it, but a client
+#: OPENING a thread has only the thread to name it with — and the turn it must
+#: not miss is exactly the one the relay is still holding. This index is what
+#: makes "is anything running in this thread?" answerable (#217).
+_THREAD_TURNS: dict[str, str] = {}
+
 
 @dataclass
 class Turn:
@@ -936,6 +944,9 @@ class Turn:
 
     key: str
     run_id: str
+    #: The caller's own name for this turn, echoed back so a client that lost
+    #: it can adopt it — or the relay-minted one for the legacy wire shape.
+    turn_key: str | None = None
     session_key: str | None = None
     frames: list[dict] = field(default_factory=list)
     waiters: set[asyncio.Queue] = field(default_factory=set)
@@ -1000,6 +1011,24 @@ def new_turn_key() -> str:
     return uuid.uuid4().hex
 
 
+def thread_scope(
+    actor_sub: str, *, trip_id: str | None = None, thread_id: str | None = None
+) -> str | None:
+    """Identity of a CONVERSATION (no turn): what "this thread's turn" means.
+
+    Scoped by acting user exactly like ``turn_key_for``, so discovery can never
+    reach across users. ``None`` when the caller names no thread — such a turn
+    is addressable by its turn key only, there being nothing else to look it up
+    by. The anchor is part of the scope because it is part of the turn key:
+    callers that lost the anchor ask again without one (see
+    ``latest_turn_for``).
+    """
+    if not thread_id:
+        return None
+    raw = f"kiseki-thread-v1|{actor_sub}|{trip_id or '-'}|{thread_id}"
+    return "kiseki-thread-v1-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def get_turn(key: str) -> Turn | None:
     """Look up a live/recent turn, sweeping expired ones first."""
     sweep_turns()
@@ -1014,11 +1043,65 @@ def sweep_turns() -> None:
     for key, turn in list(_TURNS.items()):
         if turn.done and now - turn.created_at > TURN_TTL_SECONDS:
             _TURNS.pop(key, None)
+            _forget_thread_turn(key)
 
 
 def forget_turn(key: str) -> Turn | None:
     """Remove one turn from the registry (used by tests and stop)."""
+    _forget_thread_turn(key)
     return _TURNS.pop(key, None)
+
+
+def _forget_thread_turn(key: str) -> None:
+    """Drop the conversation → turn mapping of a turn that just left."""
+    for scope, mapped in list(_THREAD_TURNS.items()):
+        if mapped == key:
+            _THREAD_TURNS.pop(scope, None)
+
+
+def _remember_thread_turn(scope: str | None, key: str) -> None:
+    """Make ``key`` the turn a caller naming only this thread gets back."""
+    if scope:
+        _THREAD_TURNS[scope] = key
+
+
+def latest_turn_for(scope: str | None) -> Turn | None:
+    """The most recent turn the relay still holds for a conversation (#217).
+
+    For a client that opened a thread without a turn key to address it with —
+    the probe route asks this when it is given a ``threadId`` and no
+    ``turnKey``.
+    """
+    if not scope:
+        return None
+    sweep_turns()
+    key = _THREAD_TURNS.get(scope)
+    if key is None:
+        return None
+    turn = _TURNS.get(key)
+    if turn is None:  # swept between the index write and now
+        _THREAD_TURNS.pop(scope, None)
+    return turn
+
+
+def latest_turn_for_thread(
+    actor_sub: str, *, trip_id: str | None = None, thread_id: str | None = None
+) -> Turn | None:
+    """A conversation's latest turn, anchored or not.
+
+    The anchor is part of the turn key, so a client asking with the trip it
+    sees now can miss a turn submitted from the landing page before that trip
+    existed — the ordinary "the agent created the trip mid-thread" path. Ask
+    both scopes rather than making the caller know which one it was.
+    """
+    scopes = [thread_scope(actor_sub, trip_id=trip_id, thread_id=thread_id)]
+    if trip_id:
+        scopes.append(thread_scope(actor_sub, thread_id=thread_id))
+    for scope in scopes:
+        turn = latest_turn_for(scope)
+        if turn is not None:
+            return turn
+    return None
 
 
 def turn_status_payload(turn: Turn) -> dict:
@@ -1031,7 +1114,12 @@ def turn_status_payload(turn: Turn) -> dict:
 
 
 async def start_turn(
-    key: str, *, body: dict, session_key: str | None = None
+    key: str,
+    *,
+    body: dict,
+    session_key: str | None = None,
+    client_turn_key: str | None = None,
+    scope: str | None = None,
 ) -> Turn:
     """Submit the run behind ``key`` and hand it to a relay-owned pump (#217).
 
@@ -1040,22 +1128,30 @@ async def start_turn(
     idempotent replay of the same run and it then attaches to the winner's
     turn. Without the registry (relay restarted), a fresh run is admitted —
     which is exactly what a client that re-sends an old turn key asked for.
+
+    ``client_turn_key`` is the caller's name for the turn (kept for the probe's
+    reply) and ``scope`` its conversation (``thread_scope``), which is how a
+    client that opens this thread later finds the turn without the key.
     """
     existing = get_turn(key)
     if existing is not None:
+        _remember_thread_turn(scope, key)
         return existing
     doc = await start_chat_run(body, session_key=session_key, idempotency_key=key)
     existing = get_turn(key)
     if existing is not None:
+        _remember_thread_turn(scope, key)
         return existing
     turn = Turn(
         key=key,
         run_id=str(doc["run_id"]),
+        turn_key=client_turn_key,
         session_key=session_key,
         status=str(doc.get("status") or "queued"),
         replayed=bool(doc.get("replayed")),
     )
     _TURNS[key] = turn
+    _remember_thread_turn(scope, key)
     turn.task = asyncio.create_task(pump_run(turn))
     return turn
 

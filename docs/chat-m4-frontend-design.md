@@ -21,6 +21,61 @@ new trip from scratch**.
 - **Decision 3 partly overtaken**: the dropped tool events became the *data-part* activity
   feed (PRs #151/#154/#157/#169/#176) rather than waiting for the generative-UI slice.
 
+## Resumption — picking a turn back up (2026-09-14, issue #217)
+
+The relay half shipped in #224 (v0.31.0): it owns the run, keeps **every frame**
+of the turn in order, and replays them from any cursor, for 30 minutes after the
+turn settles (`TURN_TTL_SECONDS`). None of that was reachable from the SPA, so a
+dropped connection still read as "nothing happened" — the answer, the trip edits
+and the activity feed were all sitting in a buffer nobody asked for. The rules
+below are the client half.
+
+**Asking, not attaching, decides.** `GET /api/chat/turn` is read-only and may be
+polled freely. It takes the `turnKey` the client minted, or `threadId` alone (for
+a thread opened without a key — it resolves the conversation's most recent turn
+and answers with its key, so the caller can adopt it). The answer distinguishes:
+
+| relay says | client does |
+|---|---|
+| holding it, running | attaches; the turn streams on from where the agent is |
+| holding it, settled | attaches anyway — the replayed frames ARE the answer |
+| holding nothing | forgets the turn; Reconnect/re-send becomes the user's call |
+| could not ask | keeps everything; never attaches on a guess |
+
+That last row is the load-bearing one: **an attach at a turn key the relay has
+forgotten does not fail — it starts the turn.** So "could not ask" (offline,
+expired session) must never be folded into "nothing there", and the two are kept
+apart in the client (`getTurnStatus` throws; only a real negative is `known:
+false`).
+
+**Rebuild, don't append.** `useChat` cannot extend the message it was streaming:
+`resumeStream()` opens a NEW assistant message, so resuming at the client's
+cursor left a truncated bubble followed by a tail starting mid-sentence. The
+client therefore drops the turn's own messages and rewinds the attach to frame 0,
+letting the replayed frames own one message. Which messages are the turn's comes
+from an anchor stored at submit: the **id of the user message that opened it**
+(cap-safe, unlike an index) — so a recovered turn renders once, complete.
+
+**Anchors are part of a turn's identity.** The relay keys a turn by
+`(actor, tripId, threadId, turnKey)`, so the trip the turn was SUBMITTED with is
+what an attach must send, not the trip on screen: a landing thread that gained a
+trip mid-conversation would otherwise address a turn that does not exist. The
+relay's thread-scoped lookup also checks the unanchored scope for the same
+reason — that is the ordinary "the agent created the trip in this turn" path.
+
+**The Reconnect banner is the last resort, not the mechanism.** It used to be
+gated on the relay's `interrupted` marker, which only arrives on a stream someone
+is still reading — a hard disconnect delivers nothing, so the one affordance
+there was could never appear. Opening a thread now recovers the turn by itself;
+the banner is left for the case where the relay holds nothing and re-sending is
+genuinely the only way forward (`shouldOfferReconnect`).
+
+**A recovered turn also refreshes the trip.** A resumed turn settles in one
+burst, so the `busy` window that triggers the post-turn refetch (issue #179) is
+not guaranteed to render. The attach outcome latches the same refetch, so the
+edits the agent made while nobody was watching are visible when the thread
+reopens rather than hidden behind a stale document.
+
 ## Decisions (Niko, 2026-09-09)
 
 1. **Trip creation IS in this slice** — minimal `POST /api/trips` backend

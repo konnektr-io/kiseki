@@ -39,11 +39,13 @@ from .chat import (
     build_run_body,
     error_chunk,
     get_turn,
+    latest_turn_for_thread,
     new_turn_key,
     require_actor_trip_access,
     sse_data,
     start_turn,
     stop_chat_run,
+    thread_scope,
     turn_key_for,
     turn_status_payload,
 )
@@ -1729,6 +1731,9 @@ async def post_chat(
     ATTACHES, replaying from ``cursor``. A request without a ``turnKey``
     (older SPA bundle) behaves like the old wire but is still relay-owned: the
     turn keeps running even if its caller goes away.
+
+    The turn is registered against its CONVERSATION too, so ``/api/chat/turn``
+    can answer for it when asked with only a ``threadId`` (#217).
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     if body.tripId:
@@ -1740,6 +1745,7 @@ async def post_chat(
         thread_id=body.threadId,
         turn_key=turn_key,
     )
+    scope = thread_scope(actor_sub, trip_id=body.tripId, thread_id=body.threadId)
     known = get_turn(key)
     # The submitted body is built (validated) BEFORE the stream starts: a
     # request with no user message must still fail as a 400, not as an
@@ -1760,7 +1766,13 @@ async def post_chat(
             assert upstream is not None  # built above when the turn is new
             cursor = 0  # a new turn has a new buffer — attach from its start
             try:
-                turn = await start_turn(key, body=upstream, session_key=actor_sub)
+                turn = await start_turn(
+                    key,
+                    body=upstream,
+                    session_key=actor_sub,
+                    client_turn_key=turn_key,
+                    scope=scope,
+                )
             except HTTPException as exc:
                 # Headers are already sent — the status can't change, so signal
                 # the failure in-stream (upstream 502/503 surfaces here).
@@ -1787,7 +1799,7 @@ async def post_chat(
 
 @app.get("/api/chat/turn")
 async def get_chat_turn(
-    turn_key: str = Query(alias="turnKey"),
+    turn_key: str | None = Query(default=None, alias="turnKey"),
     trip_id: str | None = Query(default=None, alias="tripId"),
     thread_id: str | None = Query(default=None, alias="threadId"),
     x_act_as_sub: str | None = Header(default=None),
@@ -1795,20 +1807,44 @@ async def get_chat_turn(
 ) -> dict:
     """Is this turn still running, settled, and how much output does it have?
 
-    The SPA asks this after a dropped connection (and when opening a thread)
-    to choose between attaching to the remaining frames and rendering the turn
-    as settled. It never starts work, so polling it is always safe (#217).
+    The SPA asks this after a dropped connection (and when opening a thread) to
+    choose between attaching to the remaining frames and rendering the turn as
+    settled. It never starts work, so polling it is always safe (#217).
+
+    Two ways to name the turn: the ``turnKey`` the caller minted, or — for a
+    client that opens the thread without one (cleared storage, another tab) —
+    the ``threadId`` alone, which resolves to the conversation's most recent
+    turn and answers with its ``turnKey`` so the caller can adopt it and
+    attach. The reply carries the turn key either way.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     if trip_id:
         require_actor_trip_access(actor_sub, trip_id, min_role="follower")
-    key = turn_key_for(
-        actor_sub, trip_id=trip_id, thread_id=thread_id, turn_key=turn_key
-    )
-    turn = get_turn(key)
+    if turn_key:
+        turn = get_turn(
+            turn_key_for(
+                actor_sub,
+                trip_id=trip_id,
+                thread_id=thread_id,
+                turn_key=turn_key,
+            )
+        )
+    elif thread_id:
+        turn = latest_turn_for_thread(
+            actor_sub, trip_id=trip_id, thread_id=thread_id
+        )
+    else:
+        raise HTTPException(
+            status_code=400, detail="turnKey or threadId is required."
+        )
     if turn is None:
         return {"known": False}
-    return {"known": True, "runId": turn.run_id, **turn_status_payload(turn)}
+    return {
+        "known": True,
+        "turnKey": turn.turn_key,
+        "runId": turn.run_id,
+        **turn_status_payload(turn),
+    }
 
 
 @app.post("/api/chat/stop")

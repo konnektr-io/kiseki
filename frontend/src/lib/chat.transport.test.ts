@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessageChunk } from "ai";
 
-import { KisekiChatTransport } from "./chat";
+import { getTurnStatus, KisekiChatTransport } from "./chat";
 
 /* `KisekiChatTransport` (DefaultChatTransport subclass): request shaping
  * (`{messages, threadId, tripId}` + bearer token) and 401/403 mapping. The
@@ -238,5 +238,83 @@ describe("KisekiChatTransport", () => {
     await expect(
       transport.sendMessages(sendOptions([])),
     ).rejects.toMatchObject({ name: "ChatAuthError", status: 401 });
+  });
+});
+
+/* The status probe (#217) — what a thread opening ASKS before it decides
+ * between attaching to a turn and showing a settled transcript. Read-only, so
+ * it may be called freely; the interesting part is that "could not ask" must
+ * never look like "nothing there". */
+describe("getTurnStatus (#217)", () => {
+  function statusResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status });
+  }
+
+  it("asks with the turn key, the thread and the trip", async () => {
+    const seen: string[] = [];
+    const ok = await getTurnStatus({
+      threadId: "thread-1",
+      turnKey: "turn-1",
+      tripId: "trip-1",
+      getToken: async () => "test-token",
+      fetchImpl: (async (url: string) => {
+        seen.push(String(url));
+        return statusResponse({ known: true, cursor: 7, done: false });
+      }) as typeof fetch,
+    });
+    expect(seen[0]).toBe(
+      "/api/chat/turn?threadId=thread-1&turnKey=turn-1&tripId=trip-1",
+    );
+    expect(ok).toEqual({ known: true, cursor: 7, done: false });
+  });
+
+  it("asks by thread alone when the client has no key to name it with", async () => {
+    const seen: string[] = [];
+    await getTurnStatus({
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl: (async (url: string) => {
+        seen.push(String(url));
+        return statusResponse({ known: true, turnKey: "turn-1", cursor: 3 });
+      }) as typeof fetch,
+    });
+    expect(seen[0]).toBe("/api/chat/turn?threadId=thread-1");
+  });
+
+  it("reports a turn the relay is not holding", async () => {
+    const status = await getTurnStatus({
+      threadId: "thread-1",
+      turnKey: "turn-old",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => statusResponse({ known: false })) as typeof fetch,
+    });
+    expect(status.known).toBe(false);
+  });
+
+  it("raises ChatAuthError instead of reporting 'no turn'", async () => {
+    await expect(
+      getTurnStatus({
+        threadId: "thread-1",
+        turnKey: "turn-1",
+        getToken: async () => "expired",
+        fetchImpl: (async () =>
+          statusResponse({ detail: "Invalid token" }, 401)) as typeof fetch,
+      }),
+    ).rejects.toMatchObject({ name: "ChatAuthError", status: 401 });
+  });
+
+  it("throws when the relay cannot be asked at all", async () => {
+    // "the relay said no" and "the relay never answered" lead to opposite
+    // decisions (forget the turn vs. keep it), so they must not look alike
+    await expect(
+      getTurnStatus({
+        threadId: "thread-1",
+        turnKey: "turn-1",
+        getToken: async () => "test-token",
+        fetchImpl: (async () => {
+          throw new Error("network down");
+        }) as typeof fetch,
+      }),
+    ).rejects.toThrow("network down");
   });
 });

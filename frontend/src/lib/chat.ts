@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -154,13 +154,23 @@ async function relayErrorMessage(res: Response): Promise<string> {
   return text || `Request failed (${res.status})`;
 }
 
-/** A turn in flight (issue #217): the relay's identity for it, plus how many
- *  of its frames this client has already rendered. Persisting the pair is what
- *  turns a dropped connection into an attach at the exact frame instead of a
- *  re-send of the whole turn. */
+/** A turn in flight (issue #217): the relay's identity for it, how many of its
+ *  frames this client has already rendered, and the anchors a later attach
+ *  needs. Persisting them is what turns a dropped connection into a resumed
+ *  turn instead of a re-send of the whole thing. */
 export interface TurnState {
   turnKey: string;
   cursor: number;
+  /** The trip (if any) this turn was SUBMITTED with. It is part of the turn's
+   *  identity on the relay, so an attach has to reuse it as-is — a thread that
+   *  gained a trip after the turn started would otherwise address a turn that
+   *  does not exist. `undefined` = not recorded (state stored by an older
+   *  bundle), which the caller must treat as "unknown", not as "no trip". */
+  tripId?: string | null;
+  /** Id of the user message that opened this turn: everything after it in the
+   *  transcript was produced by this turn and is rebuilt from the relay's
+   *  frames on resume. Absent = not recorded. */
+  userMessageId?: string | null;
 }
 
 const TURNS_KEY = "kiseki.chat.turns.v1";
@@ -177,12 +187,31 @@ function readTurnStates(): Record<string, TurnState> {
     if (typeof parsed !== "object" || parsed === null) return {};
     const out: Record<string, TurnState> = {};
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      const state = value as { turnKey?: unknown; cursor?: unknown } | null;
+      const state = value as {
+        turnKey?: unknown;
+        cursor?: unknown;
+        tripId?: unknown;
+        userMessageId?: unknown;
+      } | null;
       if (typeof state?.turnKey === "string" && state.turnKey) {
         const cursor = typeof state.cursor === "number" ? state.cursor : 0;
+        // Anchors are carried over only when they were recorded: an older
+        // bundle's state has neither, and inventing values there would send a
+        // resume down a wrong turn identity.
+        const anchors: Pick<TurnState, "tripId" | "userMessageId"> = {};
+        if (typeof state.tripId === "string" || state.tripId === null) {
+          anchors.tripId = state.tripId;
+        }
+        if (
+          typeof state.userMessageId === "string" ||
+          state.userMessageId === null
+        ) {
+          anchors.userMessageId = state.userMessageId;
+        }
         out[key] = {
           turnKey: state.turnKey,
           cursor: cursor > 0 ? Math.floor(cursor) : 0,
+          ...anchors,
         };
       }
     }
@@ -219,6 +248,64 @@ function newTurnKey(): string {
   } catch {
     return `turn-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
   }
+}
+
+/** What the relay says it is holding for a turn (issue #217). `known: false`
+ *  means it has nothing for that key/thread: the work is not recoverable, and
+ *  a POST at that key would start a NEW turn rather than attach to the old
+ *  one — which is why the probe, not the attach, decides. `cursor` is how many
+ *  frames it can still replay. */
+export interface TurnStatus {
+  known: boolean;
+  turnKey?: string;
+  runId?: string;
+  status?: string;
+  done?: boolean;
+  cursor?: number;
+}
+
+/**
+ * Ask the relay about a turn WITHOUT touching it (issue #217).
+ *
+ * Read-only, so asking is always safe — it never submits work, never attaches,
+ * never advances anything. Addressed by the `turnKey` the client minted, or by
+ * `threadId` alone for a thread opened without one (the reply carries the turn
+ * key, so a client that lost it can adopt it).
+ *
+ * Failures are deliberately NOT folded into `known: false`: "the relay is
+ * unreachable" and "the relay holds nothing" lead to opposite decisions, so a
+ * transport error throws (and an expired session throws `ChatAuthError`) while
+ * only a real negative answer comes back as `known: false`.
+ */
+export async function getTurnStatus(args: {
+  threadId: string;
+  turnKey?: string | null;
+  tripId?: string | null;
+  getToken: () => Promise<string>;
+  fetchImpl?: typeof fetch;
+}): Promise<TurnStatus> {
+  const fetchImpl: typeof fetch =
+    args.fetchImpl ??
+    ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const query = new URLSearchParams({ threadId: args.threadId });
+  if (args.turnKey) query.set("turnKey", args.turnKey);
+  if (args.tripId) query.set("tripId", args.tripId);
+  const res = await fetchImpl(`/api/chat/turn?${query.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${await args.getToken()}`,
+    },
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new ChatAuthError(res.status, await relayErrorMessage(res));
+  }
+  if (!res.ok) {
+    throw new Error(`Turn status failed (${res.status})`);
+  }
+  const body = (await res.json()) as Partial<TurnStatus> | null;
+  return {
+    ...body,
+    known: body?.known === true,
+  };
 }
 
 /** The kiseki relay transport: DefaultChatTransport + bearer auth +
@@ -265,7 +352,18 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         // upstream idempotency key from it, so a retry can never submit the
         // same turn twice, and a reconnect re-attaches to THIS turn instead
         // of starting another one (issue #217).
-        const turn = { turnKey: newTurnKey(), cursor: 0 };
+        //
+        // The two anchors ride along for the same reason: the trip the turn
+        // was submitted under (the relay keys the turn by it), and the user
+        // message that opened it (where a resume rebuilds the transcript).
+        const opening = messages[messages.length - 1];
+        const turn: TurnState = {
+          turnKey: newTurnKey(),
+          cursor: 0,
+          tripId: tripId ?? null,
+          userMessageId:
+            typeof opening?.id === "string" && opening.id ? opening.id : null,
+        };
         state.turn = turn;
         saveTurnState(threadId, turn);
         return {
@@ -292,11 +390,43 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
   private readonly fetchImpl: typeof fetch;
   /** Throttle gate for the persisted cursor (see `onFrame`). */
   private lastPersisted = 0;
+  /** Set by every `reconnectToStream()` that came back empty. */
+  private attachFailed = false;
 
   /** True while the relay may still hold frames this client hasn't rendered,
    *  i.e. a reconnect can CONTINUE the turn instead of re-sending it. */
   get resumable(): boolean {
     return this.state.turn !== null;
+  }
+
+  /** The turn this transport would attach to (null = none). The caller needs
+   *  its anchors to rebuild the transcript: see `turnBoundary`. */
+  get turnState(): TurnState | null {
+    return this.state.turn;
+  }
+
+  /** Whether the last `reconnectToStream()` came back with nothing. The SDK
+   *  treats a null reconnect as "no stream to resume" and says nothing about
+   *  it, so a caller that has already dropped the partial it was rendering
+   *  reads this to know it must put that back. */
+  get lastAttachFailed(): boolean {
+    return this.attachFailed;
+  }
+
+  /** Point the next reconnect at a frame index, 0 = the turn's first frame.
+   *  Resuming from 0 is how a client REBUILDS a turn into one message: the
+   *  relay replays every frame and the transcript starts the turn over. */
+  rewind(cursor: number): void {
+    if (!this.state.turn) return;
+    this.state.turn.cursor = cursor > 0 ? Math.floor(cursor) : 0;
+  }
+
+  /** Forget the turn. Called when the relay says it is holding nothing: the
+   *  state would otherwise offer a Reconnect whose POST, at a key the relay
+   *  has forgotten, STARTS the turn again. */
+  forgetTurn(): void {
+    this.state.turn = null;
+    saveTurnState(this.threadId, null);
   }
 
   override async sendMessages(
@@ -311,17 +441,29 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
    * The relay keeps a turn's frames, so a dropped connection asks for the
    * ones it never saw (`turnKey` + `cursor`) and the agent keeps working
    * meanwhile — no re-send, no duplicated work. Returning null (no turn, or
-   * one the relay no longer knows after a restart) hands the caller back the
-   * pre-#217 behaviour: re-send via `regenerate()`.
+   * one the relay no longer knows after a restart) sets `lastAttachFailed`,
+   * so the caller can put back what it dropped and fall back to re-sending.
    *
-   * Note the SDK renders the continued output as a NEW assistant message —
-   * the partial one stays visible and the tail lands after it.
+   * Callers that resume after dropping the part of the turn already on
+   * screen rewind to 0 first, so the whole turn is rebuilt in ONE assistant
+   * message: the SDK cannot extend an interrupted one, it appends a second
+   * (see `resumeTurn`).
+   *
+   * The trip the turn was SUBMITTED with is the anchor sent back, not the one
+   * on screen now: the relay keys a turn by it, so a thread that gained a trip
+   * mid-conversation would otherwise address a different, non-existent turn.
    */
   override async reconnectToStream(): Promise<
     ReadableStream<UIMessageChunk> | null
   > {
+    this.attachFailed = false;
     const turn = this.state.turn;
-    if (!turn) return null;
+    if (!turn) {
+      this.attachFailed = true;
+      return null;
+    }
+    const anchor =
+      turn.tripId === undefined ? this.tripId : turn.tripId ?? undefined;
     let res: Response;
     try {
       res = await this.fetchImpl("/api/chat", {
@@ -334,18 +476,22 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
           turnKey: turn.turnKey,
           cursor: turn.cursor,
           threadId: this.threadId,
-          ...(this.tripId ? { tripId: this.tripId } : {}),
+          ...(anchor ? { tripId: anchor } : {}),
         }),
       });
     } catch {
       // Offline, DNS, aborted — nothing to attach to, so let the caller decide
       // (it falls back to re-sending, which fails visibly if the net is down).
+      this.attachFailed = true;
       return null;
     }
     if (res.status === 401 || res.status === 403) {
       throw new ChatAuthError(res.status, await relayErrorMessage(res));
     }
-    if (!res.ok || !res.body) return null;
+    if (!res.ok || !res.body) {
+      this.attachFailed = true;
+      return null;
+    }
     return this.counted(this.processResponseStream(res.body));
   }
 
@@ -565,6 +711,108 @@ export interface UseTripChatOptions {
   onFinish?: (text: string) => void;
 }
 
+/** How a thread's in-flight turn was picked up when the thread opened. */
+export type TurnRecovery = "idle" | "checking" | "attached" | "unavailable";
+
+/** When each thread was last looked at for a turn to recover, in this page
+ *  load (see `RECOVERY_GUARD_MS`). */
+const recoveredAt = new Map<string, number>();
+
+/** Attaching twice to the same turn would rewind a stream that is already
+ *  replaying, so an attempt this soon after the previous one is the same
+ *  attempt coming back — React StrictMode double-invokes effects in
+ *  development, and the panel remounts a thread on rotate. A genuinely later
+ *  mount (navigating back to the trip) is past the window and recovers again. */
+const RECOVERY_GUARD_MS = 2000;
+
+/**
+ * Where a turn's own messages start (issue #217): everything from here on was
+ * produced by that turn, and a resume rebuilds it from the relay's frames.
+ * The anchor is the user message that OPENED the turn, so a transcript that
+ * was trimmed to its most recent messages still resolves (its opening message
+ * is always among them).
+ *
+ * Without an anchor (state stored by a bundle that recorded none) only a tail
+ * the relay itself CUT is dropped: that is the one thing known to be a partial
+ * of this turn, and guessing would delete real history.
+ */
+export function turnBoundary(
+  messages: UIMessage[],
+  userMessageId?: string | null,
+): number {
+  if (userMessageId) {
+    const index = messages.findIndex((message) => message.id === userMessageId);
+    if (index >= 0) return index + 1;
+  }
+  const last = messages[messages.length - 1];
+  if (last && last.role === "assistant" && messageInterrupted(last)) {
+    return messages.length - 1;
+  }
+  return messages.length;
+}
+
+/** The bit of `useChat`'s surface a resume needs — kept structural so the
+ *  decision logic below can be driven from tests without a DOM. */
+export interface ResumeSurface {
+  messages: UIMessage[];
+  setMessages: (messages: UIMessage[]) => void;
+  resumeStream: () => Promise<void>;
+}
+
+/**
+ * Pick up the turn this thread was left in the middle of (issue #217).
+ *
+ * Asks the relay FIRST (`status`): attaching at a turn key the relay has
+ * forgotten does not fail — it STARTS the turn, the opposite of resuming — so
+ * only a turn the relay says it is holding is attached to, and one it has
+ * forgotten is forgotten here too. That probe is also what makes a turn which
+ * SETTLED while nobody was watching recoverable at all: the relay still has
+ * its frames, and replaying them delivers the answer the client never saw.
+ *
+ * Returns false when there is nothing to attach to, which the caller turns
+ * into its re-send fallback — a user action, never automatic.
+ */
+export async function resumeStoredTurn(args: {
+  transport: KisekiChatTransport;
+  chat: ResumeSurface;
+  /** How to ask the relay about the turn. Injectable for tests. */
+  status: (turn: TurnState) => Promise<TurnStatus>;
+}): Promise<boolean> {
+  const { transport, chat } = args;
+  const turn = transport.turnState;
+  if (!turn) return false;
+  let status: TurnStatus;
+  try {
+    status = await args.status(turn);
+  } catch {
+    // Unreachable relay, or a session that needs re-auth: "could not ask" is
+    // not "nothing there", so keep the turn and report no attach.
+    return false;
+  }
+  if (!status.known) {
+    transport.forgetTurn();
+    return false;
+  }
+  // Rebuild the turn into ONE assistant message. The SDK cannot extend the
+  // message it was streaming when the connection went — it appends the
+  // resumed stream as a second message, starting mid-sentence — so the part
+  // of the turn already on screen is dropped and the stream is rewound to the
+  // turn's first frame, which the relay replays in full.
+  const before = chat.messages;
+  const boundary = turnBoundary(before, turn.userMessageId);
+  const dropped = before.slice(boundary);
+  if (dropped.length > 0) chat.setMessages(before.slice(0, boundary));
+  transport.rewind(0);
+  await chat.resumeStream();
+  if (transport.lastAttachFailed) {
+    // Nothing came back (offline mid-attach): put the transcript back as it
+    // was rather than leaving a hole where the partial used to be.
+    if (dropped.length > 0) chat.setMessages(before);
+    return false;
+  }
+  return true;
+}
+
 /**
  * `useChat` bound to a trip context (or the general landing chat).
  * `threadId` is caller-owned (persisted per context in localStorage) — the
@@ -613,17 +861,46 @@ export function useTripChat({
     saveTranscript(threadId, messages);
   }, [threadId, messages]);
 
-  /**
-   * Continue a dropped turn where it stopped (issue #217) instead of
-   * re-sending it: attaches to the relay's remaining frames. False = there is
-   * nothing to attach to (no turn yet, or one the relay no longer knows), so
-   * the caller re-sends — the pre-#217 behaviour, kept as the fallback.
-   */
-  const resumeTurn = useCallback(async (): Promise<boolean> => {
-    if (!transport.resumable) return false;
-    await chat.resumeStream();
-    return true;
-  }, [transport, chat]);
+  const [recovery, setRecovery] = useState<TurnRecovery>("idle");
 
-  return { ...chat, resumeTurn };
+  /** Continue (or recover) this thread's turn — see `resumeStoredTurn`. */
+  const resumeTurn = useCallback(
+    (): Promise<boolean> =>
+      resumeStoredTurn({
+        transport,
+        chat,
+        status: (turn) =>
+          getTurnStatus({
+            threadId,
+            turnKey: turn.turnKey,
+            tripId: turn.tripId,
+            getToken,
+          }),
+      }),
+    [transport, chat, threadId, getToken],
+  );
+
+  // Opening a thread picks up whatever the relay is still holding for it. This
+  // is the half of resumption that was missing: the work had always survived
+  // the disconnect, but nothing ever ASKED about it, so a reopened thread sat
+  // there looking finished — no spinner, no answer, nothing — while the agent
+  // was still working. Runs once per thread.
+  const recovered = useRef<string | null>(null);
+  useEffect(() => {
+    if (recovered.current === threadId) return;
+    // A remount must not attach a second time to a stream that is already
+    // replaying: the ref doesn't survive one, so the recency of the last
+    // attempt does (see `RECOVERY_GUARD_MS`).
+    const now = Date.now();
+    if (now - (recoveredAt.get(threadId) ?? 0) < RECOVERY_GUARD_MS) return;
+    recoveredAt.set(threadId, now);
+    recovered.current = threadId;
+    if (!transport.resumable) return;
+    setRecovery("checking");
+    void resumeTurn()
+      .then((resumed) => setRecovery(resumed ? "attached" : "unavailable"))
+      .catch(() => setRecovery("unavailable"));
+  }, [threadId, transport, resumeTurn]);
+
+  return { ...chat, resumeTurn, recovery };
 }

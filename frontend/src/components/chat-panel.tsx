@@ -17,8 +17,31 @@ import {
   newThreadId,
   uploadChatFile,
   useTripChat,
+  type TurnRecovery,
   type UploadedChatFile,
 } from "../lib/chat";
+
+/**
+ * Whether the transcript should offer Reconnect — the last assistant message
+ * is a turn the relay CUT, and nothing is picking it up.
+ *
+ * Every exclusion matters: a turn that is being attached to is already being
+ * continued (`checking`), one that WAS attached to has been rebuilt and needs
+ * no affordance, and a cut transcript with no re-attach in flight is exactly
+ * the case the button exists for. Kept as a predicate so the rule is readable
+ * and testable on its own, apart from rendering (issue #217).
+ */
+export function shouldOfferReconnect(args: {
+  working: boolean;
+  error: Error | undefined;
+  recovery: TurnRecovery;
+  lastMessage: UIMessage | null;
+}): boolean {
+  if (args.working || args.error) return false;
+  if (args.recovery === "checking" || args.recovery === "attached") return false;
+  const last = args.lastMessage;
+  return last !== null && last.role === "assistant" && messageInterrupted(last);
+}
 
 /**
  * Chat panel (issue #9 / M4) — Chrome surface (`no-print`): the conversation
@@ -148,25 +171,36 @@ function ChatThread({
       }
     },
   });
-  const { messages, status, error } = chat;
+  const { messages, status, error, recovery } = chat;
   const busy = status === "submitted" || status === "streaming";
+  // Re-attaching a turn this thread was left in the middle of (#217) is live
+  // work from the user's point of view, even though the SDK hasn't started
+  // streaming yet: the thinking row shows for the probe too, and the composer
+  // stays shut — a message sent in that window would start a SECOND turn and
+  // leave the real one running with nothing rendering it.
+  const working = busy || recovery === "checking";
   // The agent edits the trip server-side, while the trip page keeps the
   // document it read at load (api.ts memoizes it for the session) and the
   // activity row unmounts at settle — so a turn's own result is otherwise
   // invisible until a manual reload. Fire once per COMPLETED turn so the
   // caller can refetch the trip (issue #179 follow-up: "you don't see the
   // result in the UI"). Errors do not fire it: a failed turn changed nothing.
-  const ranTurn = useRef(false);
+  //
+  // Two things count as a turn having done work, because a turn can settle in
+  // two ways: the `busy` window (a turn this client watched), or an attach
+  // (#217) — a thread opening onto a turn that ran while the client was away.
+  // The replayed frames land in one burst there, so that window is not
+  // guaranteed to render; the attach outcome is, and both latch the same
+  // refetch. Without it a recovered turn would render its answer while the
+  // trip page kept the stale document the agent had just edited.
+  const refetchPending = useRef(false);
   useEffect(() => {
-    if (busy) {
-      ranTurn.current = true;
-      return;
-    }
-    if (ranTurn.current && !error) {
-      ranTurn.current = false;
+    if (busy || recovery === "attached") refetchPending.current = true;
+    if (refetchPending.current && !working && !error) {
+      refetchPending.current = false;
       onTurnComplete?.();
     }
-  }, [busy, error, onTurnComplete]);
+  }, [busy, working, recovery, error, onTurnComplete]);
   // A dropped turn (issue #152): the relay closed the stream without the
   // agent's terminal event, so it marked the finish `interrupted`. The turn
   // looks "done" but the agent never finished — offer Reconnect. Since #217
@@ -174,12 +208,12 @@ function ChatThread({
   // working while the connection was gone); re-sending the transcript stays
   // the fallback for when there is nothing left to attach to.
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const droppedTurn =
-    !busy &&
-    !error &&
-    lastMessage !== null &&
-    lastMessage.role === "assistant" &&
-    messageInterrupted(lastMessage);
+  const droppedTurn = shouldOfferReconnect({
+    working,
+    error,
+    recovery,
+    lastMessage,
+  });
 
   const reconnect = async () => {
     if (!droppedTurn || busy) return;
@@ -225,7 +259,7 @@ function ChatThread({
   );
   const uploading = attachments.some((a) => a.state === "uploading");
   const canSend =
-    !busy && !uploading && (!!draft.trim() || readyFiles.length > 0);
+    !working && !uploading && (!!draft.trim() || readyFiles.length > 0);
 
   const send = async () => {
     if (!canSend) return;
@@ -357,7 +391,7 @@ function ChatThread({
             <AgentBubble key={message.id} message={message} />
           ),
         )}
-        {busy && <AgentActivity messages={messages} />}
+        {working && <AgentActivity messages={messages} />}
       </div>
 
       {droppedTurn && (
@@ -578,8 +612,9 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
  * part of the current turn (issue #175 — rows replace each other instead of
  * piling up; friendly labels from the relay, never raw tool names). The row
  * spins for the WHOLE turn and the feed unmounts when the turn ends
- * (`{busy && <AgentActivity/>}` at the mount site) — nothing lingers after the
- * answer.
+ * (`{working && <AgentActivity/>}` at the mount site — `working` is `busy`
+ * plus the window where a thread open is re-attaching to a running turn) —
+ * nothing lingers after the answer.
  *
  * Issue #181 follow-up: the row used to flip to a check as soon as the wire
  * closed that call (`done: true` when the tool result lands). In a single-row

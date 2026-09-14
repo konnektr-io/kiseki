@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
-import type { UIMessageChunk } from "ai";
+import type { UIMessage, UIMessageChunk } from "ai";
 
-import { KisekiChatTransport, loadTurnState, saveTurnState } from "./chat";
+import {
+  KisekiChatTransport,
+  loadTurnState,
+  resumeStoredTurn,
+  saveTurnState,
+  turnBoundary,
+} from "./chat";
 
 /* The turn a thread was rendering survives a reload / app switch (issue
  * #217): `{turnKey, cursor}` is kept per thread, and a transport built from
@@ -24,6 +30,20 @@ const V1_SSE_BODY = [
 
 function sseResponse(body: string): Response {
   return new Response(new TextEncoder().encode(body));
+}
+
+/** The `sendMessages` argument shape the SDK passes (`chat.transport.test.ts`
+ *  has the same helper — the transport's request shaping runs on it). */
+function sendOptions(
+  messages: Parameters<KisekiChatTransport["sendMessages"]>[0]["messages"],
+) {
+  return {
+    trigger: "submit-message" as const,
+    chatId: "chat-1",
+    messageId: undefined,
+    messages,
+    abortSignal: undefined,
+  };
 }
 
 /* jsdom in this repo runs on an opaque origin, so `window.localStorage` is
@@ -109,5 +129,296 @@ describe("turn state persistence (#217)", () => {
     // the resumed turn ran to a clean finish, so nothing is left to attach to
     expect(transport.resumable).toBe(false);
     expect(loadTurnState("thread-a")).toBeNull();
+  });
+});
+
+/* What a submission has to RECORD for a later resume to be possible at all:
+ * the relay keys a turn by the trip it was submitted under, and the client
+ * rebuilds the transcript from the message that opened the turn (#217). */
+describe("turn anchors (#217)", () => {
+  beforeEach(() => installStorage().clear());
+
+  it("records the trip and the opening message when a turn is submitted", async () => {
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(V1_SSE_BODY)) as typeof fetch,
+    });
+    await transport.sendMessages(
+      sendOptions([
+        { id: "u9", role: "user", parts: [{ type: "text", text: "hello" }] },
+      ]),
+    );
+    const stored = loadTurnState("thread-a");
+    expect(stored?.tripId).toBe("trip-1");
+    expect(stored?.userMessageId).toBe("u9");
+    expect(stored?.cursor).toBe(0);
+  });
+
+  it("attaches with the trip the turn was SUBMITTED with, not the one on screen", async () => {
+    // a landing-page thread that gained a trip mid-conversation: the turn
+    // itself has no anchor, and re-addressing it under the trip would name a
+    // turn that does not exist (the relay would start a NEW one instead)
+    saveTurnState("thread-a", { turnKey: "turn-1", cursor: 4, tripId: null });
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const transport = new KisekiChatTransport({
+      tripId: "trip-live",
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        seen.push({ url, init });
+        return sseResponse(V1_SSE_BODY);
+      }) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    await transport.reconnectToStream();
+    expect(JSON.parse(seen[0].init.body as string)).toEqual({
+      turnKey: "turn-1",
+      cursor: 4,
+      threadId: "thread-a",
+    });
+  });
+
+  it("rewinds the attach to the turn's first frame", async () => {
+    saveTurnState("thread-a", { turnKey: "turn-1", cursor: 9 });
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const transport = new KisekiChatTransport({
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        seen.push({ url, init });
+        return sseResponse(V1_SSE_BODY);
+      }) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    transport.rewind(0);
+    await transport.reconnectToStream();
+    expect(JSON.parse(seen[0].init.body as string).cursor).toBe(0);
+  });
+
+  it("reports an attach that found nothing, and can forget the turn", async () => {
+    saveTurnState("thread-a", { turnKey: "turn-1", cursor: 3 });
+    const transport = new KisekiChatTransport({
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => new Response("gone", { status: 404 })) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    expect(await transport.reconnectToStream()).toBeNull();
+    expect(transport.lastAttachFailed).toBe(true);
+    transport.forgetTurn();
+    expect(transport.resumable).toBe(false);
+    expect(loadTurnState("thread-a")).toBeNull();
+  });
+});
+
+/* Where a turn's own messages start in the transcript — the anchor the resume
+ * rebuilds from. Getting this wrong deletes history (an off-by-one would drop
+ * the user's own message) or duplicates the turn. */
+describe("turnBoundary (#217)", () => {
+  const user: UIMessage = {
+    id: "u1",
+    role: "user",
+    parts: [{ type: "text", text: "add the RV parks" }],
+  };
+  const partial: UIMessage = {
+    id: "a1",
+    role: "assistant",
+    parts: [{ type: "text", text: "Added the" }],
+  };
+  const settled: UIMessage = {
+    id: "a0",
+    role: "assistant",
+    parts: [{ type: "text", text: "Done." }],
+  };
+
+  it("starts just after the message that opened the turn", () => {
+    expect(turnBoundary([settled, user, partial], "u1")).toBe(2);
+  });
+
+  it("keeps the whole transcript when the anchor is not in it", () => {
+    expect(turnBoundary([settled, user, partial], "u-gone")).toBe(3);
+  });
+
+  it("without an anchor drops only a tail the relay cut", () => {
+    const cut: UIMessage = {
+      ...partial,
+      metadata: { interrupted: true },
+    };
+    expect(turnBoundary([user, cut])).toBe(1);
+    // unmarked partial: not known to be this turn's, so nothing is dropped
+    expect(turnBoundary([user, partial])).toBe(2);
+  });
+});
+
+/* Picking a turn back up (#217). The probe decides: an attach at a turn key
+ * the relay has forgotten STARTS the turn, so "nothing there" must never
+ * reach the attach. */
+describe("resumeStoredTurn (#217)", () => {
+  beforeEach(() => installStorage().clear());
+
+  const messages: UIMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "add RV parks" }] },
+    {
+      id: "a1",
+      role: "assistant",
+      parts: [{ type: "text", text: "Added the" }],
+    },
+  ];
+
+  /** The `useChat` surface, tracked so tests can see every transcript write. */
+  function surface(onResume?: () => Promise<void>) {
+    const chat = {
+      messages,
+      resumed: 0,
+      writes: [] as UIMessage[][],
+      setMessages(next: UIMessage[]) {
+        chat.messages = next;
+        chat.writes.push(next);
+      },
+      async resumeStream() {
+        chat.resumed += 1;
+        if (onResume) await onResume();
+      },
+    };
+    return chat;
+  }
+
+  it("rebuilds the turn from its first frame instead of appending to it", async () => {
+    saveTurnState("thread-a", {
+      turnKey: "turn-1",
+      cursor: 2,
+      tripId: "trip-1",
+      userMessageId: "u1",
+    });
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async (url: string, init: RequestInit) => {
+        seen.push({ url, init });
+        return sseResponse(V1_SSE_BODY);
+      }) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    const chat = surface(async () => {
+      await transport.reconnectToStream();
+    });
+    const attached = await resumeStoredTurn({
+      transport,
+      chat,
+      status: async () => ({ known: true, cursor: 2, status: "running" }),
+    });
+    expect(attached).toBe(true);
+    // the partial leaves the transcript BEFORE the stream starts, so the
+    // replayed frames own the message and no second bubble appears
+    expect(chat.writes[0].map((m) => m.id)).toEqual(["u1"]);
+    // and the attach asks for frame 0, not for the cursor the client held
+    expect(JSON.parse(seen[0].init.body as string)).toEqual({
+      turnKey: "turn-1",
+      cursor: 0,
+      threadId: "thread-a",
+      tripId: "trip-1",
+    });
+    expect(chat.resumed).toBe(1);
+  });
+
+  it("attaches to a turn that settled while nobody was watching", async () => {
+    // the exact reported symptom: the relay finished the turn after the client
+    // disconnected, so the answer (and the trip edits) were there to collect
+    saveTurnState("thread-a", {
+      turnKey: "turn-1",
+      cursor: 1,
+      tripId: "trip-1",
+      userMessageId: "u1",
+    });
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(V1_SSE_BODY)) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    const chat = surface();
+    const attached = await resumeStoredTurn({
+      transport,
+      chat,
+      status: async () => ({ known: true, cursor: 5, done: true, status: "settled" }),
+    });
+    expect(attached).toBe(true);
+    expect(chat.resumed).toBe(1);
+  });
+
+  it("forgets a turn the relay no longer holds instead of attaching", async () => {
+    saveTurnState("thread-a", { turnKey: "turn-1", cursor: 3, tripId: "trip-1" });
+    const transport = new KisekiChatTransport({
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => {
+        throw new Error("must not be called");
+      }) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    const chat = surface();
+    const attached = await resumeStoredTurn({
+      transport,
+      chat,
+      status: async () => ({ known: false }),
+    });
+    expect(attached).toBe(false);
+    expect(chat.resumed).toBe(0);
+    expect(chat.writes).toEqual([]);
+    expect(transport.resumable).toBe(false);
+    expect(loadTurnState("thread-a")).toBeNull();
+  });
+
+  it("keeps the turn, and the transcript, when the relay cannot be asked", async () => {
+    saveTurnState("thread-a", { turnKey: "turn-1", cursor: 3, tripId: "trip-1" });
+    const transport = new KisekiChatTransport({
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(V1_SSE_BODY)) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    const chat = surface();
+    const attached = await resumeStoredTurn({
+      transport,
+      chat,
+      status: async () => {
+        throw new Error("network down");
+      },
+    });
+    expect(attached).toBe(false);
+    expect(chat.writes).toEqual([]);
+    expect(transport.resumable).toBe(true);
+    expect(loadTurnState("thread-a")).not.toBeNull();
+  });
+
+  it("puts the transcript back when the attach comes back empty", async () => {
+    saveTurnState("thread-a", {
+      turnKey: "turn-1",
+      cursor: 2,
+      tripId: "trip-1",
+      userMessageId: "u1",
+    });
+    const transport = new KisekiChatTransport({
+      threadId: "thread-a",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => new Response("gone", { status: 404 })) as typeof fetch,
+      turn: loadTurnState("thread-a"),
+    });
+    const chat = surface(async () => {
+      await transport.reconnectToStream();
+    });
+    const attached = await resumeStoredTurn({
+      transport,
+      chat,
+      status: async () => ({ known: true, cursor: 2 }),
+    });
+    expect(attached).toBe(false);
+    expect(chat.writes).toHaveLength(2);
+    expect(chat.messages).toEqual(messages);
   });
 });
