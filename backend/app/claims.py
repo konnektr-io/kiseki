@@ -173,3 +173,96 @@ def follow_via_claim(
         return graph_to_trip(rebuilt)
     except GraphNotFound as exc:  # vanished mid-follow (#171)
         raise ClaimError(503, "Trip could not be re-read after follow") from exc
+
+
+# ----------------------------------------------------------- follow model #197
+def trip_by_follow_token(follow_token: str) -> Trip | None:
+    """Resolve a trip from its FOLLOW token (#197) — the follow-link read.
+
+    Same trip document as the claim link, but the credential that got the
+    caller here can never claim a crew identity, so callers rendering this
+    must not offer "This is me" (see ``main.trip_by_follow``).
+    """
+    client = get_graph_client()
+    if client is None:
+        return None
+    trip_dtid = client.find_trip_dtid_by_follow_token(follow_token)
+    if not trip_dtid:
+        return None
+    graph = client.fetch_graph(trip_dtid)
+    if not graph:
+        return None
+    try:
+        return graph_to_trip(graph)
+    except GraphNotFound:  # deleted between the token lookup and the fetch (#171)
+        return None
+
+
+def _follow(client, trip_dtid: str, user_dtid: str, profile: dict[str, Any]) -> Trip:
+    """Shared tail of every follow path: idempotent edge, rebuilt Trip (#197).
+
+    Idempotent on purpose — following a trip you already follow (or that you
+    are crew on) returns the trip and never duplicates the edge or downgrades
+    an existing role.
+    """
+    if client.role_for_user_on_trip(trip_dtid, user_dtid) is not None:
+        graph = client.fetch_graph(trip_dtid)
+        if not graph:
+            raise ClaimError(404, "Trip not found")
+        try:
+            return graph_to_trip(graph)
+        except GraphNotFound:
+            raise ClaimError(404, "Trip not found")  # deleted mid-check (#171)
+    if not client.follow_trip(trip_dtid, user_dtid, profile):
+        raise ClaimError(503, "Could not follow trip")
+    rebuilt = client.fetch_graph(trip_dtid)
+    if not rebuilt:
+        raise ClaimError(503, "Trip could not be re-read after follow")
+    try:
+        return graph_to_trip(rebuilt)
+    except GraphNotFound as exc:  # vanished mid-follow (#171)
+        raise ClaimError(503, "Trip could not be re-read after follow") from exc
+
+
+def follow_trip_by_id(trip_dtid: str, user_dtid: str, profile: dict[str, Any]) -> Trip:
+    """Follow a PUBLIC trip with no invite at all (#197).
+
+    ``visibility: public`` IS the invitation on this path. A private trip
+    stays invite-only: following it by id is a 403 telling the caller to get
+    a link, never a silent no-op and never an accidental grant. The role
+    granted is ``follower`` — read + follow, no crew powers.
+    """
+    client = get_graph_client()
+    if client is None:
+        raise ClaimError(503, "Graph not configured")
+    graph = client.fetch_graph(trip_dtid)
+    if not graph:
+        raise ClaimError(404, "Trip not found")
+    try:
+        trip = graph_to_trip(graph)
+    except GraphNotFound as exc:  # vanished under us (#171)
+        raise ClaimError(404, "Trip not found") from exc
+    if trip.visibility != "public":
+        raise ClaimError(403, "A private trip can only be followed with an invite link")
+    return _follow(client, trip_dtid, user_dtid, profile)
+
+
+def follow_via_follow_token(
+    follow_token: str,
+    user_dtid: str,
+    profile: dict[str, Any],
+) -> Trip:
+    """Follow a private trip via its FOLLOW link (#197).
+
+    Structurally incapable of claiming: the token resolves through
+    ``followToken`` and ``claim_identity`` reads ``claimToken`` only — the
+    two secrets are never interchangeable (a follow link presented as a claim
+    credential is just an unknown join link).
+    """
+    client = get_graph_client()
+    if client is None:
+        raise ClaimError(503, "Graph not configured")
+    trip_dtid = client.find_trip_dtid_by_follow_token(follow_token)
+    if not trip_dtid:
+        raise ClaimError(404, "Unknown follow link")
+    return _follow(client, trip_dtid, user_dtid, profile)

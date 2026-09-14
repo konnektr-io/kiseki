@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, UserCheck } from "lucide-react";
-import { claimIdentity, fetchTripByClaim, followTrip, TripAccessError } from "../lib/api";
+import { claimIdentity, fetchTripByClaim, fetchTripByFollow, followTrip, TripAccessError } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
@@ -24,20 +24,37 @@ export function JoinPage() {
   const [claiming, setClaiming] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [following, setFollowing] = useState(false);
+  // #197: the URL param is a link credential of either kind. The crew invite
+  // (claim token) wins when it resolves; a follow link is the fallback. The
+  // two are separate secrets server-side, so which one we hold decides what
+  // this page may offer — a follow link can NEVER claim.
+  const [linkKind, setLinkKind] = useState<"claim" | "follow">("claim");
 
-  usePageTitle(trip ? `${trip.title} — join` : null);
+  usePageTitle(trip ? `${trip.title} — ${linkKind === "follow" ? "follow" : "join"}` : null);
 
   useEffect(() => {
     let cancelled = false;
     setTrip(null);
     setError(null);
+    setLinkKind("claim");
     fetchTripByClaim(claimToken)
       .then((t) => {
         if (!cancelled) setTrip(t);
       })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load trip");
-      });
+      .catch(() =>
+        // Not a join link — try the follow link (#197): same page, but
+        // nothing here is claimable, so no crew list and no "This is me".
+        fetchTripByFollow(claimToken)
+          .then((t) => {
+            if (!cancelled) {
+              setLinkKind("follow");
+              setTrip(t);
+            }
+          })
+          .catch((e: unknown) => {
+            if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load trip");
+          }),
+      );
     return () => {
       cancelled = true;
     };
@@ -101,7 +118,7 @@ export function JoinPage() {
     setClaimError(null);
     try {
       const at = await getAccessTokenSilently();
-      const followed = await followTrip(claimToken, at);
+      const followed = await followTrip(claimToken, at, linkKind);
       navigate(`/t/${followed.id}`, { replace: true });
     } catch (e) {
       // Same dead-session rule as claiming: sign in again, land back here.
@@ -144,14 +161,33 @@ export function JoinPage() {
           <div className="rounded-xl border border-border bg-card p-6">
             <div className="mb-1 flex items-center gap-2 text-primary">
               <UserCheck className="h-5 w-5" />
-              <h2 className="font-heading text-xl font-semibold">You're invited</h2>
+              <h2 className="font-heading text-xl font-semibold">
+                {linkKind === "follow" ? "Follow this trip" : "You're invited"}
+              </h2>
             </div>
             <p className="mb-4 text-sm text-muted-foreground">
-              This link is your crew invitation. Sign in and claim your identity to join the
-              trip — the read-only share link can't do this.
+              {linkKind === "follow"
+                ? "This link lets you follow the trip — you'll get read access to it. It is not a crew invitation, so there is no identity to claim here."
+                : "This link is your crew invitation. Sign in and claim your identity to join the trip — the read-only share link can't do this."}
             </p>
 
-            {!isAuthenticated && !authLoading ? (
+            {linkKind === "follow" ? (
+              !isAuthenticated && !authLoading ? (
+                <Button
+                  onClick={() =>
+                    loginWithRedirect({
+                      appState: { returnTo: window.location.pathname },
+                    })
+                  }
+                >
+                  Sign in to follow
+                </Button>
+              ) : (
+                <Button onClick={handleFollow} disabled={following}>
+                  {following ? "Following…" : "Follow this trip"}
+                </Button>
+              )
+            ) : !isAuthenticated && !authLoading ? (
               <Button
                 onClick={() =>
                   loginWithRedirect({

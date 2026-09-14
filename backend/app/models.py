@@ -346,6 +346,7 @@ class Trip(BaseModel):
                     "`private` trip is listed but still requires follower+ to read.",
     )
     claimToken: Optional[str] = Field(default=None, description="Secret CLAIM key (issue #6 + #65) — authorizes claiming a crew identity or following this trip ('join link'). Separate from the read path: the read link is the trip id itself (gated by visibility). Editable (rotate without re-wiring the graph). None = no invite links issued.")
+    followToken: Optional[str] = Field(default=None, description="Secret FOLLOW key (issue #197) — authorizes FOLLOWING this trip and nothing else: it can never claim a crew identity (claimToken is the only claim credential). Minted/rotated by the owner via POST /api/trips/{id}/follow-link; revocable without touching the claim link. Only needed for private trips — a public trip is followed by id.")
     cover: Optional[str] = Field(default=None, description="Cover image — bare media filename (content-addressed sha256[:32].ext), served at /media/<trip_id>/<file>.")
     coverCredit: Optional[str] = Field(default=None, description="Cover image credit line.")
     map: Optional[str] = Field(default=None, description="Overview route-map image — bare media filename, served at /media/<trip_id>/<file>.")

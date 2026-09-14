@@ -219,11 +219,48 @@ class FakeGraph:
     def user_twin_exists(self, user_dtid: str) -> bool:
         return self.twin(user_dtid) is not None
 
+    def follow_trip(self, trip_dtid: str, user_dtid: str, profile: dict) -> bool:
+        """Mirror the real ``follow_trip`` (#65 / #197): a non-crew user gets a
+        ``hasCrew`` edge with ``role=follower``.
+
+        Creates the User twin when it is missing (no verified email → False;
+        the server invents no identity) and never duplicates an edge or
+        downgrades a role that is already there.
+        """
+        if not self.create_user_twin(user_dtid, profile):
+            return False
+        if self.role_for_user_on_trip(trip_dtid, user_dtid) is not None:
+            return True
+        used: list[int] = [r["index"] for r in self.rels_from(trip_dtid, "hasCrew")
+                           if isinstance(r.get("index"), int)]
+        self.rels.append({
+            "$relationshipId": f"{trip_dtid}__hasCrew__{user_dtid}",
+            "$sourceId": trip_dtid,
+            "$relationshipName": "hasCrew",
+            "$targetId": user_dtid,
+            "role": "follower",
+            "index": max(used) + 1 if used else 0,
+        })
+        return True
+
     def find_trip_dtid_by_claim_token(self, claim_token: str) -> str | None:
         """Mirror the live claim-token lookup (claim flow, #6)."""
         for t in self.twins:
             if (t.get("$metadata") or {}).get("$model") == "dtmi:kiseki:travel:Trip;1":
                 if t.get("claimToken") == claim_token:
+                    return t["$dtId"]
+        return None
+
+    def find_trip_dtid_by_follow_token(self, follow_token: str) -> str | None:
+        """Mirror the live follow-token lookup (#197).
+
+        Deliberately a SEPARATE lookup from the claim one: the follow
+        credential locates a trip, and nothing here ever hands it to
+        ``claim_crew_person``.
+        """
+        for t in self.twins:
+            if (t.get("$metadata") or {}).get("$model") == "dtmi:kiseki:travel:Trip;1":
+                if t.get("followToken") == follow_token:
                     return t["$dtId"]
         return None
 

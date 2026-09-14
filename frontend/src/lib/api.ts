@@ -149,15 +149,95 @@ export async function fetchJoinLink(tripId: string, accessToken: string): Promis
   return body.joinUrl;
 }
 
-/** Follow a trip via its claimToken (#65) — creates a follower role. */
-export async function followTrip(claimToken: string, accessToken: string): Promise<Trip> {
+/** Resolve the trip behind a FOLLOW token (#197) — read + follow, never a claim. */
+export async function fetchTripByFollow(followToken: string): Promise<Trip> {
+  const res = await fetch(`/api/trips/by-follow/${encodeURIComponent(followToken)}`);
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  return (await res.json()) as Trip;
+}
+
+/** Follow a PUBLIC trip with no invite at all (#197).
+ *
+ * `visibility: public` is the invitation: no link is involved, and a private
+ * trip answers 403 ("can only be followed with an invite link") rather than
+ * silently granting access. Idempotent server-side. */
+export async function followPublicTrip(tripId: string, accessToken: string): Promise<Trip> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  return (await res.json()) as Trip;
+}
+
+/** Owner-only: the trip's follow link (#197), or null when none was minted. */
+export async function fetchFollowLink(
+  tripId: string,
+  accessToken: string,
+): Promise<string | null> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow-link`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  const body = (await res.json()) as { followUrl: string };
+  return body.followUrl;
+}
+
+/** Owner-only: mint (or rotate) the follow link (#197).
+ *
+ * Minting twice rotates: the previous link stops resolving immediately, and
+ * the crew invite is untouched — the two links revoke separately. */
+export async function createFollowLink(tripId: string, accessToken: string): Promise<string> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow-link`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+  const body = (await res.json()) as { followUrl: string };
+  return body.followUrl;
+}
+
+/** Owner-only: disable the crew invite (#197) — clears the claim token.
+ *
+ * Crew already on the trip and existing followers keep their access; what
+ * stops is new claiming (and following) through the join link. The follow
+ * link keeps working. */
+export async function disableCrewInvite(tripId: string, accessToken: string): Promise<void> {
+  const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/join-link`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    throw new TripAccessError(res.status, await apiErrorMessage(res));
+  }
+}
+
+/** Follow a trip via a link credential (#65) — creates a follower role.
+ *
+ * `kind` picks WHICH credential is held: "claim" posts it as `claimToken`
+ * (join link) and "follow" as `followToken` (#197, read + follow only). The
+ * server rejects a body carrying both, so this is a real choice, not a hint. */
+export async function followTrip(
+  token: string,
+  accessToken: string,
+  kind: "claim" | "follow" = "claim",
+): Promise<Trip> {
   const res = await fetch("/api/claims/follow", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ claimToken }),
+    body: JSON.stringify(kind === "follow" ? { followToken: token } : { claimToken: token }),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));

@@ -61,7 +61,8 @@ _GRAPH_CACHE: dict[tuple, tuple[float, Any]] = {}
 _GRAPH_CACHE_LOCK = threading.Lock()
 _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
               "list_trips_for_user": 30.0,
-              "find_trip_dtid_by_claim_token": 60.0}
+              "find_trip_dtid_by_claim_token": 60.0,
+              "find_trip_dtid_by_follow_token": 60.0}
 
 
 def _cached_graph(method: Callable) -> Callable:
@@ -90,9 +91,15 @@ def _clear_graph_cache() -> None:
 # The cached reads a crew write (claim #6 / follow #65) makes stale. Keyed on
 # ids, so retiring them is a subset match on the memoized args.
 _CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user"}
+# Token lookups are keyed by the SECRET, not the trip id — a rotation or a
+# revoke must therefore retire them by token value (#197). Crew writes
+# deliberately leave them cached (a claim/link write doesn't change what a
+# token resolves to).
+_TOKEN_CACHED_READS = {"find_trip_dtid_by_claim_token", "find_trip_dtid_by_follow_token"}
 
 
-def _invalidate_graph_cache(*, trip_dtid: str | None = None, user_dtid: str | None = None) -> None:
+def _invalidate_graph_cache(*, trip_dtid: str | None = None, user_dtid: str | None = None,
+                            token: str | None = None) -> None:
     """Retire the cache entries a crew write changed — not the whole cache.
 
     Needed because a write is immediately followed by a re-read: the caller
@@ -106,12 +113,15 @@ def _invalidate_graph_cache(*, trip_dtid: str | None = None, user_dtid: str | No
     joining a trip should not cost every other trip its cached document.
     """
     ids = {v for v in (trip_dtid, user_dtid) if v}
-    if not ids:
+    if not ids and not token:
         return
     with _GRAPH_CACHE_LOCK:
         stale = [
             k for k in _GRAPH_CACHE
-            if k[0] in _CREW_CACHED_READS and ids & set(k[1])
+            if (k[0] in _CREW_CACHED_READS and ids & set(k[1]))
+            # Token lookups are keyed by the SECRET, not the trip id, so a
+            # rotation/revoke retires them by value (#197).
+            or (bool(token) and k[0] in _TOKEN_CACHED_READS and token in k[1])
         ]
         for k in stale:
             del _GRAPH_CACHE[k]
@@ -149,6 +159,17 @@ MAX_HOPS = 3
 _Q_FIND_TRIP_BY_CLAIM = """
 MATCH (trip:Twin)
 WHERE trip.claimToken = $claimToken
+RETURN trip
+LIMIT 1
+"""
+
+# Locate the Trip twin by its FOLLOW token (#197) — the credential behind a
+# "follow link". Deliberately a SEPARATE property from claimToken: a token
+# that can locate a trip for following can never be used to claim an identity
+# (claim_identity resolves by claimToken alone). `$followToken` is bound.
+_Q_FIND_TRIP_BY_FOLLOW = """
+MATCH (trip:Twin)
+WHERE trip.followToken = $followToken
 RETURN trip
 LIMIT 1
 """
@@ -270,6 +291,33 @@ class GraphReadClient:
             )
         except Exception as exc:
             print(f"[kiseki] graph claim lookup failed: {exc}")
+            return None
+        if not rows:
+            return None
+        trip = self._norm_node((rows[0] or {}).get("trip") or {})
+        if trip.get("$metadata", {}).get("$model") != TRIP_MODEL:
+            return None
+        return trip.get("$dtId")
+
+    @_cached_graph
+    def find_trip_dtid_by_follow_token(self, follow_token: str) -> Optional[str]:
+        """Return the Trip twin ``$dtId`` whose ``followToken`` matches (#197).
+
+        The FOLLOW credential resolves a trip — it is never accepted where a
+        CLAIM credential is required: ``claim_identity`` reads ``claimToken``
+        only, so a follow token is structurally incapable of claiming crew
+        (see ``tests/test_follow_197.py``).
+        """
+        if not self.is_enabled() or not _TOKEN_RE.match(follow_token or ""):
+            return None
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FIND_TRIP_BY_FOLLOW, query_parameters={"followToken": follow_token}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph follow lookup failed: {exc}")
             return None
         if not rows:
             return None
