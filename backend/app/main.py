@@ -2104,15 +2104,17 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
             or full_path == "join"
             or full_path.startswith("join/")
             or full_path == "me"
+            or full_path == "feed"
             or full_path == "u"
             or full_path.startswith("u/")
         )
         if not is_spa_route:
             raise HTTPException(status_code=404, detail="Not Found")
-        # SPA shell — trip routes get a noindex robots meta + header (private links)
+        # SPA shell — trip routes get a noindex robots meta + header (private links),
+        # and so does /feed: it is per-viewer and never a public document.
         is_trip = full_path.startswith("t/") or full_path == "t"
         headers = {}
-        if is_trip:
+        if is_trip or full_path == "feed":
             headers["X-Robots-Tag"] = "noindex, nofollow, noai, noimageai"
         # PDF render (#58): the booklet.pdf endpoint already enforced visibility +
         # crew role, so it forwards the caller's Bearer token on the loopback GET to

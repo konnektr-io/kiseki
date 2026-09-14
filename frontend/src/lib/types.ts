@@ -213,6 +213,50 @@ export interface ProfileTrip {
   myRole?: Role;
 }
 
+/* ---------------- #199 activity feed ---------------- */
+
+/** What a feed row is about: a whole trip, or one write inside one. */
+export type FeedKind = "trip" | "item";
+
+/** Whose write it was: your own trip, or a trip of someone you follow. */
+export type FeedSource = "my-trip" | "followed-user";
+
+/**
+ * One row of `GET /api/feed`, exactly as the server returns it.
+ *
+ * `at` is the raw stamp the graph wrote — the server owns the ordering, so the
+ * SPA never re-derives it. An item row carries the `label` the server put in
+ * words ("4 photos added") and its `thumbs` (`/media/<tripId>/<file>`): that is
+ * the point of item granularity — a follower reads the photos in the feed.
+ *
+ * `href` is always a trip-id route (`/t/<tripId>`, `/t/<tripId>/day/<idx>`);
+ * the repo-folder slug is not a route key anywhere in the app.
+ */
+export interface FeedEntry {
+  kind: FeedKind;
+  tripId: string;
+  tripTitle: string;
+  source: FeedSource;
+  at?: string | null;
+  by?: string | null;
+  href: string;
+  /** trip rows: the properties whose own write time is the newest. */
+  changes?: string[];
+  /** item rows: 0-based day index, its title, and what was written. */
+  dayIndex?: number;
+  dayTitle?: string;
+  label?: string;
+  thumbs?: string[];
+}
+
+/** The feed document, one page of it. */
+export interface FeedDoc {
+  generatedAt: string;
+  /** Cursor for the next page; absent/null on the last page. */
+  nextBefore?: string | null;
+  items: FeedEntry[];
+}
+
 export interface UserProfile {
   sub: string;
   name: string;

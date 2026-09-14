@@ -9,6 +9,7 @@ import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
 import { BookletPage } from "./pages/BookletPage";
+import { FeedPage } from "./pages/FeedPage";
 import { useTrip } from "./components/theme";
 
 /** /s/<n> was a real page in v0.13.0; DESIGN.md §7.5 corrected it to a
@@ -43,6 +44,7 @@ export default function App() {
           signed-in user's own (with the ensure step + publicName control). */}
       <Route path="/u/:sub" element={<ProfilePage />} />
       <Route path="/me" element={<MePage />} />
+      <Route path="/feed" element={<FeedPage />} />
       <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
         <Route path="today" element={<TodayPage />} />

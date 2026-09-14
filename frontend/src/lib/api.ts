@@ -1,4 +1,4 @@
-import type { PeopleList, Role, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
+import type { FeedDoc, PeopleList, Role, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -478,6 +478,20 @@ async function profileRequest<T>(
   });
   if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
   return (await res.json()) as T;
+}
+
+/* ---------------- #199 activity feed ---------------- */
+
+/**
+ * The caller's own feed: their trips plus the DISCOVERABLE trips of the people
+ * they follow, newest write first. Token-only — there is no anonymous or
+ * `?sub=` variant — so a signed-out visitor gets a sign-in CTA, not data.
+ * `before` is the previous page's `nextBefore` cursor (the server answers 422
+ * on a non-ISO value).
+ */
+export async function fetchFeed(accessToken: string, before?: string | null): Promise<FeedDoc> {
+  const query = before ? `?before=${encodeURIComponent(before)}` : "";
+  return profileRequest<FeedDoc>("GET", `/api/feed${query}`, accessToken);
 }
 
 /** The profile document — trips already filtered server-side to the
