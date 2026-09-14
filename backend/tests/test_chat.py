@@ -1,14 +1,18 @@
-"""Chat relay + file upload tests (issue #9 / M3).
+"""Chat relay + file upload tests (issue #9 / M3, resumable turns #217).
 
 Covers the M3 acceptance contract:
 - identity is bearer-first: end-user token → its own sub (mode 1); sanctioned
   M2M token + X-Act-As-Sub header → that sub (mode 2); M2M with no act-as and
   no pin → 401;
-- /api/chat uses the Responses API: only the new user message is forwarded
-  with a per-actor (per-trip) `conversation` name + identity `instructions`,
-   and the upstream Responses-API SSE stream is translated to Vercel-ai
-   UI-message-stream v1 chunks (``data: {…}`` SSE events …
-   ``data: [DONE]``);
+- /api/chat uses the Runs API: only the new user message is forwarded with a
+  per-actor (per-trip/thread) `session_id` + identity `instructions`, and the
+  upstream runs event feed is translated to Vercel-ai UI-message-stream v1
+  chunks (``data: {…}`` SSE events … ``data: [DONE]``);
+- a turn belongs to the RELAY, not the connection (#217): it runs with no
+  client attached, a re-request with the same ``turnKey`` attaches (it never
+  re-submits the run), and ``cursor`` resumes exactly at the frame the caller
+  already rendered;
+- /api/chat/turn reports a turn's state and /api/chat/stop interrupts it;
 - /api/chat gates the named trip (follower+ for the ACTING user);
 - /api/files stores content-addressed bytes into the trip's media namespace
   and returns the /media URL (editor+ only);
@@ -17,6 +21,7 @@ Covers the M3 acceptance contract:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -94,13 +99,77 @@ def _responses_sse(lines_spec: list[tuple[str, str]]) -> str:
     )
 
 
-def _fake_upstream(monkeypatch: pytest.MonkeyPatch, body_lines: str):
-    """Point the relay at a canned upstream Responses-API SSE body."""
-    async def _fake(body: dict, *, session_key=None):
-        for line in body_lines.splitlines():
+def _runs_sse(events: list[dict]) -> str:
+    """Build a Runs-API event feed: the event name travels in the payload."""
+    return "\n\n".join(f"data: {json.dumps(event)}" for event in events)
+
+
+RIDEALONG_RUN = "run_0123456789abcdef0123456789abcdef"
+
+
+def _fake_run(
+    monkeypatch: pytest.MonkeyPatch,
+    lines: str,
+    *,
+    run_id: str = RIDEALONG_RUN,
+    status: str = "completed",
+    replayed: bool = False,
+    gone: bool = False,
+    delay: float = 0.0,
+):
+    """Stand in for the four Runs-API IO seams (admission + feed + status + stop).
+
+    ``admissions`` counts upstream submissions, which is how a test proves the
+    #217 promise that re-attaching (or retrying) a turn does NOT start the
+    work twice. ``delay`` stalls the feed after its first event, so a test can
+    observe an idle-but-live attachment (keepalives).
+    """
+    state: dict = {"admissions": 0, "bodies": [], "session_keys": [], "stops": 0}
+
+    async def _start(body: dict, *, session_key=None, idempotency_key=None):
+        state["admissions"] += 1
+        state["bodies"].append(body)
+        state["session_keys"].append(session_key)
+        state["idempotency_key"] = idempotency_key
+        return {"run_id": run_id, "status": "running", "replayed": replayed}
+
+    async def _events(feed_run_id: str, *, session_key=None):
+        if gone:
+            raise chat_module.RunGone(feed_run_id)
+        for index, line in enumerate(lines.splitlines()):
+            if delay and index == 1:
+                await asyncio.sleep(delay)
             yield line
 
-    monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
+    async def _status(run_id_: str, *, session_key=None):
+        if gone:
+            raise chat_module.RunGone(run_id_)
+        return {"run_id": run_id_, "status": status, "output": "final text"}
+
+    async def _stop(run_id_: str, *, session_key=None):
+        state["stops"] += 1
+        return {"run_id": run_id_, "status": "cancelled"}
+
+    monkeypatch.setattr(chat_module, "start_chat_run", _start)
+    monkeypatch.setattr(chat_module, "stream_run_events", _events)
+    monkeypatch.setattr(chat_module, "fetch_run_status", _status)
+    monkeypatch.setattr(chat_module, "stop_chat_run", _stop)
+    # /api/chat/stop holds its own reference to the stop helper
+    monkeypatch.setattr(main_module, "stop_chat_run", _stop, raising=False)
+    return state
+
+
+def _payloads(text: str) -> list[dict]:
+    """Decode a relayed v1 body: every ``data:`` frame except ``[DONE]``."""
+    frames = [frame for frame in text.split("\n\n") if frame.strip()]
+    assert frames[-1] == "data: [DONE]", text
+    payloads = []
+    for frame in frames[:-1]:
+        if frame.startswith(":"):
+            continue  # SSE comment (keepalive) — not a message frame
+        assert frame.startswith("data: "), frame
+        payloads.append(json.loads(frame[len("data: "):]))
+    return payloads
 
 
 # ------------------------------------------------------------------ identity
@@ -159,14 +228,14 @@ def test_m2m_no_act_as_no_pin_raises(client, rsa_keypair) -> None:
 def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
     _role(monkeypatch, "owner")
     _fake_trip(monkeypatch, visibility="private")
-    _fake_upstream(
+    _fake_run(
         monkeypatch,
-        _responses_sse([
-            ("response.created", json.dumps({"type": "response.created"})),
-            ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "Hel"})),
-            ("response.output_text.delta", json.dumps({"type": "response.output_text.delta", "delta": "lo"})),
-            ("response.output_text.done", json.dumps({"type": "response.output_text.done", "text": "Hello"})),
-            ("response.completed", json.dumps({"type": "response.completed"})),
+        _runs_sse([
+            {"event": "run.started", "status": "running"},
+            {"event": "message.delta", "delta": "Hel"},
+            {"event": "message.delta", "delta": "lo"},
+            # terminal carries the full output — the relay must NOT re-emit it
+            {"event": "run.completed", "status": "completed", "output": "Hello"},
         ]),
     )
     token = _user_token(rsa_keypair)
@@ -213,26 +282,23 @@ def test_chat_streams_text_deltas(client, rsa_keypair, monkeypatch) -> None:
     assert payloads[-1]["type"] == "finish"
 
 
-def test_chat_forwards_only_new_input_with_scoped_conversation(
+def test_chat_forwards_only_new_input_with_scoped_session(
     client, rsa_keypair, monkeypatch
 ) -> None:
-    """Responses API: only the LAST user message + per-actor conversation +
-    identity instructions reach the upstream (history lives server-side)."""
+    """Runs API: only the LAST user message + per-actor session + identity
+    instructions reach the upstream (history chains agent-side)."""
     _role(monkeypatch, "owner")
     _fake_trip(monkeypatch, visibility="private")
-    captured: dict = {}
-
-    async def _fake(body: dict, *, session_key=None):
-        captured["body"] = body
-        captured["session_key"] = session_key
-        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
-
-    monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
     token = _user_token(rsa_keypair, sub=OTHER_SUB)
     resp = client.post(
         "/api/chat",
         json={
             "tripId": TRIP,
+            "turnKey": "turn-only-new-input",
             "messages": [
                 {"role": "user", "content": "earlier turn"},
                 {"role": "assistant", "content": "earlier reply"},
@@ -242,20 +308,25 @@ def test_chat_forwards_only_new_input_with_scoped_conversation(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    body = captured["body"]
+    body = state["bodies"][0]
     # only the new message goes upstream
-    assert len(body["input"]) == 1
-    assert body["input"][0]["content"] == "now this"
-    # conversation scoped per actor + trip (never a bare client id)
-    assert body["conversation"] == f"{OTHER_SUB}::trip:{TRIP}"
+    assert body["input"] == [{"role": "user", "content": "now this"}]
+    # session scoped per actor + trip (the Runs API's chaining handle; the
+    # Responses API called the same thing ``conversation``)
+    assert body["session_id"] == f"{OTHER_SUB}::trip:{TRIP}"
     # identity rides as instructions, not a stored history message
     assert OTHER_SUB in body["instructions"]
-    # full history is NOT sent — only the new message (server-side chaining)
-    assert body["input"] == [{"role": "user", "content": "now this"}]
+    # full history is NOT sent — only the new message (agent-side chaining)
     assert "conversation_history" not in body
-    assert body["stream"] is True
+    assert "stream" not in body
     # X-Hermes-Session-Key carries the ACTING sub → per-user session recall
-    assert captured["session_key"] == OTHER_SUB
+    assert state["session_keys"][0] == OTHER_SUB
+    # the turn key doubles as the upstream Idempotency-Key (#217), derived
+    # server-side from the acting user — a client can never address another
+    # user's turn
+    assert state["idempotency_key"] == chat_module.turn_key_for(
+        OTHER_SUB, trip_id=TRIP, thread_id=None, turn_key="turn-only-new-input"
+    )
 
 
 def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypatch) -> None:
@@ -305,13 +376,10 @@ def test_chat_unanchored_thread_forwards_planning_context(
 ) -> None:
     """No tripId → no ACL gate; the agent is told no trip is anchored and may
     plan a new one (never writes until anchored)."""
-    captured: dict = {}
-
-    async def _fake(body: dict, *, session_key=None):
-        captured["body"] = body
-        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
-
-    monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
     token = _user_token(rsa_keypair)
     resp = client.post(
         "/api/chat",
@@ -322,8 +390,8 @@ def test_chat_unanchored_thread_forwards_planning_context(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
-    body = captured["body"]
-    assert body["conversation"] == f"thread:plan-chile-001"
+    body = state["bodies"][0]
+    assert body["session_id"] == "thread:plan-chile-001"
     assert "No trip is anchored" in body["instructions"]
     # no trip ACL consulted: the route never calls require_actor_trip_access
     # when no tripId is present (get_trip_role_for_user stays un-mocked here,
@@ -335,13 +403,10 @@ def test_chat_m2m_act_as_header_reaches_agent(
 ) -> None:
     _role(monkeypatch, "editor")
     _fake_trip(monkeypatch, visibility="private")
-    captured: dict = {}
-
-    async def _fake(body: dict, *, session_key=None):
-        captured["body"] = body
-        yield "event: response.completed\ndata: {\"type\":\"response.completed\"}"
-
-    monkeypatch.setattr(main_module, "fetch_upstream_lines", _fake)
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
     token = _user_token(rsa_keypair, m2m=True)
     resp = client.post(
         "/api/chat",
@@ -355,9 +420,9 @@ def test_chat_m2m_act_as_header_reaches_agent(
         },
     )
     assert resp.status_code == 200
-    # M2M + act-as header → conversation + instructions follow the header sub
-    assert captured["body"]["conversation"].startswith(f"{OTHER_SUB}::")
-    assert OTHER_SUB in captured["body"]["instructions"]
+    # M2M + act-as header → session + instructions follow the header sub
+    assert state["bodies"][0]["session_id"].startswith(f"{OTHER_SUB}::")
+    assert OTHER_SUB in state["bodies"][0]["instructions"]
 
 
 def test_chat_m2m_without_act_as_is_401(client, rsa_keypair, monkeypatch) -> None:
@@ -860,14 +925,11 @@ def test_chat_stream_never_carries_eyJ(client, rsa_keypair, monkeypatch) -> None
     fake_jwt = (
         "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0cmlwLWFnaWVudCJ9.AAAA-bbbb_cccc_dddd"
     )
-    _fake_upstream(
+    _fake_run(
         monkeypatch,
-        _responses_sse([
-            ("response.output_text.delta", json.dumps({
-                "type": "response.output_text.delta",
-                "delta": f"working {fake_jwt} on it",
-            })),
-            ("response.completed", json.dumps({"type": "response.completed"})),
+        _runs_sse([
+            {"event": "message.delta", "delta": f"working {fake_jwt} on it"},
+            {"event": "run.completed", "status": "completed", "output": "done"},
         ]),
     )
     token = _user_token(rsa_keypair)
@@ -882,6 +944,372 @@ def test_chat_stream_never_carries_eyJ(client, rsa_keypair, monkeypatch) -> None
     assert resp.status_code == 200
     assert "eyJ" not in resp.text
     assert "[redacted]" in resp.text
+
+
+# ------------------------------------------ resumable turns (#217)
+# The complaint these cover: "the connection almost never survives to the end;
+# reconnecting shows an error with Try again and risks doing the trip twice."
+# The fix: a turn is a RELAY-side object (registry + frame buffer), so a repeat
+# request with the same turnKey attaches instead of re-submitting — the agent's
+# work continues whether or not a browser is watching, and output resumes
+# exactly at the frame the UI already rendered.
+
+TURN_FEED = [
+    {"event": "message.delta", "delta": "Hel"},
+    {"event": "message.delta", "delta": "lo"},
+    {"event": "run.completed", "status": "completed", "output": "Hello"},
+]
+
+
+def _chat(client, token, *, turn_key=None, cursor=None, thread_id=None):
+    payload: dict = {"tripId": TRIP, "messages": [{"role": "user", "content": "hi"}]}
+    if turn_key is not None:
+        payload["turnKey"] = turn_key
+    if cursor is not None:
+        payload["cursor"] = cursor
+    if thread_id is not None:
+        payload["threadId"] = thread_id
+    return client.post(
+        "/api/chat", json=payload, headers={"Authorization": f"Bearer {token}"}
+    )
+
+
+def test_chat_reattach_after_drop_replays_only_the_gap(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """#217 core: resuming replays the unseen frames and NEVER re-runs the turn."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    first = _chat(client, token, turn_key="turn-drop-1")
+    assert first.status_code == 200
+    whole = _payloads(first.text)
+    assert [c["type"] for c in whole] == [
+        "text-start", "text-delta", "text-delta", "text-end", "finish",
+    ]
+    assert state["admissions"] == 1
+
+    # the browser died after rendering 2 frames → it reconnects at cursor 2
+    again = _chat(client, token, turn_key="turn-drop-1", cursor=2)
+    assert again.status_code == 200
+    gap = _payloads(again.text)
+    assert [c["type"] for c in gap] == ["text-delta", "text-end", "finish"]
+    assert gap[0]["delta"] == "lo"
+    # the same text part id: the UI continues ONE assistant message, it does
+    # not open a second one
+    assert whole[0]["id"] == whole[1]["id"]
+    # no second upstream submission — re-attaching is free, not a re-send
+    assert state["admissions"] == 1
+
+
+def test_chat_late_attach_to_a_settled_turn_replays_it(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Opening a thread whose turn already finished still gets the frames."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    assert _chat(client, token, turn_key="turn-settled-1").status_code == 200
+    late = _chat(client, token, turn_key="turn-settled-1")
+    assert late.status_code == 200
+    # identical replay, still no re-submission
+    assert _payloads(late.text) == _payloads(
+        _chat(client, token, turn_key="turn-settled-1").text
+    )
+    assert state["admissions"] == 1
+
+
+def test_chat_turn_status_route_reports_how_much_output_exists(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The route the SPA polls after a drop (and on thread open): never starts work."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    assert _chat(client, token, turn_key="turn-status-1").status_code == 200
+    resp = client.get(
+        f"/api/chat/turn?turnKey=turn-status-1&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["known"] is True
+    assert body["done"] is True
+    assert body["status"] == "settled"
+    assert body["cursor"] == 5  # frames the UI can render, and resume past
+    assert body["runId"] == RIDEALONG_RUN
+    # polling is read-only: it never admitted another run
+    assert state["admissions"] == 1
+
+
+def test_chat_turn_status_unknown_turn_is_not_an_error(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A turn the relay doesn't have (relay restarted, or stale key) → known: false."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    token = _user_token(rsa_keypair)
+    resp = client.get(
+        f"/api/chat/turn?turnKey=never-existed&tripId={TRIP}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"known": False}
+
+
+def test_chat_stop_interrupts_the_upstream_run(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Stop is now the ONLY way to end a turn early (closing the tab no longer does)."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    key = chat_module.turn_key_for(
+        USER_SUB, trip_id=TRIP, thread_id=None, turn_key="turn-stop-1"
+    )
+    # what a live mid-turn registry entry looks like
+    chat_module._TURNS[key] = chat_module.Turn(
+        key=key, run_id=RIDEALONG_RUN, session_key=USER_SUB, status="running"
+    )
+    try:
+        resp = client.post(
+            "/api/chat/stop",
+            json={"turnKey": "turn-stop-1", "tripId": TRIP},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["stopped"] is True
+        assert resp.json()["runId"] == RIDEALONG_RUN
+        assert state["stops"] == 1
+    finally:
+        chat_module._TURNS.pop(key, None)
+
+
+def test_chat_stop_unknown_turn_is_404(client, rsa_keypair, monkeypatch) -> None:
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat/stop",
+        json={"turnKey": "never-existed", "tripId": TRIP},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 404
+
+
+def test_chat_turn_key_is_scoped_to_the_acting_user(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A client-supplied turnKey can never address someone else's turn."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+
+    # user A starts turnKey "shared-name" on the trip
+    assert _chat(client, _user_token(rsa_keypair), turn_key="shared-name").status_code == 200
+    # user B sends the SAME turnKey: it is a different turn (its own run)
+    assert (
+        _chat(
+            client, _user_token(rsa_keypair, sub=OTHER_SUB), turn_key="shared-name"
+        ).status_code
+        == 200
+    )
+    assert state["admissions"] == 2
+    assert state["session_keys"][0] == USER_SUB
+    assert state["session_keys"][1] == OTHER_SUB
+
+    # …and B cannot read A's turn through the status route either
+    b_key = chat_module.turn_key_for(
+        OTHER_SUB, trip_id=TRIP, thread_id=None, turn_key="shared-name"
+    )
+    a_key = chat_module.turn_key_for(
+        USER_SUB, trip_id=TRIP, thread_id=None, turn_key="shared-name"
+    )
+    assert a_key != b_key
+
+    # a turn is also scoped per thread: same key, other thread = other turn
+    assert (
+        _chat(client, _user_token(rsa_keypair), turn_key="shared-name", thread_id="t-x")
+        .status_code
+        == 200
+    )
+    assert state["admissions"] == 3
+
+
+def test_chat_legacy_request_without_turn_key_is_still_relay_owned(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """An older SPA bundle (no turnKey) keeps working — the relay mints the key."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+    token = _user_token(rsa_keypair)
+
+    resp = _chat(client, token)
+    assert resp.status_code == 200
+    assert [c["type"] for c in _payloads(resp.text)][-1] == "finish"
+    assert state["admissions"] == 1
+    # two legacy turns never collide (each gets a fresh minted key)
+    assert _chat(client, token).status_code == 200
+    assert state["admissions"] == 2
+
+
+def test_chat_idle_attach_keeps_the_connection_alive(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A quiet agent (long tool call) must not look like a dead connection:
+    idle attachments emit SSE comment keepalives."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    monkeypatch.setattr(chat_module, "ATTACH_KEEPALIVE_SECONDS", 0.05)
+    # first event flows, then the feed stalls (the model is thinking)
+    _fake_run(monkeypatch, _runs_sse(TURN_FEED), delay=0.3)
+    token = _user_token(rsa_keypair)
+
+    resp = _chat(client, token, turn_key="turn-idle-1")
+    assert resp.status_code == 200
+    assert ": keepalive" in resp.text
+    assert resp.text.rstrip().endswith("data: [DONE]")
+    # keepalives are comments: they never become a message frame
+    assert [c["type"] for c in _payloads(resp.text)][-1] == "finish"
+
+
+def test_turn_completes_with_no_client_attached(monkeypatch) -> None:
+    """The production invariant behind #217: the work belongs to the relay's
+    pump, so a turn finishes even when nobody is watching (tab closed)."""
+    state = _fake_run(monkeypatch, _runs_sse(TURN_FEED))
+
+    async def _drive() -> chat_module.Turn:
+        key = chat_module.turn_key_for(
+            USER_SUB, trip_id=None, thread_id="solo", turn_key="turn-solo-1"
+        )
+        chat_module._TURNS.pop(key, None)
+        turn = await chat_module.start_turn(
+            key, body={"session_id": "thread:solo"}, session_key=USER_SUB
+        )
+        for _ in range(300):  # no waiter is ever registered
+            if turn.done:
+                break
+            await asyncio.sleep(0.01)
+        chat_module._TURNS.pop(key, None)
+        return turn
+
+    turn = asyncio.run(_drive())
+    assert turn.done is True, "the turn never settled with no client attached"
+    assert [c["type"] for c in turn.frames] == [
+        "text-start", "text-delta", "text-delta", "text-end", "finish",
+    ]
+    assert "".join(
+        c.get("delta", "") for c in turn.frames if c["type"] == "text-delta"
+    ) == "Hello"
+    assert state["admissions"] == 1
+
+
+def test_turn_feed_lost_after_admission_settles_as_an_error(monkeypatch) -> None:
+    """If the upstream run vanishes mid-turn, the buffer must not just stop:
+    the caller gets an explicit error chunk (#217)."""
+    _fake_run(monkeypatch, "", gone=True)
+
+    async def _drive() -> chat_module.Turn:
+        key = chat_module.turn_key_for(
+            USER_SUB, trip_id=None, thread_id="gone", turn_key="turn-gone-1"
+        )
+        chat_module._TURNS.pop(key, None)
+        turn = await chat_module.start_turn(
+            key, body={"session_id": "thread:gone"}, session_key=USER_SUB
+        )
+        for _ in range(300):
+            if turn.done:
+                break
+            await asyncio.sleep(0.01)
+        chat_module._TURNS.pop(key, None)
+        return turn
+
+    turn = asyncio.run(_drive())
+    assert turn.done is True
+    assert turn.frames[-1]["type"] == "error"
+    assert turn.frames[-1]["errorText"]
+
+
+# ------------------------------------------------------------------ dialect
+# The Runs API carries the event name INSIDE the payload (``{"event": …}``)
+# and streams ``message.delta``; the Responses API used a separate ``event:``
+# line. The relay's translator accepts both on one wire during the migration —
+# these lock the runs dialect (schema verified against api_server_runs.py).
+
+
+def test_wire_translation_of_runs_text_stream() -> None:
+    """``message.delta`` → delta/snapshot/tool/traceframe as before."""
+    translator = chat_module.WireTranslator()
+    chunks = []
+    for line in _runs_sse(TURN_FEED).splitlines():
+        chunks.extend(translator.feed(line))
+    assert [c["type"] for c in chunks] == [
+        "text-start", "text-delta", "text-delta", "text-end", "finish",
+    ]
+    assert "".join(c.get("delta", "") for c in chunks) == "Hello"
+    assert translator._done is True
+
+
+def test_wire_translation_of_runs_tool_activity() -> None:
+    """``tool.started``/``tool.completed`` become the UI's activity rows.
+
+    The runs feed names the tool but carries no call id, so rows are paired
+    FIFO by name and the raw tool name never travels to the client.
+    """
+    translator = chat_module.WireTranslator()
+    chunks = []
+    for line in _runs_sse([
+        {"event": "tool.started", "tool": "trip_get", "preview": "trip 42"},
+        {"event": "message.delta", "delta": "thinking…"},
+        {"event": "tool.completed", "tool": "trip_get"},
+        {"event": "run.completed", "status": "completed", "output": "thinking…"},
+    ]).splitlines():
+        chunks.extend(translator.feed(line))
+    rows = [c for c in chunks if c["type"] == "data-kiseki-activity"]
+    assert [row["data"]["done"] for row in rows] == [False, True]
+    assert rows[0]["id"] == rows[1]["id"]  # same row, opened then closed
+    assert "trip_get" not in json.dumps(chunks)  # raw tool name stays server-side
+    assert chunks[-1]["type"] == "finish"
+    # the row closed before the turn ended, and the text part resumed after it
+    assert rows[1] is not chunks[-1]
+    assert [c["type"] for c in chunks if c["type"] == "text-start"] == ["text-start"]
+
+
+def test_wire_translation_of_runs_failure() -> None:
+    """``run.failed`` → a terminal error chunk, not a silent truncation."""
+    translator = chat_module.WireTranslator()
+    chunks = []
+    for line in _runs_sse([
+        {"event": "message.delta", "delta": "half an ans"},
+        {"event": "run.failed", "status": "failed", "error": "provider exploded"},
+    ]).splitlines():
+        chunks.extend(translator.feed(line))
+    assert chunks[-1]["type"] == "error"
+    assert "provider exploded" in chunks[-1]["errorText"]
+    assert translator._done is True
+
+
+def test_wire_translation_of_runs_interrupt_keeps_reconnect_marker() -> None:
+    """A turn cut off upstream (``run.interrupted``) still tells the UI it can
+    reconnect — which is now a cheap attach, not a re-send."""
+    translator = chat_module.WireTranslator()
+    chunks = []
+    for line in _runs_sse([
+        {"event": "message.delta", "delta": "partial"},
+        {"event": "run.interrupted", "status": "interrupted"},
+    ]).splitlines():
+        chunks.extend(translator.feed(line))
+    assert chunks[-1]["type"] == "finish"
+    assert chunks[-1]["messageMetadata"] == {"interrupted": True}
 
 
 # ------------------------------------------------------------------ /api/files

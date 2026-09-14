@@ -4,16 +4,27 @@ The kiseki React SPA talks to ``POST /api/chat`` (Vercel-ai ``useChat``
 shape). This backend validates the caller, resolves the acting user (mode 1:
 end-user Auth0 token → its own sub; mode 2: sanctioned agent M2M token +
 request-scoped ``X-Act-As-Sub`` header → that sub), and relays the turn to
-the kiseki content profile's Hermes API server over the **Responses API**
-(``POST /v1/responses``), translating the stream into the Vercel-ai wire
+the kiseki content profile's Hermes API server over the **Runs API**
+(``POST /v1/runs``), translating the stream into the Vercel-ai wire
 format the SPA consumes.
 
-Why Responses, not chat completions (Niko, 2026-09-09): the Responses API
-keeps conversation history **on the Hermes side** — the relay sends only the
-new user message plus a stable ``conversation`` name, and Hermes chains it to
-the stored response. No full transcript round-trips every turn. The
-conversation name is scoped per acting user (and trip), so histories never
-mix across users — cross-user isolation by construction, not by prompt.
+Why agent-side history (Niko, 2026-09-09): Hermes keeps the conversation
+history **on its own side** — the relay sends only the new user message plus a
+stable scoped session name, and Hermes chains it to what that session already
+holds. No full transcript round-trips every turn. The session name is scoped
+per acting user (and trip), so histories never mix across users — cross-user
+isolation by construction, not by prompt.
+
+Why *runs*, not a proxied streaming response (issue #217): the turn used to BE
+the browser's SSE connection — ``POST /v1/responses`` proxied one-to-one, so a
+dropped connection killed the agent turn (``interrupted_by_user``,
+``response_len=0`` after 134 API calls, repeatedly). The Runs API decouples
+them: the relay *submits* a run (``Idempotency-Key`` → the same ``run_id`` on
+replay), *pumps* its ``/events`` feed into a relay-owned buffer, and every
+browser connection only *attaches* to that buffer at a cursor. Losing a
+connection now costs nothing — the work keeps accumulating, and a reconnect
+re-attaches instead of re-sending (so no duplicated trip). ``POST
+/api/chat/stop`` is the only thing that stops a run.
 
 The identity envelope travels as ``instructions`` (an ephemeral system
 prompt, not part of the stored history chain), telling the agent which user
@@ -37,9 +48,13 @@ accident.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import re
+import time
 import uuid
+from dataclasses import dataclass, field
 from typing import AsyncIterator, Iterable, Iterator
 
 from fastapi import HTTPException
@@ -70,8 +85,8 @@ class ChatRequest(_Strict):
     """Vercel-ai ``useChat`` payload.
 
     ``messages`` carries the SPA's full transcript for display; the relay
-    forwards ONLY the last user message to Hermes (the Responses API chains
-    the rest server-side via ``conversation``).
+    forwards ONLY the last user message to Hermes (Hermes chains the rest
+    server-side via the scoped session).
 
     ``threadId`` is the CLIENT-persisted conversation identity (a fresh UUID
     per chat thread, reused on resume) — multiple threads per trip, and
@@ -79,9 +94,39 @@ class ChatRequest(_Strict):
     decoupled from conversation identity so a planning thread can attach a
     trip once it exists (created mid-thread) without losing history. It only
     drives the ACL gate + the agent's context instructions.
+
+    ``turnKey`` names ONE turn (issue #217) — the SPA mints it per user
+    message and reuses it verbatim when it needs to reconnect, which is what
+    makes a reconnect an ATTACH to the running turn instead of a re-send:
+    the relay derives the upstream ``Idempotency-Key`` from it, so the same
+    pair (user, thread, turnKey) always resolves to the same run, and a
+    second request for a live turn streams that turn's remaining frames
+    rather than starting the work again. ``cursor`` is how many frames of
+    that turn the caller has already rendered (absent/0 on the first send) —
+    the attach replays only the gap. Both are optional: without them each
+    POST is a fresh, unattachable turn (legacy shape).
+
+    ``messages`` is empty on an ATTACH (the caller has nothing new to say —
+    it only wants the frames it missed); the 400 for a missing user message
+    therefore only applies when the request starts a new turn.
     """
 
-    messages: list[ChatMessage]
+    messages: list[ChatMessage] = []
+    threadId: str | None = None
+    tripId: str | None = None
+    turnKey: str | None = None
+    cursor: int | None = None
+
+
+class TurnRequest(_Strict):
+    """Turn-addressed request (``/api/chat/stop``, ``GET /api/chat/turn``).
+
+    ``turnKey`` + ``threadId`` (+ optional ``tripId`` anchor) name one turn
+    exactly as :func:`turn_key_for` scopes it — the relay re-derives the key
+    server-side, so a caller can only ever address its own turn.
+    """
+
+    turnKey: str
     threadId: str | None = None
     tripId: str | None = None
 
@@ -186,6 +231,10 @@ def sse_data(chunk: dict) -> str:
 
 #: Stream terminator appended after the terminal chunk.
 SSE_DONE = "data: [DONE]\n\n"
+
+#: Runs-API terminal statuses (``run.<status>``): the turn is over, and the
+#: only place a run's final text can still be recovered from (issue #217).
+_TERMINAL_RUN_STATUSES = frozenset({"completed", "failed", "cancelled", "interrupted"})
 
 
 # ------------------------------------------------------- secret scrub (#158)
@@ -293,15 +342,32 @@ class WireTranslator:
     agent still works.
 
     Tool/lifecycle events stay agent-side by design — v1 renders text only.
+
+    Handles BOTH upstream dialects on one wire: the Responses API names each
+    event in an ``event:`` line (or the payload's ``type``), the Runs API's
+    ``/events`` feed carries the name inside the payload (``event``, see
+    ``api_server_runs._run_event``) and its text arrives as ``message.delta``,
+    its tool rows as ``tool.started``/``tool.completed`` (a tool NAME, no call
+    id — rows pair FIFO per name) and its terminals as ``run.<status>``.
     """
 
-    def __init__(self, *, part_id: str | None = None) -> None:
+    def __init__(self, *, part_id: str | None = None, replay_output: bool = False) -> None:
         self._event: str | None = None
         self._done = False
         self._started = False
         self._part_id = part_id or uuid.uuid4().hex[:16]
         self._call_seq = 0
         self._open_calls: dict[str, tuple[str, str]] = {}  # item id → (call id, label)
+        # Runs-API tool rows: ``tool.completed`` carries only the tool name,
+        # so open rows are paired FIFO per name (issue #217).
+        self._open_run_calls: list[tuple[str, str, str]] = []  # (call id, label, tool)
+        # Did any TEXT reach the wire? Only then may a terminal event's
+        # ``output`` be ignored (see ``_replay_final_output``, #217).
+        self._saw_text = False
+        # Replay a terminal run's final output when no delta ever arrived
+        # (relay restarted mid-turn: the gateway's feed is forward-only, so
+        # the deltas are gone but the finished text is in the run status).
+        self._replay_output = replay_output
         # Held-back tail of the last delta (issue #158): a delta that ENDS
         # with a dangling ``eyJ…`` JWT-charset run — the token may complete
         # in the next delta, so the fragment is withheld (never streamed)
@@ -339,15 +405,19 @@ class WireTranslator:
             data = json.loads(payload)
         except json.JSONDecodeError:
             return chunks  # non-JSON keepalive — ignore
-        name = self._event or data.get("type") or ""
+        name = self._event or data.get("type") or data.get("event") or ""
         self._event = None  # event: applies to the single following data: line
-        if name == "response.output_text.delta":
-            delta = data.get("delta")
-            if isinstance(delta, str) and delta:
-                if not self._started:
-                    self._started = True
-                    chunks.append(text_start_chunk(self._text_id))
-                chunks.extend(self._scrub_delta(delta))
+        # ---- Runs API (issue #217): the name travels in the payload ------
+        if name == "message.delta":
+            chunks.extend(self._feed_text(data.get("delta")))
+        elif name == "tool.started":
+            chunks.extend(self._open_tool(data.get("tool")))
+        elif name == "tool.completed":
+            chunks.extend(self._close_tool(data.get("tool")))
+        elif name.startswith("run.") and name[4:] in _TERMINAL_RUN_STATUSES:
+            chunks.extend(self._feed_run_terminal(name[4:], data))
+        elif name == "response.output_text.delta":
+            chunks.extend(self._feed_text(data.get("delta")))
         elif name in ("response.completed", "response.done"):
             self._done = True
             chunks.extend(self._flush_tail())
@@ -461,6 +531,110 @@ class WireTranslator:
         call_id, label = open_call
         return [activity_done_chunk(call_id, label)]
 
+    def _feed_text(self, delta: object) -> list[dict]:
+        """One text delta (either dialect) → v1 text chunks."""
+        if not isinstance(delta, str) or not delta:
+            return []
+        chunks: list[dict] = []
+        if not self._started:
+            self._started = True
+            chunks.append(text_start_chunk(self._text_id))
+        self._saw_text = True
+        chunks.extend(self._scrub_delta(delta))
+        return chunks
+
+    def _open_tool(self, tool_name: object) -> list[dict]:
+        """``tool.started`` → one spinning activity row (issue #217).
+
+        The Runs feed carries the tool NAME and no call id, so the row id is
+        synthesized here and paired FIFO by name on completion. The raw name
+        still never leaves the server (``tool_activity_label``).
+        """
+        label = tool_activity_label(tool_name if isinstance(tool_name, str) else "")
+        self._call_seq += 1
+        call_id = f"{self._part_id}-tool-{self._call_seq}"
+        self._open_run_calls.append((call_id, label, str(tool_name or "")))
+        closed = self._rotate_text_part()
+        return ([closed] if closed else []) + [activity_start_chunk(call_id, label)]
+
+    def _close_tool(self, tool_name: object) -> list[dict]:
+        """``tool.completed`` → close the oldest row for that tool."""
+        name = str(tool_name or "")
+        for index, (call_id, label, open_name) in enumerate(self._open_run_calls):
+            if open_name == name:
+                del self._open_run_calls[index]
+                return [activity_done_chunk(call_id, label)]
+        if self._open_run_calls:  # unknown name — close the oldest row anyway
+            call_id, label, _ = self._open_run_calls.pop(0)
+            return [activity_done_chunk(call_id, label)]
+        return []  # orphan completion (no matching start) — ignore
+
+    def _feed_run_terminal(self, status: str, data: dict) -> list[dict]:
+        """``run.<status>`` → the turn's closing sequence (issue #217).
+
+        ``failed`` becomes an error chunk (terminal, like the Responses
+        ``response.failed``); ``completed`` a clean finish; ``interrupted``
+        carries ``messageMetadata.interrupted`` so the UI offers a reconnect
+        (an attach, which costs nothing) rather than rendering a dropped turn
+        as a clean completion. ``cancelled`` — the user pressed Stop — is a
+        clean finish: the turn ended on purpose.
+        """
+        if self._done:
+            return []
+        self._done = True
+        chunks: list[dict] = []
+        if status == "failed":
+            detail = data.get("error") or data.get("summary") or "agent error"
+            if isinstance(detail, dict):
+                detail = detail.get("message", "agent error")
+            chunks.extend(self._flush_tail())
+            if self._started:
+                chunks.append(text_end_chunk(self._text_id))
+            chunks.append(error_chunk(str(detail)))
+            return chunks
+        chunks.extend(self._replay_final_output(data))
+        chunks.extend(self._flush_tail())
+        if self._started:
+            chunks.append(text_end_chunk(self._text_id))
+        chunks.append(finish_chunk(interrupted=status == "interrupted"))
+        return chunks
+
+    def _replay_final_output(self, data: dict) -> list[dict]:
+        """Render the terminal event's final text when no delta ever arrived.
+
+        A relay that lost the event feed (its own restart) still learns the
+        finished text from the run's terminal status — the gateway's feed is
+        forward-only (no ``Last-Event-ID``), so the deltas that streamed
+        before the loss are unrecoverable. Showing the answer beats showing
+        an empty turn. No-op when text already reached the wire.
+        """
+        if not self._replay_output or self._saw_text:
+            return []
+        text = _output_text(data)
+        if not text:
+            return []
+        self._started = True
+        self._saw_text = True
+        return [
+            text_start_chunk(self._text_id),
+            text_delta_chunk(self._text_id, scrub_jwt(text)),
+        ]
+
+    def fail(self, message: str) -> list[dict]:
+        """Terminal error sequence, replacing text-end/finish (issue #217).
+
+        Used when the relay loses the turn's feed without a terminal event:
+        the caller gets an explicit error instead of a silent truncation.
+        """
+        if self._done:
+            return []
+        self._done = True
+        chunks = self._flush_tail()
+        if self._started:
+            chunks.append(text_end_chunk(self._text_id))
+        chunks.append(error_chunk(message))
+        return chunks
+
     def finish(self) -> list[dict]:
         """Signal stream end. Emits the terminal sequence ONLY if no terminal
         event was seen (cut connection must still resolve the turn — with an
@@ -560,7 +734,7 @@ def conversation_id_for(
 def last_user_input(messages: list[ChatMessage]) -> dict:
     """The single new message to forward: the last user turn's content.
 
-    History lives on the Hermes side (Responses chaining), so only this is
+    History lives on the Hermes side (session chaining), so only this is
     sent as ``input``. Raises 400 when there is no user message.
     """
     for message in reversed(messages):
@@ -569,15 +743,25 @@ def last_user_input(messages: list[ChatMessage]) -> dict:
     raise HTTPException(status_code=400, detail="No user message in request")
 
 
-# ------------------------------------------------------------------ IO seam
+# ----------------------------------------------------------- agent transport
+# One multiplexed base URL (``KISEKI_HERMES_URL`` → …/p/kiseki) + the
+# profile-scoped key is how this relay reaches the kiseki content agent. It
+# speaks the Runs API (#217): submit a run, pump its events, let clients
+# attach. These functions are the IO seams tests monkeypatch; absent config →
+# 503 (there is no agent to relay to).
 
-async def fetch_upstream_lines(body: dict, *, session_key: str | None = None) -> AsyncIterator[str]:
-    """Stream the upstream Responses-API body (line by line).
 
-    The IO seam tests monkeypatch: production talks to the kiseki profile's
-    Hermes API server (``KISEKI_HERMES_URL``, multiplexed /p/kiseki) with the
-    profile-scoped ``KISEKI_HERMES_KEY``; absent config → 503 (no agent to
-    relay to).
+def _require_hermes_config() -> None:
+    """503 when the agent endpoint is not configured on this server."""
+    if not config.KISEKI_HERMES_URL or not config.KISEKI_HERMES_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="The kiseki agent (chat) is not configured on this server",
+        )
+
+
+def _hermes_headers(session_key: str | None = None) -> dict[str, str]:
+    """Auth + scoping headers for the Hermes API server.
 
     ``session_key`` is forwarded as ``X-Hermes-Session-Key`` — the acting
     user's sub — so every session this user creates carries their sub as its
@@ -585,49 +769,433 @@ async def fetch_upstream_lines(body: dict, *, session_key: str | None = None) ->
     agent searches sessions whose session_key == the acting sub, never other
     users').
     """
-    if not config.KISEKI_HERMES_URL or not config.KISEKI_HERMES_KEY:
-        raise HTTPException(
-            status_code=503,
-            detail="The kiseki agent (chat) is not configured on this server",
-        )
-    import httpx
-
-    url = config.KISEKI_HERMES_URL.rstrip("/") + "/v1/responses"
+    _require_hermes_config()
     headers = {
         "Authorization": f"Bearer {config.KISEKI_HERMES_KEY}",
         "Content-Type": "application/json",
     }
     if session_key:
         headers["X-Hermes-Session-Key"] = session_key
+    return headers
+
+
+def _hermes_url(path: str) -> str:
+    """Absolute URL for one Hermes API-server path."""
+    _require_hermes_config()
+    return config.KISEKI_HERMES_URL.rstrip("/") + path
+
+
+class RunGone(Exception):
+    """Upstream has no feed/record for the run (settled long ago, or unknown)."""
+
+
+async def start_chat_run(
+    body: dict,
+    *,
+    session_key: str | None = None,
+    idempotency_key: str | None = None,
+) -> dict:
+    """Submit one agent run (``POST /v1/runs``) → its admission document.
+
+    ``idempotency_key`` is the turn's server-derived key: Hermes fingerprints
+    key + body + session key, so replaying the identical request returns the
+    SAME ``run_id`` (``Idempotency-Replayed: true``) instead of starting the
+    work twice. That is what makes a client retry safe (#217).
+    """
+    import httpx
+
+    headers = _hermes_headers(session_key)
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(_hermes_url("/v1/runs"), json=body, headers=headers)
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Kiseki agent upstream error {resp.status_code}: {resp.text[:500]}",
+        )
+    doc = resp.json()
+    if not isinstance(doc, dict) or not doc.get("run_id"):
+        raise HTTPException(502, "Kiseki agent upstream returned no run id")
+    if resp.headers.get("Idempotency-Replayed") == "true":
+        doc["replayed"] = True
+    return doc
+
+
+async def stream_run_events(
+    run_id: str, *, session_key: str | None = None
+) -> AsyncIterator[str]:
+    """Stream one run's lifecycle events (``GET /v1/runs/{id}/events``).
+
+    Yields raw SSE lines for :class:`WireTranslator` (the same line-level seam
+    the Responses relay used); comments/keepalives pass through and the
+    translator ignores them. Raises :class:`RunGone` when upstream has no feed
+    for the run — the gateway drops a run's transport once it settles, so a
+    late attach lands here and the caller falls back to polling its status.
+    """
+    import httpx
+
+    url = _hermes_url(f"/v1/runs/{run_id}/events")
+    headers = _hermes_headers(session_key)
     async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
-            "POST", url, json=body, headers=headers
-        ) as resp:
+        async with client.stream("GET", url, headers=headers) as resp:
+            if resp.status_code == 404:
+                await resp.aread()
+                raise RunGone(run_id)
             if resp.status_code != 200:
                 detail = (await resp.aread()).decode("utf-8", "replace")[:500]
                 raise HTTPException(
                     status_code=502,
                     detail=f"Kiseki agent upstream error {resp.status_code}: {detail}",
                 )
-            async for text in resp.aiter_lines():
-                yield text
+            async for line in resp.aiter_lines():
+                yield line
 
 
-def build_upstream_body(
+async def fetch_run_status(run_id: str, *, session_key: str | None = None) -> dict:
+    """Poll one run (``GET /v1/runs/{id}``) — the fallback when its feed is gone.
+
+    A terminal status is the last place the turn's answer still exists (its
+    ``output``), so a relay that lost the event stream can still land the
+    result instead of losing the work (#217).
+    """
+    import httpx
+
+    url = _hermes_url(f"/v1/runs/{run_id}")
+    headers = _hermes_headers(session_key)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(url, headers=headers)
+    if resp.status_code == 404:
+        raise RunGone(run_id)
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Kiseki agent upstream error {resp.status_code}: {resp.text[:500]}",
+        )
+    doc = resp.json()
+    return doc if isinstance(doc, dict) else {}
+
+
+async def stop_chat_run(run_id: str, *, session_key: str | None = None) -> dict:
+    """Interrupt one run upstream (``POST /v1/runs/{id}/stop``).
+
+    The SPA's Stop control: now that a dropped connection no longer ends a
+    turn, this is the ONLY thing that ends agent work early (#217).
+    """
+    import httpx
+
+    url = _hermes_url(f"/v1/runs/{run_id}/stop")
+    headers = _hermes_headers(session_key)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(url, headers=headers)
+    if resp.status_code == 404:
+        raise RunGone(run_id)
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Kiseki agent upstream error {resp.status_code}: {resp.text[:500]}",
+        )
+    doc = resp.json()
+    return doc if isinstance(doc, dict) else {}
+
+
+# ------------------------------------------------------- turn registry (#217)
+# A turn is owned by the RELAY, never by the browser connection that started
+# it. The pump writes every translated frame into the turn's buffer; a client
+# ("subscriber") only reads the buffer from a cursor. Detach is free, attach
+# is a cursor, and a reconnect therefore re-attaches instead of re-sending.
+
+#: How long a settled turn stays attachable/queryable (bounded memory).
+TURN_TTL_SECONDS = 30 * 60
+
+#: How long the status-poll fallback keeps waiting for a lost run to settle.
+RUN_POLL_TIMEOUT_SECONDS = 15 * 60
+
+#: Interval between those polls.
+RUN_POLL_INTERVAL_SECONDS = 3.0
+
+#: Idle SSE-comment cadence on an attached stream (see ``attach_turn_stream``).
+ATTACH_KEEPALIVE_SECONDS = 15.0
+
+#: ``asyncio.Queue`` payload marking "the turn is over".
+_END = object()
+
+#: Server-side turn registry (in-process: one relay process, one registry).
+_TURNS: dict[str, Turn] = {}
+
+
+@dataclass
+class Turn:
+    """One agent turn: its upstream run + the frame buffer clients read.
+
+    The buffer is the whole point (#217): the run's event pump belongs to the
+    relay, not to a browser connection, so clients can attach, detach and
+    re-attach at a ``cursor`` without the agent turn noticing — and without
+    the work being lost or repeated.
+    """
+
+    key: str
+    run_id: str
+    session_key: str | None = None
+    frames: list[dict] = field(default_factory=list)
+    waiters: set[asyncio.Queue] = field(default_factory=set)
+    status: str = "queued"
+    done: bool = False
+    replayed: bool = False
+    task: asyncio.Task | None = None
+    created_at: float = field(default_factory=time.monotonic)
+
+    def publish(self, chunk: dict | None) -> None:
+        """Append one chunk (``None`` = end marker) and wake every waiter."""
+        if chunk is None:
+            self.done = True
+            marker: object = _END
+        else:
+            self.frames.append(chunk)
+            marker = len(self.frames) - 1
+        for queue in list(self.waiters):
+            queue.put_nowait(marker)
+
+    def finish(self) -> None:
+        """Mark the turn over and release every waiter."""
+        self.done = True
+        for queue in list(self.waiters):
+            queue.put_nowait(_END)
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue()
+        self.waiters.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self.waiters.discard(queue)
+
+
+def turn_key_for(
+    actor_sub: str,
+    *,
+    trip_id: str | None = None,
+    thread_id: str | None = None,
+    turn_key: str,
+) -> str:
+    """Server-side turn identity — which is also the upstream ``Idempotency-Key``.
+
+    Scoped by acting user (and trip/thread), so a turn key can never collide
+    across users and a caller can only ever address its own turn: the relay
+    re-derives the key from the request instead of trusting a client-supplied
+    run id. Hermes fingerprints key + body + session key, so a repeat of the
+    identical request returns the existing run.
+    """
+    raw = f"kiseki-chat-v1|{actor_sub}|{trip_id or '-'}|{thread_id or '-'}|{turn_key}"
+    return "kiseki-chat-v1-" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def new_turn_key() -> str:
+    """Mint a turn key for a caller that sent none (legacy wire shape, #217).
+
+    Such a turn is still relay-owned — a dropped connection no longer loses
+    the work — but it is not addressable afterwards (nothing can re-attach to
+    it or stop it), which is exactly what the old wire offered.
+    """
+    return uuid.uuid4().hex
+
+
+def get_turn(key: str) -> Turn | None:
+    """Look up a live/recent turn, sweeping expired ones first."""
+    sweep_turns()
+    return _TURNS.get(key)
+
+
+def sweep_turns() -> None:
+    """Drop settled turns past their TTL (the registry is bounded)."""
+    if not _TURNS:
+        return
+    now = time.monotonic()
+    for key, turn in list(_TURNS.items()):
+        if turn.done and now - turn.created_at > TURN_TTL_SECONDS:
+            _TURNS.pop(key, None)
+
+
+def forget_turn(key: str) -> Turn | None:
+    """Remove one turn from the registry (used by tests and stop)."""
+    return _TURNS.pop(key, None)
+
+
+def turn_status_payload(turn: Turn) -> dict:
+    """What a client asks before attaching: is it running, settled, how much output?"""
+    return {
+        "status": "settled" if turn.done else turn.status,
+        "done": turn.done,
+        "cursor": len(turn.frames),
+    }
+
+
+async def start_turn(
+    key: str, *, body: dict, session_key: str | None = None
+) -> Turn:
+    """Submit the run behind ``key`` and hand it to a relay-owned pump (#217).
+
+    The check-then-register below is await-free, so two racing requests for the
+    same turn key cannot both start a pump: the loser's upstream POST is an
+    idempotent replay of the same run and it then attaches to the winner's
+    turn. Without the registry (relay restarted), a fresh run is admitted —
+    which is exactly what a client that re-sends an old turn key asked for.
+    """
+    existing = get_turn(key)
+    if existing is not None:
+        return existing
+    doc = await start_chat_run(body, session_key=session_key, idempotency_key=key)
+    existing = get_turn(key)
+    if existing is not None:
+        return existing
+    turn = Turn(
+        key=key,
+        run_id=str(doc["run_id"]),
+        session_key=session_key,
+        status=str(doc.get("status") or "queued"),
+        replayed=bool(doc.get("replayed")),
+    )
+    _TURNS[key] = turn
+    turn.task = asyncio.create_task(pump_run(turn))
+    return turn
+
+
+async def pump_run(turn: Turn) -> None:
+    """Pump one run's events into its buffer until the turn settles.
+
+    Owned by the relay, never by a browser connection: the pump keeps running
+    when every client has gone, which is what makes a dropped connection
+    harmless (#217). If the event feed itself is lost (relay restarted, or the
+    gateway dropped the transport for a run that finished unseen), the pump
+    falls back to polling the run's status so a terminal turn still lands.
+    """
+    translator = WireTranslator(replay_output=True)
+    try:
+        async for line in stream_run_events(turn.run_id, session_key=turn.session_key):
+            for chunk in translator.feed(line):
+                turn.publish(chunk)
+    except RunGone:
+        async for line in _poll_run_until_settled(turn):
+            for chunk in translator.feed(line):
+                turn.publish(chunk)
+    except asyncio.CancelledError:
+        raise
+    except HTTPException as exc:
+        for chunk in translator.fail(str(exc.detail)):
+            turn.publish(chunk)
+    except Exception as exc:  # noqa: BLE001 — a broken feed must still settle the turn
+        for chunk in translator.fail(f"agent stream error: {exc}"):
+            turn.publish(chunk)
+    finally:
+        for chunk in translator.finish():
+            turn.publish(chunk)
+        turn.finish()
+
+
+async def _poll_run_until_settled(turn: Turn) -> AsyncIterator[str]:
+    """Yield synthetic terminal frames from the run's polled status.
+
+    Last-resort path: the event feed is gone, so the status document is the
+    only survivor. Its terminal status becomes a ``run.<status>`` frame shaped
+    exactly like the feed's (``WireTranslator`` handles both identically),
+    which carries the run's ``output`` as the answer.
+    """
+    deadline = time.monotonic() + RUN_POLL_TIMEOUT_SECONDS
+    while True:
+        try:
+            status = await fetch_run_status(turn.run_id, session_key=turn.session_key)
+        except RunGone:
+            yield _synthetic_event(
+                "run.failed", error="the agent turn is no longer available"
+            )
+            return
+        state = str(status.get("status") or "")
+        if state:
+            turn.status = state
+        if state in _TERMINAL_RUN_STATUSES:
+            yield _synthetic_event(f"run.{state}", **status)
+            return
+        if time.monotonic() > deadline:
+            yield _synthetic_event(
+                "run.failed", error="the agent turn did not finish in time"
+            )
+            return
+        await asyncio.sleep(RUN_POLL_INTERVAL_SECONDS)
+
+
+def _synthetic_event(name: str, **fields) -> str:
+    """One SSE ``data:`` line shaped like the gateway's run-event frames."""
+    return "data: " + json.dumps({"event": name, **fields})
+
+
+def _output_text(data: dict) -> str:
+    """Extract a run's final text from a status/terminal event (str or parts)."""
+    output = data.get("output")
+    if isinstance(output, str):
+        return output
+    if isinstance(output, list):
+        parts = [
+            part.get("text", "")
+            for part in output
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        return "".join(part for part in parts if isinstance(part, str))
+    return ""
+
+
+async def attach_turn_stream(turn: Turn, *, cursor: int = 0) -> AsyncIterator[str]:
+    """Yield wire frames for ONE browser connection, from ``cursor`` onward.
+
+    Attach/detach is free: the buffer belongs to the turn, so a client that
+    reconnects with the cursor it rendered receives exactly the gap — no
+    replayed text, no lost chunk — and a client that never comes back costs
+    the running turn nothing (#217). Idle time is filled with keepalive
+    comments (the protocol's own no-op) so a long tool call cannot be mistaken
+    for a dead connection by any proxy in the path. Ends with ``[DONE]``.
+    """
+    queue = turn.subscribe()
+    index = max(0, cursor)
+    try:
+        while True:
+            while index < len(turn.frames):
+                yield sse_data(turn.frames[index])
+                index += 1
+            if turn.done:
+                break
+            try:
+                marker = await asyncio.wait_for(queue.get(), ATTACH_KEEPALIVE_SECONDS)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            if marker is _END:
+                continue  # the drain loop above flushes whatever is left
+    finally:
+        turn.unsubscribe(queue)
+    yield SSE_DONE
+
+
+def build_run_body(
     messages: list[ChatMessage],
     *,
     actor_sub: str,
     trip_id: str | None,
     thread_id: str | None = None,
 ) -> dict:
-    """Responses-API request body: new input + scoped conversation +
-    identity instructions. Hermes chains prior turns from ``conversation``."""
+    """Runs-API request body — the submitted turn, nothing else (#217).
+
+    ``input`` is still only the new user message: history stays agent-side,
+    chained by ``session_id`` (the thread's conversation name — the Runs API's
+    equivalent of the Responses ``conversation`` field, checked against the
+    gateway's ``_handle_runs``: body ``session_id`` wins over the
+    ``X-Hermes-Session-Key`` derived session and the per-run id). The relay
+    therefore never re-sends a transcript, and a replayed turn (same
+    ``Idempotency-Key``) can never duplicate it.
+    """
     return {
         "model": "kiseki",
         "input": [last_user_input(messages)],
-        "conversation": conversation_id_for(actor_sub, trip_id, thread_id),
+        "session_id": conversation_id_for(actor_sub, trip_id, thread_id),
         "instructions": identity_instructions(actor_sub, trip_id, thread_id),
-        "stream": True,
     }
 
 
