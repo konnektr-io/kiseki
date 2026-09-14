@@ -119,7 +119,9 @@ def test_put_null_clears_list_field(client, rsa_keypair, graph) -> None:
     ]})
     assert r.status_code == 200, r.text
     out = _loc_of(r.json())
-    assert out["types"] is None
+    # cleared == omitted from the payload (#220 strips unset optionals), so
+    # read it as absence rather than a literal null
+    assert out.get("types") is None
     # absent siblings stay untouched by the same PUT
     assert out["website"] == "https://banff.example"
     assert out["phone"] == "+1 403-555-0100"
@@ -173,7 +175,8 @@ def test_patch_null_clears_single_field(client, rsa_keypair, graph) -> None:
     ]})
     assert r.status_code == 200, r.text
     out = _loc_of(r.json())
-    assert out["website"] is None
+    # cleared == omitted from the payload (#220 strips unset optionals)
+    assert out.get("website") is None
     # everything else on the twin survives the single-field clear
     assert out["phone"] == "+1 403-555-0100"
     assert out["types"] == ["lodging"]
