@@ -257,6 +257,48 @@ def test_delete_trip_preserves_claimed_user_twins(client, rsa_keypair, graph) ->
     assert g.twin(placeholder2_id) is None  # placeholder goes with the trip
 
 
+def test_delete_trip_keeps_crew_user_twins_out_of_trip_edges(
+    client, rsa_keypair, graph
+) -> None:
+    """#222: a crew member's claimed User twin is a GLOBAL identity — its
+    out-of-trip edges (``follows``) must survive a trip delete exactly like the
+    twin itself, and the delete must still answer 204.
+
+    The read bundle is deliberately wider than the trip (``MAX_HOPS = 3`` — the
+    same reachability that finds ``hasCrew``), so it carries the crew's User
+    twins *and their own outgoing* ``follows`` edges. The edge sweep must scope
+    itself by the source twin's MODEL KIND — the twin sweep already skips User
+    twins — instead of deleting whatever the bundle happened to return.
+
+    Before the fix the sweep fed that follows edge (source = the owner's auth
+    sub, ``google-oauth2|…``, not a UUID) to ``delete_relationship``, whose
+    content guard refuses it: a ``GraphWriteError`` the route does not map, so a
+    500 to the caller — with the trip-sourced edges already deleted, which left
+    an orphan trip twin that retried as a 403 (its ``hasCrew`` edges were gone)
+    and could no longer be deleted through the API at all.
+    """
+    g = graph()
+    trip = _trip_of(g)
+    other = "auth0|6a9adc933ad72cae116327a0"
+    # A second crew member (claimed User twin) the owner follows — the follows
+    # edge is sourced at the owner's sub, i.e. OUTSIDE the trip.
+    g.add_user_role(trip.id, other, "viewer", name="Followed Person")
+    assert g.follow_user(SUB, other) is True
+    assert g.following_of(SUB) == [other]  # sanity: the out-of-trip edge exists
+
+    r = _authz(client, "delete", f"/api/trips/{trip.id}", _token_of(rsa_keypair))
+    assert r.status_code == 204, r.text[:300]
+
+    # The trip is gone…
+    assert g.fetch_graph(trip.id)["twins"] == []
+    # …but both global identities survive, and so does the owner's follows edge.
+    assert g.twin(SUB) is not None
+    assert g.twin(other) is not None
+    assert g.following_of(SUB) == [other]
+    # The trip-scoped crew edges are gone all the same (no orphan hasCrew edge).
+    assert g.rels_from(trip.id, "hasCrew") == []
+
+
 def test_delete_trip_agent_act_as_owner_allowed(
     client, rsa_keypair, graph, monkeypatch
 ) -> None:

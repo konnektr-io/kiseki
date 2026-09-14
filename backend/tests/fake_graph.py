@@ -36,10 +36,16 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 from typing import Any
 
+from app.graph.client import GraphWriteError
+
 _MOCKS = Path(__file__).resolve().parent.parent / "data" / "mocks"
+
+# Our twin ids are opaque UUIDs; mirrors ``GraphWriteClient``'s guard.
+_DTID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 
 
 class FakeGraphError(Exception):
@@ -433,8 +439,20 @@ class FakeGraph:
         block for their outgoing edges); passing the trip for an edge that is
         sourced elsewhere must fail exactly like the live graph 404s (issue
         #89: the old wrapper passed the trip for every edge and every such
-        delete died live while tests stayed green)."""
+        delete died live while tests stayed green).
+
+        The live write client also content-guards the address
+        (``GraphWriteClient._guard_content``): a non-UUID id is refused with a
+        ``GraphWriteError`` — an exception no route maps, so a 500, never a
+        4xx. Mirrored here so a service bug that reaches an edge sourced
+        OUTSIDE the trip (a crew User twin's ``follows`` edge, its source an
+        auth sub like ``google-oauth2|…``; #222) fails in tests the way it
+        fails in production instead of quietly succeeding against a laxer
+        double.
+        """
         self._note(trip_dtid, x_user_id)
+        if not _DTID_RE.match(trip_dtid or ""):
+            raise GraphWriteError(422, f"Malformed twin id: {trip_dtid!r}")
         existing = self._rel_under(rel_id, trip_dtid)
         self.rels.remove(existing)
 
