@@ -174,6 +174,18 @@ RETURN trip
 LIMIT 1
 """
 
+# Where the graph records its own write time, per twin AND per property:
+# `$metadata.$lastUpdateTime` (ISO-8601 UTC) and `$lastUpdatedBy` (the actor).
+# Reading them is verified on the live AGE 1.7.0 kiseki cluster (2026-09-14):
+# `t.`$metadata`.`$lastUpdateTime`` (backtick access) and
+# `t['$metadata']['$lastUpdateTime']` (bracket access) BOTH work, and either
+# form is valid in ORDER BY — so a writer-ordered feed is a plain Cypher read:
+# no timestamp column, no second store. `$metadata` is a nested map, so each
+# property carries its OWN `$lastUpdateTime`; that is what lets the feed say
+# *what* changed (stage, cover, title), not merely *that* something did.
+_META_AT = "`$metadata`.`$lastUpdateTime`"
+_META_BY = "`$metadata`.`$lastUpdatedBy`"
+
 # All twins in the trip's connected component (trip itself + every node
 # reachable along outgoing edges). A single query, scoped to the trip — not the
 # whole store. `$dtid` is a bound parameter; MAX_HOPS is a literal range bound.
@@ -188,8 +200,10 @@ MATCH (trip)-[*0..{max_hops}]->(n:Twin)
 RETURN collect(DISTINCT n) AS nodes
 """.format(max_hops=MAX_HOPS)
 
-# All relationships whose source is in the trip's component. AGE rejects a `$`
-# map key (even quoted), so we collect each edge as a plain LIST
+# All relationships whose source is in the trip's component. Each edge comes back
+# as a plain LIST — for SHAPE reasons, not because AGE refuses `$` keys (it
+# accepts them quoted; see _META_AT). The bundle is assembled as dicts right
+# here, so a nested map would only have to be re-shaped anyway.
 # [sourceId, relationshipName, targetId, relationshipId, role, index, note,
 #  displayName] and map it to the ADT relationship shape in Python. `type(r)`
 # is the edge name; the edge's own `$relationshipId` property is included
@@ -208,8 +222,9 @@ RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.r
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
 # Returns a flat LIST per trip [dtId, visibility, title, subtitle, stage, startDate,
-# endDate, slug, cover, role, discoverable] (map keys with `$` are rejected by AGE, so we
-# assemble the summary dict in Python). `$uid` is a bound parameter.
+# endDate, slug, cover, role, discoverable] — a list, assembled into the summary
+# dict in Python (shape, not an AGE limitation: `$` keys are fine when quoted,
+# see _META_AT). `$uid` is a bound parameter.
 # `discoverable` (#196 phase B) rides along so profile listings can apply the
 # discoverable-only rule without a second query per trip.
 _Q_TRIPS_FOR_USER = """
@@ -234,7 +249,7 @@ LIMIT 1
 
 # Person->person social graph (issue #196). Single-hop, user-scoped, one
 # round-trip each — never a node-by-node walk, never a full-store scan.
-# Returns plain id LISTS (AGE rejects `$`-prefixed map keys, so no maps).
+# Returns plain id LISTS (assembled in Python — see _META_AT on `$` keys).
 # `$uid` is a bound parameter.
 _Q_FOLLOWERS_OF = """
 MATCH (f:Twin)-[r:follows]->(u:Twin)
@@ -911,8 +926,8 @@ class GraphReadClient:
         """Map a [src, name, tgt, relId, role, index, note, displayName] row into
         an ADT relationship.
 
-        ``_Q_RELS`` returns each edge as a plain list (AGE rejects `$`-prefixed
-        map keys), so we assemble the canonical ``$sourceId`` /
+        ``_Q_RELS`` returns each edge as a plain list, so we assemble the canonical
+        ``$sourceId`` /
         ``$relationshipName`` / ``$targetId`` / ``$relationshipId`` keys plus any
         edge properties (``role`` / ``index`` / ``note`` / ``displayName``) here.
         Shorter rows (pre-id, pre-note or pre-#196 edges) simply omit the
@@ -939,8 +954,8 @@ class GraphReadClient:
         """Map a [dtId, visibility, title, subtitle, stage, start, end, slug,
         cover, role, discoverable] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
 
-        AGE rejects `$`-prefixed map keys, so the query returns a plain list and
-        we name the fields here. ``$model`` is set so the caller's model-kind
+        The query returns a plain list (shape — `$` keys are fine when quoted, see
+        ``_META_AT``) and we name the fields here. ``$model`` is set so the caller's model-kind
         guard works uniformly. Pre-#196-phase-B rows (10 wide, no discoverable)
         read back as ``discoverable: False``.
         """
