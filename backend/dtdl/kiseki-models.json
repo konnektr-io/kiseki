@@ -226,17 +226,10 @@
       },
       {
         "@type": "Property",
-        "name": "mapsQuery",
+        "name": "placeId",
         "schema": "string",
         "writable": true,
-        "description": "Precise query for the ACTUAL place (hotel/restaurant) — overrides `location` for the link + thumbnail pin."
-      },
-      {
-        "@type": "Property",
-        "name": "googlePlaceId",
-        "schema": "string",
-        "writable": true,
-        "description": "Google place_id for THE specific venue (hotel/restaurant, not just the town) — preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch). Indefinitely cacheable per the #15/#95 storage rule."
+        "description": "Google place_id for THE specific venue (hotel/restaurant, not just the town) — the preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch), under the same name as Location.placeId. Indefinitely cacheable per the #15/#95 storage rule."
       },
       {
         "@type": "Property",

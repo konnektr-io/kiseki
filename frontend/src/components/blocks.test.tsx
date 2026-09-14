@@ -96,7 +96,7 @@ describe("DayBlocks editor mode keeps the map-surface card wiring (#104)", () =>
  * card-polish pass the links-row Maps pill is SUPPRESSED when the block
  * resolves (PlaceFacts owns the canonical deep link), so exactly ONE
  * "Open in Google Maps" anchor renders per card. Unresolved blocks keep
- * their own mapsQuery/googlePlaceId fallback pill.
+ * their own location/placeId fallback pill.
  *
  * Pitfall 16: DayBlocks routes editors through EditableBlockList and viewers
  * through the plain list — both must render the same links + facts. */
@@ -198,14 +198,14 @@ describe("block Maps links resolve the registry place", () => {
     expect(html).toContain("123 Mountain Ave, Banff AB");
   });
 
-  it("suppresses the links-row Maps pill when the block resolves, even with its own googlePlaceId", () => {
+  it("suppresses the links-row Maps pill when the block resolves, even with its own placeId", () => {
     const html = renderWithPlaces([
       {
         id: "b13",
         kind: "activity",
         title: "Ski day",
         location: "Banff",
-        googlePlaceId: "OWN-PLACE-ID",
+        placeId: "OWN-PLACE-ID",
         order: 0,
       } as unknown as Block,
     ]);
@@ -220,14 +220,14 @@ describe("block Maps links resolve the registry place", () => {
     expect(html).toContain("123 Mountain Ave, Banff AB");
   });
 
-  it("keeps the block's own googlePlaceId fallback when nothing resolves", () => {
+  it("keeps the block's own placeId fallback when nothing resolves", () => {
     const html = renderWithPlaces([
       {
         id: "b13b",
         kind: "activity",
         title: "Ski day",
         location: "Nowhereville",
-        googlePlaceId: "OWN-PLACE-ID",
+        placeId: "OWN-PLACE-ID",
         order: 0,
       } as unknown as Block,
     ]);

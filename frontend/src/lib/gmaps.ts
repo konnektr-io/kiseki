@@ -11,10 +11,8 @@
  * proxy stays the only server-side maps call, #27).
  */
 export interface GmapsTarget {
-  /** Google place_id — preferred deep-link key when present. */
+  /** Google place_id — the deep-link key when present. */
   placeId?: string | null;
-  /** Precise venue query (the block's `mapsQuery`). */
-  query?: string | null;
 }
 
 export function gmapsSearchUrl(name: string, target: GmapsTarget = {}): string {
@@ -22,8 +20,6 @@ export function gmapsSearchUrl(name: string, target: GmapsTarget = {}): string {
   if (target.placeId) {
     params.set("query", name);
     params.set("query_place_id", target.placeId);
-  } else if (target.query) {
-    params.set("query", target.query);
   } else {
     params.set("query", name);
   }

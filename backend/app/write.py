@@ -196,8 +196,7 @@ class BlockFields(_Strict):
     to: Optional[str] = None
     mode: Optional[str] = None
     location: Optional[str] = None
-    mapsQuery: Optional[str] = None
-    googlePlaceId: Optional[str] = None
+    placeId: Optional[str] = None
     images: Optional[list[str]] = None
 
 

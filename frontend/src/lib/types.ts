@@ -56,10 +56,12 @@ export interface Block {
   to?: string;
   mode?: "flight" | "drive" | "train" | "ferry";
   location?: string;
-  mapsQuery?: string;
-  /** Google place_id for THE specific venue — preferred deep-link key for the
-   *  Google Maps link (keyless URL form; indefinitely cacheable, #15 rule). */
-  googlePlaceId?: string;
+  /** Google place_id for THE specific venue — deliberately the SAME name as
+   *  `TripLocation.placeId`, and the only deep-link key for the Google Maps
+   *  link (keyless URL form; indefinitely cacheable, #15 rule). There is no
+   *  free-text venue query field: unset means the link falls back to
+   *  `location`/title as plain text. */
+  placeId?: string;
   images?: string[];
 }
 

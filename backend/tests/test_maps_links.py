@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -29,18 +31,18 @@ def test_name_only() -> None:
     assert p == {"api": "1", "query": "Niseko, Japan"}
 
 
-def test_query_beats_name() -> None:
-    p = _params(gmaps_url("Niseko", query="Park Hyatt Niseko Hanazono"))
-    assert p["query"] == "Park Hyatt Niseko Hanazono"
-    assert "query_place_id" not in p
-
-
 def test_place_id_takes_precedence() -> None:
-    p = _params(
-        gmaps_url("Niseko", query="Park Hyatt Niseko", place_id="ChIJN1t_tDeuEmsRUsoyG83frY4")
-    )
+    p = _params(gmaps_url("Niseko", place_id="ChIJN1t_tDeuEmsRUsoyG83frY4"))
     assert p["query"] == "Niseko"
     assert p["query_place_id"] == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+
+
+def test_no_free_text_venue_query_branch() -> None:
+    """#220 P2: a venue is named by its ``place_id`` only. The old free-text
+    ``query=`` override (``Block.mapsQuery``) is gone for good, so a stale
+    caller fails loudly instead of silently shipping a bad link."""
+    with pytest.raises(TypeError):
+        gmaps_url("Niseko", query="Park Hyatt Niseko Hanazono")  # type: ignore[call-arg]
 
 
 def test_special_chars_are_encoded() -> None:

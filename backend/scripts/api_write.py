@@ -121,12 +121,14 @@ Venues — exact places, not city anchors (issue #187):
 
 Resolves every registry location without a `placeId` (name → place_id + real
 lat/lng + address) and gives every activity/lodging/meal/booking block its
-`googlePlaceId` — from the block's `mapsQuery` (the precise venue query), or from
-the registry entry its `location` points at. `fill` runs this pass automatically
-(`--no-resolve` skips it) and its summary reports `blocks_without_venue`: those
-blocks name no place, so their Maps link falls back to
-`maps/search?api=1&query=<city>`. Give each one a `mapsQuery` with the actual
-venue, or point `location` at a venue-level registry entry.
+`placeId` — copied from the registry entry its `location` points at. `fill` runs
+this pass automatically (`--no-resolve` skips it) and its summary reports
+`blocks_without_venue`: those blocks name no resolvable venue, so their Maps
+link falls back to `maps/search?api=1&query=<city>`. Fix each one by pointing
+`location` at a venue-level registry entry, or by setting the block's own
+`placeId`. There is deliberately NO free-text venue query field (#220): a venue
+is identified by its Google `place_id`, never by a string that merely looks
+like one.
 
 Botched a half-create? DELETE /api/trips/<trip_id> (owner-only) removes the
 trip and everything scoped to it — `delete /api/trips/<id>`; expect 204,
@@ -248,7 +250,7 @@ PRACTICAL_KEYS = {"todos", "links", "notes", "contacts"}
 BLOCK_FIELDS = {
     "kind", "title", "time", "description", "links", "cost", "currency",
     "status", "bookingCode", "items", "html", "distance", "duration", "route",
-    "via", "from", "to", "mode", "location", "mapsQuery", "googlePlaceId",
+    "via", "from", "to", "mode", "location", "placeId",
     "images",
 }
 
@@ -751,11 +753,11 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
     1. **Registry locations without a ``placeId``** are resolved by name and
        patched (``placeId`` + real ``lat``/``lng`` + address). A city entry
        resolves to the city, a venue entry to the venue.
-    2. **Venue blocks without a ``googlePlaceId``** get one: from their
-       ``mapsQuery`` (the precise venue query) if they carry it, else copied
-       from the registry entry their ``location`` points at once that entry has
-       a ``placeId``. Without this the Maps pill falls back to
-       ``maps/search?api=1&query=<city>`` — the generic link in the report.
+    2. **Venue blocks without a ``placeId``** get one, copied from the registry
+       entry their ``location`` points at once that entry has a ``placeId``.
+       Blocks naming no resolvable venue are reported instead. Without this the
+       Maps pill falls back to ``maps/search?api=1&query=<city>`` — the generic
+       link in the report.
 
     Anything still without a venue is reported in ``blocks_without_venue`` /
     ``locations_unresolved``: that is content the plan has to supply, and it is
@@ -812,29 +814,27 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
 
     for container in (trip.get("days") or []) + (trip.get("sections") or []):
         for block in container.get("blocks") or []:
-            if block.get("kind") not in _VENUE_KINDS or block.get("googlePlaceId"):
+            if block.get("kind") not in _VENUE_KINDS or block.get("placeId"):
                 continue
             label = {
                 "day": container.get("date") or container.get("id"),
                 "title": block.get("title"),
             }
-            query = str(block.get("mapsQuery") or "").strip()
+            # One curated source of truth: a block borrows its venue's place_id
+            # from the registry entry its `location` points at. There is no
+            # free-text venue query field any more (#220) — free text is what
+            # let a venue look resolved while its `placeId` stayed empty.
             place_id = None
             matched = None
-            if query:
-                hit = _resolve_query(query, base, token)
-                if hit:
-                    place_id, matched = hit["placeId"], hit.get("name")
+            from_registry = known.get(str(block.get("location") or "").strip().lower())
+            if from_registry:
+                place_id, matched = from_registry, block.get("location")
             if not place_id:
-                from_registry = known.get(str(block.get("location") or "").strip().lower())
-                if from_registry:
-                    place_id, matched = from_registry, block.get("location")
-            if not place_id:
-                report["blocks_without_venue" if not query else "blocks_unresolved"].append(label)
+                report["blocks_without_venue"].append(label)
                 continue
             status, payload = _request(
                 "put", base, f"/api/trips/{trip_id}/blocks/{block.get('id')}", token,
-                {"googlePlaceId": place_id},
+                {"placeId": place_id},
             )
             if 200 <= status < 300:
                 report["blocks_resolved"] += 1
@@ -859,8 +859,8 @@ def resolve_places_verb(args) -> int:
     if report["blocks_without_venue"]:
         print(
             f"warning: {len(report['blocks_without_venue'])} block(s) still name no venue — "
-            "give each one a venue-level `location` from the registry or a `mapsQuery` with the "
-            "actual place, or its Maps link falls back to the city",
+            "point each one's `location` at a venue-level registry entry (or set its `placeId`), "
+            "or its Maps link falls back to the city",
             file=sys.stderr,
         )
     if report["locations_unresolved"]:
@@ -1195,9 +1195,9 @@ def fill_trip(args) -> int:
         )
     if resolution["blocks_without_venue"]:
         print(
-            f"warning: {len(resolution['blocks_without_venue'])} block(s) name no venue — give each "
-            "one a `mapsQuery` with the actual place (or point `location` at a venue-level registry "
-            "entry), otherwise its Maps link stays city-level",
+            f"warning: {len(resolution['blocks_without_venue'])} block(s) name no venue — point each "
+            "one's `location` at a venue-level registry entry (or set its `placeId`), otherwise its "
+            "Maps link stays city-level",
             file=sys.stderr,
         )
     if resolution["locations_unresolved"]:
