@@ -139,8 +139,11 @@ out-of-bounds/overlapping section ranges, duplicate day dates and
 a `from`/`to` matching no location name, or a day with no blocks. It ends with
 a re-GET summary (`days_without_blocks` must be empty) and re-runs are
 idempotent: days match by date, sections by title, blocks by
-(container, kind, title), crew by name. Full recipe the agent reads:
-`api_write.py --help`.
+(container, kind, title), crew by name. `--dry-run` prints the whole plan,
+including the block pass it runs after the re-GET (blocks need their
+container's id) and the venue-resolution pass that follows — a dry run that
+listed only the pre-block calls read as "my block step vanished" (#242). Full
+recipe the agent reads: `api_write.py --help`.
 
 **Relationship writes are scoped under the edge's SOURCE twin (issue #89).**
 The Konnektr Graph stores every relationship with a `$relationshipId`

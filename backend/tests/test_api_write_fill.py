@@ -316,6 +316,73 @@ def test_every_planned_path_is_an_absolute_api_path():
         assert path.startswith("/api/"), f"{method} {path} is not an absolute API path"
 
 
+# --------------------------------------------- dry-run block pass (#242)
+
+def test_block_intents_carry_the_pass_that_runs_after_the_re_get():
+    """Blocks are planned apart from `plan_calls`: their container id only lands
+    at the re-GET, so a plan's block step is invisible unless it is planned here."""
+    plan = _valid_plan()
+    plan["sections"].append({"title": "Ideation", "blocks": [{"kind": "note", "title": "Maybe"}]})
+    intents = aw.block_intents(plan, EXISTING)
+    # every block of every container, days first (plan_calls' order)
+    assert [container for container, _, _ in intents] == ["day", "day", "day", "section"]
+    containers = {label: body["container"] for _, label, body in intents}
+    # a day that already exists is written into by its real id …
+    assert containers["2027-09-20"] == {"type": "day", "id": "day-1"}
+    assert containers["2027-09-21"] == {"type": "day", "id": "day-2"}
+    # … a container this plan creates has none yet (the live run errors, dry-run prints `<new …>`)
+    assert containers["Ideation"] == {"type": "section", "id": None}
+    # the payload is the block itself — never a `blocks` array on the day body
+    for _, _, body in intents:
+        assert "blocks" not in body
+        assert body["kind"] in aw.BLOCK_KINDS
+
+
+def test_dry_run_lists_the_block_pass(monkeypatch, capsys, tmp_path):
+    """#242: `--dry-run` printed only the pre-block calls, so a plan carrying
+    blocks read as "my block step vanished" and cost a re-check."""
+    plan = _valid_plan()
+    plan["days"].append({"date": "2027-09-22", "title": "New day", "blocks": [{"kind": "activity", "title": "x"}]})
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: EXISTING)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_write.py", "fill", TRIP_ID, "--file", str(plan_file), "--dry-run", "--token", "t"],
+    )
+    assert aw.main() == 0
+    out = capsys.readouterr().out
+    assert "4 block write(s)" in out  # 2 + 1 day blocks + 1 new day block
+    assert "block pass — runs AFTER the re-GET" in out
+    assert out.count(f"/api/trips/{TRIP_ID}/blocks") == 4
+    # a day that does not exist yet is shown as intent, not hidden
+    assert "<new day 2027-09-22>" in out
+    # the venue pass that follows the writes is named too
+    assert "venue-resolution pass" in out
+
+
+def test_dry_run_is_honest_about_a_plan_without_blocks(monkeypatch, capsys, tmp_path):
+    """No blocks → no empty heading, and the count still says what will run."""
+    plan = _valid_plan()
+    for day in plan["days"]:
+        day.pop("blocks", None)
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: EXISTING)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_write.py", "fill", TRIP_ID, "--file", str(plan_file), "--dry-run", "--no-resolve",
+         "--token", "t"],
+    )
+    assert aw.main() == 0
+    out = capsys.readouterr().out
+    assert "0 block write(s)" in out
+    assert "block pass" not in out
+    assert "venue-resolution pass" not in out  # --no-resolve skips it
+
+
 def test_fill_requires_a_trip_id():
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "--base", "http://127.0.0.1:9", "fill"],
