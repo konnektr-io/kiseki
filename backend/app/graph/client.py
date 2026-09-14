@@ -167,7 +167,7 @@ FEED_LIMIT_MAX = 50
 FEED_LIMIT_DEFAULT = 30
 
 
-def _clamp_limit(limit: Any) -> int:
+def clamp_feed_limit(limit: Any) -> int:
     """A validated int in ``1..FEED_LIMIT_MAX``, safe to interpolate.
 
     Unparseable input falls back to the default instead of raising: a bad
@@ -524,7 +524,7 @@ class GraphReadClient:
         try:
             rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_TRIPS_FOR_ME_ORDERED.format(limit=_clamp_limit(limit)),
+                    _Q_TRIPS_FOR_ME_ORDERED.format(limit=clamp_feed_limit(limit)),
                     query_parameters={"uid": user_dtid},
                 )
             )
@@ -552,7 +552,7 @@ class GraphReadClient:
         try:
             rows = list(
                 self._client.query_twins(  # type: ignore[union-attr]
-                    _Q_TRIPS_OF_FOLLOWED.format(limit=_clamp_limit(limit)),
+                    _Q_TRIPS_OF_FOLLOWED.format(limit=clamp_feed_limit(limit)),
                     query_parameters={"uid": user_dtid},
                 )
             )

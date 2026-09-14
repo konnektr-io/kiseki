@@ -59,6 +59,7 @@ from .claims import (
     trip_by_follow_token,
 )
 from .erasure import ErasureError, erase_account, export_account
+from .feed import FEED_LIMIT_DEFAULT, build_feed, is_iso_timestamp
 from .config import (
     HERE_ACCESS_KEY_ID,
     HERE_ACCESS_KEY_SECRET,
@@ -392,6 +393,37 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
         if isinstance(row, dict) and row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
     return {"trips": trips}
+
+
+@app.get("/api/feed")
+def get_feed(
+    response: Response,
+    limit: int = Query(default=FEED_LIMIT_DEFAULT),
+    before: str | None = Query(default=None),
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """The caller's OWN activity feed (issue #199).
+
+    Both streams — the actor's trips and the DISCOVERABLE trips of the people
+    they follow — newest write first, capped and cursor-paged. Identity comes
+    from ``resolve_request_actor_sub`` like every other read, so a sanctioned
+    agent token with act-as sees the acting user's own feed; there is
+    deliberately no ``?sub=``, so nobody can ask for a third party's view
+    (#195 §6).
+
+    The times are the graph's own ``$metadata.$lastUpdateTime`` and each read is
+    cached 60 s, so this is "recent", not "live" — live is #12's job.
+
+    ``no-store``: a feed is per-user and has no business in a proxy cache.
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    if before is not None and not is_iso_timestamp(before):
+        raise HTTPException(
+            status_code=422, detail="before must be an ISO-8601 timestamp"
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return build_feed(actor_sub, limit=limit, before=before)
 
 
 @app.post("/api/trips", status_code=201)
