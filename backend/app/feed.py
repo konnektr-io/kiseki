@@ -100,10 +100,10 @@ MEDIA_PROPS = ("items", "images")
 ITEMS_PER_TRIP = 3
 THUMBS_PER_ITEM = 3
 
-#: How many followed trips the feed walks for items. The bundle read is the
-#: expensive one (~540 ms walk, cached 60 s — the same copy the trip page
-#: reads), so a worst-case first paint stays bounded. Trips beyond this
-#: contribute their trip row only.
+#: How many trips the feed walks for item rows — my own and followed alike.
+#: The bundle read is the expensive one (~540 ms walk, cached 60 s — the same
+#: copy the trip page reads), so a worst-case first paint stays bounded. Trips
+#: beyond this contribute their trip row only.
 ITEMS_TRIPS = 3
 
 
@@ -182,6 +182,10 @@ def items_of_trip(
     added") with its thumbnails inline and never four rows. A block whose own
     stamp is newer than its pictures is a content row instead ("description
     updated") and claims no photos — the row says what actually moved.
+
+    Every row also carries the BLOCK's own ``title`` (``blockTitle``): a day is
+    typically several blocks, so "updated" without the block's name cannot be
+    told apart from its neighbour.
     """
     twins, rels = _index_bundle(bundle or {})
     root = str((bundle or {}).get("$dtId") or "")
@@ -207,7 +211,7 @@ def items_of_trip(
                 row_at, row_by = media_at, media_by or by
             else:
                 changed = changed_properties(block.get("$metadata") or {}, cap=1)
-                label = f"{changed[0]} updated" if changed else "day content updated"
+                label = f"{changed[0]} updated" if changed else "updated"
                 thumbs = []
                 row_at, row_by = at, by
             rows.append({
@@ -217,6 +221,7 @@ def items_of_trip(
                 "source": source,
                 "dayIndex": day_index,
                 "dayTitle": day_title,
+                "blockTitle": block.get("title") or "",
                 "label": label,
                 "thumbs": thumbs,
                 "at": row_at,
@@ -229,25 +234,25 @@ def items_of_trip(
     return rows[:cap]
 
 
-def _item_entries(graph: Any, rows: list[dict], limit: int = ITEMS_TRIPS) -> list[dict]:
-    """Item rows for the newest ``limit`` followed trips — or none at all.
+def _item_entries(graph: Any, trips: list[dict], limit: int = ITEMS_TRIPS) -> list[dict]:
+    """Item rows for the newest ``limit`` trips the feed lists — either stream.
 
-    ``rows`` are stream-2 trip rows the caller has ALREADY gated on #196's
-    listing rule, so nothing private is walked here. The bundle read reuses the
-    60 s cached copy the trip page pays for; a trip whose bundle is missing or
-    unreadable contributes no items and keeps its trip row, because the optional
-    half of the feed must never be able to empty it.
+    ``trips`` are the trip-level entries whose listing the caller has ALREADY
+    decided (stream 1 is mine; stream 2 passed #196's listing rule), so nothing
+    private is walked here. Walking my OWN trips matters as much as followed
+    ones: a bare "Updated" on my trip row says nothing, while its blocks name
+    what actually moved. The bundle read reuses the 60 s cached copy the trip
+    page pays for; a trip whose bundle is missing or unreadable contributes no
+    items and keeps its trip row, because the optional half of the feed must
+    never be able to empty it.
     """
     fetch = getattr(graph, "fetch_graph", None)
-    if fetch is None or not rows:
+    if fetch is None or not trips:
         return []
-    by_id = {str(r.get("dtId")): r for r in rows if r.get("dtId")}
-    newest = _rank([_row_entry(r, "followed-user") for r in rows])[:limit]
     out: list[dict] = []
-    for entry in newest:
+    for entry in _rank(trips)[:limit]:
         trip_id = entry.get("tripId")
-        row = by_id.get(str(trip_id))
-        if not row:
+        if not trip_id:
             continue
         try:
             bundle = fetch(trip_id)
@@ -260,7 +265,7 @@ def _item_entries(graph: Any, rows: list[dict], limit: int = ITEMS_TRIPS) -> lis
             bundle,
             trip_id=str(trip_id),
             trip_title=entry.get("tripTitle") or "",
-            source="followed-user",
+            source=entry.get("source") or "my-trip",
         ))
     return out
 
@@ -322,19 +327,31 @@ def build_feed(
     graph = client if client is not None else get_graph_client()
     cap = clamp_feed_limit(limit)
     entries: list[dict] = []
-    followed: list[dict] = []
+    trips: list[dict] = []
+    own_ids: set[str] = set()
     if graph is not None:
         for row in graph.trips_for_user_ordered(sub, limit=cap):
-            entries.append(_row_entry(row, "my-trip"))
+            entry = _row_entry(row, "my-trip")
+            entries.append(entry)
+            trips.append(entry)
+            if entry.get("tripId"):
+                own_ids.add(str(entry["tripId"]))
         for row in graph.trips_of_followed(sub, limit=cap):
             # The listing rule (#196) lives HERE and not in the query: a
             # followed person's private trip must never surface in the feed —
             # and gating before the walk is also what keeps a private trip's
             # items out of it.
-            if row.get("discoverable") is True:
-                followed.append(row)
-                entries.append(_row_entry(row, "followed-user"))
-    entries.extend(_item_entries(graph, followed))
+            if row.get("discoverable") is not True:
+                continue
+            # A trip I am already crew on is a stream-1 row: the same trip must
+            # never be listed twice, and my own row wins — it carries the full
+            # write metadata the followed row omits.
+            if str(row.get("dtId") or "") in own_ids:
+                continue
+            entry = _row_entry(row, "followed-user")
+            entries.append(entry)
+            trips.append(entry)
+    entries.extend(_item_entries(graph, trips))
     if before:
         entries = [e for e in entries if e.get("at") and e["at"] < before]
     ranked = _rank(entries)

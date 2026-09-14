@@ -158,9 +158,13 @@ function FeedRow({ entry, now }: { entry: FeedEntry; now: number }) {
         )}
         <p className="text-sm">
           <span className="font-medium">
-            {isItem ? entry.label : changesLabel(entry)}
+            {isItem ? entry.blockTitle || entry.label : changesLabel(entry)}
           </span>
-          <span className="text-muted-foreground"> · {relativeTime(entry.at, now)}</span>
+          <span className="text-muted-foreground">
+            {isItem && entry.blockTitle ? ` · ${entry.label}` : ""}
+            {" · "}
+            {relativeTime(entry.at, now)}
+          </span>
           {entry.source === "my-trip" && (
             <Badge variant="outline" className="ml-2 align-middle">
               You

@@ -92,6 +92,7 @@ function itemRow(overrides: Record<string, unknown> = {}) {
     by: "google-oauth2|100613034256980569871",
     dayIndex: 2,
     dayTitle: "Day 3",
+    blockTitle: "Camp",
     label: "4 photos added",
     thumbs: [`/media/${TRIP_B}/a.jpg`, `/media/${TRIP_B}/b.jpg`, `/media/${TRIP_B}/c.jpg`],
     href: `/t/${TRIP_B}/day/2`,
@@ -225,6 +226,24 @@ describe("FeedPage — the feed itself", () => {
 
     // One request, bearer token attached, aimed at the feed endpoint.
     expect(container.textContent).not.toContain("Loading your feed");
+  });
+
+  it("names the block that moved, not just the day and an action", async () => {
+    stubFetch(() => okFeed());
+    mount();
+    await flush();
+
+    // The day can hold several blocks, so the row has to say which one moved.
+    expect(container.textContent).toContain("Camp");
+    expect(container.textContent).toContain("4 photos added");
+  });
+
+  it("still reads when a payload carries no block title", async () => {
+    stubFetch(() => okFeed({ items: [itemRow({ blockTitle: "" })] }));
+    mount();
+    await flush();
+
+    expect(container.textContent).toContain("4 photos added");
   });
 
   it("sends the caller's token to /api/feed", async () => {
