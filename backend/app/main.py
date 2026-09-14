@@ -32,13 +32,20 @@ from .acl import (
 from .auth import AuthSession, get_current_session, get_current_user
 from .chat import (
     ChatRequest,
+    RunGone,
     SSE_DONE,
-    WireTranslator,
-    build_upstream_body,
+    TurnRequest,
+    attach_turn_stream,
+    build_run_body,
     error_chunk,
-    fetch_upstream_lines,
+    get_turn,
+    new_turn_key,
     require_actor_trip_access,
     sse_data,
+    start_turn,
+    stop_chat_run,
+    turn_key_for,
+    turn_status_payload,
 )
 from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
 from .erasure import ErasureError, erase_account, export_account
@@ -1523,12 +1530,18 @@ def inbox_file(file_name: str) -> Response:
 
 
 # ------------------------------------------------------------- chat relay (#9 / M3)
-# The SPA's chat panel talks to the kiseki content agent through these two
-# routes. Identity is bearer-first (Niko's rule): a real end-user token IS the
-# actor (mode 1); the sanctioned agent M2M token needs a request-scoped
+# The SPA's chat panel talks to the kiseki content agent through these routes.
+# Identity is bearer-first (Niko's rule): a real end-user token IS the actor
+# (mode 1); the sanctioned agent M2M token needs a request-scoped
 # X-Act-As-Sub header (mode 2) — see acl.resolve_request_actor_sub. Files land
 # in the trip's Garage media namespace and come back as /media URLs the agent
 # can consume (the Hermes api server accepts inline image URLs but no uploads).
+#
+# Since #217 a turn is a SERVER-side object: POST /api/chat starts it — or
+# attaches to it — GET /api/chat/turn asks how it is doing, POST /api/chat/stop
+# ends it. The browser connection is only a viewer: closing it (tab switch,
+# tunnel, proxy idle timeout) no longer cancels the agent's work, and the SPA
+# reconnects by attaching at the frame cursor it has already rendered.
 
 
 @app.post("/api/chat")
@@ -1537,45 +1550,63 @@ async def post_chat(
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Relay a chat turn to the kiseki content agent (SSE UI-message-stream v1).
+    """Start — or re-attach to — a chat turn; stream its frames (SSE v1, #217).
 
     Resolves the acting sub (bearer → mode 1/2), optionally gates the named
-    trip like any read (follower+), then streams the upstream Responses-API
-    turn back as ``data: {chunk}`` SSE events (text-start/text-delta/
-    text-end/finish, terminated by ``data: [DONE]``) with
-    ``x-vercel-ai-ui-message-stream: v1``. Conversation history lives on the
-    Hermes side, scoped per acting user (and trip) — only the new user
-    message is forwarded each turn.
+    trip like any read (follower+), then streams the turn's UI-message-stream
+    v1 frames (text-start/text-delta/text-end/finish, terminated by
+    ``data: [DONE]``) with ``x-vercel-ai-ui-message-stream: v1``. Conversation
+    history lives on the Hermes side, scoped per acting user (and trip) — only
+    the new user message is forwarded each turn.
+
+    Resumability: with a ``turnKey`` the turn is submitted ONCE (a repeat is
+    an upstream idempotency replay of the same run), and every later request
+    for that key — the reconnect after a dropped connection above all — only
+    ATTACHES, replaying from ``cursor``. A request without a ``turnKey``
+    (older SPA bundle) behaves like the old wire but is still relay-owned: the
+    turn keeps running even if its caller goes away.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     if body.tripId:
         require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
-    upstream = build_upstream_body(
-        body.messages,
-        actor_sub=actor_sub,
+    turn_key = (body.turnKey or "").strip() or new_turn_key()
+    key = turn_key_for(
+        actor_sub,
         trip_id=body.tripId,
         thread_id=body.threadId,
+        turn_key=turn_key,
     )
+    known = get_turn(key)
+    # The submitted body is built (validated) BEFORE the stream starts: a
+    # request with no user message must still fail as a 400, not as an
+    # in-stream error on an already-accepted connection.
+    upstream = None
+    if known is None:
+        upstream = build_run_body(
+            body.messages,
+            actor_sub=actor_sub,
+            trip_id=body.tripId,
+            thread_id=body.threadId,
+        )
 
     async def _stream():
-        # One stateful translator per turn: feed every upstream line into
-        # the SAME instance and finish() when the stream ends. A fresh
-        # one-shot per line (v0.24.0 bug) emits a spurious terminal finish
-        # for every lifecycle line — the SPA transport stops at the terminal
-        # chunk, so nothing ever renders.
-        translator = WireTranslator()
+        turn = known
+        cursor = max(0, body.cursor or 0)
+        if turn is None:
+            assert upstream is not None  # built above when the turn is new
+            cursor = 0  # a new turn has a new buffer — attach from its start
+            try:
+                turn = await start_turn(key, body=upstream, session_key=actor_sub)
+            except HTTPException as exc:
+                # Headers are already sent — the status can't change, so signal
+                # the failure in-stream (upstream 502/503 surfaces here).
+                yield sse_data(error_chunk(str(exc.detail)))
+                yield SSE_DONE
+                return
         try:
-            async for line in fetch_upstream_lines(
-                upstream, session_key=actor_sub
-            ):
-                for chunk in translator.feed(line):
-                    yield sse_data(chunk)
-            for chunk in translator.finish():
-                yield sse_data(chunk)
-            yield SSE_DONE
+            async for frame in attach_turn_stream(turn, cursor=cursor):
+                yield frame
         except HTTPException as exc:
-            # Headers are already sent — the status can't change, so signal
-            # the failure in-stream (upstream 502/503 surfaces here).
             yield sse_data(error_chunk(str(exc.detail)))
             yield SSE_DONE
 
@@ -1588,6 +1619,64 @@ async def post_chat(
             "x-vercel-ai-ui-message-stream": "v1",
         },
     )
+
+
+@app.get("/api/chat/turn")
+async def get_chat_turn(
+    turn_key: str = Query(alias="turnKey"),
+    trip_id: str | None = Query(default=None, alias="tripId"),
+    thread_id: str | None = Query(default=None, alias="threadId"),
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Is this turn still running, settled, and how much output does it have?
+
+    The SPA asks this after a dropped connection (and when opening a thread)
+    to choose between attaching to the remaining frames and rendering the turn
+    as settled. It never starts work, so polling it is always safe (#217).
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    if trip_id:
+        require_actor_trip_access(actor_sub, trip_id, min_role="follower")
+    key = turn_key_for(
+        actor_sub, trip_id=trip_id, thread_id=thread_id, turn_key=turn_key
+    )
+    turn = get_turn(key)
+    if turn is None:
+        return {"known": False}
+    return {"known": True, "runId": turn.run_id, **turn_status_payload(turn)}
+
+
+@app.post("/api/chat/stop")
+async def post_chat_stop(
+    body: TurnRequest,
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Interrupt a running turn upstream — the SPA's Stop control (#217).
+
+    Now that closing the connection no longer ends a turn, this is the only
+    way to end one early. A turn the relay doesn't know about is a no-op
+    rather than an error: the caller's intent (stop) already holds.
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    if body.tripId:
+        require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
+    key = turn_key_for(
+        actor_sub,
+        trip_id=body.tripId,
+        thread_id=body.threadId,
+        turn_key=body.turnKey,
+    )
+    turn = get_turn(key)
+    if turn is None:
+        raise HTTPException(status_code=404, detail="Unknown chat turn")
+    if not turn.done:
+        try:
+            await stop_chat_run(turn.run_id, session_key=actor_sub)
+        except RunGone:
+            pass  # already gone upstream — nothing left to interrupt
+    return {"stopped": True, "runId": turn.run_id, **turn_status_payload(turn)}
 
 
 @app.post("/api/files")

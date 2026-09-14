@@ -24,6 +24,20 @@ const V1_SSE_BODY = [
   "",
 ].join("\n");
 
+const INTERRUPTED_SSE_BODY = [
+  'data: {"type":"text-start","id":"x"}',
+  "",
+  'data: {"type":"text-delta","id":"x","delta":"partial"}',
+  "",
+  // what the relay emits when its own upstream dies mid-turn: a cut finish,
+  // carrying the metadata the UI keys on (issues #152 / #217)
+  'data: {"type":"finish","messageMetadata":{"interrupted":true}}',
+  "",
+  "data: [DONE]",
+  "",
+  "",
+].join("\n");
+
 async function readAll(
   stream: ReadableStream<UIMessageChunk>,
 ): Promise<UIMessageChunk[]> {
@@ -98,11 +112,14 @@ describe("KisekiChatTransport", () => {
       string,
       unknown
     >;
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       messages: [{ role: "user", content: "hello", id: "u1" }],
       threadId: "thread-1",
       tripId: "trip-1",
     });
+    // Issue #217: every submission names its turn, so a reconnect can attach
+    // to THIS turn instead of re-sending the instruction as a new one.
+    expect(body.turnKey).toMatch(/^turn-[0-9a-f-]{8,}$/);
     expect(chunks).toContainEqual({
       type: "text-delta",
       id: "x",
@@ -127,8 +144,85 @@ describe("KisekiChatTransport", () => {
       string,
       unknown
     >;
-    expect(body).toEqual({ messages: [], threadId: "thread-2" });
+    expect(body).toMatchObject({ messages: [], threadId: "thread-2" });
     expect(body).not.toHaveProperty("tripId");
+    expect(body.turnKey).toMatch(/^turn-[0-9a-f-]{8,}$/);
+  });
+
+  it("re-attaches to a carried turn instead of re-sending it", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl,
+      // the state a reloaded thread carries over: the turn it was rendering,
+      // and how many of its frames it had already shown
+      turn: { turnKey: "turn-abc", cursor: 7 },
+    });
+    expect(transport.resumable).toBe(true);
+    const stream = await transport.reconnectToStream();
+    expect(stream).not.toBeNull();
+    const chunks = await readAll(stream!);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].url).toBe("/api/chat");
+    expect(seen[0].init.method).toBe("POST");
+    const headers = seen[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer test-token");
+    expect(JSON.parse(seen[0].init.body as string)).toEqual({
+      turnKey: "turn-abc",
+      cursor: 7,
+      threadId: "thread-1",
+      tripId: "trip-1",
+    });
+    // the gap arrives on the wire the SPA already parses
+    expect(chunks).toContainEqual({ type: "text-delta", id: "x", delta: "hi" });
+  });
+
+  it("has nothing to attach to without a turn in flight", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      threadId: "thread-9",
+      getToken: async () => "test-token",
+      fetchImpl,
+    });
+    expect(transport.resumable).toBe(false);
+    expect(await transport.reconnectToStream()).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it("keeps the turn on a cut stream, drops it on a clean finish", async () => {
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string) as { messages?: unknown[] };
+      const isSubmission = Array.isArray(body.messages);
+      return sseResponse(isSubmission ? INTERRUPTED_SSE_BODY : V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      threadId: "thread-4",
+      getToken: async () => "test-token",
+      fetchImpl,
+    });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    expect(transport.resumable).toBe(true);
+    expect(await transport.reconnectToStream()).not.toBeNull();
+
+    // a clean finish (no `interrupted` metadata) ends the turn for good
+    const clean = new KisekiChatTransport({
+      threadId: "thread-5",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(V1_SSE_BODY)) as typeof fetch,
+    });
+    await readAll(await clean.sendMessages(sendOptions([])));
+    expect(clean.resumable).toBe(false);
+    expect(await clean.reconnectToStream()).toBeNull();
   });
 
   it("throws a ChatAuthError on 401 (never a blank)", async () => {

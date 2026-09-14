@@ -169,9 +169,10 @@ function ChatThread({
   }, [busy, error, onTurnComplete]);
   // A dropped turn (issue #152): the relay closed the stream without the
   // agent's terminal event, so it marked the finish `interrupted`. The turn
-  // looks "done" but the agent never finished — offer Reconnect, which
-  // re-sends the transcript on the SAME threadId (same `thread:<id>`
-  // conversation, so Hermes chains the stored turn and continues).
+  // looks "done" but the agent never finished — offer Reconnect. Since #217
+  // that ATTACHES to the turn the relay is still holding (the agent kept
+  // working while the connection was gone); re-sending the transcript stays
+  // the fallback for when there is nothing left to attach to.
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const droppedTurn =
     !busy &&
@@ -183,7 +184,11 @@ function ChatThread({
   const reconnect = async () => {
     if (!droppedTurn || busy) return;
     if (isPostHogConfigured) posthog.capture("chat_reconnect_requested");
-    await chat.regenerate();
+    // Attach first (#217). Only when the relay no longer knows the turn —
+    // it restarted, or the turn settled while we were away — fall back to
+    // re-sending on the same threadId, which is what #152 did.
+    const attached = await chat.resumeTurn();
+    if (!attached) await chat.regenerate();
   };
 
   const [draft, setDraft] = useState("");

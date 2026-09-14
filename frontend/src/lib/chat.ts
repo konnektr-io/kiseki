@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { UIMessage, UIMessageChunk } from "ai";
@@ -154,6 +154,73 @@ async function relayErrorMessage(res: Response): Promise<string> {
   return text || `Request failed (${res.status})`;
 }
 
+/** A turn in flight (issue #217): the relay's identity for it, plus how many
+ *  of its frames this client has already rendered. Persisting the pair is what
+ *  turns a dropped connection into an attach at the exact frame instead of a
+ *  re-send of the whole turn. */
+export interface TurnState {
+  turnKey: string;
+  cursor: number;
+}
+
+const TURNS_KEY = "kiseki.chat.turns.v1";
+
+/** How often the frame cursor reaches storage (never once per chunk). */
+const PERSIST_INTERVAL_MS = 500;
+
+function readTurnStates(): Record<string, TurnState> {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(TURNS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: Record<string, TurnState> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const state = value as { turnKey?: unknown; cursor?: unknown } | null;
+      if (typeof state?.turnKey === "string" && state.turnKey) {
+        const cursor = typeof state.cursor === "number" ? state.cursor : 0;
+        out[key] = {
+          turnKey: state.turnKey,
+          cursor: cursor > 0 ? Math.floor(cursor) : 0,
+        };
+      }
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Remember the turn this thread is rendering (null clears it). */
+export function saveTurnState(threadId: string, state: TurnState | null): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    const all = readTurnStates();
+    if (state) all[threadId] = state;
+    else delete all[threadId];
+    window.localStorage.setItem(TURNS_KEY, JSON.stringify(all));
+  } catch {
+    // persistence is a convenience — a chat without it still works
+  }
+}
+
+/** The turn a reloaded thread may still attach to (null = none). */
+export function loadTurnState(threadId: string): TurnState | null {
+  return readTurnStates()[threadId] ?? null;
+}
+
+/** A fresh turn key per submission: the relay derives the turn identity (and
+ *  the upstream idempotency key) from it, so a retried request can never
+ *  start the work twice. */
+function newTurnKey(): string {
+  try {
+    return `turn-${crypto.randomUUID()}`;
+  } catch {
+    return `turn-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  }
+}
+
 /** The kiseki relay transport: DefaultChatTransport + bearer auth +
  *  `{messages, threadId, tripId}` request shaping + 401/403 mapping. */
 export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
@@ -162,6 +229,8 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     threadId: string;
     getToken: () => Promise<string>;
     fetchImpl?: typeof fetch;
+    /** A turn carried over from this thread's last session (a reload mid-turn). */
+    turn?: TurnState | null;
   }) {
     const tripId = options.tripId;
     const threadId = options.threadId;
@@ -174,6 +243,10 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     const fetchImpl: typeof fetch =
       options.fetchImpl ??
       ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+    // Shared with the request hook below, which runs before `this` is usable.
+    const state: { turn: TurnState | null } = {
+      turn: options.turn ? { ...options.turn } : null,
+    };
     super({
       api: "/api/chat",
       headers: async () => ({
@@ -186,19 +259,133 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         }
         return res;
       }) as typeof fetch,
-      prepareSendMessagesRequest: ({ messages }) => ({
-        body: {
-          messages: messages.map(toBackendMessage),
-          threadId,
-          ...(tripId ? { tripId } : {}),
-        },
-      }),
+      prepareSendMessagesRequest: ({ messages }) => {
+        // Every submission is a NEW turn. Minting the key here (and storing
+        // it) is what makes the turn addressable later: the relay derives the
+        // upstream idempotency key from it, so a retry can never submit the
+        // same turn twice, and a reconnect re-attaches to THIS turn instead
+        // of starting another one (issue #217).
+        const turn = { turnKey: newTurnKey(), cursor: 0 };
+        state.turn = turn;
+        saveTurnState(threadId, turn);
+        return {
+          body: {
+            messages: messages.map(toBackendMessage),
+            threadId,
+            turnKey: turn.turnKey,
+            ...(tripId ? { tripId } : {}),
+          },
+        };
+      },
     });
+    this.state = state;
+    this.threadId = threadId;
+    this.tripId = tripId;
+    this.getToken = getToken;
+    this.fetchImpl = fetchImpl;
   }
 
-  async reconnectToStream(): Promise<ReadableStream<UIMessageChunk> | null> {
-    // No resume in v1 — a dropped turn is re-sent, never re-attached.
-    return null;
+  private readonly state: { turn: TurnState | null };
+  private readonly threadId: string;
+  private readonly tripId?: string;
+  private readonly getToken: () => Promise<string>;
+  private readonly fetchImpl: typeof fetch;
+  /** Throttle gate for the persisted cursor (see `onFrame`). */
+  private lastPersisted = 0;
+
+  /** True while the relay may still hold frames this client hasn't rendered,
+   *  i.e. a reconnect can CONTINUE the turn instead of re-sending it. */
+  get resumable(): boolean {
+    return this.state.turn !== null;
+  }
+
+  override async sendMessages(
+    options: Parameters<DefaultChatTransport<UIMessage>["sendMessages"]>[0],
+  ): Promise<ReadableStream<UIMessageChunk>> {
+    return this.counted(await super.sendMessages(options));
+  }
+
+  /**
+   * Re-attach to the turn this client was rendering (issue #217).
+   *
+   * The relay keeps a turn's frames, so a dropped connection asks for the
+   * ones it never saw (`turnKey` + `cursor`) and the agent keeps working
+   * meanwhile — no re-send, no duplicated work. Returning null (no turn, or
+   * one the relay no longer knows after a restart) hands the caller back the
+   * pre-#217 behaviour: re-send via `regenerate()`.
+   *
+   * Note the SDK renders the continued output as a NEW assistant message —
+   * the partial one stays visible and the tail lands after it.
+   */
+  override async reconnectToStream(): Promise<
+    ReadableStream<UIMessageChunk> | null
+  > {
+    const turn = this.state.turn;
+    if (!turn) return null;
+    let res: Response;
+    try {
+      res = await this.fetchImpl("/api/chat", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${await this.getToken()}`,
+        },
+        body: JSON.stringify({
+          turnKey: turn.turnKey,
+          cursor: turn.cursor,
+          threadId: this.threadId,
+          ...(this.tripId ? { tripId: this.tripId } : {}),
+        }),
+      });
+    } catch {
+      // Offline, DNS, aborted — nothing to attach to, so let the caller decide
+      // (it falls back to re-sending, which fails visibly if the net is down).
+      return null;
+    }
+    if (res.status === 401 || res.status === 403) {
+      throw new ChatAuthError(res.status, await relayErrorMessage(res));
+    }
+    if (!res.ok || !res.body) return null;
+    return this.counted(this.processResponseStream(res.body));
+  }
+
+  /** Count the frames the UI consumes: `cursor` is the index a reconnect
+   *  replays from, so it must advance exactly once per rendered chunk. */
+  private counted(
+    stream: ReadableStream<UIMessageChunk>,
+  ): ReadableStream<UIMessageChunk> {
+    return stream.pipeThrough(
+      new TransformStream<UIMessageChunk, UIMessageChunk>({
+        transform: (chunk, controller) => {
+          this.onFrame(chunk);
+          controller.enqueue(chunk);
+        },
+      }),
+    );
+  }
+
+  private onFrame(chunk: UIMessageChunk): void {
+    const turn = this.state.turn;
+    if (!turn) return;
+    turn.cursor += 1;
+    const meta = (chunk as { messageMetadata?: { interrupted?: unknown } })
+      .messageMetadata;
+    if (
+      chunk.type === "error" ||
+      (chunk.type === "finish" && meta?.interrupted !== true)
+    ) {
+      // Terminal and clean (or failed): the turn is over, so keeping the state
+      // would only offer a Reconnect that attaches to nothing.
+      this.state.turn = null;
+      saveTurnState(this.threadId, null);
+      return;
+    }
+    // A cut `finish` (`interrupted: true`) is exactly what the cursor is for:
+    // keep it, throttled, so a reload can resume from here.
+    const now = Date.now();
+    if (now - this.lastPersisted < PERSIST_INTERVAL_MS) return;
+    this.lastPersisted = now;
+    saveTurnState(this.threadId, turn);
   }
 }
 
@@ -397,7 +584,15 @@ export function useTripChat({
   onFinish,
 }: UseTripChatOptions) {
   const transport = useMemo(
-    () => new KisekiChatTransport({ tripId, threadId, getToken }),
+    () =>
+      new KisekiChatTransport({
+        tripId,
+        threadId,
+        getToken,
+        // A turn this thread was mid-way through survives a reload: the stored
+        // cursor is where the last connection stopped rendering (#217).
+        turn: loadTurnState(threadId),
+      }),
     [tripId, threadId, getToken],
   );
   const chat = useChat({
@@ -417,5 +612,18 @@ export function useTripChat({
   useEffect(() => {
     saveTranscript(threadId, messages);
   }, [threadId, messages]);
-  return chat;
+
+  /**
+   * Continue a dropped turn where it stopped (issue #217) instead of
+   * re-sending it: attaches to the relay's remaining frames. False = there is
+   * nothing to attach to (no turn yet, or one the relay no longer knows), so
+   * the caller re-sends — the pre-#217 behaviour, kept as the fallback.
+   */
+  const resumeTurn = useCallback(async (): Promise<boolean> => {
+    if (!transport.resumable) return false;
+    await chat.resumeStream();
+    return true;
+  }, [transport, chat]);
+
+  return { ...chat, resumeTurn };
 }
