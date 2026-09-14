@@ -62,7 +62,12 @@ _GRAPH_CACHE_LOCK = threading.Lock()
 _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
               "list_trips_for_user": 30.0,
               "find_trip_dtid_by_claim_token": 60.0,
-              "find_trip_dtid_by_follow_token": 60.0}
+              "find_trip_dtid_by_follow_token": 60.0,
+              # The feed's ordered reads (issue #199): 60 s, matching the
+              # subgraph fetch they reuse. The feed is a poll, so a minute of
+              # staleness is fine — and it is why feed.py must NOT add a second
+              # cache layer of its own.
+              "trips_for_user_ordered": 60.0, "trips_of_followed": 60.0}
 
 
 def _cached_graph(method: Callable) -> Callable:
@@ -152,6 +157,29 @@ _USER_RE = re.compile(r"^[^'\\\x00-\x1f]{1,256}$")
 # it is inlined (not a parameter).
 MAX_HOPS = 3
 
+# Bounds for the feed's writer-ordered trip reads (issue #199). Same rule as
+# MAX_HOPS above: AGE takes bound parameters in WHERE but NOT in LIMIT / range
+# bounds, so the limit is inlined — which is why it must be a validated int and
+# never caller text. FEED_LIMIT_MAX is the single source of truth: feed.py
+# clamps the HTTP `limit` to it too, so an oversized request cannot ask the
+# graph to order the whole store before slicing.
+FEED_LIMIT_MAX = 50
+FEED_LIMIT_DEFAULT = 30
+
+
+def _clamp_limit(limit: Any) -> int:
+    """A validated int in ``1..FEED_LIMIT_MAX``, safe to interpolate.
+
+    Unparseable input falls back to the default instead of raising: a bad
+    ``limit`` is a caller bug, not a reason to fail a feed read.
+    """
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        return FEED_LIMIT_DEFAULT
+    return max(1, min(n, FEED_LIMIT_MAX))
+
+
 # --- Cypher (parameterized) -----------------------------------------------
 # Locate the Trip twin by its CLAIM token (issue #6 join link) — the only
 # secret that remains after #64 (visibility gates the id route; claimToken
@@ -185,6 +213,69 @@ LIMIT 1
 # *what* changed (stage, cover, title), not merely *that* something did.
 _META_AT = "`$metadata`.`$lastUpdateTime`"
 _META_BY = "`$metadata`.`$lastUpdatedBy`"
+
+# The feed's two streams (issue #199), both ordered by the write time the graph
+# records itself — no timestamp column, no second store. LIMIT is inlined by
+# ``_clamp_limit`` (see above); `$uid` is a bound parameter.
+#
+# Stream 1 — every trip I can read: same reachability as
+# ``list_trips_for_user`` (``Trip -[:hasCrew]-> Person``; the reverse direction
+# matches nothing), plus the write metadata. `meta` rides along so the caller
+# can say WHAT changed, not merely that something did: each property carries
+# its own `$lastUpdateTime`.
+#
+# Stream 2 — trips of the people I follow. `follows` is person -> person and
+# grants NO access, so the row carries `discoverable` and the caller applies the
+# listing rule (#196). A private trip of a followed person must never appear:
+# that is the rule the profile page already uses, mirrored rather than
+# re-invented.
+_Q_TRIPS_FOR_ME_ORDERED = """
+MATCH (trip:Twin)-[:hasCrew]->(me:Twin)
+WHERE me.`$dtId` = $uid
+RETURN trip.`$dtId` AS dtId, trip.title AS title, trip.slug AS slug,
+       trip.visibility AS visibility, trip.stage AS stage,
+       trip.`$metadata`.`$lastUpdateTime` AS at,
+       trip.`$metadata`.`$lastUpdatedBy` AS by,
+       trip.`$metadata` AS meta
+ORDER BY at DESC LIMIT {limit}
+"""
+
+_Q_TRIPS_OF_FOLLOWED = """
+MATCH (me:Twin)-[:follows]->(person:Twin)
+MATCH (trip:Twin)-[:hasCrew]->(person)
+WHERE me.`$dtId` = $uid
+RETURN trip.`$dtId` AS dtId, trip.title AS title, trip.slug AS slug,
+       trip.discoverable AS discoverable, trip.visibility AS visibility,
+       trip.`$metadata`.`$lastUpdateTime` AS at,
+       trip.`$metadata`.`$lastUpdatedBy` AS by
+ORDER BY at DESC LIMIT {limit}
+"""
+
+
+def _ordered_trip_row(row: dict) -> dict:
+    """Map an ordered-trip row (stream 1 or 2) into the feed's flat summary.
+
+    ``at`` / ``by`` are ``None`` for a twin the graph never stamped (the
+    committed mocks carry `$metadata.$model` only): the feed renders those as
+    "date unknown" rather than inventing one. ``discoverable`` appears only when
+    the query returned it (stream 2) — "not asked" is not "not listed", and a
+    twin with no such property never reads back True.
+    """
+    meta = row.get("meta")
+    out = {
+        "dtId": row.get("dtId"),
+        "title": row.get("title") or "",
+        "slug": row.get("slug") or "",
+        "visibility": row.get("visibility") or "private",
+        "stage": row.get("stage") or "",
+        "at": row.get("at") or None,
+        "by": row.get("by") or None,
+    }
+    if isinstance(meta, dict):
+        out["meta"] = meta
+    if "discoverable" in row:
+        out["discoverable"] = bool(row.get("discoverable"))
+    return out
 
 # All twins in the trip's connected component (trip itself + every node
 # reachable along outgoing edges). A single query, scoped to the trip — not the
@@ -409,6 +500,66 @@ class GraphReadClient:
             if summary.get("$model") == TRIP_MODEL or summary.get("dtId"):
                 out.append(summary)
         return out
+
+    @_cached_graph
+    def trips_for_user_ordered(
+        self, user_dtid: str, limit: int = FEED_LIMIT_DEFAULT
+    ) -> list[dict]:
+        """Every trip a user can read, newest write first (feed stream 1).
+
+        The same trips as ``list_trips_for_user`` — including those reached
+        through a ``hasCrew role=follower`` edge, which DOES grant read — but
+        ordered by the graph's own ``$metadata.$lastUpdateTime`` and carrying it
+        plus ``by`` (the actor) and ``meta`` (the per-property times).
+
+        Cached for 60 s like the other hot reads: the feed can be up to a minute
+        stale, which is fine for a poll. Do NOT add a second cache layer in the
+        caller.
+
+        Returns an empty list if the graph is disabled, the id is malformed, or
+        the query fails.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_TRIPS_FOR_ME_ORDERED.format(limit=_clamp_limit(limit)),
+                    query_parameters={"uid": user_dtid},
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph trips-for-user-ordered({user_dtid}) failed: {exc}")
+            return []
+        return [_ordered_trip_row(r) for r in rows if isinstance(r, dict)]
+
+    @_cached_graph
+    def trips_of_followed(
+        self, user_dtid: str, limit: int = FEED_LIMIT_DEFAULT
+    ) -> list[dict]:
+        """Trips of the people a user follows, newest write first (stream 2).
+
+        ``follows`` grants no access, so every row is annotated with
+        ``discoverable`` and the CALLER decides what may be listed (#196) — the
+        query deliberately does not filter, so the rule lives in one place. A
+        twin with no such property never reads back True.
+
+        Cached for 60 s (see ``trips_for_user_ordered``); empty list when the
+        graph is disabled, the id is malformed, or the query fails.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_TRIPS_OF_FOLLOWED.format(limit=_clamp_limit(limit)),
+                    query_parameters={"uid": user_dtid},
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph trips-of-followed({user_dtid}) failed: {exc}")
+            return []
+        return [_ordered_trip_row(r) for r in rows if isinstance(r, dict)]
 
     @_cached_graph
     def role_for_user_on_trip(
