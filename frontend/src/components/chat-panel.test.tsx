@@ -32,7 +32,7 @@ vi.mock("@ai-sdk/react", () => ({
 }));
 
 import { ChatAuthError } from "../lib/chat";
-import { ChatPanel } from "./chat-panel";
+import { ChatPanel, shouldOfferReconnect } from "./chat-panel";
 
 function assistantText(text: string): UIMessage {
   return { id: "a1", role: "assistant", parts: [{ type: "text", text }] };
@@ -391,6 +391,61 @@ describe("ChatPanel reconnect (issue #152: dropped turn)", () => {
     const html = renderPanel("trip-1");
     expect(html).not.toContain("Connection lost");
     expect(html).not.toContain("Reconnect");
+  });
+});
+
+/* When to offer Reconnect (#152 → #217). The banner is the LAST resort: a turn
+ * the relay cut that nothing is picking up. A thread that is re-attaching to
+ * its turn (or already has) must not offer it — the resume is happening. */
+describe("shouldOfferReconnect (#217)", () => {
+  const cut: UIMessage = {
+    id: "a1",
+    role: "assistant",
+    metadata: { interrupted: true },
+    parts: [{ type: "text", text: "partial…" }],
+  };
+  const base = { working: false, error: undefined, recovery: "idle" as const };
+
+  it("offers it for a cut turn nothing is resuming", () => {
+    expect(shouldOfferReconnect({ ...base, lastMessage: cut })).toBe(true);
+    expect(shouldOfferReconnect({ ...base, lastMessage: userText("hi") })).toBe(
+      false,
+    );
+    expect(
+      shouldOfferReconnect({ ...base, lastMessage: assistantText("done") }),
+    ).toBe(false);
+    expect(shouldOfferReconnect({ ...base, lastMessage: null })).toBe(false);
+  });
+
+  it("stays out of the way while the turn is being attached to", () => {
+    expect(
+      shouldOfferReconnect({ ...base, recovery: "checking", lastMessage: cut }),
+    ).toBe(false);
+    // the attach rebuilt the turn — the affordance has nothing left to do
+    expect(
+      shouldOfferReconnect({ ...base, recovery: "attached", lastMessage: cut }),
+    ).toBe(false);
+    // ...but once the relay holds nothing, re-sending is the user's call
+    expect(
+      shouldOfferReconnect({
+        ...base,
+        recovery: "unavailable",
+        lastMessage: cut,
+      }),
+    ).toBe(true);
+  });
+
+  it("never competes with live work or an error", () => {
+    expect(shouldOfferReconnect({ ...base, working: true, lastMessage: cut })).toBe(
+      false,
+    );
+    expect(
+      shouldOfferReconnect({
+        ...base,
+        error: new Error("boom"),
+        lastMessage: cut,
+      }),
+    ).toBe(false);
   });
 });
 
