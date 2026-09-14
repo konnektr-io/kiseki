@@ -231,6 +231,12 @@ def _read_body(args) -> bytes | None:
 # The run ends with a re-GET summary (counts + which days still have no
 # blocks) instead of dumping the whole document — the agent needs the verdict,
 # not 40k tokens of trip.
+#
+# `--dry-run` prints the WHOLE plan, not just the pre-block calls: the block
+# pass runs after the re-GET (a block POST needs its container's id, and a
+# day/section this same plan creates only gets one then), so its intent lines
+# are listed under their own heading, followed by the venue-resolution pass.
+# Omitting them read as "my block step vanished" and cost a re-check (#242).
 
 #: TripPatch fields — anything else in `scalars` is a guaranteed 422.
 TRIP_SCALARS = {
@@ -585,6 +591,42 @@ def plan_calls(plan: dict, trip_id: str, existing: dict | None = None) -> list[t
             continue  # POST /crew would add a second card for the same person
         calls.append(("post", f"{base}/crew", person))
     return calls
+
+
+def block_intents(plan: dict, existing: dict | None = None) -> list[tuple[str, str, dict]]:
+    """The block pass as ``(container_type, container_label, body)`` intents.
+
+    Blocks never ride their container's body (order is server-managed) and a
+    block POST needs the container's id — which a day/section created by this
+    same plan only gets at the re-GET. So the pass is planned separately from
+    :func:`plan_calls`, and this is the single place that builds it: the live
+    run resolves ``body["container"]["id"]`` (and fails when a container never
+    materialised), while ``--dry-run`` prints the same intents — with ``id``
+    ``None`` for a container that does not exist yet — and writes nothing.
+    Either way a plan that carries blocks can never read as "no block step"
+    (issue #242).
+    """
+    by_date = {d.get("date"): d.get("id") for d in (existing or {}).get("days") or []}
+    by_title = {
+        str(s.get("title") or "").strip().lower(): s.get("id")
+        for s in (existing or {}).get("sections") or []
+    }
+    intents: list[tuple[str, str, dict]] = []
+    for day in plan.get("days") or []:
+        date = day.get("date")
+        container_id = day.get("id") or by_date.get(date)
+        for block in day.get("blocks") or []:
+            body = dict(block)
+            body["container"] = {"type": "day", "id": container_id}
+            intents.append(("day", str(date), body))
+    for sec in plan.get("sections") or []:
+        title = str(sec.get("title") or "").strip()
+        container_id = sec.get("id") or by_title.get(title.lower())
+        for block in sec.get("blocks") or []:
+            body = dict(block)
+            body["container"] = {"type": "section", "id": container_id}
+            intents.append(("section", title, body))
+    return intents
 
 
 def _request(
@@ -1070,10 +1112,31 @@ def fill_trip(args) -> int:
 
     calls = plan_calls(plan, args.path, existing)
     if args.dry_run:
-        print(f"dry run — {len(calls)} call(s), nothing written:")
+        intents = block_intents(plan, existing)
+        print(
+            f"dry run — {len(calls)} call(s) + {len(intents)} block write(s), "
+            "nothing written:"
+        )
         for method, path, body in calls:
             summary = json.dumps(body, ensure_ascii=False) if body else ""
             print(f"  {method.upper():6s} {path} {summary[:120]}")
+        if intents:
+            print(
+                "  block pass — runs AFTER the re-GET (a block POST needs its container's id, "
+                "and a day/section this plan creates only gets one then):"
+            )
+            for container_type, label, body in intents:
+                shown = body
+                if not body["container"]["id"]:
+                    shown = dict(body)
+                    shown["container"] = {"type": container_type, "id": f"<new {container_type} {label}>"}
+                summary = json.dumps(shown, ensure_ascii=False)
+                print(f"  {'POST':6s} /api/trips/{args.path}/blocks {summary[:120]}")
+        if not getattr(args, "no_resolve", False):
+            print(
+                "  then the venue-resolution pass (registry locations without a `placeId`, "
+                "then venue blocks without one) — `--no-resolve` skips it"
+            )
         return 0
 
     for call_no, (method, path, body) in enumerate(calls, start=1):
@@ -1093,27 +1156,16 @@ def fill_trip(args) -> int:
 
     # blocks need ids, so they come after a re-GET (days/sections now exist)
     trip = _server_base(args.path, base, token)
-    day_by_date = {d.get("date"): d.get("id") for d in trip.get("days") or []}
-    section_by_title = {s.get("title"): s.get("id") for s in trip.get("sections") or []}
     block_calls: list[tuple[str, str, dict]] = []
-    for day in plan.get("days") or []:
-        day_id = day.get("id") or day_by_date.get(day.get("date"))
-        if not day_id:
-            print(f"error: no day id for {day.get('date')} — day insert failed?", file=sys.stderr)
+    for container_type, label, body in block_intents(plan, trip):
+        if not body["container"]["id"]:
+            print(
+                f"error: no {container_type} id for {label!r} — the {container_type} write "
+                "did not materialise it?",
+                file=sys.stderr,
+            )
             return 1
-        for block in day.get("blocks") or []:
-            payload = dict(block)
-            payload["container"] = {"type": "day", "id": day_id}
-            block_calls.append(("post", f"/api/trips/{args.path}/blocks", payload))
-    for sec in plan.get("sections") or []:
-        sec_id = section_by_title.get(sec.get("title"))
-        for block in sec.get("blocks") or []:
-            if not sec_id:
-                print(f"error: no section id for {sec.get('title')!r}", file=sys.stderr)
-                return 1
-            payload = dict(block)
-            payload["container"] = {"type": "section", "id": sec_id}
-            block_calls.append(("post", f"/api/trips/{args.path}/blocks", payload))
+        block_calls.append(("post", f"/api/trips/{args.path}/blocks", body))
 
     # Blocks have no natural id in a plan, so match on (container, kind, title):
     # a re-run after a mid-plan failure UPDATES its blocks instead of stacking
