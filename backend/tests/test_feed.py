@@ -86,7 +86,7 @@ def test_my_trips_bad_limit_is_defensive_not_fatal(monkeypatch, bad) -> None:
 
 def test_my_trips_row_mapping_carries_write_metadata(monkeypatch) -> None:
     rows = [{
-        "dtId": TRIP_A, "title": "Canada 2027", "slug": "canada-2027",
+        "dtId": TRIP_A, "title": "Canada 2027",
         "visibility": "public", "stage": "booked",
         "at": "2026-09-14T09:00:00Z", "by": SUB,
         "meta": {"$model": "dtmi:kiseki:travel:Trip;1",
@@ -94,7 +94,7 @@ def test_my_trips_row_mapping_carries_write_metadata(monkeypatch) -> None:
     }]
     c, _ = _client_with(monkeypatch, rows)
     [trip] = c.trips_for_user_ordered(SUB)
-    assert trip["dtId"] == TRIP_A and trip["slug"] == "canada-2027"
+    assert trip["dtId"] == TRIP_A and trip["title"] == "Canada 2027"
     assert trip["at"] == "2026-09-14T09:00:00Z" and trip["by"] == SUB
     # The per-property times are what let the feed say WHAT changed.
     assert trip["meta"]["title"]["$lastUpdateTime"] == "2026-09-14T09:00:00Z"
@@ -103,7 +103,7 @@ def test_my_trips_row_mapping_carries_write_metadata(monkeypatch) -> None:
 def test_my_trips_unstamped_twin_has_no_invented_date(monkeypatch) -> None:
     """The committed mocks carry `$metadata.$model` only: no write time means
     the row says None rather than epoch / now."""
-    rows = [{"dtId": TRIP_A, "title": "Canada 2027", "slug": "canada-2027",
+    rows = [{"dtId": TRIP_A, "title": "Canada 2027",
              "visibility": "public", "stage": "idea", "at": None, "by": None,
              "meta": {}}]
     c, _ = _client_with(monkeypatch, rows)
@@ -114,7 +114,7 @@ def test_my_trips_unstamped_twin_has_no_invented_date(monkeypatch) -> None:
 def test_my_trips_do_not_claim_a_discoverable_flag(monkeypatch) -> None:
     """`_Q_TRIPS_FOR_ME_ORDERED` does not return `discoverable`; the mapping must
     not invent `False` — "not asked" is not "not listed"."""
-    c, _ = _client_with(monkeypatch, [{"dtId": TRIP_A, "title": "t", "slug": "s"}])
+    c, _ = _client_with(monkeypatch, [{"dtId": TRIP_A, "title": "t"}])
     [trip] = c.trips_for_user_ordered(SUB)
     assert "discoverable" not in trip
 
@@ -174,7 +174,7 @@ def test_followed_trips_query_shape(monkeypatch) -> None:
 
 
 def test_followed_trips_row_mapping_reads_discoverable(monkeypatch) -> None:
-    rows = [{"dtId": TRIP_B, "title": "Urban Legends", "slug": "urban-legends",
+    rows = [{"dtId": TRIP_B, "title": "Urban Legends",
              "discoverable": True, "visibility": "public",
              "at": "2026-09-14T10:00:00Z", "by": OTHER}]
     c, _ = _client_with(monkeypatch, rows)
@@ -186,10 +186,10 @@ def test_followed_trips_row_mapping_reads_discoverable(monkeypatch) -> None:
 # ------------------------------------------------ feed.py: rank, cap, describe
 
 
-def _row(dtid, slug, at=None, by=None, meta=None, title=None, **extra):
+def _row(dtid, name, at=None, by=None, meta=None, title=None, **extra):
     """A trip row as the client hands it to feed.py (see ``_ordered_trip_row``)."""
-    row = {"dtId": dtid, "title": title or slug.replace("-", " ").title(),
-           "slug": slug, "at": at, "by": by}
+    row = {"dtId": dtid, "title": title or name.replace("-", " ").title(),
+           "at": at, "by": by}
     if meta is not None:
         row["meta"] = meta
     row.update(extra)
@@ -268,9 +268,9 @@ def test_feed_merges_both_streams_newest_first_with_their_source() -> None:
                        meta={"cover": _stamp("2026-09-14T11:00:00Z")})],
     )
     out = feed_mod.build_feed(SUB, client=client)
-    assert [i["tripSlug"] for i in out["items"]] == ["burning-man-2027", "canada-2027"]
+    assert [i["tripId"] for i in out["items"]] == [TRIP_B, TRIP_A]
     assert [i["source"] for i in out["items"]] == ["followed-user", "my-trip"]
-    assert out["items"][0]["href"] == "/t/burning-man-2027"
+    assert out["items"][0]["href"] == f"/t/{TRIP_B}"
     assert out["items"][0]["changes"] == ["cover photo"]
     assert out["generatedAt"].endswith("Z")
     assert out["nextBefore"] is None  # everything fit on one page
@@ -284,7 +284,7 @@ def test_feed_hides_a_followed_trip_that_is_not_discoverable() -> None:
         _row(TRIP_B, "urban-legends", "2026-09-14T11:00:00Z", discoverable=True),
     ])
     out = feed_mod.build_feed(SUB, client=client)
-    assert [i["tripSlug"] for i in out["items"]] == ["urban-legends"]
+    assert [i["tripId"] for i in out["items"]] == [TRIP_B]
 
 
 def test_feed_keeps_unstamped_trips_last_and_only_on_the_first_page() -> None:
@@ -293,7 +293,7 @@ def test_feed_keeps_unstamped_trips_last_and_only_on_the_first_page() -> None:
         _row(TRIP_B, "stamped", "2026-09-14T10:00:00Z"),
     ])
     out = feed_mod.build_feed(SUB, client=client)
-    assert [i["tripSlug"] for i in out["items"]] == ["stamped", "no-write-time"]
+    assert [i["tripId"] for i in out["items"]] == [TRIP_B, TRIP_A]
     assert out["nextBefore"] is None  # a page that ends unstamped cannot be resumed
     paged = feed_mod.build_feed(SUB, client=client, before="2026-09-14T10:00:00Z")
     assert paged["items"] == []
@@ -305,7 +305,7 @@ def test_feed_caps_to_the_limit_and_only_then_offers_a_cursor() -> None:
         _row(TRIP_B, "b", "2026-09-14T10:00:00Z"),
     ])
     out = feed_mod.build_feed(SUB, client=client, limit=1)
-    assert [i["tripSlug"] for i in out["items"]] == ["b"]
+    assert [i["tripId"] for i in out["items"]] == [TRIP_B]
     assert out["nextBefore"] == "2026-09-14T10:00:00Z"  # there is more behind it
 
 
@@ -316,7 +316,7 @@ def test_feed_pages_with_the_cursor_without_repeating_an_entry() -> None:
     ])
     first = feed_mod.build_feed(SUB, client=client, limit=1)
     second = feed_mod.build_feed(SUB, client=client, limit=1, before=first["nextBefore"])
-    assert [i["tripSlug"] for i in second["items"]] == ["a"]
+    assert [i["tripId"] for i in second["items"]] == [TRIP_A]
     assert second["nextBefore"] is None
 
 
@@ -386,18 +386,17 @@ def test_feed_serves_the_callers_own_view_and_is_never_cached(
 
     class _Graph:
         def trips_for_user_ordered(self, sub, limit=30):
-            return [{"dtId": TRIP_A, "title": "Canada 2027", "slug": "canada-2027",
+            return [{"dtId": TRIP_A, "title": "Canada 2027",
                      "at": "2026-09-14T09:00:00Z", "by": sub,
                      "meta": {"title": {"$lastUpdateTime": "2026-09-14T09:00:00Z"}}}]
 
         def trips_of_followed(self, sub, limit=30):
             return [
                 {"dtId": TRIP_B, "title": "Burning Man 2027",
-                 "slug": "burning-man-2027", "discoverable": True,
-                 "at": "2026-09-14T11:00:00Z", "by": OTHER},
+                 "discoverable": True, "at": "2026-09-14T11:00:00Z", "by": OTHER},
                 # A followed person's private trip: listed or not, it must not
                 # appear — `follows` grants no access (#196).
-                {"dtId": TRIP_C, "title": "Private Thing", "slug": "private-thing",
+                {"dtId": TRIP_C, "title": "Private Thing",
                  "discoverable": False, "at": "2026-09-14T12:00:00Z", "by": OTHER},
             ]
 
@@ -406,12 +405,13 @@ def test_feed_serves_the_callers_own_view_and_is_never_cached(
     assert r.status_code == 200
     assert r.headers["cache-control"] == "no-store"
     body = r.json()
-    slugs = [i["tripSlug"] for i in body["items"]]
-    assert slugs == ["burning-man-2027", "canada-2027"]
+    ids = [i["tripId"] for i in body["items"]]
+    assert ids == [TRIP_B, TRIP_A]
     assert [i["source"] for i in body["items"]] == ["followed-user", "my-trip"]
     assert body["items"][1]["changes"] == ["title"]
-    assert "private-thing" not in slugs
-    assert body["items"][0]["href"] == "/t/burning-man-2027"
+    assert TRIP_C not in ids
+    # Routes carry the trip id, never the repo-folder slug.
+    assert body["items"][0]["href"] == f"/t/{TRIP_B}"
 
 
 def test_feed_clamps_the_limit_at_the_route(client, rsa_keypair, monkeypatch) -> None:
@@ -465,7 +465,7 @@ def _day_bundle(*, gallery_at="2026-09-14T11:45:00Z", note_at="2026-09-14T10:00:
         "$dtId": TRIP_B,
         "twins": [
             _raw_twin(TRIP_B, "Trip", at="2026-09-14T11:00:00Z", by=OTHER,
-                      title="Burning Man 2027", slug="burning-man-2027"),
+                      title="Burning Man 2027"),
             _raw_twin(DAY_ID, "Day", at="2026-09-14T11:30:00Z", by=OTHER,
                       date="2027-02-15", title="Arrival"),
             _raw_twin(
@@ -493,7 +493,7 @@ def _day_bundle(*, gallery_at="2026-09-14T11:45:00Z", note_at="2026-09-14T10:00:
 def _items(**kwargs):
     return feed_mod.items_of_trip(
         _day_bundle(**kwargs), trip_id=TRIP_B, trip_title="Burning Man 2027",
-        slug="burning-man-2027", source="followed-user",
+        source="followed-user",
     )
 
 
@@ -510,9 +510,9 @@ def test_items_of_trip_shows_the_newest_days_photos_with_inline_thumbs() -> None
     assert newest["label"] == "4 photos added"
     assert newest["at"] == "2026-09-14T11:45:00Z"
     assert newest["by"] == OTHER
-    assert newest["tripSlug"] == "burning-man-2027"
+    assert newest["tripId"] == TRIP_B
     assert newest["source"] == "followed-user"
-    assert newest["href"] == "/t/burning-man-2027/day/0"
+    assert newest["href"] == f"/t/{TRIP_B}/day/0"
     assert newest["thumbs"] == [
         f"/media/{TRIP_B}/a.jpg", f"/media/{TRIP_B}/b.jpg", f"/media/{TRIP_B}/c.jpg",
     ]
@@ -539,7 +539,7 @@ def test_items_of_trip_counts_a_card_images_write_too() -> None:
             twin["$metadata"].pop("items")
     rows = feed_mod.items_of_trip(
         bundle, trip_id=TRIP_B, trip_title="Burning Man 2027",
-        slug="burning-man-2027", source="followed-user",
+        source="followed-user",
     )
     assert rows[0]["label"] == "1 photo added"  # singular, not "1 photos"
     assert rows[0]["thumbs"] == [f"/media/{TRIP_B}/solo.jpg"]
@@ -561,7 +561,7 @@ def test_items_of_trip_caps_rows_and_keeps_the_newest() -> None:
         )
     rows = feed_mod.items_of_trip(
         bundle, trip_id=TRIP_B, trip_title="Burning Man 2027",
-        slug="burning-man-2027", source="followed-user",
+        source="followed-user",
     )
     assert len(rows) == feed_mod.ITEMS_PER_TRIP
     # Newest first: the extra blocks are stamped 10:00..15:00, the gallery 11:45.
@@ -598,14 +598,14 @@ class _ItemsGraph:
         return self._bundles.get(trip_dtid)
 
 
-def _followed_row(dtid, *, at, discoverable=True, slug="a-trip", title="A Trip"):
-    return {"dtId": dtid, "title": title, "slug": slug, "visibility": "public",
+def _followed_row(dtid, *, at, discoverable=True, title="A Trip"):
+    return {"dtId": dtid, "title": title, "visibility": "public",
             "discoverable": discoverable, "at": at, "by": OTHER}
 
 
 def test_build_feed_merges_a_followed_trips_items_into_the_ranked_list() -> None:
     graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z",
-                                       slug="burning-man-2027", title="Burning Man 2027")],
+                                       title="Burning Man 2027")],
                         {TRIP_B: _day_bundle()})
     feed = feed_mod.build_feed(SUB, client=graph)
     kinds = [(i["kind"], i.get("label") or i.get("tripTitle")) for i in feed["items"]]
@@ -629,7 +629,7 @@ def test_build_feed_walks_only_the_top_k_followed_trips() -> None:
     rows, bundles = [], {}
     for n in range(feed_mod.ITEMS_TRIPS + 2):
         dtid = f"{n}0000000-0000-4000-8000-000000000000"
-        rows.append(_followed_row(dtid, at=f"2026-09-14T{10 + n}:00:00Z", slug=f"trip-{n}"))
+        rows.append(_followed_row(dtid, at=f"2026-09-14T{10 + n}:00:00Z"))
         bundles[dtid] = _day_bundle()
     graph = _ItemsGraph(rows, bundles)
     feed_mod.build_feed(SUB, client=graph)

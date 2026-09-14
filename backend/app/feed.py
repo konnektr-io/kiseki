@@ -76,17 +76,17 @@ def _row_entry(row: dict, source: str) -> dict:
     twin, or a write that touched only the twin itself — still makes an entry;
     it just cannot say what changed.
     """
-    slug = row.get("slug") or ""
     return {
         "kind": "trip",
         "tripId": row.get("dtId"),
         "tripTitle": row.get("title") or "",
-        "tripSlug": slug,
         "source": source,
         "at": row.get("at"),
         "by": row.get("by"),
         "changes": changed_properties(row.get("meta") or {}),
-        "href": f"/t/{slug}",
+        # Routes carry the trip's $dtId — the durable identity. The
+        # repo-folder slug is organizational and can collide.
+        "href": f"/t/{row.get('dtId')}",
     }
 
 
@@ -173,7 +173,6 @@ def items_of_trip(
     *,
     trip_id: str,
     trip_title: str,
-    slug: str,
     source: str,
     cap: int = ITEMS_PER_TRIP,
 ) -> list[dict]:
@@ -215,7 +214,6 @@ def items_of_trip(
                 "kind": "item",
                 "tripId": trip_id,
                 "tripTitle": trip_title,
-                "tripSlug": slug,
                 "source": source,
                 "dayIndex": day_index,
                 "dayTitle": day_title,
@@ -223,7 +221,7 @@ def items_of_trip(
                 "thumbs": thumbs,
                 "at": row_at,
                 "by": row_by,
-                "href": f"/t/{slug}/day/{day_index}",
+                "href": f"/t/{trip_id}/day/{day_index}",
             })
     # Newest first; the day's own order breaks ties, so a page is stable.
     rows.sort(key=lambda row: (row["dayIndex"], row["label"]))
@@ -262,7 +260,6 @@ def _item_entries(graph: Any, rows: list[dict], limit: int = ITEMS_TRIPS) -> lis
             bundle,
             trip_id=str(trip_id),
             trip_title=entry.get("tripTitle") or "",
-            slug=entry.get("tripSlug") or "",
             source="followed-user",
         ))
     return out
@@ -277,7 +274,7 @@ def _rank(entries: list[dict]) -> list[dict]:
     """
     stamped = [e for e in entries if e.get("at")]
     unstamped = [e for e in entries if not e.get("at")]
-    order = lambda e: (e.get("tripSlug") or "", e.get("kind") or "")
+    order = lambda e: (e.get("tripId") or "", e.get("kind") or "")
     stamped.sort(key=order)
     stamped.sort(key=lambda e: e["at"], reverse=True)
     unstamped.sort(key=order)
