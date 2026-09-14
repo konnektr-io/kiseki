@@ -316,8 +316,18 @@ def _public_trip(
     the API canonicalizes them to ``/media/<trip.$dtId>/<file>`` so consumers
     only ever see full URLs, namespaced by the trip's durable id — never the
     repo-folder slug (#47 follow-up).
+
+    Unset optionals are OMITTED rather than sent as ``null`` (#220): an unset
+    field costs bytes on every trip document without carrying meaning. On a
+    live trip this removes ~25% of the serialized document, almost all of it
+    ``Block`` properties that only apply to one of the ten block kinds.
+    Consumers must therefore read absent and ``null`` identically; the SPA
+    already does (``??`` / ``!= null`` throughout). Empty LISTS and STRINGS
+    are still sent (``[]`` / ``""``) — they are deliberate values, and the
+    blunt ``exclude_defaults=True`` would also drop ``0`` / ``False``
+    (``lat: 0.0``, ``order: 0``), silently corrupting real data.
     """
-    data = trip.model_dump(by_alias=True)
+    data = trip.model_dump(by_alias=True, exclude_none=True)
     # Both link secrets are write-only as far as the API is concerned: they
     # leave only through their dedicated, owner-gated endpoints (join-link
     # #6, follow-link #197).
