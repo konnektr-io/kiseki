@@ -24,7 +24,9 @@ import { Link } from "react-router-dom";
  * truncation chain — the title takes the flexible slot and truncates, the
  * subtitle truncates with it, the brand and the actions never shrink — so a
  * 360–390px viewport degrades to an ellipsis instead of wrapping onto a second
- * line.
+ * line. Where an ellipsis is still not enough to READ the page's own title, the
+ * brand leaves the bar on phones instead of the title shrinking further —
+ * `hideBrandOnPhone`, which the trip sets.
  */
 
 /**
@@ -70,8 +72,24 @@ export function HeaderIconLink({
  * `compact` is set when the row also carries a title: the 軌跡 glyph then drops
  * below `sm`, so the app name stays legible on a phone while the title keeps
  * the room that matters most. The glyph is decoration, the name is the brand.
+ *
+ * `hideOnPhone` goes one step further and drops the whole brand below 480px.
+ * Only the trip sets it: its title is user content (a 27-char trip name needs
+ * ~210px) and the bar also carries a stage badge plus its own controls, so at
+ * 360–430px the app name was squeezing the trip name into an ellipsis — the
+ * app name is not what the traveler tapped through to read. Nothing is lost by
+ * hiding it: the round back/Home control never yields, so the way home stays
+ * exactly where it was.
  */
-function Brand({ asHeading, compact }: { asHeading: boolean; compact: boolean }) {
+function Brand({
+  asHeading,
+  compact,
+  hideOnPhone,
+}: {
+  asHeading: boolean;
+  compact: boolean;
+  hideOnPhone: boolean;
+}) {
   const wordmark = (
     <>
       Kiseki{" "}
@@ -85,7 +103,9 @@ function Brand({ asHeading, compact }: { asHeading: boolean; compact: boolean })
       to="/"
       title="Home"
       aria-label="Kiseki — home"
-      className="flex shrink-0 items-center gap-2 rounded-md focus-visible:focus-ring"
+      className={`flex shrink-0 items-center gap-2 rounded-md focus-visible:focus-ring${
+        hideOnPhone ? " max-[480px]:hidden" : ""
+      }`}
     >
       <img
         src="/logo-mark-transparent.png"
@@ -117,6 +137,15 @@ export type AppHeaderProps = {
   subtitle?: ReactNode;
   /** Rendered beside the title (the trip's StageBadge). */
   badge?: ReactNode;
+  /**
+   * Let the brand leave the bar below 480px (phones in portrait), so the
+   * bar's own title keeps the width. Set by the trip — the one bar whose title
+   * is user content and which also carries a badge and its own controls: on the
+   * live trip bar the title slot goes 141px → 236px at 360px, 211px → 306px at
+   * 430px. Ignored when the brand IS the bar's heading (the landing), so no
+   * route can lose its `<h1>` this way.
+   */
+  hideBrandOnPhone?: boolean;
   /** Right-hand cluster: the account/feed chips, the trip chat + actions menu. */
   actions?: ReactNode;
   /** Second row inside the bar — the trip's desktop nav. */
@@ -130,11 +159,15 @@ export function AppHeader({
   kicker,
   subtitle,
   badge,
+  hideBrandOnPhone,
   actions,
   nav,
   ref,
 }: AppHeaderProps) {
   const hasHeading = Boolean(title || kicker || subtitle);
+  // The brand only ever yields to a heading of its own — when it IS the
+  // heading it is the page's `<h1>` and must stay.
+  const brandYields = Boolean(hideBrandOnPhone && hasHeading);
   return (
     <header
       ref={ref}
@@ -144,7 +177,7 @@ export function AppHeader({
         {home && <HeaderIconLink to={home.to} label={home.label} />}
         {/* The wordmark owns an `<h1>` only when the bar carries no title of
             its own (the landing), so no route ever ships two page headings. */}
-        <Brand asHeading={!hasHeading} compact={hasHeading} />
+        <Brand asHeading={!hasHeading} compact={hasHeading} hideOnPhone={brandYields} />
 
         {hasHeading && (
           <div className="min-w-0 flex-1">

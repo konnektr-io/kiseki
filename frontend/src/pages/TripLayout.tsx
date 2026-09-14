@@ -416,10 +416,15 @@ export function TripLayout() {
         {/* The shared bar (#239): same geometry, same back affordance and the
             brand on every route. The trip keeps its own action cluster (chat +
             one overflow menu, #231) passed in as `actions`, and its desktop nav
-            as the bar's second row. The mobile bottom nav is a separate bar. */}
+            as the bar's second row. The mobile bottom nav is a separate bar.
+            On a phone the brand yields to the trip name (`hideBrandOnPhone`):
+            the title is user content the traveler came to read, and with the
+            badge + controls beside it the app name squeezed it to an ellipsis
+            at 360–430px. The round control already covers the way home. */}
         <AppHeader
           ref={headerRef}
           home={{ to: "/", label: "Back to all trips" }}
+          hideBrandOnPhone
           title={trip.title}
           badge={<StageBadge stage={trip.stage} />}
           subtitle={
