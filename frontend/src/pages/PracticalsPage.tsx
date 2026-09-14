@@ -17,6 +17,12 @@ export function PracticalsPage() {
   const links = trip.practical.links ?? [];
   const contacts = trip.practical.contacts ?? [];
   const done = todos.filter((t) => t.done).length;
+  // #231: the TriCount card is only worth a slot here once the trip is
+  // actually connected to one — an unlinked trip has nothing to show, and the
+  // card was reading as a permanent, prominent fixture for trips that don't
+  // use TriCount at all. The connect affordance lives in the trip actions
+  // menu (owner-only, `trip-controls.tsx`), beside Stage/Theme/Sharing.
+  const tricountLinked = Boolean(trip.practical.tricount);
 
   const toggle = (index: number, nextDone: boolean) => {
     void run(
@@ -27,7 +33,7 @@ export function PracticalsPage() {
 
   return (
     <div className="space-y-5">
-      <TricountPanel />
+      {tricountLinked && <TricountPanel />}
       {todos.length > 0 && (
         <Card className="p-5">
           <div className="flex items-center justify-between">

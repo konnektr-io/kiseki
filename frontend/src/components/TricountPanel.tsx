@@ -1,14 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ExternalLink, RefreshCw, Wallet, X } from "lucide-react";
+import { ExternalLink, RefreshCw, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Card, Button } from "../components/ui";
-import {
-  fetchTricountSnapshot,
-  connectTricount,
-  disconnectTricount,
-  TripAccessError,
-} from "../lib/api";
+import { fetchTricountSnapshot, disconnectTricount, TripAccessError } from "../lib/api";
 import { roleAtLeast } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
@@ -43,8 +38,6 @@ export function TricountPanel() {
   const [snap, setSnap] = useState<TricountSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [keyDraft, setKeyDraft] = useState("");
-  const [connectError, setConnectError] = useState<string | null>(null);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -74,54 +67,14 @@ export function TricountPanel() {
   }, [config, isCrew, load]);
 
   if (!config) {
-    // Owner setup affordance only — never rendered for crew without a
-    // connection, never for followers/anonymous (isCrew is implicit here:
-    // anonymous users don't reach an owner branch).
-    if (!isOwner) return null;
-    return (
-      <Card className="p-5">
-        <p className="kicker mb-2">TriCount</p>
-        <p className="text-sm text-muted-foreground">
-          Link the trip's shared expense pot to show balances and recent
-          expenses here. Paste the sharing link (tricount.com/t…) or its key.
-        </p>
-        <form
-          className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!keyDraft.trim()) return;
-            setConnectError(null);
-            if (isPostHogConfigured) posthog.capture("tricount_connected");
-            void run(
-              (token) => connectTricount(trip.id, keyDraft.trim(), token),
-              (t) => t, // canonical doc carries practical.tricount — effect refetches
-            );
-            setKeyDraft("");
-          }}
-        >
-          <input
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-            placeholder="tricount.com/t… or tXXXXX"
-            aria-label="Tricount sharing link or key"
-            className="h-9 min-w-0 flex-1 rounded-md border border-border bg-card px-3 text-sm outline-none focus-visible:focus-ring"
-          />
-          <Button type="submit" size="sm" disabled={busy || !keyDraft.trim()}>
-            <Wallet className="h-3.5 w-3.5" /> Connect
-          </Button>
-        </form>
-        {connectError && (
-          <p role="alert" className="mt-2 text-xs font-medium text-destructive">
-            {connectError}
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="mt-2 text-xs font-medium text-destructive">
-            {error}
-          </p>
-        )}
-      </Card>
-    );
+    // #231: there is no "not linked yet" affordance here any more. An
+    // unlinked trip used to get a prominent setup card on the practical page;
+    // that is now an owner-only row in the trip actions menu
+    // (`components/trip-controls.tsx`), beside the other trip-level settings.
+    // This panel only ever renders for a trip that HAS a connection — the
+    // practical page gates on `practical.tricount`, and crew-only means
+    // followers/anonymous see nothing either way.
+    return null;
   }
 
   return (
