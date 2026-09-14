@@ -18,6 +18,14 @@ related:
 
 # Kiseki — Product Design Spec
 
+> **Status of this document.** This is the original product spec, kept as written (the Obsidian note it
+> started as, wikilinks to the author's private vault included) because it explains *why* Kiseki is
+> shaped the way it is. It is a record of the plan, not a description of the current build: several
+> things marked as future work here have since shipped, and the implemented shape is documented in
+> [`README.md`](../README.md), [`docs/architecture.md`](architecture.md),
+> [`docs/data-model.md`](data-model.md) and [`docs/api.md`](api.md). Where the two disagree, the code
+> and those documents win.
+
 ## 0. Meta
 
 - **Working name: Kiseki** (軌跡 — "the trail you leave behind"; homophone of 奇跡, *miracle*). Chosen by Niko 2026-08-28. ⚠️ Domain/store availability still to check.
