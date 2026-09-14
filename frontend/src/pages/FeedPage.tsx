@@ -19,12 +19,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft } from "lucide-react";
 import { TripAccessError, fetchFeed } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { formatDate } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { FeedDoc, FeedEntry } from "../lib/types";
+import { AppHeader } from "../components/AppHeader";
+import { AuthButton } from "../components/AuthButton";
 import { Badge, Button, Card } from "../components/ui";
 
 /* ---------------- pure helpers (kept exported for the tests) ---------------- */
@@ -227,27 +228,25 @@ export function FeedPage() {
     return () => window.removeEventListener("focus", onFocus);
   }, [isLoading, isAuthenticated, load]);
 
-  const header = (
-    <>
-      <Link
-        to="/"
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Home
-      </Link>
-      <h1 className="mt-4 text-2xl font-semibold">Feed</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Your trips and the trips you follow, newest write first.
-      </p>
-    </>
+  // The bar is the shared one (#239) and lives outside <main> — a sticky,
+  // full-width bar cannot sit inside a padded, width-capped content column.
+  // The feed's own description is page content, so it stays in the column.
+  const bar = (
+    <AppHeader home={{ to: "/", label: "Home" }} title="Feed" actions={<AuthButton />} />
+  );
+  const intro = (
+    <p className="text-sm text-muted-foreground">
+      Your trips and the trips you follow, newest write first.
+    </p>
   );
 
   if (!isLoading && !isAuthenticated) {
     return (
-      <main className="mx-auto max-w-2xl px-4 py-10">
-        {header}
-        <Card className="mt-6 p-6">
+      <>
+        {bar}
+        <main className="mx-auto max-w-2xl px-4 py-10">
+          {intro}
+          <Card className="mt-6 p-6">
           <p className="text-sm text-muted-foreground">
             The feed is private to you. Sign in to see your trips and the people
             you follow.
@@ -255,8 +254,9 @@ export function FeedPage() {
           <Button className="mt-4" onClick={() => loginWithRedirect()}>
             Sign in
           </Button>
-        </Card>
-      </main>
+          </Card>
+        </main>
+      </>
     );
   }
 
@@ -264,8 +264,10 @@ export function FeedPage() {
   const now = Date.now();
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      {header}
+    <>
+      {bar}
+      <main className="mx-auto max-w-2xl px-4 py-10">
+        {intro}
 
       <div className="mt-6">
         {failure ? (
@@ -331,6 +333,7 @@ export function FeedPage() {
           </div>
         )}
       </div>
-    </main>
+      </main>
+    </>
   );
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, MapPin, UserCheck, UserPlus } from "lucide-react";
+import { MapPin, UserCheck, UserPlus } from "lucide-react";
 import {
   TripAccessError,
   ensureMe,
@@ -16,6 +16,8 @@ import { isSessionExpiredError } from "../lib/auth";
 import { formatDate } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib/types";
+import { AppHeader } from "../components/AppHeader";
+import { AuthButton } from "../components/AuthButton";
 import { Badge, Button, Card, StageBadge } from "../components/ui";
 import { AccountPanel } from "../components/AccountPanel";
 
@@ -428,19 +430,11 @@ function ProfileView({
 
   return (
     <div className="min-h-screen">
-      <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-          <Link
-            to="/"
-            title="Home"
-            aria-label="Home"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground focus-visible:focus-ring"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-          <p className="kicker">Profile</p>
-        </div>
-      </header>
+      <AppHeader
+        home={{ to: "/", label: "Home" }}
+        kicker="Profile"
+        actions={<AuthButton />}
+      />
 
       <main className="mx-auto max-w-3xl px-4 py-8">
         <Card className="p-4 sm:p-6">

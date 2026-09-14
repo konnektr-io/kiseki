@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, UserCheck } from "lucide-react";
+import { UserCheck } from "lucide-react";
 import { claimIdentity, fetchTripByClaim, fetchTripByFollow, followTrip, TripAccessError } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
+import { AppHeader } from "../components/AppHeader";
 import { TripProvider, tripStyle } from "../components/theme";
 import { Button, StageBadge } from "../components/ui";
 
@@ -135,27 +136,12 @@ export function JoinPage() {
   return (
     <TripProvider trip={trip} apply={() => undefined}>
       <div style={tripStyle(trip)} className="min-h-full">
-        <header className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-            <Link
-              to="/"
-              title="Home"
-              aria-label="Home"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-lg font-bold leading-tight">{trip.title}</h1>
-                <StageBadge stage={trip.stage} />
-              </div>
-              {trip.subtitle && (
-                <p className="truncate text-xs text-muted-foreground">{trip.subtitle}</p>
-              )}
-            </div>
-          </div>
-        </header>
+        <AppHeader
+          home={{ to: "/", label: "Home" }}
+          title={trip.title}
+          badge={<StageBadge stage={trip.stage} />}
+          subtitle={trip.subtitle}
+        />
 
         <main className="mx-auto max-w-3xl px-4 py-8">
           <div className="rounded-xl border border-border bg-card p-6">

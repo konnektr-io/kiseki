@@ -261,7 +261,9 @@ describe("FeedPage — the feed itself", () => {
     mount();
     await flush();
 
-    const imgs = Array.from(container.querySelectorAll("img")).map((i) => i.getAttribute("src"));
+    // Scoped to the feed content: the shared bar (#239) carries its own mark,
+    // so a page-global `img` query no longer means "this item's photos".
+    const imgs = Array.from(container.querySelectorAll("main img")).map((i) => i.getAttribute("src"));
     expect(imgs).toEqual([
       `/media/${TRIP_B}/a.jpg`,
       `/media/${TRIP_B}/b.jpg`,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
+import { CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, refetchTrip, downloadBooklet, fetchJoinLink, fetchFollowLink, createFollowLink, disableCrewInvite, clearTripCache, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { capture } from "../lib/posthog";
@@ -9,6 +9,7 @@ import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
+import { AppHeader, HEADER_CONTROL } from "../components/AppHeader";
 import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
@@ -412,29 +413,25 @@ export function TripLayout() {
   return (
     <TripProvider trip={trip} apply={setTrip}>
       <div ref={rootRef} style={tripStyle(trip)} className="min-h-full">
-        {/* Header — content focus: just a back button, no brand chrome */}
-        <header ref={headerRef} className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-2.5">
-            <Link
-              to="/"
-              title="All trips"
-              aria-label="Back to all trips"
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-lg font-bold leading-tight">{trip.title}</h1>
-                <StageBadge stage={trip.stage} />
-              </div>
-              <p className="flex items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
-                <CalendarDays className="h-3 w-3" />
-                {trip.startDate && trip.endDate
-                  ? `${formatDate(trip.startDate)} → ${formatDate(trip.endDate)}${days ? ` · ${days} days` : ""}`
-                  : "Dates TBD"}
-              </p>
-            </div>
+        {/* The shared bar (#239): same geometry, same back affordance and the
+            brand on every route. The trip keeps its own action cluster (chat +
+            one overflow menu, #231) passed in as `actions`, and its desktop nav
+            as the bar's second row. The mobile bottom nav is a separate bar. */}
+        <AppHeader
+          ref={headerRef}
+          home={{ to: "/", label: "Back to all trips" }}
+          title={trip.title}
+          badge={<StageBadge stage={trip.stage} />}
+          subtitle={
+            <>
+              <CalendarDays className="h-3 w-3 shrink-0" />
+              {trip.startDate && trip.endDate
+                ? `${formatDate(trip.startDate)} → ${formatDate(trip.endDate)}${days ? ` · ${days} days` : ""}`
+                : "Dates TBD"}
+            </>
+          }
+          actions={
+            <>
             {/* Chat with the trip-content agent (signed in only — there is no
                 anonymous chat). Opens the drawer below; the trip stays mounted. */}
             {isAuthenticated && (
@@ -443,16 +440,18 @@ export function TripLayout() {
                 onClick={() => setChatOpen((open) => !open)}
                 aria-expanded={chatOpen}
                 aria-label={chatOpen ? "Close chat" : "Open chat"}
-                title="Chat with the Kiseki assistant"
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                  chatOpen
-                    ? "border-primary/60 bg-primary text-primary-foreground"
-                    : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              </button>
-            )}
+              title="Chat with the Kiseki assistant"
+              // The same round control as the back affordance (#239); the open
+              // state borrows its geometry and flips the colours.
+              className={
+                chatOpen
+                  ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/60 bg-primary text-primary-foreground transition-colors focus-visible:focus-ring md:h-8 md:w-8"
+                  : HEADER_CONTROL
+              }
+            >
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
             {/* One overflow menu holds every trip action (PDF for everyone,
                 join link for the owner, stage + sharing for editor+/owner) so
                 the header stays a single row. `onDeleted` is the terminal
@@ -476,12 +475,10 @@ export function TripLayout() {
                   : undefined
               }
             />
-          </div>
-          {/* Desktop nav */}
-          <div className="mx-auto hidden max-w-3xl px-4 pb-2 md:block">
-            <NavLinks tripId={tripId} trip={trip} />
-          </div>
-        </header>
+            </>
+          }
+          nav={<NavLinks tripId={tripId} trip={trip} />}
+        />
 
         {/* Content — the reading column, except on a map surface, which takes
             the viewport minus the chrome and owns its own scrolling. */}

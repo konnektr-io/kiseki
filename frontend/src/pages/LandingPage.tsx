@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowRight, Compass, MapPin, MessageCircle, Ticket } from "lucide-react";
+import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
 import { Button, StageBadge } from "../components/ui";
@@ -199,12 +200,7 @@ function AuthenticatedLanding() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Wordmark />
-          <AuthButton />
-        </div>
-      </header>
+      <AppHeader actions={<AuthButton />} />
       <main className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
