@@ -435,15 +435,35 @@ describe("shouldOfferReconnect (#217)", () => {
     ).toBe(true);
   });
 
-  it("never competes with live work or an error", () => {
+  it("never competes with live work", () => {
     expect(shouldOfferReconnect({ ...base, working: true, lastMessage: cut })).toBe(
       false,
     );
+  });
+
+  /** #238: on a phone the socket dies with the screen, so no terminal chunk —
+   *  and therefore no `interrupted` flag — ever arrives. The error the
+   *  transport surfaces IS the drop, and the turn is still worth attaching to
+   *  (the relay kept working), so the button must be there. */
+  it("offers it for a turn the transport errored on (#237)", () => {
+    const partial: UIMessage = {
+      id: "a2",
+      role: "assistant",
+      parts: [{ type: "text", text: "The Daisetsuzan stretch…" }],
+    };
+    const dropped = { ...base, error: new Error("network error") };
+    expect(shouldOfferReconnect({ ...dropped, lastMessage: partial })).toBe(true);
+    // a user tail is not a dropped answer — there is nothing to attach to
+    expect(
+      shouldOfferReconnect({ ...dropped, lastMessage: userText("hi") }),
+    ).toBe(false);
+    expect(shouldOfferReconnect({ ...dropped, lastMessage: null })).toBe(false);
+    // ...and an attach that is already running still owns the turn
     expect(
       shouldOfferReconnect({
-        ...base,
-        error: new Error("boom"),
-        lastMessage: cut,
+        ...dropped,
+        recovery: "checking",
+        lastMessage: partial,
       }),
     ).toBe(false);
   });

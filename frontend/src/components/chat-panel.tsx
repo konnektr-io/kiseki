@@ -30,6 +30,13 @@ import {
  * no affordance, and a cut transcript with no re-attach in flight is exactly
  * the case the button exists for. Kept as a predicate so the rule is readable
  * and testable on its own, apart from rendering (issue #217).
+ *
+ * An `error` on an assistant tail is the SAME case, not a reason to hide the
+ * button (#237): the relay's cut `finish` only exists when the UPSTREAM stream
+ * ends early, and a phone whose socket dies with the screen never receives a
+ * terminal chunk at all. Gating on `interrupted` therefore left the one
+ * scenario the affordance was built for — screen off, "network error", no way
+ * back — with nothing to press.
  */
 export function shouldOfferReconnect(args: {
   working: boolean;
@@ -37,10 +44,13 @@ export function shouldOfferReconnect(args: {
   recovery: TurnRecovery;
   lastMessage: UIMessage | null;
 }): boolean {
-  if (args.working || args.error) return false;
+  // A turn that is still arriving is the attach path's business (see
+  // `attachLostTurn`), not the button's.
+  if (args.working) return false;
   if (args.recovery === "checking" || args.recovery === "attached") return false;
   const last = args.lastMessage;
-  return last !== null && last.role === "assistant" && messageInterrupted(last);
+  if (last === null || last.role !== "assistant") return false;
+  return messageInterrupted(last) || args.error !== undefined;
 }
 
 /**

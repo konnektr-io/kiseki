@@ -813,6 +813,37 @@ export async function resumeStoredTurn(args: {
   return true;
 }
 
+/** How soon after a foreground/online event a second one is the same event
+ *  (see the return probes in `useTripChat`). */
+const RETURN_GUARD_MS = 2000;
+
+/**
+ * Whether "the user is back" should attach to this thread's turn (#237).
+ *
+ * A phone loses a turn in ways the #227 shape cannot see: the screen turns
+ * off mid-answer and the socket dies, so no terminal `finish` chunk ever
+ * arrives (`interrupted` can never be set) and the panel stays MOUNTED (the
+ * mount probe never runs). The relay, meanwhile, keeps working and holds the
+ * turn's frames — so the only thing missing was asking again.
+ *
+ * Every exclusion matters: without a turn state the relay holds nothing this
+ * client can address (and a POST at a forgotten key would START a turn, the
+ * opposite of recovering one); `submitted`/`streaming` means the turn is
+ * already arriving; `checking` is a probe in flight and attaching twice would
+ * rewind a stream that is already replaying. Kept as a predicate so the rule
+ * is testable apart from the DOM.
+ */
+export function shouldAttachToTurn(args: {
+  resumable: boolean;
+  status: string;
+  recovery: TurnRecovery;
+  attaching: boolean;
+}): boolean {
+  if (!args.resumable || args.attaching) return false;
+  if (args.status === "submitted" || args.status === "streaming") return false;
+  return args.recovery !== "checking";
+}
+
 /**
  * `useChat` bound to a trip context (or the general landing chat).
  * `threadId` is caller-owned (persisted per context in localStorage) — the
@@ -901,6 +932,71 @@ export function useTripChat({
       .then((resumed) => setRecovery(resumed ? "attached" : "unavailable"))
       .catch(() => setRecovery("unavailable"));
   }, [threadId, transport, resumeTurn]);
+
+  /** "The user came back to a turn that never finished" (#237) — the case the
+   *  mount probe above cannot reach, because the panel was never unmounted.
+   *  See `shouldAttachToTurn` for the guards. */
+  const attaching = useRef(false);
+  const recoveryRef = useRef<TurnRecovery>("idle");
+  useEffect(() => {
+    recoveryRef.current = recovery;
+  }, [recovery]);
+
+  const attachLostTurn = useCallback((): void => {
+    if (
+      !shouldAttachToTurn({
+        resumable: transport.resumable,
+        status: chat.status,
+        recovery: recoveryRef.current,
+        attaching: attaching.current,
+      })
+    ) {
+      return;
+    }
+    attaching.current = true;
+    setRecovery("checking");
+    void resumeTurn()
+      .then((attached) => setRecovery(attached ? "attached" : "unavailable"))
+      .catch(() => setRecovery("unavailable"))
+      .finally(() => {
+        attaching.current = false;
+      });
+  }, [transport, chat.status, resumeTurn]);
+
+  // The connection dropped mid-turn. #227's banner keys on the relay's CUT
+  // `finish` (`interrupted: true`), which the relay writes when the UPSTREAM
+  // stream ends without a terminal event; when the CLIENT's own socket dies —
+  // screen off, wifi gone, tunnel dropped — no terminal chunk arrives at all,
+  // so the transport error is the only evidence of the drop. Ask the relay
+  // regardless: while it still holds the turn, attaching replays what was
+  // missed instead of re-sending the message.
+  const errored = useRef<unknown>(null);
+  useEffect(() => {
+    if (!chat.error || errored.current === chat.error) return;
+    errored.current = chat.error;
+    attachLostTurn();
+  }, [chat.error, attachLostTurn]);
+
+  // ...and RETURNING is the other half: after a screen-off drop the error may
+  // have rendered while nobody was looking (or a soft drop surfaced none at
+  // all). Foregrounding the app, or getting the network back, is the user
+  // asking for the answer, so ask the relay then too.
+  const lastReturn = useRef(0);
+  useEffect(() => {
+    const onReturn = () => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastReturn.current < RETURN_GUARD_MS) return;
+      lastReturn.current = now;
+      attachLostTurn();
+    };
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("online", onReturn);
+    return () => {
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("online", onReturn);
+    };
+  }, [attachLostTurn]);
 
   return { ...chat, resumeTurn, recovery };
 }

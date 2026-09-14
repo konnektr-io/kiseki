@@ -7,6 +7,7 @@ import {
   loadTurnState,
   resumeStoredTurn,
   saveTurnState,
+  shouldAttachToTurn,
   turnBoundary,
 } from "./chat";
 
@@ -420,5 +421,42 @@ describe("resumeStoredTurn (#217)", () => {
     expect(attached).toBe(false);
     expect(chat.writes).toHaveLength(2);
     expect(chat.messages).toEqual(messages);
+  });
+});
+
+/* "The user is back" is the other way a dropped turn gets picked up (#237).
+ * The mount probe cannot see it (the panel was never unmounted) and, when the
+ * CLIENT's own socket is what died, no terminal chunk ever arrives to flag
+ * `interrupted` — so `useTripChat` asks the relay again on a transport error
+ * and when the app is foregrounded, both gated by this predicate. */
+describe("shouldAttachToTurn (#237)", () => {
+  const base = {
+    resumable: true,
+    status: "ready",
+    recovery: "idle" as const,
+    attaching: false,
+  };
+
+  it("attaches to a turn the relay still holds", () => {
+    expect(shouldAttachToTurn(base)).toBe(true);
+    // the error state IS the drop: the turn's frames are worth asking for
+    expect(shouldAttachToTurn({ ...base, status: "error" })).toBe(true);
+    // a failed earlier probe is no reason to stop looking when the user
+    // comes back to the thread
+    expect(shouldAttachToTurn({ ...base, recovery: "unavailable" })).toBe(true);
+    expect(shouldAttachToTurn({ ...base, recovery: "attached" })).toBe(true);
+  });
+
+  it("stays away when there is nothing to attach, or one is running", () => {
+    // nothing of this thread's is on the relay: a POST here would START a
+    // turn instead of continuing one
+    expect(shouldAttachToTurn({ ...base, resumable: false })).toBe(false);
+    // the turn is already arriving
+    expect(shouldAttachToTurn({ ...base, status: "streaming" })).toBe(false);
+    expect(shouldAttachToTurn({ ...base, status: "submitted" })).toBe(false);
+    // one probe at a time: a second attach rewinds a stream that is
+    // already replaying
+    expect(shouldAttachToTurn({ ...base, recovery: "checking" })).toBe(false);
+    expect(shouldAttachToTurn({ ...base, attaching: true })).toBe(false);
   });
 });
