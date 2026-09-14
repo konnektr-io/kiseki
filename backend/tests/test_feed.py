@@ -88,7 +88,8 @@ def test_my_trips_row_mapping_carries_write_metadata(monkeypatch) -> None:
     rows = [{
         "dtId": TRIP_A, "title": "Canada 2027",
         "visibility": "public", "stage": "booked",
-        "at": "2026-09-14T09:00:00Z", "by": SUB,
+        # Raw query row, as `_Q_TRIPS_FOR_ME_ORDERED` returns it — hence `actor`.
+        "at": "2026-09-14T09:00:00Z", "actor": SUB,
         "meta": {"$model": "dtmi:kiseki:travel:Trip;1",
                  "title": {"$lastUpdateTime": "2026-09-14T09:00:00Z"}},
     }]
@@ -104,7 +105,7 @@ def test_my_trips_unstamped_twin_has_no_invented_date(monkeypatch) -> None:
     """The committed mocks carry `$metadata.$model` only: no write time means
     the row says None rather than epoch / now."""
     rows = [{"dtId": TRIP_A, "title": "Canada 2027",
-             "visibility": "public", "stage": "idea", "at": None, "by": None,
+             "visibility": "public", "stage": "idea", "at": None, "actor": None,
              "meta": {}}]
     c, _ = _client_with(monkeypatch, rows)
     [trip] = c.trips_for_user_ordered(SUB)
@@ -176,7 +177,7 @@ def test_followed_trips_query_shape(monkeypatch) -> None:
 def test_followed_trips_row_mapping_reads_discoverable(monkeypatch) -> None:
     rows = [{"dtId": TRIP_B, "title": "Urban Legends",
              "discoverable": True, "visibility": "public",
-             "at": "2026-09-14T10:00:00Z", "by": OTHER}]
+             "at": "2026-09-14T10:00:00Z", "actor": OTHER}]
     c, _ = _client_with(monkeypatch, rows)
     [trip] = c.trips_of_followed(SUB)
     assert trip["discoverable"] is True
@@ -649,3 +650,35 @@ def test_build_feed_survives_a_bundle_read_that_raises() -> None:
                         raising=True)
     feed = feed_mod.build_feed(SUB, client=graph)
     assert [i["kind"] for i in feed["items"]] == ["trip"]
+
+
+def test_ordered_queries_do_not_alias_a_reserved_word() -> None:
+    """`AS by` breaks the graph's own SQL planner — and no FakeGraph test can see it.
+
+    The alias survives translation into SQL, where BY is reserved:
+
+        42601: syntax error at or near "by"
+
+    Both feed reads then raise, `trips_for_user_ordered` / `trips_of_followed`
+    swallow the error and return [], and the feed renders EMPTY instead of
+    failing — which is exactly how v0.35.0 shipped. Found only by smoking the
+    live endpoint: see the kiseki skill's feed-199 reference.
+    """
+    from app.graph import client as graph_client
+
+    for query in (
+        graph_client._Q_TRIPS_FOR_ME_ORDERED,
+        graph_client._Q_TRIPS_OF_FOLLOWED,
+    ):
+        assert "AS by" not in query
+        assert "AS actor" in query
+
+
+def test_ordered_trip_row_reads_the_actor_alias() -> None:
+    from app.graph.client import _ordered_trip_row
+
+    row = _ordered_trip_row(
+        {"dtId": "t1", "title": "T", "at": "2026-09-14T10:00:00Z", "actor": "auth0|me"}
+    )
+    assert row["by"] == "auth0|me"
+    assert row["at"] == "2026-09-14T10:00:00Z"

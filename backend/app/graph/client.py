@@ -235,7 +235,7 @@ WHERE me.`$dtId` = $uid
 RETURN trip.`$dtId` AS dtId, trip.title AS title,
        trip.visibility AS visibility, trip.stage AS stage,
        trip.`$metadata`.`$lastUpdateTime` AS at,
-       trip.`$metadata`.`$lastUpdatedBy` AS by,
+       trip.`$metadata`.`$lastUpdatedBy` AS actor,
        trip.`$metadata` AS meta
 ORDER BY at DESC LIMIT {limit}
 """
@@ -247,7 +247,7 @@ WHERE me.`$dtId` = $uid
 RETURN trip.`$dtId` AS dtId, trip.title AS title,
        trip.discoverable AS discoverable, trip.visibility AS visibility,
        trip.`$metadata`.`$lastUpdateTime` AS at,
-       trip.`$metadata`.`$lastUpdatedBy` AS by
+       trip.`$metadata`.`$lastUpdatedBy` AS actor
 ORDER BY at DESC LIMIT {limit}
 """
 
@@ -268,7 +268,9 @@ def _ordered_trip_row(row: dict) -> dict:
         "visibility": row.get("visibility") or "private",
         "stage": row.get("stage") or "",
         "at": row.get("at") or None,
-        "by": row.get("by") or None,
+        # The query aliases this `actor`: `AS by` is a syntax error in the
+        # graph's SQL planner (BY is reserved). The public row key stays `by`.
+        "by": row.get("actor") or None,
     }
     if isinstance(meta, dict):
         out["meta"] = meta
