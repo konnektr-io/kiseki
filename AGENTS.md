@@ -11,10 +11,14 @@ responsive, a11y), `kiseki-map-ux` (map surfaces, MapLibre, markers/routes, prin
 
 ## What this is
 
-A private web app that renders "trip documents" — the travel booklets Niko and his agent build in chat (Canada 2027 heliski, Chile-Peru 2027, Japan 2028 …) — as a responsive, multi-page site with PDF booklet export. **Content is data (JSON), not code**: updating a trip never requires rebuilding the image.
+A self-hosted web app that renders "trip documents" — the travel booklets Niko and his agent build in chat (Canada 2027 heliski, Chile-Peru 2027, Japan 2028 …) — as a responsive, multi-page site with PDF booklet export. **Content is data (JSON), not code**: updating a trip never requires rebuilding the image.
 
 - Domain: `kiseki.konnektr.io` (home k8s, Envoy Gateway, `*.konnektr.io` cert already exists)
-- **Private repo** — trip data (incl. trip tokens) lives here. Never make it public.
+- **This repo is public — and carries no trip data.** Real trips, people, media and tokens live in the
+  graph and object storage, never here. Never commit a secret, a claim/follow token, real crew PII, a
+  screenshot of real trip content, or a populated `trip.json`/`*.graph.json`. `backend/data/mocks/`
+  holds **anonymised** fixtures on purpose; that is the only trip-like data allowed in git.
+- Design documentation in `docs/` is written for outside readers: assume a stranger is reading it.
 
 ## Stack & layout
 

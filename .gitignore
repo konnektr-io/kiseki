@@ -17,6 +17,7 @@ backend/app/static/
 .env
 *.env
 !*.example.env
+!*.env.example
 
 # Editors / OS
 .vscode/

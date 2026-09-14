@@ -1,44 +1,148 @@
-# Kiseki (軌跡)
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="frontend/public/logo-mark-white.png">
+    <img src="frontend/public/logo-mark-transparent.png" alt="Kiseki" width="96">
+  </picture>
+</p>
 
-**The trip as a living, agent-maintained document.**
+<h1 align="center">Kiseki 軌跡</h1>
 
-Kiseki turns a trip plan into a responsive web experience with a printable PDF booklet — itinerary, dynamic maps with live traffic, bookings, checklists and contacts, all in one private link. Content is data, not code: updating a trip never requires a rebuild.
+<p align="center"><strong>The trip as a living document.</strong></p>
 
-- **Living documents** — plans change; the trip updates in place. No more stale PDFs.
-- **Access that matches the trip** — public trips are readable by anyone with the id link; private trips are crew-only behind Auth0. Each crew member claims their own identity via a join link and gets a role (owner / editor / viewer / follower) that drives what the app lets them do (editors get inline write affordances — the write path, #46).
-- **PDF booklet export** — one click, print-ready, matches the on-screen design; gated by the trip's visibility.
-- **Maps that mean something** — real driving routes (Directions API) and live drive times in the web app; the PDF renders the same MapLibre maps, so screen and paper agree. Itinerary and Day run on one map surface — the map stays alive between the scan and the day (DESIGN.md §7.6); there is no separate map tab. All generated from trip data — no per-trip hardcoding.
+<p align="center">
+  <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <a href="https://github.com/konnektr-io/kiseki/actions/workflows/build-image.yml"><img alt="Build and push image" src="https://github.com/konnektr-io/kiseki/actions/workflows/build-image.yml/badge.svg"></a>
+</p>
 
-## Stack
+---
 
-- **Backend** — FastAPI (Python): serves the SPA, trip data, and Playwright-rendered PDF booklets. Single container.
-- **Frontend** — React 19 + Vite + TypeScript + Tailwind v4 (shadcn-style components).
-- **Identity** — Auth0 SPA (PKCE + refresh-token rotation); the backend validates access tokens statelessly against the tenant JWKS (RS256).
-- **Data** — Konnektr Graph (AGE/PostgreSQL, DTDL v4 models) is the live source of truth; `trip.json` remains the authoring format and seed source. No file fallback at runtime.
-- **Deploy** — container image via GitHub Actions → home k8s; content updates copy straight to the volume (no rebuild).
+Kiseki is a self-hosted web app for planning a trip and then living it. The itinerary, the places it
+touches, the practicalities around it and the people going all live in **one structured document**
+that everyone on the trip opens at the same URL — and that keeps changing as the plan does. You can
+edit it in the browser, or simply tell the built-in agent what changed and watch the trip update.
 
-## Layout
+The itinerary *is* the map: one persistent MapLibre surface that scans from the whole route down to a
+single day, with real driving geometry and live drive times. Kiseki can still print a booklet — one
+click, print-ready PDF, matching the on-screen design — but that is an **export** of the document,
+not the product.
+
+| | |
+|---|---|
+| **Backend** | Python 3.13 · FastAPI · Playwright (PDF) · single container |
+| **Frontend** | React 19 · Vite · TypeScript · Tailwind v4 |
+| **Data** | [Konnektr Graph](https://github.com/konnektr-io) (AGE/PostgreSQL, DTDL v4 models) as the live store |
+| **Identity** | Auth0 SPA (PKCE + refresh rotation), stateless RS256/JWKS validation server-side |
+| **Maps** | MapLibre GL JS · HERE Routing v8 · Google Places (web-only overlay) |
+| **Media** | Garage (S3-compatible) object storage, proxied per trip |
+
+## Why it exists
+
+Trip plans rot. A PDF sent to the group is stale the moment a hotel changes, and a spreadsheet can't
+show you what day 6 looks like on a map. Kiseki keeps the trip as data instead of a document: the
+same JSON powers the web pages, the maps and the printable booklet, so there is only ever one
+version of the truth — and it never needs a rebuild to change.
+
+## What it does
+
+### The trip document
+
+- **Days with typed blocks.** A day is an ordered list of typed blocks — stays, drives, activities,
+  meals, notes, photos — each with its own layout and semantics, grouped into **sections** (a
+  multi-day unit you can fold away) and reachable from a **Today** surface while you travel.
+- **Stage that tells the truth.** A trip moves through `idea → options → shortlist → planned →
+  booked → live`, and the whole app reacts to it.
+- **Locations are first-class.** Every place carries coordinates, so markers, routes, maps and the
+  booklet all derive from one registry instead of being re-typed per feature.
+- **Practicals in the same document.** Checklists with booking links, contacts, notes, and — for
+  crew only — a TriCount expense snapshot.
+- **Crew as data.** People, their roles and their ordering are part of the trip, not a mailing list.
+
+### The map is the itinerary
+
+- **One persistent map surface.** Itinerary (scan level) and Day (day level) are two zoom levels of
+  the same live map instance — the map never re-mounts, and there is no separate "map tab".
+- **Real routes, live times.** Driving legs are real HERE Routing v8 geometry with current traffic
+  durations, resolved server-side — the map key never reaches the browser.
+- **Flights, letters, elevation.** Flight legs draw as great-circle arcs; blocks carry letters that
+  sync with the cards; hillshade and contours come from a keyless DEM tile source.
+- **Screen and paper agree.** The booklet renders the same MapLibre styles through Playwright, so
+  what you print is what you saw.
+
+### Access, crew and roles
+
+- **Public or private, by id — no secrets in URLs.** Public trips are readable by anyone with the
+  link; private trips are crew-only behind Auth0.
+- **Crew identity is claimed, never matched.** Names and e-mails are self-asserted and grant nothing.
+  The owner shares a **join link** (`/join/<claimToken>`); the invitee signs in and taps *"This is
+  me"* on their crew entry. The server creates their user twin, moves the crew edge onto it and
+  deletes the placeholder. A placeholder is claimable exactly once.
+- **Roles on the crew edge:** `owner > editor > viewer > follower`. Reads need `follower+`, writes
+  need `editor+`, and invites, visibility, archiving and crew management are `owner`-only.
+- **Follows and profiles.** Public trips (and people) can be followed without an invite — follow
+  links are deliberately *not* claim links — and the feed on `/feed` is built from the trips and
+  people you follow.
+- **Claim tokens never leave the server.** They are absent from every trip response; the owner-only
+  join-link endpoint is the only way to obtain one.
+
+### Editing — by hand or by agent
+
+- **Inline editing for `editor+`.** Optimistic, role-gated writes straight from the UI.
+- **A chat agent that edits the trip.** The in-app assistant is a real agent with the same ACL as the
+  user it acts for: ask for a change and it drives the same write API the UI does, streaming its
+  progress as it goes.
+- **Turns survive disconnects.** Chat runs on a submit-and-attach model, so closing the tab or losing
+  the network doesn't kill the work — reconnect and the turn is still there.
+- **Per-user memory.** Conversations and remembered facts are scoped per user and per trip; histories
+  never mix, and credential mechanics are redacted out of everything the user sees.
+
+### Photos, places and expenses
+
+- **Photo batches → the right day.** Upload a batch, get a proposed placement (EXIF time and GPS
+  included) and confirm it — photos attach to the day or activity they belong to.
+- **Live place data, deliberately transient.** Google Places ratings, reviews and photos are proxied
+  server-side and shown live; nothing Google-derived is ever persisted beyond the storable
+  identifiers. Stored imagery is rights-clean.
+- **TriCount integration.** Crew see the running expense summary inside the trip.
+
+### The PDF booklet (an export)
+
+Print-ready A4 booklets, one click from the trip, rendered from the exact same data and design system
+as the web app — including the route maps. Booklet access follows trip visibility: public trips
+download anonymously, private trips stay crew-only.
+
+## How it works
 
 ```
-backend/    FastAPI app (app/, data/trips/, tests/)
-frontend/   React SPA (src/pages, src/components/blocks, src/lib)
-deployments/docker/Dockerfile
-docs/spec.md   ← product spec
-DESIGN.md      ← design system & UX direction
-.claude/skills ← repo-local agent skills (design system, map UX, trip identity)
+Browser (React SPA)
+   │  /api/*            Auth0 access token (RS256, JWKS-verified statelessly)
+   ▼
+FastAPI backend ──────► Konnektr Graph (trips, days, blocks, crew, users — the source of truth)
+   │       │
+   │       ├──────────► Garage S3      (trip media — private bucket, streamed via /media/<trip>/<file>)
+   │       ├──────────► HERE / Places  (routes, drive times, place details — server-side keys)
+   │       └──────────► Hermes agent   (chat relay, Runs API, per-user scoped sessions)
+   └─ serves the built SPA + Playwright-rendered booklet PDFs from one container
 ```
+
+Content is data, never code: **updating a trip never requires a rebuild or a redeploy.**
+
+More detail: [`docs/architecture.md`](docs/architecture.md).
 
 ## Quick start
 
-```bash
-# Backend (uv)
-cd backend && uv sync
-uv run uvicorn app.main:app --reload --port 8000   # API + SPA on :8000
+Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/) and Node.js with [pnpm](https://pnpm.io/).
+No database and no external service is required to run it locally.
 
-# Frontend (pnpm)
-cd frontend && pnpm install
-pnpm dev        # Vite dev server on :5173 (proxies /api)
-pnpm build      # tsc + vite build → dist/
+```bash
+# Backend
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --port 8000   # API on :8000
+
+# Frontend (separate terminal)
+cd frontend
+pnpm install
+pnpm dev        # Vite dev server on :5173, proxies /api to :8000
 ```
 
 Production-like single process:
@@ -49,62 +153,95 @@ rm -rf backend/app/static && cp -r frontend/dist backend/app/static
 cd backend && uv run uvicorn app.main:app --port 8000
 ```
 
-Open `http://localhost:8000/` — trips are reached at `/t/<trip-id>/` (seed data in `backend/data/trips/<slug>/trip.json`; the live store is the Konnektr Graph).
+Trips are reached at `/t/<trip-id>/…`; the landing page, a trip's pages, `/join/<token>`, `/feed`,
+`/u/<sub>` and `/me` are all SPA routes.
 
-## Auth & access
+> **Working without a graph.** The Konnektr Graph is the only store in production — there is no file
+> fallback, and `trip.json` is authoring scratch rather than runtime data. For local development and
+> CI, when `KISEKI_GRAPH_URL` is unset the backend serves three **anonymised** sample trips from
+> `backend/data/mocks/*.graph.anon.json`, so a fresh clone runs with real-looking content and no
+> external services at all (`uv run pytest` likewise needs nothing).
 
-Trips are `visibility: public | private` (no share tokens since #64) and are reached by trip id:
+## Configuration
 
-- **Public** — anyone with `/t/<id>` reads the trip anonymously; the PDF booklet follows the trip's visibility (public trips download anonymously, #64).
-- **Private** — signed-in crew only: a valid Auth0 token whose `sub` carries a `hasCrew` edge on the trip (`viewer+` to read, `follower+` for the booklet).
-- **Crew identity = claiming, never matching** (issue #6): names/emails are self-asserted, so they grant nothing. The trip owner shares a **join link** (`/join/<claimToken>` — a second secret per trip); the invitee signs in and taps *"This is me"* on their crew entry. The server creates the user's twin (`$dtId` = auth `sub`), transfers the `hasCrew` edge (role + order) from the placeholder, and deletes the placeholder. A placeholder is claimable once.
-- **Roles** live on the `hasCrew` edge: `owner` > `editor` > `viewer` > `follower`; the write path (#46) gates on `editor+`, `owner` gates visibility, crew roles, archiving and the join-link endpoint.
-- **Signed-in landing** (issue #7): `/` becomes *My trips* (cards with cover, stage, dates, your role); anonymous visitors get the hero.
-- `claimToken` is **never** included in trip responses (any route); the owner-only `GET /api/trips/{id}/join-link` is the only way to obtain a join link.
-- Secrets are public SPA values: `AUTH0_DOMAIN` / `AUTH0_CLIENT_ID` / `AUTH0_AUDIENCE` ride as plain env; the frontend defaults mirror them via `VITE_AUTH0_*`.
+Everything is environment-driven; secrets stay server-side (browser-visible values are exactly the
+Auth0 domain/client id and the PostHog ingest key, both public by design).
 
-## Content model
-
-A trip is one JSON file: `stage` (idea → options → shortlist → planned → booked → live), dates, cover + stats, `locations` (with coordinates — the single source for markers AND maps), an itinerary of days with typed content blocks, editorial "features" for the overview, crew, and a practical page (checklist with booking links, contacts, notes). `backend/app/models.py` is authoritative; the map gotchas (Google Static Maps quirks with encoded polylines) are documented in the skill + AGENTS.md.
+| Variable | Purpose |
+|---|---|
+| `KISEKI_GRAPH_URL`, `KISEKI_GRAPH_TOKEN` | Konnektr Graph endpoint + token (unset → anonymised sample trips) |
+| `KISEKI_S3_ENDPOINT`, `KISEKI_S3_BUCKET`, `KISEKI_S3_ACCESS_KEY`, `KISEKI_S3_SECRET_KEY` | Garage/S3 media backend (`KISEKI_S3_REGION` optional; absent → local media dir) |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | SPA token validation; the audience must match the API identifier |
+| `HERE_ACCESS_KEY_ID`, `HERE_ACCESS_KEY_SECRET` | HERE Routing v8 (absent → routes simply don't render) |
+| `GOOGLE_MAPS_API_KEY` | Google Places overlay (never sent to the browser) |
+| `KISEKI_HERMES_URL`, `KISEKI_HERMES_KEY` | Agent endpoint for chat (absent → `/api/chat` 503s) |
+| `KISEKI_AGENT_CLIENT_ID`, `KISEKI_AGENT_ACT_AS` | Sanctioned agent M2M client (and interim act-as pin) |
+| `KISEKI_LISTEN_PORT`, `KISEKI_STATIC_DIR` | Port, and where the built SPA lives |
+| `KISEKI_TRICOUNT_CREDS_FILE`, `KISEKI_TRICOUNT_TTL` | TriCount credentials + snapshot cache TTL |
+| `VITE_AUTH0_*`, `VITE_POSTHOG_*` | Frontend build-time overrides (see `frontend/.env.example`) |
 
 ## Testing
 
 ```bash
-cd backend && uv run pytest
+cd backend  && uv run pytest          # API, ACL, graph conversion, chat relay
+cd frontend && pnpm test              # component + unit tests (vitest)
+cd frontend && pnpm build             # tsc + vite build — the CI gate
 ```
+
+CI (`.github/workflows/build-image.yml`) runs the frontend build and the backend suite on every pull
+request, and publishes `ghcr.io/konnektr-io/kiseki` on `main` and on `v*` tags.
+
+## Deployment
+
+The image is a single container serving the API, the SPA and PDF rendering. Content lives in the
+graph, so day-to-day trip updates are **data changes, not deployments**.
+
+- Image: `ghcr.io/konnektr-io/kiseki` (built by GitHub Actions; `deployments/docker/Dockerfile`)
+- Reference deployment: the author's home Kubernetes cluster behind Envoy Gateway, with graph,
+  S3, HERE, Places, Auth0 and agent credentials injected as cluster secrets
+- A live instance runs at [kiseki.konnektr.io](https://kiseki.konnektr.io)
+
+See [`docs/deployment.md`](docs/deployment.md).
+
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [`docs/architecture.md`](docs/architecture.md) | Components, request flows, store, media, agent relay |
+| [`docs/api.md`](docs/api.md) | HTTP API reference: trips, blocks, crew, users, chat, media |
+| [`docs/data-model.md`](docs/data-model.md) | The trip document, DTDL v4 models, graph edges, ACL |
+| [`docs/development.md`](docs/development.md) | Local setup, tests, conventions, repo layout |
+| [`docs/deployment.md`](docs/deployment.md) | Container, configuration, cluster notes |
+| [`docs/spec.md`](docs/spec.md) | Original product spec — the design rationale, kept as written |
+| [`DESIGN.md`](DESIGN.md) | The design system and interaction law of the app |
+| [`AGENTS.md`](AGENTS.md) | Context and conventions for coding agents working in this repo |
 
 ## Roadmap
 
-- **P0/P1 (done)** — booklet-faithful web + PDF; content-as-data pipeline; trips live in the Konnektr Graph (DTDL v4 models, no file fallback).
-- **P2 (done — auth & roles)** — Auth0 login, crew identity via join-link claiming, role-based access, logged-in landing, visibility-gated PDF. Issues #5, #6, #7, #13 closed.
-- **Design foundation (done)** — [`DESIGN.md`](DESIGN.md) is the visual and interaction law; token layer + accessibility floor shipped (#36, #41).
-- **Information architecture (done)** — continuous itinerary with sections as a first-class unit (#43); the Today surface reaches today's plan in one tap (#42).
-- **Map stack (done)** — MapLibre GL JS replaces the Google Maps JS API with no key in the client (#18, #27); the booklet PDF renders the same MapLibre maps via Playwright, so screen and paper agree (#37); hillshade and runtime contours from a keyless Mapterhorn DEM (#38).
-- **Map primitives (done) — the map surface (2026-09)** — the `Sheet` (three detents) and `SplitView` ratio ladder shipped with the route map (#39); the standalone route *page* is then **retired** — Itinerary and Day run on one map surface with the map staying alive between levels (DESIGN.md §7.6, #90/#92/#93). The booklet keeps its block minimaps (#94 declined). Backlog: route-surface semantics (#91), Places photos (#95).
-- **Media (done)** — trip media lives in Garage object storage, namespaced by trip `$dtId`, out of the repo (#47).
+**Shipped** — trip documents in the graph (DTDL v4, no file fallback) · printable booklet · MapLibre
+map stack with real routes and live drive times · Auth0 login, claim-based crew identity, roles and
+followers · inline editing and a chat agent that edits trips · per-user agent memory · media in
+object storage · Google Places overlay · TriCount expenses · analytics · profiles, follows and the
+feed · photo batches placed by EXIF.
 
-### Order of work
+**Next** (open issues) —
 
-The backlog is sequenced by dependency, not by issue number. Each line is independently shippable.
+- **Capture while travelling** — photos and tracks into a running trip, without live OAuth ([#48](https://github.com/konnektr-io/kiseki/issues/48))
+- **Tracks** — a shared activity → GPX → the day's map ([#193](https://github.com/konnektr-io/kiseki/issues/193))
+- **Routes while planning** — propose trails for a place ([#194](https://github.com/konnektr-io/kiseki/issues/194))
+- **Archive from a photo batch** — EXIF/GPS → a trip skeleton to fill in ([#192](https://github.com/konnektr-io/kiseki/issues/192))
+- **Installable PWA** — the manifest and icons are already in place; the offline service worker is the
+  gap ([#11](https://github.com/konnektr-io/kiseki/issues/11))
+- **Notifications** — live updates over SSE, Web Push and Telegram ([#12](https://github.com/konnektr-io/kiseki/issues/12))
+- **The last of the social epic** — profiles, follows and the feed have shipped; this is what is left
+  ([#14](https://github.com/konnektr-io/kiseki/issues/14))
 
-| | Issue | Notes |
-|---|---|---|
-| 1 | ~~#64 — `Trip.visibility` enum, no secret in the URL~~ | **Done** — routes are id-based, trips are `public`/`private`. |
-| 2 | ~~#65 — Non-crew followers via `claimToken`~~ | **Done.** |
-| 3 | ~~#46 — Write-path (edit a trip in the UI)~~ | **Done** (v0.18, milestone C). |
-| 4 | #40 — Per-trip theme presets | Next. Also owns per-**marker** stage (DESIGN.md §8.3): legs are stage-coloured, pins are not. |
-| 5 | Map surface IA (2026-09) — #90–#93 | Itinerary and Day become ONE map surface (DESIGN.md §7.6): scan level #92, day level #90, tab/nav retirement #93. #88 (mode glyphs) and the #89 write-API enablers shipped (#97–#100); #91 (route-surface semantics) feeds the levels; #95 (Places photos) is independent; #94 (per-day booklet maps) declined — the booklet keeps its minimaps. |
-| 6 | #21 — Analytics | Cheap, and much cheaper after #64 retired the secret-link URL. **Required before #14.** |
-| 7 | #15 — Google Places suggestions | The embedded maps' sheets are where results will land; the photo pipeline is #95. Re-derive the cost model first — the write-up predates Google retiring the universal credit. |
-| 8 | #48 — Live capture during travel | Unblocked: #42 (timezone) and #47 (media) are closed. |
-| 9 | #11 — Installable PWA / offline | After the map stack — offline vector tiles depend on the tile source. |
-| 10 | #12 — Events & notifications | P2–3 platform. |
-| 11 | #9 — Agent backend + chat UI | |
-| 12 | #10 — Agent memory per user / trip | After #9. |
-| 13 | #14 — Social: feed, followers | P4. Last, by design. |
+## Contributing
 
-Parallelizable: **#40**, then the map-IA group — #88 first (fast bug), #89/#91 feeding #90/#92/#93, #94 after the media change, #95 anytime.
+Pull requests are welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, tests and the
+conventions this repo enforces. Please report security issues privately, never in a public issue:
+[`SECURITY.md`](SECURITY.md).
 
 ## License
 
-Private until further notice.
+Apache License 2.0 — see [`LICENSE`](LICENSE). © 2026 Niko Raes.
