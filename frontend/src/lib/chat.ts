@@ -714,6 +714,17 @@ export interface UseTripChatOptions {
 /** How a thread's in-flight turn was picked up when the thread opened. */
 export type TurnRecovery = "idle" | "checking" | "attached" | "unavailable";
 
+/** When each thread was last looked at for a turn to recover, in this page
+ *  load (see `RECOVERY_GUARD_MS`). */
+const recoveredAt = new Map<string, number>();
+
+/** Attaching twice to the same turn would rewind a stream that is already
+ *  replaying, so an attempt this soon after the previous one is the same
+ *  attempt coming back — React StrictMode double-invokes effects in
+ *  development, and the panel remounts a thread on rotate. A genuinely later
+ *  mount (navigating back to the trip) is past the window and recovers again. */
+const RECOVERY_GUARD_MS = 2000;
+
 /**
  * Where a turn's own messages start (issue #217): everything from here on was
  * produced by that turn, and a resume rebuilds it from the relay's frames.
@@ -877,6 +888,12 @@ export function useTripChat({
   const recovered = useRef<string | null>(null);
   useEffect(() => {
     if (recovered.current === threadId) return;
+    // A remount must not attach a second time to a stream that is already
+    // replaying: the ref doesn't survive one, so the recency of the last
+    // attempt does (see `RECOVERY_GUARD_MS`).
+    const now = Date.now();
+    if (now - (recoveredAt.get(threadId) ?? 0) < RECOVERY_GUARD_MS) return;
+    recoveredAt.set(threadId, now);
     recovered.current = threadId;
     if (!transport.resumable) return;
     setRecovery("checking");
