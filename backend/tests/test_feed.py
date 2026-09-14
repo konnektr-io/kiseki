@@ -17,15 +17,13 @@ Three seams, because they catch different bugs:
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app import auth as auth_module
 from app import feed as feed_mod
 from app.auth import Auth0JWTValidator
 from app.graph import client as graph_client_mod
 from app.main import app
-
 from conftest import CLIENT_ID, TENANT, _claims, _sign
+from fastapi.testclient import TestClient
 
 SUB = "google-oauth2|100613034256980569871"
 OTHER = "google-oauth2|222222222222222222222"
@@ -431,3 +429,223 @@ def test_feed_clamps_the_limit_at_the_route(client, rsa_keypair, monkeypatch) ->
     r = client.get("/api/feed?limit=9999", headers=_auth(rsa_keypair))
     assert r.status_code == 200
     assert seen == [graph_client_mod.FEED_LIMIT_MAX]
+
+
+# ------------------------------------------------------- item-level entries
+# Task 7 of the plan: a followed trip contributes its ITEMS, not just the trip
+# row. The write times come from the RAW bundle ``fetch_graph`` returns (it is
+# the same cached copy the trip page reads); ``convert.py`` strips ``$metadata``,
+# which is exactly why the feed must not go through the converted model.
+
+
+def _raw_twin(dtid, model, *, at=None, by=None, props_meta=None, **props):
+    """One ADT-shaped twin: ``$metadata.$model`` + per-property write stamps.
+
+    The graph stamps EVERY property with its own ``$lastUpdateTime`` — that is
+    what lets the feed say what changed, and which write a row is about.
+    """
+    meta: dict = {"$model": f"dtmi:konnektr:kiseki:{model};4"}
+    if at:
+        meta["$lastUpdateTime"] = at
+    if by:
+        meta["$lastUpdatedBy"] = by
+    for key, value in (props_meta or {}).items():
+        meta[key] = value
+    return {"$dtId": dtid, "$metadata": meta, **props}
+
+
+DAY_ID = "burning-man-2027-2027-02-15"
+GALLERY_ID = "block-gallery-0000-0000-000000000001"
+NOTE_ID = "block-note-0000-0000-000000000002"
+
+
+def _day_bundle(*, gallery_at="2026-09-14T11:45:00Z", note_at="2026-09-14T10:00:00Z"):
+    """A followed trip's raw bundle: one day, a 4-photo gallery, one note block."""
+    return {
+        "$dtId": TRIP_B,
+        "twins": [
+            _raw_twin(TRIP_B, "Trip", at="2026-09-14T11:00:00Z", by=OTHER,
+                      title="Burning Man 2027", slug="burning-man-2027"),
+            _raw_twin(DAY_ID, "Day", at="2026-09-14T11:30:00Z", by=OTHER,
+                      date="2027-02-15", title="Arrival"),
+            _raw_twin(
+                GALLERY_ID, "Block", at="2026-09-14T09:00:00Z", by=OTHER,
+                kind="gallery", title="Camp", items=["a.jpg", "b.jpg", "c.jpg", "d.jpg"],
+                props_meta={"items": {"$lastUpdateTime": gallery_at, "$lastUpdatedBy": OTHER}},
+            ),
+            _raw_twin(
+                NOTE_ID, "Block", at=note_at, by=OTHER, kind="note", title="Packing",
+                description="Bring the good boots.",
+                props_meta={"description": {"$lastUpdateTime": note_at}},
+            ),
+        ],
+        "relationships": [
+            {"$sourceId": TRIP_B, "$targetId": DAY_ID,
+             "$relationshipName": "hasDay", "index": 0},
+            {"$sourceId": DAY_ID, "$targetId": GALLERY_ID,
+             "$relationshipName": "hasBlock", "index": 0},
+            {"$sourceId": DAY_ID, "$targetId": NOTE_ID,
+             "$relationshipName": "hasBlock", "index": 1},
+        ],
+    }
+
+
+def _items(**kwargs):
+    return feed_mod.items_of_trip(
+        _day_bundle(**kwargs), trip_id=TRIP_B, trip_title="Burning Man 2027",
+        slug="burning-man-2027", source="followed-user",
+    )
+
+
+def test_items_of_trip_shows_the_newest_days_photos_with_inline_thumbs() -> None:
+    """The acceptance scenario: the newest day's photos, visible in the feed.
+
+    A follower must see the photos WITHOUT opening the trip, so the row has to
+    carry thumbnails of its own — a label alone is not the feature.
+    """
+    newest = _items()[0]
+    assert newest["kind"] == "item"
+    assert newest["dayIndex"] == 0
+    assert newest["dayTitle"] == "Arrival"
+    assert newest["label"] == "4 photos added"
+    assert newest["at"] == "2026-09-14T11:45:00Z"
+    assert newest["by"] == OTHER
+    assert newest["tripSlug"] == "burning-man-2027"
+    assert newest["source"] == "followed-user"
+    assert newest["href"] == "/t/burning-man-2027/day/0"
+    assert newest["thumbs"] == [
+        f"/media/{TRIP_B}/a.jpg", f"/media/{TRIP_B}/b.jpg", f"/media/{TRIP_B}/c.jpg",
+    ]
+
+
+def test_items_of_trip_names_a_content_write_and_claims_no_photos() -> None:
+    """A description edit is not a photo row: no thumbs, and it says what moved."""
+    older = _items()[1]
+    assert older["label"] == "description updated"
+    assert older["thumbs"] == []
+    assert older["at"] == "2026-09-14T10:00:00Z"
+
+
+def test_items_of_trip_counts_a_card_images_write_too() -> None:
+    """`images` (a card strip) is a photo write just like a gallery's `items`."""
+    bundle = _day_bundle()
+    for twin in bundle["twins"]:
+        if twin["$dtId"] == GALLERY_ID:
+            twin.pop("items")
+            twin["images"] = ["solo.jpg"]
+            twin["$metadata"]["images"] = {
+                "$lastUpdateTime": "2026-09-14T11:45:00Z", "$lastUpdatedBy": OTHER,
+            }
+            twin["$metadata"].pop("items")
+    rows = feed_mod.items_of_trip(
+        bundle, trip_id=TRIP_B, trip_title="Burning Man 2027",
+        slug="burning-man-2027", source="followed-user",
+    )
+    assert rows[0]["label"] == "1 photo added"  # singular, not "1 photos"
+    assert rows[0]["thumbs"] == [f"/media/{TRIP_B}/solo.jpg"]
+
+
+def test_items_of_trip_caps_rows_and_keeps_the_newest() -> None:
+    """A busy trip may not push every trip row off the page."""
+    bundle = _day_bundle()
+    ids = []
+    for i in range(6):
+        bid = f"block-extra-0000-0000-00000000000{i}"
+        ids.append(bid)
+        bundle["twins"].append(
+            _raw_twin(bid, "Block", at=f"2026-09-14T1{i}:00:00Z", by=OTHER,
+                      kind="note", title=f"Extra {i}")
+        )
+        bundle["relationships"].append(
+            {"$sourceId": DAY_ID, "$targetId": bid, "$relationshipName": "hasBlock", "index": i + 2}
+        )
+    rows = feed_mod.items_of_trip(
+        bundle, trip_id=TRIP_B, trip_title="Burning Man 2027",
+        slug="burning-man-2027", source="followed-user",
+    )
+    assert len(rows) == feed_mod.ITEMS_PER_TRIP
+    # Newest first: the extra blocks are stamped 10:00..15:00, the gallery 11:45.
+    assert [row["at"] for row in rows] == sorted(
+        (row["at"] for row in rows), reverse=True
+    )
+    assert rows[0]["at"] == "2026-09-14T15:00:00Z"
+
+
+class _ItemsGraph:
+    """A read client whose bundles are known, and which records what it walked.
+
+    Only the two ordered reads + ``fetch_graph`` are defined: if feed.py ever
+    reaches for anything else, this double fails loudly instead of silently
+    passing.
+    """
+
+    def __init__(self, followed: list[dict], bundles: dict[str, dict], *, raising=False):
+        self._followed = followed
+        self._bundles = bundles
+        self._raising = raising
+        self.walked: list[str] = []
+
+    def trips_for_user_ordered(self, sub, limit=30):
+        return []
+
+    def trips_of_followed(self, sub, limit=30):
+        return list(self._followed)
+
+    def fetch_graph(self, trip_dtid: str):
+        self.walked.append(trip_dtid)
+        if self._raising:
+            raise RuntimeError("graph down")
+        return self._bundles.get(trip_dtid)
+
+
+def _followed_row(dtid, *, at, discoverable=True, slug="a-trip", title="A Trip"):
+    return {"dtId": dtid, "title": title, "slug": slug, "visibility": "public",
+            "discoverable": discoverable, "at": at, "by": OTHER}
+
+
+def test_build_feed_merges_a_followed_trips_items_into_the_ranked_list() -> None:
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z",
+                                       slug="burning-man-2027", title="Burning Man 2027")],
+                        {TRIP_B: _day_bundle()})
+    feed = feed_mod.build_feed(SUB, client=graph)
+    kinds = [(i["kind"], i.get("label") or i.get("tripTitle")) for i in feed["items"]]
+    # Newest write first: 11:45 photos, 11:00 the trip row, 10:00 the note.
+    assert kinds == [("item", "4 photos added"), ("trip", "Burning Man 2027"),
+                     ("item", "description updated")]
+    assert graph.walked == [TRIP_B]
+
+
+def test_build_feed_never_walks_a_private_followed_trip() -> None:
+    """The listing rule (#196) gates the ITEMS too — and savings: no bundle read."""
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z", discoverable=False)],
+                        {TRIP_B: _day_bundle()})
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert graph.walked == []
+    assert [i["kind"] for i in feed["items"]] == []
+
+
+def test_build_feed_walks_only_the_top_k_followed_trips() -> None:
+    """The bundle read is the expensive one (~540 ms walk) — it is capped."""
+    rows, bundles = [], {}
+    for n in range(feed_mod.ITEMS_TRIPS + 2):
+        dtid = f"{n}0000000-0000-4000-8000-000000000000"
+        rows.append(_followed_row(dtid, at=f"2026-09-14T{10 + n}:00:00Z", slug=f"trip-{n}"))
+        bundles[dtid] = _day_bundle()
+    graph = _ItemsGraph(rows, bundles)
+    feed_mod.build_feed(SUB, client=graph)
+    newest = [r["dtId"] for r in rows][::-1][: feed_mod.ITEMS_TRIPS]
+    assert graph.walked == newest
+
+
+def test_build_feed_degrades_to_trip_rows_when_a_bundle_is_missing() -> None:
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z")], {})
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert [i["kind"] for i in feed["items"]] == ["trip"]
+
+
+def test_build_feed_survives_a_bundle_read_that_raises() -> None:
+    """A graph hiccup on the optional part must not empty the feed."""
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z")], {},
+                        raising=True)
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert [i["kind"] for i in feed["items"]] == ["trip"]

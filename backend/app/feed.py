@@ -9,6 +9,9 @@ Kept deliberately thin:
 
 * **Nothing here caches.** The reads are ``@_cached_graph`` (60 s) in the
   client, so a layer here would be a second staleness rule to reason about.
+* **Item rows read the RAW bundle.** ``convert.py`` strips ``$metadata`` (the
+  write times), so a followed trip's items are built from the twins
+  ``fetch_graph`` returns — the same cached copy the trip page reads.
 * **``at`` stays the raw ISO-8601 string** the graph returned. Ordering is
   string comparison, and ISO-8601 UTC sorts lexicographically = chronologically,
   so a timestamp is never re-derived through a parsed datetime of a different
@@ -18,9 +21,10 @@ Kept deliberately thin:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
-from app.graph.client import FEED_LIMIT_DEFAULT, FEED_LIMIT_MAX, clamp_feed_limit
+from app.graph.client import FEED_LIMIT_DEFAULT, clamp_feed_limit
+from app.media import canonicalize_media
 from app.store import get_graph_client
 
 #: Property -> the words the feed uses for it. A property nobody mapped falls
@@ -86,6 +90,184 @@ def _row_entry(row: dict, source: str) -> dict:
     }
 
 
+#: Block properties that hold pictures: a gallery writes ``items``, a card
+#: strip writes ``images``. Either one moving means "photos added".
+MEDIA_PROPS = ("items", "images")
+
+#: How many item rows one trip may contribute, and how many thumbnails a row
+#: carries. The row IS the point (#199): a follower reads the photos in the
+#: FEED, so three inline pictures beat a link to them.
+ITEMS_PER_TRIP = 3
+THUMBS_PER_ITEM = 3
+
+#: How many followed trips the feed walks for items. The bundle read is the
+#: expensive one (~540 ms walk, cached 60 s — the same copy the trip page
+#: reads), so a worst-case first paint stays bounded. Trips beyond this
+#: contribute their trip row only.
+ITEMS_TRIPS = 3
+
+
+def _index_bundle(bundle: dict) -> tuple[dict[str, dict], dict[str, list[dict]]]:
+    """``{$dtId: raw twin}`` and ``{$sourceId: [raw relationship]}``.
+
+    Deliberately the RAW bundle: ``convert.py`` strips ``$metadata`` when it
+    builds the document model, and the write times are exactly what the feed is
+    made of.
+    """
+    twins: dict[str, dict] = {}
+    for twin in bundle.get("twins") or []:
+        if isinstance(twin, dict) and twin.get("$dtId"):
+            twins[str(twin["$dtId"])] = twin
+    rels: dict[str, list[dict]] = {}
+    for rel in bundle.get("relationships") or []:
+        if isinstance(rel, dict):
+            rels.setdefault(str(rel.get("$sourceId")), []).append(rel)
+    return twins, rels
+
+
+def _edge_targets(rels: dict[str, list[dict]], source: str, name: str) -> list[str]:
+    """Edge targets in the order the edge's ``index`` gives (AGE row order is
+    not stable — an edge PATCH reshuffles it, as the crew ordering found)."""
+    found = [r for r in rels.get(source, []) if r.get("$relationshipName") == name]
+    if any("index" in r for r in found):
+        found.sort(key=lambda r: r.get("index") or 0)
+    return [str(r.get("$targetId")) for r in found if r.get("$targetId")]
+
+
+def _stamp(twin: dict, prop: str | None = None) -> tuple[str | None, str | None]:
+    """``(at, by)`` for a twin — or for one property of it.
+
+    The property-level stamps are what let a row say "4 photos added" with a
+    time of its own: the graph records when ``images``/``items`` last moved, not
+    merely when the block did.
+    """
+    meta = twin.get("$metadata") or {}
+    if prop is not None:
+        value = meta.get(prop)
+        meta = value if isinstance(value, dict) else {}
+    return meta.get("$lastUpdateTime"), meta.get("$lastUpdatedBy")
+
+
+def _photos(twin: dict, trip_id: str) -> list[str]:
+    """Every picture on the block as a renderable URL, in model order.
+
+    Bare filenames (the data model) become ``/media/<trip_id>/<file>`` through
+    the same canonicalizer the trip document uses, so the feed inherits its
+    traversal guard instead of inventing a second media path. Non-media values —
+    a todo's ``[{label, done}]``, a custom block's HTML — are simply not
+    pictures and drop out.
+    """
+    out: list[str] = []
+    for prop in MEDIA_PROPS:
+        for value in twin.get(prop) or []:
+            if not isinstance(value, str) or not value:
+                continue
+            url = canonicalize_media(value, trip_id)
+            if url.startswith("/media/") and url not in out:
+                out.append(url)
+    return out
+
+
+def items_of_trip(
+    bundle: dict,
+    *,
+    trip_id: str,
+    trip_title: str,
+    slug: str,
+    source: str,
+    cap: int = ITEMS_PER_TRIP,
+) -> list[dict]:
+    """What changed ON a trip's days, newest write first, at most ``cap`` rows.
+
+    One row per block write, so a gallery of four photos is ONE row ("4 photos
+    added") with its thumbnails inline and never four rows. A block whose own
+    stamp is newer than its pictures is a content row instead ("description
+    updated") and claims no photos — the row says what actually moved.
+    """
+    twins, rels = _index_bundle(bundle or {})
+    root = str((bundle or {}).get("$dtId") or "")
+    rows: list[dict] = []
+    for day_index, day_id in enumerate(_edge_targets(rels, root, "hasDay")):
+        day_title = (twins.get(day_id) or {}).get("title") or ""
+        for block_id in _edge_targets(rels, day_id, "hasBlock"):
+            block = twins.get(block_id)
+            if not block:
+                continue
+            at, by = _stamp(block)
+            photos = _photos(block, trip_id)
+            media = sorted(
+                (stamp for stamp in (_stamp(block, prop) for prop in MEDIA_PROPS)
+                 if stamp[0]),
+                key=lambda stamp: stamp[0] or "",
+                reverse=True,
+            )
+            media_at, media_by = media[0] if media else (None, None)
+            if photos and media_at and (not at or media_at >= at):
+                label = f"{len(photos)} photo{'s' if len(photos) != 1 else ''} added"
+                thumbs = photos[:THUMBS_PER_ITEM]
+                row_at, row_by = media_at, media_by or by
+            else:
+                changed = changed_properties(block.get("$metadata") or {}, cap=1)
+                label = f"{changed[0]} updated" if changed else "day content updated"
+                thumbs = []
+                row_at, row_by = at, by
+            rows.append({
+                "kind": "item",
+                "tripId": trip_id,
+                "tripTitle": trip_title,
+                "tripSlug": slug,
+                "source": source,
+                "dayIndex": day_index,
+                "dayTitle": day_title,
+                "label": label,
+                "thumbs": thumbs,
+                "at": row_at,
+                "by": row_by,
+                "href": f"/t/{slug}/day/{day_index}",
+            })
+    # Newest first; the day's own order breaks ties, so a page is stable.
+    rows.sort(key=lambda row: (row["dayIndex"], row["label"]))
+    rows.sort(key=lambda row: row["at"] or "", reverse=True)
+    return rows[:cap]
+
+
+def _item_entries(graph: Any, rows: list[dict], limit: int = ITEMS_TRIPS) -> list[dict]:
+    """Item rows for the newest ``limit`` followed trips — or none at all.
+
+    ``rows`` are stream-2 trip rows the caller has ALREADY gated on #196's
+    listing rule, so nothing private is walked here. The bundle read reuses the
+    60 s cached copy the trip page pays for; a trip whose bundle is missing or
+    unreadable contributes no items and keeps its trip row, because the optional
+    half of the feed must never be able to empty it.
+    """
+    fetch = getattr(graph, "fetch_graph", None)
+    if fetch is None or not rows:
+        return []
+    by_id = {str(r.get("dtId")): r for r in rows if r.get("dtId")}
+    newest = _rank([_row_entry(r, "followed-user") for r in rows])[:limit]
+    out: list[dict] = []
+    for entry in newest:
+        trip_id = entry.get("tripId")
+        row = by_id.get(str(trip_id))
+        if not row:
+            continue
+        try:
+            bundle = fetch(trip_id)
+        except Exception as exc:  # noqa: BLE001 — the feed degrades, never 500s
+            print(f"[kiseki] feed item read({trip_id}) failed: {exc}")
+            continue
+        if not bundle:
+            continue
+        out.extend(items_of_trip(
+            bundle,
+            trip_id=str(trip_id),
+            trip_title=entry.get("tripTitle") or "",
+            slug=entry.get("tripSlug") or "",
+            source="followed-user",
+        ))
+    return out
+
+
 def _rank(entries: list[dict]) -> list[dict]:
     """Newest write first; unstamped entries last; deterministic on ties.
 
@@ -95,7 +277,7 @@ def _rank(entries: list[dict]) -> list[dict]:
     """
     stamped = [e for e in entries if e.get("at")]
     unstamped = [e for e in entries if not e.get("at")]
-    order = lambda e: (e.get("tripSlug") or "", e.get("kind") or "")  # noqa: E731
+    order = lambda e: (e.get("tripSlug") or "", e.get("kind") or "")
     stamped.sort(key=order)
     stamped.sort(key=lambda e: e["at"], reverse=True)
     unstamped.sort(key=order)
@@ -127,8 +309,8 @@ def build_feed(
     sub: str,
     *,
     limit: int = FEED_LIMIT_DEFAULT,
-    before: Optional[str] = None,
-    client: Optional[Any] = None,
+    before: str | None = None,
+    client: Any | None = None,
 ) -> dict:
     """The caller's own feed: both streams, newest write first, capped, paged.
 
@@ -143,14 +325,19 @@ def build_feed(
     graph = client if client is not None else get_graph_client()
     cap = clamp_feed_limit(limit)
     entries: list[dict] = []
+    followed: list[dict] = []
     if graph is not None:
         for row in graph.trips_for_user_ordered(sub, limit=cap):
             entries.append(_row_entry(row, "my-trip"))
         for row in graph.trips_of_followed(sub, limit=cap):
             # The listing rule (#196) lives HERE and not in the query: a
-            # followed person's private trip must never surface in the feed.
+            # followed person's private trip must never surface in the feed —
+            # and gating before the walk is also what keeps a private trip's
+            # items out of it.
             if row.get("discoverable") is True:
+                followed.append(row)
                 entries.append(_row_entry(row, "followed-user"))
+    entries.extend(_item_entries(graph, followed))
     if before:
         entries = [e for e in entries if e.get("at") and e["at"] < before]
     ranked = _rank(entries)
