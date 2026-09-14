@@ -580,14 +580,16 @@ class _ItemsGraph:
     passing.
     """
 
-    def __init__(self, followed: list[dict], bundles: dict[str, dict], *, raising=False):
+    def __init__(self, followed: list[dict], bundles: dict[str, dict], *, raising=False,
+                 own: list[dict] | None = None):
         self._followed = followed
+        self._own = list(own or [])
         self._bundles = bundles
         self._raising = raising
         self.walked: list[str] = []
 
     def trips_for_user_ordered(self, sub, limit=30):
-        return []
+        return list(self._own)
 
     def trips_of_followed(self, sub, limit=30):
         return list(self._followed)
@@ -602,6 +604,12 @@ class _ItemsGraph:
 def _followed_row(dtid, *, at, discoverable=True, title="A Trip"):
     return {"dtId": dtid, "title": title, "visibility": "public",
             "discoverable": discoverable, "at": at, "by": OTHER}
+
+
+def _own_row(dtid, *, at, title="My Trip"):
+    """A stream-1 row as ``trips_for_user_ordered`` maps it (meta included)."""
+    return {"dtId": dtid, "title": title, "visibility": "public", "stage": "planning",
+            "at": at, "by": SUB, "meta": {"title": {"$lastUpdateTime": at}}}
 
 
 def test_build_feed_merges_a_followed_trips_items_into_the_ranked_list() -> None:
@@ -650,6 +658,72 @@ def test_build_feed_survives_a_bundle_read_that_raises() -> None:
                         raising=True)
     feed = feed_mod.build_feed(SUB, client=graph)
     assert [i["kind"] for i in feed["items"]] == ["trip"]
+
+
+def test_items_of_trip_names_the_block_that_moved() -> None:
+    """A row names the BLOCK, not just the day: a day holds several of them, so
+    two writes on one day would otherwise read identically."""
+    labels = {(row["blockTitle"], row["label"]) for row in _items()}
+    assert ("Camp", "4 photos added") in labels
+    assert ("Packing", "description updated") in labels
+
+
+def test_items_of_trip_falls_back_to_updated_and_still_names_the_block() -> None:
+    """A write that stamps only the twin leaves no property to name — the row
+    must still identify WHICH block moved ("updated" alone says nothing)."""
+    bundle = _day_bundle()
+    for twin in bundle["twins"]:
+        if twin["$dtId"] == NOTE_ID:
+            twin["$metadata"].pop("description")
+    rows = feed_mod.items_of_trip(
+        bundle, trip_id=TRIP_B, trip_title="Burning Man 2027", source="followed-user",
+    )
+    note = next(row for row in rows if row["blockTitle"] == "Packing")
+    assert note["label"] == "updated"
+
+
+def test_build_feed_walks_my_own_trips_for_items_too() -> None:
+    """A bare "Updated" on my OWN trip row says nothing either: my newest trips
+    contribute their blocks the same way a followed trip does."""
+    graph = _ItemsGraph([], {TRIP_B: _day_bundle()},
+                        own=[_own_row(TRIP_B, at="2026-09-14T11:00:00Z")])
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert graph.walked == [TRIP_B]
+    items = [i for i in feed["items"] if i["kind"] == "item"]
+    assert items and {i["source"] for i in items} == {"my-trip"}
+
+
+def test_build_feed_lists_a_trip_i_am_crew_on_once() -> None:
+    """A followed person's trip I am ALSO crew on is one row, and it is mine
+    (stream 2 carries less metadata) — and its bundle is walked once."""
+    graph = _ItemsGraph(
+        [_followed_row(TRIP_B, at="2026-09-14T11:00:00Z", title="Burning Man 2027")],
+        {TRIP_B: _day_bundle()},
+        own=[_own_row(TRIP_B, at="2026-09-14T11:00:00Z", title="Burning Man 2027")],
+    )
+    feed = feed_mod.build_feed(SUB, client=graph)
+    trips = [i for i in feed["items"] if i["kind"] == "trip"]
+    assert [(t["tripId"], t["source"]) for t in trips] == [(TRIP_B, "my-trip")]
+    assert graph.walked == [TRIP_B]
+
+
+def test_build_feed_caps_the_bundle_walk_across_both_streams() -> None:
+    """The cap bounds the whole feed's cost, not each stream separately."""
+    own_rows = [
+        _own_row(f"a{n}000000-0000-4000-8000-000000000000", at=f"2026-09-14T{8 + n:02d}:00:00Z")
+        for n in range(feed_mod.ITEMS_TRIPS)
+    ]
+    followed_rows = [
+        _followed_row(f"b{n}000000-0000-4000-8000-000000000000",
+                      at=f"2026-09-14T{11 + n:02d}:00:00Z")
+        for n in range(3)
+    ]
+    bundles = {r["dtId"]: _day_bundle() for r in own_rows + followed_rows}
+    graph = _ItemsGraph(followed_rows, bundles, own=own_rows)
+    feed_mod.build_feed(SUB, client=graph)
+    assert len(graph.walked) == feed_mod.ITEMS_TRIPS
+    # Newest first, so the followed rows (11:00+) edge out my own (08:00+).
+    assert set(graph.walked) == {r["dtId"] for r in followed_rows}
 
 
 def test_ordered_queries_do_not_alias_a_reserved_word() -> None:

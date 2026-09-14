@@ -245,6 +245,8 @@ export interface FeedEntry {
   /** item rows: 0-based day index, its title, and what was written. */
   dayIndex?: number;
   dayTitle?: string;
+  /** item rows: the block that moved (a day holds several). */
+  blockTitle?: string;
   label?: string;
   thumbs?: string[];
 }
