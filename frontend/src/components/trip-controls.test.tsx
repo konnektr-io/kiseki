@@ -25,14 +25,15 @@ vi.mock("@auth0/auth0-react", () => ({
 
 import { TripActionsMenu } from "./trip-controls";
 import { TripProvider } from "./theme";
+import { TripAccessError } from "../lib/api";
 import { DEFAULT_PRESET_ID, PRESET_IDS, presetById } from "../lib/theme-presets";
 import type { Trip } from "../lib/types";
 
-const apiMocks = vi.hoisted(() => ({ putTrip: vi.fn() }));
+const apiMocks = vi.hoisted(() => ({ putTrip: vi.fn(), connectTricount: vi.fn() }));
 
 vi.mock("../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
-  return { ...actual, putTrip: apiMocks.putTrip };
+  return { ...actual, putTrip: apiMocks.putTrip, connectTricount: apiMocks.connectTricount };
 });
 
 function tripWithRole(role: string): Trip {
@@ -227,5 +228,163 @@ describe("TripActionsMenu theme picker (#200)", () => {
     expect(token).toBe("test-token");
     // The optimistic paint follows: the blurb tracks the new selection.
     expect(container.textContent).toContain(presetById("sakura").blurb);
+  });
+});
+
+/* The #231 contract: an unlinked trip shows NO TriCount card on the practical
+ * page (that is the issue — "for trips that aren't using tricount (yet), this
+ * is too prominent and irrelevant"), so the connect affordance moves into the
+ * trip actions menu, owner-gated like the connect route itself (#111) and only
+ * while nothing is linked. Same jsdom-open pattern as #200: the closed render
+ * cannot show any of it. Every gate is asserted on BOTH sides (owner vs
+ * editor/viewer/anonymous) per pitfall 16. */
+describe("TripActionsMenu TriCount integration (#231)", () => {
+  let container: HTMLDivElement;
+  let root: Root | null = null;
+
+  beforeEach(() => {
+    (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    apiMocks.connectTricount.mockReset();
+  });
+
+  afterEach(() => {
+    if (root) {
+      act(() => root!.unmount());
+      root = null;
+    }
+    container?.remove();
+    vi.clearAllMocks();
+  });
+
+  function StatefulHarness({ initial }: { initial: Trip }) {
+    const [trip, setTrip] = useState(initial);
+    return createElement(TripProvider, {
+      trip,
+      apply: setTrip,
+      children: createElement(TripActionsMenu, { onDownloadPdf: () => {} }),
+    });
+  }
+
+  function mountMenu(trip: Trip) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(createElement(StatefulHarness, { initial: trip }));
+    });
+  }
+
+  function openMenu() {
+    const trigger = container.querySelector('button[aria-label="Trip actions"]');
+    expect(trigger, "menu trigger renders").not.toBeNull();
+    act(() => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  function keyInput(): HTMLInputElement | null {
+    return container.querySelector('input[aria-label="Tricount sharing link or key"]');
+  }
+
+  function typeKey(value: string) {
+    const input = keyInput();
+    expect(input, "the TriCount field is there to type into").not.toBeNull();
+    act(() => {
+      // React owns the value; go through the native setter so onChange fires.
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input!, value);
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function submitForm() {
+    const form = container.querySelector("form");
+    expect(form, "the TriCount form renders").not.toBeNull();
+    act(() => {
+      form!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+  }
+
+  async function flush() {
+    await act(async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("owner, nothing linked: the open menu offers the TriCount field in an Integrations group", () => {
+    mountMenu(tripWithRole("owner"));
+    openMenu();
+    expect(keyInput(), "owner sees the TriCount field").not.toBeNull();
+    expect(container.textContent).toContain("Integrations");
+    // It sits in the settings group, below a separator — not loose at the top.
+    expect(container.querySelectorAll('[role="separator"]').length).toBeGreaterThan(0);
+  });
+
+  it("owner, already linked: no field here — the connected panel owns the trip's TriCount", () => {
+    const trip = tripWithRole("owner");
+    trip.practical = { tricount: { registryKey: "t123" } } as Trip["practical"];
+    mountMenu(trip);
+    openMenu();
+    expect(container.querySelector('[role="menu"]'), "the menu really is open").not.toBeNull();
+    expect(keyInput()).toBeNull();
+  });
+
+  it("editor/viewer/anonymous, nothing linked: never offered the field", () => {
+    for (const role of ["editor", "viewer", undefined]) {
+      const trip = tripWithRole("editor");
+      trip.myRole = role as Trip["myRole"];
+      mountMenu(trip);
+      openMenu();
+      expect(container.querySelector('[role="menu"]'), "the menu really is open").not.toBeNull();
+      expect(keyInput(), `role ${String(role)} sees no TriCount field`).toBeNull();
+      expect(container.textContent, `role ${String(role)} sees no Integrations group`).not.toContain(
+        "Integrations",
+      );
+      if (root) {
+        act(() => root!.unmount());
+        root = null;
+      }
+      container.remove();
+    }
+  });
+
+  it("submitting a key links it — exact API args, menu closes, the trip becomes connected", async () => {
+    const trip = tripWithRole("owner");
+    apiMocks.connectTricount.mockImplementation(async (_id: string, key: string) => ({
+      ...trip,
+      practical: { ...trip.practical, tricount: { registryKey: key } },
+    }));
+    mountMenu(trip);
+    openMenu();
+    typeKey("https://tricount.com/tAbC123");
+    submitForm();
+    await flush();
+    expect(apiMocks.connectTricount).toHaveBeenCalledTimes(1);
+    const [id, key, token] = apiMocks.connectTricount.mock.calls[0];
+    expect(id).toBe(trip.id);
+    // The whole pasted link is handed over — the server normalises it.
+    expect(key).toBe("https://tricount.com/tAbC123");
+    expect(token).toBe("test-token");
+    // Success closes the menu...
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    // ...and the canonical doc landed in the trip context: reopening now shows
+    // a CONNECTED trip, so the link field is gone for good.
+    openMenu();
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    expect(keyInput()).toBeNull();
+  });
+
+  it("a rejected link says why, next to the field, and leaves the menu open", async () => {
+    mountMenu(tripWithRole("owner"));
+    openMenu();
+    apiMocks.connectTricount.mockRejectedValue(new TripAccessError(403, "forbidden"));
+    typeKey("tAbC123");
+    submitForm();
+    await flush();
+    expect(container.querySelector('[role="menu"]'), "menu stays open").not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Only the trip owner can link a Tricount.",
+    );
   });
 });

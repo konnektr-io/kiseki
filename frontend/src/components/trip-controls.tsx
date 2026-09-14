@@ -7,10 +7,11 @@ import {
   Link2,
   Lock,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { useTripState } from "./theme";
-import { useTripWrite } from "../lib/useTripWrite";
-import { deleteTrip, putTrip, TripAccessError } from "../lib/api";
+import { useTripWrite, writeErrorMessage } from "../lib/useTripWrite";
+import { connectTricount, deleteTrip, putTrip, TripAccessError } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
@@ -31,6 +32,7 @@ import type { Stage, Visibility } from "../lib/types";
  *   everyone      → Booklet PDF
  *   owner         → Copy crew join link · Sharing (public/private) · Delete trip
  *   editor+       → Stage (owner: any move; editor: forward minus archive) · Theme
+ *   owner, no TriCount linked yet → Integrations · TriCount (connect)
  *
  * The server is always the enforcement point — the menu only gates what is
  * offered. Viewer/follower/anonymous see a single-item (PDF) menu, which is
@@ -64,7 +66,7 @@ export function TripActionsMenu({
    *  trip is gone, the caller navigates away (landing). */
   onDeleted?: () => void;
 }) {
-  const { trip } = useTripState();
+  const { trip, apply } = useTripState();
   const { busy, error, run } = useTripWrite();
   const { getAccessTokenSilently } = useAuth0();
   const [open, setOpen] = useState(false);
@@ -75,6 +77,12 @@ export function TripActionsMenu({
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // #231 — TriCount link. Local busy/error: the menu's shared `busy`/`error`
+  // belong to the Stage/Theme/Sharing writes above, and a failed connect has
+  // to say so next to the field that caused it.
+  const [tricountKey, setTricountKey] = useState("");
+  const [tricountBusy, setTricountBusy] = useState(false);
+  const [tricountError, setTricountError] = useState<string | null>(null);
 
   const isOwner = trip.myRole === "owner";
   const canEdit = roleAtLeast(trip.myRole, "editor");
@@ -166,6 +174,37 @@ export function TripActionsMenu({
     }
   };
 
+  // Owner-only TriCount link (#231). The connect affordance used to be a card
+  // at the top of the practical page, so every trip that doesn't use TriCount
+  // still carried it — the wrong weight for something a trip may never need.
+  // It lives here now, with the other trip-level settings (Stage/Theme/
+  // Sharing); the connect route itself is owner-only (#111). Success lands the
+  // canonical doc in the trip context, so `practical.tricount` goes truthy and
+  // the panel appears on the practical page — nothing to reload.
+  const connectTriCount = async () => {
+    const registryKey = tricountKey.trim();
+    if (!registryKey) return;
+    setTricountBusy(true);
+    setTricountError(null);
+    if (isPostHogConfigured) posthog.capture("tricount_connected");
+    try {
+      const token = await getAccessTokenSilently();
+      apply(await connectTricount(trip.id, registryKey, token));
+      setTricountKey("");
+      setOpen(false);
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        setTricountError("Session expired — sign in again.");
+      } else if (e instanceof TripAccessError && e.status === 403) {
+        setTricountError("Only the trip owner can link a Tricount.");
+      } else {
+        setTricountError(writeErrorMessage(e));
+      }
+    } finally {
+      setTricountBusy(false);
+    }
+  };
+
   const options = stageOptions(trip.stage, trip.myRole);
   const currentIdx = STAGES.indexOf(trip.stage);
   const currentPreset = trip.theme?.preset ?? DEFAULT_PRESET_ID;
@@ -196,7 +235,11 @@ export function TripActionsMenu({
         <div
           role="menu"
           aria-label="Trip actions"
-          className="absolute right-0 top-full z-30 mt-1.5 w-64 rounded-xl border border-border bg-card p-1.5 shadow-lg"
+          // #231 made this menu taller (booklet, join link, sharing, stage,
+          // theme, then the integrations block). Cap it and let it scroll so
+          // the trailing rows stay reachable on short viewports (landscape
+          // phones) instead of hanging off the bottom of the screen.
+          className="absolute right-0 top-full z-30 mt-1.5 max-h-[min(70vh,32rem)] w-64 overflow-y-auto rounded-xl border border-border bg-card p-1.5 shadow-lg"
         >
           {/* Booklet PDF — everyone */}
           <button
@@ -343,6 +386,55 @@ export function TripActionsMenu({
                 {error && (
                   <p role="alert" className="pt-1.5 text-xs font-medium text-destructive">
                     {error}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Integrations — owner-only, and only while this trip has nothing
+              connected. A trip that doesn't use TriCount gets no card and no
+              empty balance sheet; just this one field, in the place the owner
+              would look for it (#231). Future integrations land in this group
+              — the practical page stays for what is actually connected. */}
+          {isOwner && !trip.practical.tricount && (
+            <>
+              <div className="mx-1.5 my-1 h-px bg-border" role="separator" />
+              <div className="px-1.5 pb-1">
+                <span className={menuLabel}>Integrations</span>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void connectTriCount();
+                  }}
+                >
+                  <label className="mb-1.5 block">
+                    <span className="mb-1 block text-xs text-muted-foreground">TriCount</span>
+                    <input
+                      value={tricountKey}
+                      onChange={(e) => setTricountKey(e.target.value)}
+                      placeholder="tricount.com/t… or tXXXXX"
+                      aria-label="Tricount sharing link or key"
+                      disabled={tricountBusy}
+                      className={control}
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={tricountBusy || !tricountKey.trim()}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-card px-2 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:focus-ring disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <Wallet className="h-3.5 w-3.5" aria-hidden />
+                    {tricountBusy ? "Linking…" : "Link TriCount"}
+                  </button>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Paste the sharing link of the trip's expense pot to show balances and
+                    recent expenses on this trip's practical page.
+                  </span>
+                </form>
+                {tricountError && (
+                  <p role="alert" className="pt-1.5 text-xs font-medium text-destructive">
+                    {tricountError}
                   </p>
                 )}
               </div>
