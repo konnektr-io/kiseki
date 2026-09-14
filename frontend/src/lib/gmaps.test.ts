@@ -16,18 +16,12 @@ describe("gmapsSearchUrl", () => {
     });
   });
 
-  it("prefers an explicit venue query over the name", () => {
-    const p = params(gmapsSearchUrl("Niseko", { query: "Park Hyatt Niseko Hanazono" }));
-    expect(p.query).toBe("Park Hyatt Niseko Hanazono");
-    expect(p.query_place_id).toBeUndefined();
-  });
+  // #220 P2: the free-text venue-query override (Block.mapsQuery) is gone —
+  // a venue is named by its place_id, so the bare name is the only fallback.
 
   it("uses the place_id deep-link form when present", () => {
     const p = params(
-      gmapsSearchUrl("Niseko", {
-        query: "Park Hyatt Niseko",
-        placeId: "ChIJN1t_tDeuEmsRUsoyG83frY4",
-      }),
+      gmapsSearchUrl("Niseko", { placeId: "ChIJN1t_tDeuEmsRUsoyG83frY4" }),
     );
     expect(p.query).toBe("Niseko");
     expect(p.query_place_id).toBe("ChIJN1t_tDeuEmsRUsoyG83frY4");

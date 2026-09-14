@@ -508,9 +508,9 @@ def test_update_block_fields_and_kind_rules(client, rsa_keypair, graph) -> None:
     assert r.status_code == 422
 
 
-def test_put_block_accepts_google_place_id(client, rsa_keypair, graph) -> None:
+def test_put_block_accepts_place_id(client, rsa_keypair, graph) -> None:
     """#15/#95 wiring: a block can pin THE venue (not just the town) via
-    `googlePlaceId` — stored leniently, returned verbatim for the deep link."""
+    `placeId` — stored leniently, returned verbatim for the deep link."""
     g = graph()
     trip = _trip_of(g)
     token = _token_of(rsa_keypair)
@@ -518,16 +518,32 @@ def test_put_block_accepts_google_place_id(client, rsa_keypair, graph) -> None:
     url = f"/api/trips/{trip.id}/blocks/{block.id}"
 
     r = _authz(client, "put", url, token,
-               json={"googlePlaceId": "ChIJN1t_tDeuEmsRUsoyG83frY4"})
+               json={"placeId": "ChIJN1t_tDeuEmsRUsoyG83frY4"})
     assert r.status_code == 200
     day = next(d for d in r.json()["days"]
                if any(b["id"] == block.id for b in d["blocks"]))
     edited = next(b for b in day["blocks"] if b["id"] == block.id)
-    assert edited["googlePlaceId"] == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+    assert edited["placeId"] == "ChIJN1t_tDeuEmsRUsoyG83frY4"
     # persisted on the twin, not just echoed
     got = _trip_of(g)
     stored = next(b for d in got.days for b in d.blocks if b.id == block.id)
-    assert stored.googlePlaceId == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+    assert stored.placeId == "ChIJN1t_tDeuEmsRUsoyG83frY4"
+
+
+def test_put_block_rejects_retired_venue_fields(client, rsa_keypair, graph) -> None:
+    """#220 P2: the old field names are gone for good. `googlePlaceId` (renamed
+    to `placeId`) and `mapsQuery` (deleted outright — free text that let a venue
+    look pinned while its place_id stayed empty) must fail loudly instead of
+    being silently ignored."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/blocks/{trip.days[0].blocks[0].id}"
+
+    for stale in ({"googlePlaceId": "ChIJN1t_tDeuEmsRUsoyG83frY4"},
+                  {"mapsQuery": "Banff Inn Banff Alberta"}):
+        r = _authz(client, "put", url, token, json=stale)
+        assert r.status_code == 422, stale
 
 
 def test_concurrent_block_edits_do_not_clobber(client, rsa_keypair, graph) -> None:

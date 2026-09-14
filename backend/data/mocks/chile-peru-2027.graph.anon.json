@@ -185,7 +185,6 @@
       "order": 0,
       "items": [],
       "location": "Santiago",
-      "mapsQuery": "Cerro San Cristóbal Santiago teleférico",
       "images": [
         "/media/REDACTED"
       ]
@@ -207,7 +206,6 @@
       "order": 1,
       "items": [],
       "location": "Santiago",
-      "mapsQuery": "Mercado Central de Santiago Chile",
       "images": []
     },
     {
@@ -227,7 +225,6 @@
       "order": 2,
       "items": [],
       "location": "Santiago",
-      "mapsQuery": "Sky Costanera Santiago",
       "images": []
     },
     {
@@ -346,7 +343,6 @@
       "order": 0,
       "items": [],
       "location": "Valle Nevado",
-      "mapsQuery": "Valle Nevado Chile",
       "images": [
         "/media/REDACTED"
       ]
@@ -567,7 +563,6 @@
       "order": 0,
       "items": [],
       "location": "Cusco",
-      "mapsQuery": "Plaza de Armas Cusco",
       "images": []
     },
     {
@@ -587,7 +582,6 @@
       "order": 1,
       "items": [],
       "location": "Cusco",
-      "mapsQuery": "ChocoMuseo Cusco",
       "images": []
     },
     {
@@ -611,7 +605,6 @@
       "links": [],
       "order": 0,
       "items": [],
-      "mapsQuery": "Palcoyo Rainbow Mountain Peru",
       "images": [
         "/media/REDACTED",
         "/media/REDACTED"
@@ -732,7 +725,6 @@
       "order": 1,
       "items": [],
       "location": "Lima",
-      "mapsQuery": "Circuito Mágico del Agua Lima",
       "images": []
     },
     {

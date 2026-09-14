@@ -384,7 +384,6 @@
       "order": 2,
       "items": [],
       "location": "Banff",
-      "mapsQuery": "Banff Inn Banff Alberta",
       "images": []
     },
     {
@@ -444,7 +443,6 @@
       "order": 1,
       "items": [],
       "location": "Banff",
-      "mapsQuery": "Banff Inn Banff Alberta",
       "images": []
     },
     {
@@ -535,7 +533,6 @@
       "order": 3,
       "items": [],
       "location": "Revelstoke",
-      "mapsQuery": "Northwinds Revelstoke BC",
       "images": []
     },
     {
@@ -591,7 +588,6 @@
       "order": 1,
       "items": [],
       "location": "Revelstoke",
-      "mapsQuery": "Northwinds Revelstoke BC",
       "images": []
     },
     {
@@ -660,7 +656,6 @@
       "order": 1,
       "items": [],
       "location": "Rogers Pass",
-      "mapsQuery": "Rogers Pass Discovery Centre, Glacier National Park, BC",
       "images": []
     },
     {
@@ -679,7 +674,6 @@
       "order": 2,
       "items": [],
       "location": "Revelstoke",
-      "mapsQuery": "Northwinds Revelstoke BC",
       "images": []
     },
     {
@@ -738,7 +732,6 @@
       "order": 1,
       "items": [],
       "location": "Hillcrest",
-      "mapsQuery": "Coast Hillcrest Hotel Revelstoke",
       "images": []
     },
     {
@@ -904,7 +897,6 @@
       "order": 2,
       "items": [],
       "location": "Golden",
-      "mapsQuery": "Glacier Mountaineer Lodge Golden BC",
       "images": []
     },
     {
@@ -1061,7 +1053,6 @@
       "order": 2,
       "items": [],
       "location": "Lake Louise",
-      "mapsQuery": "Lake Louise Inn Alberta",
       "images": []
     },
     {

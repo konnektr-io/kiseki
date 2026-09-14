@@ -113,17 +113,18 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
   );
 }
 
-/** Auto Google Maps link for a place — the block's own `googlePlaceId` wins
- *  when set, then the resolved registry place's `placeId` (keyless deep
- *  links, #15/#95), else the precise query (`mapsQuery`), else the location
- *  name/alias. Unchanged query-only fallback when nothing resolves. */
+/** Auto Google Maps link for a place — the block's own `placeId` wins when
+ *  set, then the resolved registry place's `placeId` (keyless deep links,
+ *  #15/#95), else the location name/alias as a plain text query. Deliberately
+ *  no free-text venue field: a block that names a specific venue carries its
+ *  `placeId`, so the link AND the photos/reviews overlay can resolve it. */
 function mapsLink(b: Block, resolvedPlace?: TripLocation) {
-  const q = b.mapsQuery || b.location || b.title || "";
-  const placeId = b.googlePlaceId ?? resolvedPlace?.placeId;
+  const q = b.location || b.title || "";
+  const placeId = b.placeId ?? resolvedPlace?.placeId;
   if (!q && !placeId) return null;
   return {
     label: "Google Maps",
-    url: gmapsSearchUrl(q, { placeId, query: b.mapsQuery }),
+    url: gmapsSearchUrl(q, { placeId }),
   };
 }
 
@@ -459,7 +460,7 @@ function ActivityBlock({
   const place = resolveBlockPlace(trip, b);
   // The links-row Maps entry is redundant once the block resolves to a
   // registry place — PlaceFacts renders the canonical place_id deep link.
-  // Unresolved blocks keep their own mapsQuery/googlePlaceId fallback link.
+  // Unresolved blocks keep their own location/placeId fallback link.
   const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (

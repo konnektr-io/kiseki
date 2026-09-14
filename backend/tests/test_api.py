@@ -113,7 +113,7 @@ def test_public_trip_keeps_deliberate_falsy_values() -> None:
     assert block["bookingCode"] == ""
     assert block["items"] == []
     # unset optionals are absent, not null
-    for unset in ("mapsQuery", "googlePlaceId", "route", "time", "description"):
+    for unset in ("placeId", "route", "time", "description"):
         assert unset not in block, f"{unset} should be omitted, not serialized as null"
     # a non-optional empty string default still survives (it is not None)
     assert _public_trip(trip)["subtitle"] == ""

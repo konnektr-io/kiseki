@@ -453,7 +453,7 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
             "date": "2027-09-20",
             "blocks": [
                 {"id": "blk-1", "kind": "activity", "title": "Garden stroll",
-                 "mapsQuery": "Shinjuku Gyoen National Garden"},
+                 "location": "Shinjuku Gyoen"},
                 {"id": "blk-2", "kind": "activity", "title": "Ramen", "location": "Tokyo"},
                 {"id": "blk-3", "kind": "note", "title": "a note"},
                 {"id": "blk-4", "kind": "activity", "title": "Mystery bar"},
@@ -487,10 +487,10 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
 
     assert {entry["name"] for entry in report["locations_resolved"]} == {"Tokyo", "Shinjuku Gyoen"}
     assert state["patched"][0]["locations"][0]["placeId"] == "ChIJ-Tokyo"
-    # blk-1 from its mapsQuery, blk-2 from the registry entry it points at
+    # both resolve from the registry entry their `location` points at
     assert report["blocks_resolved"] == 2
     assert {path.rsplit("/", 1)[-1] for path, _ in state["blocks"]} == {"blk-1", "blk-2"}
-    assert all(body["googlePlaceId"] for _, body in state["blocks"])
+    assert all(body["placeId"] for _, body in state["blocks"])
     # blk-4 names no venue at all — reported, not silently skipped
     assert [b["title"] for b in report["blocks_without_venue"]] == ["Mystery bar"]
     # a note block is not a venue and is never flagged

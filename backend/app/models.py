@@ -104,8 +104,7 @@ class Block(BaseModel):
     to: Optional[str] = Field(default=None, alias="to", description="Directions destination place name/alias.")
     mode: Optional[str] = Field(default=None, description="Explicit transport mode: flight | drive | train | ferry (beats the heuristic).")
     location: Optional[str] = Field(default=None, description="Place name/alias → auto Google Maps link + map thumbnail.")
-    mapsQuery: Optional[str] = Field(default=None, description="Precise query for the ACTUAL place (hotel/restaurant) — overrides `location` for the link + thumbnail pin.")
-    googlePlaceId: Optional[str] = Field(default=None, description="Google place_id for THE specific venue (hotel/restaurant, not just the town) — preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch). Indefinitely cacheable per the #15/#95 storage rule.")
+    placeId: Optional[str] = Field(default=None, description="Google place_id for THE specific venue (hotel/restaurant, not just the town) — the preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch), under the same name as Location.placeId. Indefinitely cacheable per the #15/#95 storage rule.")
     images: list[str] = Field(default_factory=list, description="Card media strip — bare media filenames, served by the API at /media/<trip_id>/<file>.")
 
 
