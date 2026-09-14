@@ -232,7 +232,7 @@ _META_BY = "`$metadata`.`$lastUpdatedBy`"
 _Q_TRIPS_FOR_ME_ORDERED = """
 MATCH (trip:Twin)-[:hasCrew]->(me:Twin)
 WHERE me.`$dtId` = $uid
-RETURN trip.`$dtId` AS dtId, trip.title AS title, trip.slug AS slug,
+RETURN trip.`$dtId` AS dtId, trip.title AS title,
        trip.visibility AS visibility, trip.stage AS stage,
        trip.`$metadata`.`$lastUpdateTime` AS at,
        trip.`$metadata`.`$lastUpdatedBy` AS by,
@@ -244,7 +244,7 @@ _Q_TRIPS_OF_FOLLOWED = """
 MATCH (me:Twin)-[:follows]->(person:Twin)
 MATCH (trip:Twin)-[:hasCrew]->(person)
 WHERE me.`$dtId` = $uid
-RETURN trip.`$dtId` AS dtId, trip.title AS title, trip.slug AS slug,
+RETURN trip.`$dtId` AS dtId, trip.title AS title,
        trip.discoverable AS discoverable, trip.visibility AS visibility,
        trip.`$metadata`.`$lastUpdateTime` AS at,
        trip.`$metadata`.`$lastUpdatedBy` AS by
@@ -265,7 +265,6 @@ def _ordered_trip_row(row: dict) -> dict:
     out = {
         "dtId": row.get("dtId"),
         "title": row.get("title") or "",
-        "slug": row.get("slug") or "",
         "visibility": row.get("visibility") or "private",
         "stage": row.get("stage") or "",
         "at": row.get("at") or None,
