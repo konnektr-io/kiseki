@@ -782,7 +782,9 @@ def delete_trip(trip_dtid: str, actor: dict) -> None:
     User twin** is a global identity (``$dtId`` = the auth sub) that belongs
     to its human across every trip and is NEVER deleted here — only the
     ``hasCrew`` edge (an inside-the-trip edge, already removed above) tied it
-    to this trip.
+    to this trip. The same rule scopes the edge sweep (#222): an edge is
+    trip-scoped when its SOURCE twin is trip-scoped, so a User twin's own
+    outgoing edges (``follows``) survive alongside it.
 
     Order matters everywhere: edges before their twins, targets before the
     trip. Returns None — there is nothing left to rebuild; the route answers
@@ -801,15 +803,26 @@ def delete_trip(trip_dtid: str, actor: dict) -> None:
     relationships = graph.get("relationships", [])
     twins = {t.get("$dtId"): t for t in graph.get("twins", [])}
 
-    # 1) Edges first — everything SOURCED inside the trip is trip-scoped.
-    #    (An edge sourced OUTSIDE the trip could only point INTO it from
-    #    another trip — the graph has no cross-trip edges; crew hasCrew is
-    #    trip-sourced, so it is covered.)
+    # 1) Edges first — every edge SOURCED by a TRIP-SCOPED twin goes with the
+    #    trip. #222: the bundle is wider than the trip (MAX_HOPS reachability
+    #    finds the crew's User twins through hasCrew), so it also carries THEIR
+    #    outgoing edges — `follows`, sourced at a global auth sub, which belong
+    #    to the human and outlive the trip. Scope the sweep by the source twin's
+    #    MODEL KIND, exactly like the twin sweep below (which skips User twins),
+    #    instead of deleting whatever the bundle happened to return: feeding a
+    #    non-UUID source to delete_relationship trips the client's content guard
+    #    (GraphWriteError 422 → 500) *after* the trip-sourced edges are already
+    #    gone, orphaning the trip behind a role-less ACL gate.
     for r in relationships:
         src = r.get("$sourceId")
         rel_id = r.get("$relationshipId")
-        if not src or not rel_id or src not in twins:
+        if not src or not rel_id:
             continue
+        twin = twins.get(src)
+        if twin is None:
+            continue
+        if _model_kind(twin) == "User":
+            continue  # global identity — its edges (follows) outlive the trip
         client.delete_relationship(src, rel_id, x_user_id=sub)
 
     # 2) Twin deletes, leaves first — Feature/Location/Block/Section/Day
