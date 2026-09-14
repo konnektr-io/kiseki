@@ -108,10 +108,29 @@ AGENTS.md                        engineering conventions (and coding-agent conte
 | `scripts/validate_dtdl.py`, `verify_dtdl_models.py`, `reload_dtdl_models.py` | Check and reload the models against a live graph |
 | `scripts/seed_graph.py`, `trip_to_graph.py` | Turn an authoring `trip.json` into graph twins |
 | `scripts/api_write.py` | The agent's write-API wrapper — the supported way to script trip changes |
-| `scripts/kiseki_m2m.py` | Machine-to-machine token helper for scripted access |
+| `scripts/kiseki_m2m.py` | Machine-to-machine token helper for scripted access (token cached until expiry — see below) |
 | `scripts/migrate_assets_to_s3.py`, `migrate_place_ids.py` | One-off media/place-id migrations |
 | `scripts/release.sh` | Cut a release (tag + notes + vault record), with a post-deploy DTDL check |
 | `scripts/probe_*.py`, `smoke_write_path.py` | Ad-hoc probes against a deployed instance |
+
+### M2M tokens are quota-metered — mint once, reuse
+
+The Auth0 tenant charges **every** `client_credentials` grant against a monthly
+M2M-token allowance (~1 000 grants/month on the free plan). The token is valid
+24 h, so a per-call mint spends a day's worth of quota for nothing: two weeks of
+scripted rounds hit ~780 grants, 90 % of the month's allowance (2026-09).
+
+`scripts/kiseki_m2m.py` therefore **caches the token** in
+`$KISEKI_TOKEN_CACHE_DIR` (default `~/.cache/kiseki/m2m-<hash of
+client_id|audience>.json`, mode 0600) and grants only when the cache is cold or
+inside the 5-minute expiry margin. Concurrent callers serialise on an `flock`,
+so a cold cache costs exactly one grant. The agent-side wrapper
+(`mint_token.py` in the `kiseki-trip-content` skill) uses the same convention,
+so scripted and agent rounds share one token.
+
+Do not loop a token mint, do not hand-roll a second one, and do not "refresh" a
+stale cache to be safe — `KISEKI_TOKEN_NO_CACHE=1` forces a grant and is for
+debugging only, since every one of those is quota.
 
 ## Conventions
 
