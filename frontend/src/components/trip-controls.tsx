@@ -41,6 +41,10 @@ export function TripActionsMenu({
   onDownloadPdf,
   joinCopied = false,
   onCopyJoinLink,
+  followCopied = false,
+  onCopyFollowLink,
+  crewInviteDisabled = false,
+  onDisableCrewInvite,
   onDeleted,
 }: {
   pdfBusy?: boolean;
@@ -48,6 +52,14 @@ export function TripActionsMenu({
   joinCopied?: boolean;
   /** Present when the caller can offer it (owner) — row is hidden otherwise. */
   onCopyJoinLink?: () => void;
+  followCopied?: boolean;
+  /** Owner-only: mint-or-copy the FOLLOW link (#197) — read + follow, and
+   *  structurally unable to claim a crew identity. */
+  onCopyFollowLink?: () => void;
+  crewInviteDisabled?: boolean;
+  /** Owner-only: disable the crew invite (#197) — clears the claim token so
+   *  the join link stops working, without touching the follow link. */
+  onDisableCrewInvite?: () => void;
   /** Owner-only: called after DELETE /api/trips/{id} succeeds (204) — the
    *  trip is gone, the caller navigates away (landing). */
   onDeleted?: () => void;
@@ -212,6 +224,38 @@ export function TripActionsMenu({
               <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <span className={joinCopied ? "text-accent" : ""}>
                 {joinCopied ? "Join link copied" : "Copy crew join link"}
+              </span>
+            </button>
+          )}
+
+          {/* #197: the two links are separate secrets with separate revokes.
+              The follow link never grants a claim, so it is the one to hand to
+              people who should read the trip but not join the crew. */}
+          {onCopyFollowLink && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={onCopyFollowLink}
+              // stays open so the "copied" feedback is visible
+            >
+              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className={followCopied ? "text-accent" : ""}>
+                {followCopied ? "Follow link copied" : "Copy follow link"}
+              </span>
+            </button>
+          )}
+
+          {onDisableCrewInvite && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={onDisableCrewInvite}
+            >
+              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span className={crewInviteDisabled ? "text-accent" : ""}>
+                {crewInviteDisabled ? "Crew invite disabled" : "Disable crew invite"}
               </span>
             </button>
           )}
