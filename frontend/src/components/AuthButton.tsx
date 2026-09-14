@@ -55,6 +55,17 @@ function AuthButtonInner() {
 
   return (
     <div className="flex items-center gap-2">
+      {/* The signed-in user's way into their feed (#199) — next to their own
+          profile entry, and only rendered when there is an identity to key
+          the feed off. */}
+      <Link
+        to="/feed"
+        aria-label="Activity feed"
+        title="Activity feed"
+        className="inline-flex h-8 items-center rounded-md border border-border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring"
+      >
+        Feed
+      </Link>
       {/* The signed-in user's entry point to their own profile (#196d). */}
       <Link
         to="/me"

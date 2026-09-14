@@ -68,6 +68,16 @@ def test_trip_deep_link_still_serves_the_spa_shell() -> None:
     _assert_shell(client.get("/t/some-trip-id/crew"))
 
 
+def test_feed_deep_link_serves_the_spa_shell() -> None:
+    """#199's /feed joined the whitelist in App.tsx — and here.
+
+    Same trap as phase D: an in-app link to the feed would work while a reload
+    or a bookmark 404s with the API's JSON.
+    """
+    _require_shell()
+    _assert_shell(client.get("/feed"))
+
+
 def test_unknown_paths_must_not_be_masked_by_the_shell() -> None:
     """The whitelist stays a whitelist: an unrelated path 404s as JSON."""
     _require_shell()
