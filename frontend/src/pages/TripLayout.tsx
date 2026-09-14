@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowLeft, CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
-import { fetchTrip, refetchTrip, downloadBooklet, fetchJoinLink, clearTripCache, TripAccessError } from "../lib/api";
+import { fetchTrip, refetchTrip, downloadBooklet, fetchJoinLink, fetchFollowLink, createFollowLink, disableCrewInvite, clearTripCache, TripAccessError } from "../lib/api";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
@@ -88,6 +88,8 @@ export function TripLayout() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
   const [joinCopied, setJoinCopied] = useState(false);
+  const [followCopied, setFollowCopied] = useState(false);
+  const [inviteOff, setInviteOff] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
   // surface stays mounted underneath so edits land visibly live.
@@ -374,6 +376,39 @@ export function TripLayout() {
     }
   };
 
+  const copyFollowLink = async () => {
+    try {
+      const at = await getAccessTokenSilently();
+      // Mint on first use, reuse after that: the link stays stable for the
+      // people already holding it. Rotating is a deliberate act (#197), never
+      // a side effect of copying.
+      const existing = await fetchFollowLink(trip.id, at);
+      const followUrl = existing ?? (await createFollowLink(trip.id, at));
+      await navigator.clipboard.writeText(window.location.origin + followUrl);
+      setFollowCopied(true);
+      setTimeout(() => setFollowCopied(false), 2000);
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
+      setFollowCopied(false);
+    }
+  };
+
+  const handleDisableCrewInvite = async () => {
+    try {
+      const at = await getAccessTokenSilently();
+      await disableCrewInvite(trip.id, at);
+      setInviteOff(true);
+    } catch (e) {
+      // Owner-only action: a dead session must not fail silently.
+      if (isSessionExpiredError(e)) {
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+      }
+    }
+  };
+
   return (
     <TripProvider trip={trip} apply={setTrip}>
       <div ref={rootRef} style={tripStyle(trip)} className="min-h-full">
@@ -428,6 +463,10 @@ export function TripLayout() {
               onDownloadPdf={handleDownloadPdf}
               joinCopied={joinCopied}
               onCopyJoinLink={isOwner ? copyJoinLink : undefined}
+              followCopied={followCopied}
+              onCopyFollowLink={isOwner ? copyFollowLink : undefined}
+              crewInviteDisabled={inviteOff}
+              onDisableCrewInvite={isOwner ? handleDisableCrewInvite : undefined}
               onDeleted={
                 isOwner
                   ? () => {

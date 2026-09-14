@@ -47,7 +47,15 @@ from .chat import (
     turn_key_for,
     turn_status_payload,
 )
-from .claims import ClaimError, claim_identity, follow_via_claim, trip_by_claim_token
+from .claims import (
+    ClaimError,
+    claim_identity,
+    follow_trip_by_id,
+    follow_via_claim,
+    follow_via_follow_token,
+    trip_by_claim_token,
+    trip_by_follow_token,
+)
 from .erasure import ErasureError, erase_account, export_account
 from .config import (
     HERE_ACCESS_KEY_ID,
@@ -249,6 +257,28 @@ def _viewer_sub(authorization: str | None) -> str | None:
     return sub if isinstance(sub, str) and sub else None
 
 
+# Crew roles (#196): everyone else — followers included — counts as an
+# outsider for field-visibility purposes. A follower reads the trip; they do
+# not get the crew's own surfaces (tricount registry, and whatever comes next).
+CREW_ROLES = ("viewer", "editor", "owner")
+# Dot paths of fields ONLY the crew may see (#196/#197). Registered rather
+# than inlined so tests/test_follow_197.py can walk the whole tuple: a
+# crew-only field added inline is a leak no test can enumerate, which is why
+# the assertion is written against this registry. Add the field HERE.
+CREW_ONLY_FIELDS: tuple[tuple[str, ...], ...] = (("practical", "tricount"),)
+
+
+def _drop_path(data: dict, path: tuple[str, ...]) -> None:
+    """Delete a nested key when every step exists (no-op otherwise)."""
+    cursor: dict | None = data
+    for step in path[:-1]:
+        nxt = cursor.get(step)
+        cursor = nxt if isinstance(nxt, dict) else None
+        if cursor is None:
+            return
+    cursor.pop(path[-1], None)
+
+
 def _public_trip(
     trip: Trip,
     my_role: str | None = None,
@@ -288,10 +318,16 @@ def _public_trip(
     repo-folder slug (#47 follow-up).
     """
     data = trip.model_dump(by_alias=True)
+    # Both link secrets are write-only as far as the API is concerned: they
+    # leave only through their dedicated, owner-gated endpoints (join-link
+    # #6, follow-link #197).
     data.pop("claimToken", None)
-    practical = data.get("practical")
-    if my_role not in ("viewer", "editor", "owner") and isinstance(practical, dict):
-        practical.pop("tricount", None)
+    data.pop("followToken", None)
+    # Crew-only fields, from the registry above — a follower/anonymous caller
+    # gets the trip without the crew's own surfaces (#196).
+    if my_role not in CREW_ROLES:
+        for path in CREW_ONLY_FIELDS:
+            _drop_path(data, path)
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
@@ -401,7 +437,16 @@ class ClaimRequest(BaseModel):
 
 
 class FollowRequest(BaseModel):
-    claimToken: str
+    """POST /api/claims/follow body — the join link (#65) or the follow link (#197).
+
+    Exactly one credential: ``claimToken`` (join link, claim-capable) or
+    ``followToken`` (follow link, read+follow only). The two are never
+    interchangeable, so the caller must state which link it holds — a follow
+    link submitted as a claim token is just an unknown invite.
+    """
+
+    claimToken: str | None = None
+    followToken: str | None = None
 
 
 @app.post("/api/claims")
@@ -446,8 +491,25 @@ def follow_claim(
     (acl.require_user_token).
     """
     require_user_token(session.user)
+    if body.followToken is not None:
+        if body.claimToken is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of claimToken (join link) or followToken (follow link)",
+            )
+        token_holder = ("follow", body.followToken)
+    elif body.claimToken is not None:
+        token_holder = ("claim", body.claimToken)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide exactly one of claimToken (join link) or followToken (follow link)",
+        )
     try:
-        trip = follow_via_claim(body.claimToken, session.user["sub"], session.profile)
+        if token_holder[0] == "follow":
+            trip = follow_via_follow_token(token_holder[1], session.user["sub"], session.profile)
+        else:
+            trip = follow_via_claim(token_holder[1], session.user["sub"], session.profile)
     except ClaimError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     # The caller is crew (claim) / follower (follow) the moment this returns,
@@ -813,6 +875,98 @@ def trip_join_link(
     if not trip.claimToken:
         raise HTTPException(status_code=404, detail="No invite link for this trip")
     return {"joinUrl": f"/join/{trip.claimToken}"}
+
+
+@app.get("/api/trips/{trip_id}/follow-link")
+def trip_follow_link(
+    trip_id: str,
+    _: None = Depends(require_trip_role("owner")),
+) -> dict:
+    """Owner-only: the trip's FOLLOW link (#197).
+
+    A SECOND link, separately revocable: whoever holds it can read the trip
+    and follow it, and can never claim a crew identity. Like the claim token
+    the secret never appears in a trip document — this endpoint and its POST
+    sibling are the only ways it leaves the API.
+    """
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    if not trip.followToken:
+        raise HTTPException(status_code=404, detail="No follow link for this trip")
+    return {"followUrl": f"/join/{trip.followToken}", "linkKind": "follow"}
+
+
+@app.post("/api/trips/{trip_id}/follow-link", status_code=201)
+def create_trip_follow_link(
+    trip_id: str,
+    actor: dict = Depends(require_trip_role("owner")),
+) -> dict:
+    """Owner-only: mint or rotate the follow link (#197).
+
+    Minting twice ROTATES: the lookup cache is retired by token value, so the
+    previous follow link stops resolving immediately — a leaked follow link
+    can be killed without touching the crew invite (and vice versa).
+    """
+    token = write_svc.mint_follow_link(trip_id.lower(), actor)
+    return {"followUrl": f"/join/{token}", "linkKind": "follow"}
+
+
+@app.delete("/api/trips/{trip_id}/join-link", status_code=204)
+def delete_trip_join_link(
+    trip_id: str,
+    actor: dict = Depends(require_trip_role("owner")),
+) -> Response:
+    """Owner-only: disable the crew invite (#197) — clears the claim token.
+
+    Kills claiming (and following) through the join link. Existing crew keep
+    their roles, followers keep following, and the follow link keeps working.
+    """
+    _write(write_svc.revoke_claim_invite, trip_dtid=trip_id.lower(), actor=actor)
+    return Response(status_code=204)
+
+
+@app.post("/api/trips/{trip_id}/follow")
+def follow_public_trip_route(
+    trip_id: str,
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Follow a PUBLIC trip with no invite at all (#197).
+
+    ``visibility: public`` is the invitation on this path; a private trip
+    answers 403 ("can only be followed with an invite link") instead of
+    silently granting or silently ignoring. Idempotent, and it provisions a
+    graph identity (role=follower), so an M2M token without a user sub is
+    refused (acl.require_user_token).
+    """
+    require_user_token(session.user)
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    try:
+        followed = follow_trip_by_id(trip.id, session.user["sub"], session.profile)
+    except ClaimError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    # The caller is a follower the moment this returns: the crew-only fields
+    # stay out, but they do see the trip (not an outsider's teaser).
+    return _public_trip(followed, my_role="follower")
+
+
+@app.get("/api/trips/by-follow/{follow_token}")
+def trip_by_follow(follow_token: str) -> dict:
+    """Follow-link read (#197): the trip behind a follow token.
+
+    Same trust model as the claim link (possession of the secret) but the
+    link is read+follow only. Crew names are redacted (the holder is not
+    crew) and ``linkKind: follow`` tells the SPA never to offer "This is me"
+    here — the credential it holds cannot claim anything.
+    """
+    trip = trip_by_follow_token(follow_token)
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Unknown follow link")
+    data = _public_trip(trip, redact_crew=True)
+    data["linkKind"] = "follow"
+    return data
 
 
 @app.get("/api/trips/{trip_id}")

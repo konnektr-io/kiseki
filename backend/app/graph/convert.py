@@ -281,6 +281,8 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "visibility": base.get("visibility", "private"),
             "discoverable": bool(base.get("discoverable", False)),
             "claimToken": base.get("claimToken") or None,
+            # #197: the FOLLOW credential — read+follow only, never a claim.
+            "followToken": base.get("followToken") or None,
             "cover": base.get("cover"),
             "coverCredit": base.get("coverCredit"),
             "map": base.get("map"),

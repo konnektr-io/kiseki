@@ -20,6 +20,7 @@ import type { Trip } from "../lib/types";
 
 const mocks = vi.hoisted(() => ({
   fetchTripByClaim: vi.fn(),
+  fetchTripByFollow: vi.fn(),
   claimIdentity: vi.fn(),
   followTrip: vi.fn(),
 }));
@@ -39,6 +40,7 @@ vi.mock("../lib/api", async () => {
   return {
     ...actual,
     fetchTripByClaim: mocks.fetchTripByClaim,
+    fetchTripByFollow: mocks.fetchTripByFollow,
     claimIdentity: mocks.claimIdentity,
     followTrip: mocks.followTrip,
   };
@@ -91,6 +93,9 @@ async function flush() {
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.fetchTripByClaim.mockResolvedValue(TRIP);
+  // Default: the link is a join link, so the follow-link fallback (#197) is
+  // never consulted. Follow-link tests override both halves.
+  mocks.fetchTripByFollow.mockRejectedValue(new Error("Unknown follow link"));
 });
 
 afterEach(() => {
@@ -123,5 +128,41 @@ describe("JoinPage claimed rows are taken (#198)", () => {
     // A real `disabled` button, not a visually-muted one.
     expect(container.innerHTML).toContain("disabled=\"\"");
     expect(container.innerHTML).toContain("Already joined");
+  });
+});
+
+describe("JoinPage follow link (#197)", () => {
+  it("renders a follow-only page — no crew list, no 'This is me'", async () => {
+    mocks.fetchTripByClaim.mockRejectedValue(new Error("Unknown join link"));
+    mocks.fetchTripByFollow.mockResolvedValue(TRIP);
+    mount();
+    await flush();
+
+    expect(container.textContent).toContain("Follow this trip");
+    expect(container.textContent).not.toContain("You're invited");
+    // The credential held is read+follow only — claiming must not be offered.
+    expect(container.textContent).not.toContain("This is me");
+    expect(container.textContent).not.toContain("Niko Claimed");
+  });
+
+  it("follows with the follow token, not the claim token", async () => {
+    mocks.fetchTripByClaim.mockRejectedValue(new Error("Unknown join link"));
+    mocks.fetchTripByFollow.mockResolvedValue(TRIP);
+    mocks.followTrip.mockResolvedValue(TRIP);
+    mount();
+    await flush();
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Follow this trip",
+    );
+    expect(button).toBeTruthy();
+    act(() => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    // The third argument is the whole point: the same URL param is sent as a
+    // followToken, which the server can never treat as a claim.
+    expect(mocks.followTrip).toHaveBeenCalledWith("claim-123", "test-token", "follow");
   });
 });

@@ -808,6 +808,13 @@
       },
       {
         "@type": "Property",
+        "name": "followToken",
+        "schema": "string",
+        "writable": true,
+        "description": "Secret FOLLOW key (issue #197) — authorizes FOLLOWING this trip and nothing else: it can never claim a crew identity (claimToken is the only claim credential). Minted/rotated by the owner via POST /api/trips/{id}/follow-link; revocable without touching the claim link. Only needed for private trips — a public trip is followed by id."
+      },
+      {
+        "@type": "Property",
         "name": "cover",
         "schema": "string",
         "writable": true,

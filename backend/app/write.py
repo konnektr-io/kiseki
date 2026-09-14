@@ -903,6 +903,51 @@ def update_trip(trip_dtid: str, actor: dict, patch: TripPatch) -> Trip:
     return _rebuild(client, trip_dtid, user_dtid=actor["sub"])
 
 
+# ------------------------------------------------------- links (#6 / #197)
+def mint_follow_link(trip_dtid: str, actor: dict) -> str:
+    """Owner-only: mint (or rotate) the trip's FOLLOW link (#197).
+
+    A SECOND secret, deliberately not the claim token: the follow link can be
+    handed to people who should read the trip and follow it but must never be
+    able to claim a crew identity. Rotating it revokes the previous follow
+    link without touching the crew invite — and revoking the invite leaves
+    every follow link working.
+    """
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can manage the follow link")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    previous = graph_to_trip(graph).followToken
+    token = secrets.token_urlsafe(24)
+    ops = _scalar_ops(trip_twin, [("followToken", token)])
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=actor["sub"], token=previous)
+    return token
+
+
+def revoke_claim_invite(trip_dtid: str, actor: dict) -> None:
+    """Owner-only: disable the crew invite by clearing ``claimToken`` (#197).
+
+    Invite-only publishing that can never be narrowed is a trap: a link
+    leaked into a WhatsApp group can be killed without killing the trip.
+    Existing crew keep their roles and followers keep following — what dies
+    is the ability to CLAIM through that link (and to follow through it).
+    Idempotent: revoking twice is not an error.
+    """
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can revoke the invite link")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    previous = graph_to_trip(graph).claimToken
+    ops = _scalar_ops(trip_twin, [("claimToken", None)])
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=actor["sub"], token=previous)
+
+
 # ---------------------------------------------------------------- practical
 def put_practical(trip_dtid: str, actor: dict, body: PracticalPut) -> Trip:
     client = _client()
