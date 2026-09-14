@@ -640,11 +640,14 @@ function NoteBlock({ b }: { b: Block }) {
 }
 
 function GalleryBlock({ b }: { b: Block }) {
-  const imgs = (b.items ?? []) as string[];
-  if (!imgs.length) return null;
+  // gallery items are stored {"url": name} (DTDL object array); older hand-written
+  // Shapes may still carry bare strings — unwrap both.
+  const imgs = (b.items ?? []) as (string | { url?: string })[];
+  const files = imgs.map((it) => (typeof it === "string" ? it : it?.url ?? "")).filter(Boolean);
+  if (!files.length) return null;
   return (
     <BlockCard className="p-3">
-      <PhotoGallery items={imgs} title={b.title ?? undefined} />
+      <PhotoGallery items={files} title={b.title ?? undefined} />
     </BlockCard>
   );
 }

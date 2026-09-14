@@ -149,9 +149,14 @@ def resolve_media_urls(doc: dict | list, trip_id: str) -> dict | list:
                     for v in value
                 ]
             elif key == "items" and is_gallery and isinstance(value, list):
+                # gallery items are {"url": <bare name>} objects (todo shapes are
+                # passed through); canonicalize just the url, leave the rest.
                 doc[key] = [
-                    canonicalize_media(v, trip_id) if isinstance(v, str) else v
-                    for v in value
+                    {**item, "url": canonicalize_media(item["url"], trip_id)}
+                    if isinstance(item, dict) and isinstance(item.get("url"), str)
+                    else canonicalize_media(item, trip_id) if isinstance(item, str)
+                    else item
+                    for item in value
                 ]
             elif isinstance(value, (dict, list)):
                 resolve_media_urls(value, trip_id)

@@ -13,7 +13,12 @@ export function dayThumbnails(day: Day): string[] {
   for (const b of day.blocks) {
     if (b.images?.length) out.push(...b.images);
     if (b.kind === "gallery") {
-      for (const it of b.items ?? []) if (typeof it === "string") out.push(it);
+      for (const it of b.items ?? []) {
+        if (typeof it === "string") out.push(it);
+        else if (it && typeof it === "object" && typeof (it as { url?: string }).url === "string") {
+          out.push((it as { url: string }).url);
+        }
+      }
     }
     if (out.length >= 2) break;
   }

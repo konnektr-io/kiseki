@@ -434,7 +434,12 @@ def test_confirm_writes_strip_and_gallery(
     assert any(strip_photo in (img or "") for img in block["images"])
     galleries = [b for b in day["blocks"] if b["kind"] == "gallery"]
     assert len(galleries) == 1
-    assert any(day_photo in (it or "") for it in galleries[0]["items"])
+    # items are {"url": <name-or-canonical-url>} objects (DTDL object array)
+    item_names = [
+        it.get("url", "") if isinstance(it, dict) else (it or "")
+        for it in galleries[0]["items"]
+    ]
+    assert any(day_photo in it for it in item_names)
 
 
 def test_confirm_is_idempotent(client, rsa_keypair, graph, media_store) -> None:
@@ -461,14 +466,19 @@ def test_confirm_is_idempotent(client, rsa_keypair, graph, media_store) -> None:
 
     doc = _trip_days(client, token, trip_id)
     day = next(d for d in doc["days"] if d["id"] == day0.id)
-    # The serialized doc canonicalizes bare names to /media/<trip>/<file> URLs.
-    urls = [
-        u
-        for b in day["blocks"]
-        for u in (b.get("images", []) + (b.get("items", []) if b["kind"] == "gallery" else []))
-        if isinstance(u, str)
-    ]
-    assert sum(1 for u in urls if u.endswith(f"/{name}")) == 1
+    # The serialized doc canonicalizes bare names to /media/<trip>/<file> URLs —
+    # for a gallery block that lives on each item's "url" key.
+    urls = []
+    for b in day["blocks"]:
+        if b["kind"] == "gallery":
+            urls.extend(
+                it.get("url") if isinstance(it, dict) else it
+                for it in b.get("items", [])
+                if it is not None
+            )
+        else:
+            urls.extend(u for u in b.get("images", []) if isinstance(u, str))
+    assert sum(1 for u in urls if isinstance(u, str) and u.endswith(f"/{name}")) == 1
 
 
 def test_confirm_orders_by_capture_time_not_upload_order(
@@ -497,7 +507,12 @@ def test_confirm_orders_by_capture_time_not_upload_order(
     doc = _trip_days(client, token, trip_id)
     day = next(d for d in doc["days"] if d["id"] == day0.id)
     gallery = next(b for b in day["blocks"] if b["kind"] == "gallery")
-    tails = [u.rsplit("/", 1)[1] for u in gallery["items"]]
+    # items are {"url": <name-or-canonical-url>} objects (DTDL object array)
+    tails = []
+    for it in gallery.get("items") or []:
+        url = it.get("url") if isinstance(it, dict) else it
+        assert isinstance(url, str)
+        tails.append(url.rsplit("/", 1)[-1])
     assert tails == [early, late]
 
 
