@@ -790,7 +790,7 @@
         "name": "discoverable",
         "schema": "boolean",
         "writable": true,
-        "description": "Opt-in (#196): this trip may be LISTED on its crew's profiles and in the follower feed. Additive to `visibility`, never a replacement: a discoverable `private` trip is listed but still requires follower+ to read."
+        "description": "Listed by default (#228; opt-in in #196): this trip may be LISTED on its crew's profiles and in the follower feed. Additive to `visibility`, never a replacement: a discoverable `private` trip is listed but still requires follower+ to read. Owner-only to change."
       },
       {
         "@type": "Property",

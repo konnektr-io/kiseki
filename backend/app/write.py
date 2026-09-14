@@ -725,7 +725,7 @@ def create_trip(actor_sub: str, token_sub: str, profile: dict[str, Any], payload
         subtitle=(payload.subtitle or "").strip(),
         stage="idea",
         visibility="private",
-        discoverable=False,
+        discoverable=True,
         claimToken=secrets.token_urlsafe(24),
         updated=_today(),
     )

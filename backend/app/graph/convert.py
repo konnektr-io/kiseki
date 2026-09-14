@@ -279,6 +279,8 @@ def graph_to_trip(graph: dict) -> M.Trip:
             "endDate": base.get("endDate"),
             "timezone": base.get("timezone"),
             "visibility": base.get("visibility", "private"),
+            # #228: an ABSENT key stays False on read — unset in the graph is not
+            # the new-write default, so nothing becomes listed retroactively.
             "discoverable": bool(base.get("discoverable", False)),
             "claimToken": base.get("claimToken") or None,
             # #197: the FOLLOW credential — read+follow only, never a claim.

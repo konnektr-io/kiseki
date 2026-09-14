@@ -90,14 +90,16 @@ def _trip_of(g: FakeGraph) -> Trip:
 
 # ------------------------------------------------------- 1. discoverable
 
-def test_discoverable_defaults_false() -> None:
-    """The model default is False — nothing becomes listed by accident — and
-    a pre-#196 bundle (no such property) reads back as False."""
+def test_discoverable_defaults_true() -> None:
+    """#228: new trips are listed by default — the model default is True, so a
+    trip built without the flag is discoverable. An ABSENT key on an existing
+    twin still reads back False: unset in the graph is not the same thing as
+    the default for new writes (nothing becomes listed retroactively)."""
     t = Trip.model_validate({
         "id": "11111111-1111-4111-8111-111111111111",
         "slug": "x", "title": "X",
     })
-    assert t.discoverable is False
+    assert t.discoverable is True
 
     g = FakeGraph()
     assert _trip_of(g).discoverable is False
