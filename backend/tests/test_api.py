@@ -77,8 +77,10 @@ def test_public_trip_keeps_deliberate_falsy_values() -> None:
 
     The strip is deliberately limited to ``None``. ``exclude_defaults=True``
     (or any hand-rolled "drop if falsy") would also erase ``order: 0``,
-    ``lat: 0.0``, ``cost: 0``, a deliberately emptied ``[]`` and an empty
-    string — real values, silently corrupted.
+    ``lat: 0.0``, a deliberately emptied ``[]`` and an empty string — real
+    values, silently corrupted. (``cost`` and ``bookingCode`` are the one
+    exception now: #249 withholds them from a non-crew reader by name, so this
+    test asserts both halves — absent for a stranger, intact for the crew.)
     """
     from app.main import _public_trip
     from app.models import Block, Day, Trip
@@ -109,14 +111,23 @@ def test_public_trip_keeps_deliberate_falsy_values() -> None:
 
     block = _public_trip(trip)["days"][0]["blocks"][0]
     assert block["order"] == 0
-    assert block["cost"] == 0.0
-    assert block["bookingCode"] == ""
     assert block["items"] == []
     # unset optionals are absent, not null
     for unset in ("placeId", "route", "time", "description"):
         assert unset not in block, f"{unset} should be omitted, not serialized as null"
     # a non-optional empty string default still survives (it is not None)
     assert _public_trip(trip)["subtitle"] == ""
+
+    # …EXCEPT the three crew-only names (#249): a cost, a currency and a booking
+    # code are withheld from a non-crew reader whatever their value, so a
+    # deliberate `cost: 0.0` and an emptied `bookingCode` are ABSENT here rather
+    # than falsy-but-present. The crew read below is where the falsy contract
+    # still applies — the rule was narrowed, not deleted.
+    for crew_only in ("cost", "currency", "bookingCode"):
+        assert crew_only not in block, f"{crew_only} reached a non-crew reader"
+    crew_block = _public_trip(trip, my_role="owner")["days"][0]["blocks"][0]
+    assert crew_block["cost"] == 0.0
+    assert crew_block["bookingCode"] == ""
 
 
 def test_unknown_token_404() -> None:

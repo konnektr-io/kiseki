@@ -368,7 +368,9 @@ def test_every_registered_crew_only_field_is_hidden_from_a_follower(
     # exists to avoid.
     g.set_twin_prop(g.root, "practical",
                     {"tricount": {"registryKey": "abc123",
-                                  "url": "https://tricount.example/x"}})
+                                  "url": "https://tricount.example/x"},
+                     "todos": [{"label": "Pay the balance for the lodge",
+                                "done": False}]})
     owner_tok = _token_of(rsa_keypair)
     client.post(f"/api/trips/{trip.id}/follow-link", headers=_auth(owner_tok))
     link = g.twin(g.root)["followToken"]
@@ -383,16 +385,39 @@ def test_every_registered_crew_only_field_is_hidden_from_a_follower(
 
     exercised = 0
     for path in CREW_ONLY_FIELDS:
-        probe = {"practical": {"tricount": {"url": "https://tricount.example/x"}}}
+        # The probe is BUILT from the path. A hardcoded one (`{"practical":
+        # {"tricount": …}}`) stops exercising the registry the moment a second
+        # path is registered: the drop matches a key the probe never had, the
+        # count assertion below still passes, and the walk silently proves
+        # nothing. Adding ("practical", "todos") turned this test red for exactly
+        # that reason — the fixture was the bug, not the code.
+        probe: dict = {}
+        cursor = probe
+        for step in path[:-1]:
+            cursor = cursor.setdefault(step, {})
+        cursor[path[-1]] = {"url": "https://tricount.example/x"}
         _drop_path(probe, path)
-        exercised += 1 if probe.get("practical") == {} else 0
-        for doc_name, doc in (("anon", anon_doc), ("follower", follower_doc)):
-            cursor: object = doc
-            for step in path:
-                cursor = cursor.get(step) if isinstance(cursor, dict) else None
-            assert cursor is None, f"{doc_name} response leaked {'.'.join(path)}"
-    assert exercised == len(CREW_ONLY_FIELDS), "the drop helper must handle every registered path"
+        leaf: object = probe
+        for step in path:
+            leaf = leaf.get(step) if isinstance(leaf, dict) else None
+        assert leaf is None, f"_drop_path did not drop {'.'.join(path)}"
+        exercised += 1
 
-    # The crew response must actually carry a registered field, otherwise the
-    # walk above proves nothing at all.
-    assert (crew_doc.get("practical") or {}).get("tricount") is not None
+        # Both directions, per path: the crew MUST still carry it (or the walk is
+        # vacuous) and neither outsider may.
+        for doc_name, doc, must_have in (
+            ("crew", crew_doc, True),
+            ("anon", anon_doc, False),
+            ("follower", follower_doc, False),
+        ):
+            found: object = doc
+            for step in path:
+                found = found.get(step) if isinstance(found, dict) else None
+            if must_have:
+                assert found is not None, (
+                    f"the crew response lost {'.'.join(path)} — the fixture does not "
+                    "carry it, so the absent-checks above prove nothing"
+                )
+            else:
+                assert found is None, f"{doc_name} response leaked {'.'.join(path)}"
+    assert exercised == len(CREW_ONLY_FIELDS), "the drop helper must handle every registered path"
