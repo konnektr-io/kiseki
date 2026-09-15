@@ -94,9 +94,13 @@ describe("the claim", () => {
     expect(out).toContain("reading a trip needs no account");
   });
 
-  it("never calls the network — that is the whole point of the invented example", async () => {
+  it("never calls the network on mount — the map's one fetch lives behind WebGL2", async () => {
+    // jsdom has no WebGL2, so LandingMap never reaches its fetch here; the throw
+    // proves nothing else on the page fetches either. The map's own fetch (exactly
+    // one fixed URL, `GET /api/landing-route`) is pinned in LandingMap.test.tsx,
+    // where WebGL2 is mocked on.
     const spy = vi.fn(() => {
-      throw new Error("the landing page must not fetch anything");
+      throw new Error("the landing page must not fetch anything on mount");
     });
     vi.stubGlobal("fetch", spy);
     await mount(<MarketingLanding />);
