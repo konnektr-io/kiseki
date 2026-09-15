@@ -83,6 +83,12 @@ matching a known place) and then issues the calls in the canonical order,
 ending with a re-GET summary: counts plus which days still have NO blocks.
 A plan that would 422 is rejected before the first write.
 
+A roadbook's practicalities go in `practical.blocks` — one
+`{title, body (markdown)}` per heading the roadbook itself uses ("Driving
+times", "Money & tipping", "Water & health", …), in reading order; they render
+under their own headings in the app and the booklet. Keep `practical.notes` for
+prose that needs no heading (it stays a single blob).
+
 Images — the pipeline the agent can actually run (no token ever hits a shell):
 
     python scripts/api_write.py upload ./tokyo.jpg --trip-id <trip_id>
@@ -220,7 +226,7 @@ def _read_body(args) -> bytes | None:
 #                              duration?, from?, to?, mode?, location?, …}]}],
 #     "sections":  [{title, days?: [first,last], locationRefs?: [name],
 #                    blocks?: [...]}],
-#     "practical": {todos[], links[], notes, contacts[]},
+#     "practical": {todos[], links[], notes, blocks[] (=[{title, body}]), contacts[]},
 #     "crew":      [{name, role?, note?, contact?}]
 #   }
 #
@@ -251,7 +257,7 @@ BLOCK_STATUS = {"planned", "booked", "done"}
 STAGES = {"idea", "options", "shortlist", "planned", "booked", "live", "archive"}
 CREW_ROLES = {"owner", "editor", "viewer", "follower"}
 PLAN_KEYS = {"scalars", "locations", "features", "days", "sections", "practical", "crew"}
-PRACTICAL_KEYS = {"todos", "links", "notes", "contacts"}
+PRACTICAL_KEYS = {"todos", "links", "notes", "blocks", "contacts"}
 #: Block fields the API accepts (BlockFields + kind/container handled here).
 BLOCK_FIELDS = {
     "kind", "title", "time", "description", "links", "cost", "currency",

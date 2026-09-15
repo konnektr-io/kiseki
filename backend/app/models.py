@@ -234,12 +234,27 @@ class Person(BaseModel):
     claimed: bool = Field(default=False, description="VIEW-ONLY (not stored): whether the twin behind this crew entry is a claimed User (True) or an unclaimed placeholder Person (False). Set by graph_to_trip from the twin's $model; stripped by trip_to_graph (it is the model kind, not a property). Drives the Crew page's invite affordance.")
 
 
+class PracticalBlock(BaseModel):
+    """One titled practicalities section (issue #254) — the roadbook's own
+    practical headings ("Driving times", "Money & tipping", "Water & health")
+    as a heading plus a markdown body, instead of one free-form prose blob.
+
+    List position is the render order; the title is the visible heading. This
+    is a *value object* on the Trip twin (like `Practical` itself), not a twin
+    of its own: the blocks are a small ordered list of prose, not content the
+    map, the crew or the edges need to reference."""
+
+    title: str = Field(..., description="Short heading, e.g. 'Driving times' or 'Money & tipping'.")
+    body: str = Field(..., description="Markdown body under that heading (lists welcome — a driving-time table is fine as markdown).")
+
+
 class Practical(BaseModel):
-    """Trip-wide practical info: todos, links, notes, contacts."""
+    """Trip-wide practical info: todos, links, blocks, notes, contacts."""
 
     todos: list[TodoItem] = Field(default_factory=list, description="Pre-trip / during-trip checklist.")
     links: list[Link] = Field(default_factory=list, description="Useful external links (docs, bookings).")
-    notes: Optional[str] = Field(default=None, description="Free-form practical notes (markdown).")
+    notes: Optional[str] = Field(default=None, description="Free-form practical notes (markdown) — the single-blob back-compat field, kept for trips that predate #254 (and for prose that needs no heading).")
+    blocks: list[PracticalBlock] = Field(default_factory=list, description="Titled practicalities sections (#254), rendered under their own headings in the app and the booklet, in list order.")
     contacts: list[Contact] = Field(default_factory=list, description="At-a-glance contacts.")
     tricount: Optional["TricountConfig"] = Field(default=None, description="Optional TriCount expense-sharing integration (issue #111). Holds the registry's public key only — Tricount credentials live in app secrets, never in the graph.")
 

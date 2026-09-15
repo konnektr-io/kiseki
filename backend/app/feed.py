@@ -96,8 +96,10 @@ MEDIA_PROPS = ("items", "images")
 
 #: How many item rows one trip may contribute, and how many thumbnails a row
 #: carries. The row IS the point (#199): a follower reads the photos in the
-#: FEED, so three inline pictures beat a link to them.
-ITEMS_PER_TRIP = 3
+#: FEED, so inline pictures beat a link to them. Six rows, not three (#253):
+#: the newest writes on a real trip are routinely the last cosmetic edits, so a
+#: three-row cap showed a 15-day trip as three one-line labels.
+ITEMS_PER_TRIP = 6
 THUMBS_PER_ITEM = 3
 
 #: How many trips the feed walks for item rows — my own and followed alike.
@@ -148,21 +150,40 @@ def _stamp(twin: dict, prop: str | None = None) -> tuple[str | None, str | None]
     return meta.get("$lastUpdateTime"), meta.get("$lastUpdatedBy")
 
 
+def _media_ref(value: Any) -> str | None:
+    """The media reference inside one ``images`` / ``items`` entry, if any.
+
+    ``images`` (a card strip) holds bare filenames. ``items`` is the array the
+    ``gallery`` and ``todo`` kinds SHARE, and since #247 a gallery photo is
+    stored as ``{"url": <name>}`` — the one object shape the graph's DTDL
+    ``items`` schema accepts. Reading only ``str`` values there (#253) made
+    every gallery photo invisible. A todo's ``{"label", "done"}`` has no
+    ``url`` and is not a picture.
+    """
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        url = value.get("url")
+        return url if isinstance(url, str) and url else None
+    return None
+
+
 def _photos(twin: dict, trip_id: str) -> list[str]:
     """Every picture on the block as a renderable URL, in model order.
 
     Bare filenames (the data model) become ``/media/<trip_id>/<file>`` through
     the same canonicalizer the trip document uses, so the feed inherits its
-    traversal guard instead of inventing a second media path. Non-media values —
-    a todo's ``[{label, done}]``, a custom block's HTML — are simply not
-    pictures and drop out.
+    traversal guard instead of inventing a second media path. An entry that is
+    not a trip media reference — a todo item, a custom block's HTML, an external
+    hotlink — is not a picture and drops out.
     """
     out: list[str] = []
     for prop in MEDIA_PROPS:
         for value in twin.get(prop) or []:
-            if not isinstance(value, str) or not value:
+            file = _media_ref(value)
+            if not file:
                 continue
-            url = canonicalize_media(value, trip_id)
+            url = canonicalize_media(file, trip_id)
             if url.startswith("/media/") and url not in out:
                 out.append(url)
     return out
@@ -179,9 +200,17 @@ def items_of_trip(
     """What changed ON a trip's days, newest write first, at most ``cap`` rows.
 
     One row per block write, so a gallery of four photos is ONE row ("4 photos
-    added") with its thumbnails inline and never four rows. A block whose own
-    stamp is newer than its pictures is a content row instead ("description
-    updated") and claims no photos — the row says what actually moved.
+    added") with its thumbnails inline and never four rows. **A block with
+    pictures always shows them** (#253): gating the thumbnails on the photo
+    stamp meant that placing photos and then editing the prose — the most
+    ordinary sequence of writes — degraded the row to a bare "updated" with
+    nothing to look at, which is the one thing the feed exists to show. The
+    label stays honest instead, naming what else moved after the photos
+    ("6 photos · description updated").
+
+    Photo rows also get the slots first (``_select_rows``): the newest writes on
+    a real trip are routinely cosmetic edits, and a photoless row may not evict
+    the pictures.
 
     Every row also carries the BLOCK's own ``title`` (``blockTitle``): a day is
     typically several blocks, so "updated" without the block's name cannot be
@@ -205,10 +234,27 @@ def items_of_trip(
                 reverse=True,
             )
             media_at, media_by = media[0] if media else (None, None)
-            if photos and media_at and (not at or media_at >= at):
-                label = f"{len(photos)} photo{'s' if len(photos) != 1 else ''} added"
+            if photos:
+                # PICTURES WIN (#253). The row shows the block's pictures
+                # whatever moved most recently; only the wording changes.
+                label = f"{len(photos)} photo{'s' if len(photos) != 1 else ''}"
+                if media_at and (not at or media_at >= at):
+                    label += " added"
+                    row_at, row_by = media_at, media_by or by
+                else:
+                    # The block's own write is the newest one here, so it is
+                    # when the row happened — it carries the photos AND the
+                    # edit. The photos are already in the label, so name what
+                    # else moved (never "4 photos · photos updated").
+                    rest = {
+                        prop: stamp
+                        for prop, stamp in (block.get("$metadata") or {}).items()
+                        if prop not in MEDIA_PROPS
+                    }
+                    changed = changed_properties(rest, cap=1)
+                    label += f" · {changed[0]} updated" if changed else " · updated"
+                    row_at, row_by = at, by
                 thumbs = photos[:THUMBS_PER_ITEM]
-                row_at, row_by = media_at, media_by or by
             else:
                 changed = changed_properties(block.get("$metadata") or {}, cap=1)
                 label = f"{changed[0]} updated" if changed else "updated"
@@ -229,9 +275,38 @@ def items_of_trip(
                 "href": f"/t/{trip_id}/day/{day_index}",
             })
     # Newest first; the day's own order breaks ties, so a page is stable.
+    return _select_rows(rows, cap)
+
+
+def _newest_first(rows: list[dict]) -> list[dict]:
+    """Sort a row list newest write first, in place, and return it.
+
+    ``at`` is an ISO-8601 UTC string, so a plain string sort is a time sort; the
+    day's own order breaks ties, so a page is stable.
+    """
     rows.sort(key=lambda row: (row["dayIndex"], row["label"]))
     rows.sort(key=lambda row: row["at"] or "", reverse=True)
-    return rows[:cap]
+    return rows
+
+
+def _select_rows(rows: list[dict], cap: int) -> list[dict]:
+    """The ``cap`` rows a trip contributes: photo rows first, then the newest rest.
+
+    Ranking by time alone let the newest writes — on a real trip, mostly
+    cosmetic edits with no pictures — consume every slot, so a trip with ten
+    photos rendered as three one-line labels (#253). A photoless row therefore
+    never evicts a photo row: the pictures take their slots first and the
+    remainder goes to the newest non-photo rows, so a genuine content write
+    under the cap is still reported.
+
+    The result is newest-first — the photos win the SLOTS, not the ordering.
+    """
+    ordered = _newest_first(rows)
+    photo_rows = [row for row in ordered if row["thumbs"]]
+    rest = [row for row in ordered if not row["thumbs"]]
+    keep = photo_rows[:cap]
+    keep.extend(rest[: cap - len(keep)])
+    return _newest_first(keep)
 
 
 def _item_entries(graph: Any, trips: list[dict], limit: int = ITEMS_TRIPS) -> list[dict]:

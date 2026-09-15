@@ -16,7 +16,7 @@ Trip
 ├── days[]             the itinerary
 │   └── blocks[]       typed content: stay, drive, activity, meal, note, photo …
 ├── features[]         editorial cards for the overview
-├── practical          checklist + contacts + notes (+ TriCount connection)
+├── practical          checklist + contacts + titled blocks + notes (+ TriCount connection)
 └── crew               people and their roles, in order
 ```
 
@@ -43,6 +43,16 @@ the fields it needs, and the same block drives its card, its map marker and its 
 A `Location` is a named place with `lat`/`lng` (plus optional `placeId`, address, opening hours,
 website, phone, rating and a rights-clean `photo` + credit). Blocks and days reference locations
 instead of re-typing coordinates, which is why a coordinate is fixed in exactly one place.
+
+### Practicalities
+
+`practical` carries the trip's reference material: the checklist (`todos`), external `links`,
+`contacts`, free-form `notes`, and `blocks[]` — titled sections (`{title, body}`, body is markdown)
+that render under **their own headings** in the app and in the booklet, in list order.
+
+A roadbook's practicalities ("Driving times", "Money & tipping", "Water & health") belong in
+`blocks`, one section each, instead of being flattened into a single prose string. `notes` stays as
+the single-blob field, so a trip written before `blocks` existed renders exactly as it did.
 
 ### Themes
 

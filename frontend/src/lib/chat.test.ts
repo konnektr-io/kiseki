@@ -3,6 +3,7 @@ import type { UIMessage } from "ai";
 
 import {
   chatContextKey,
+  composeUserMessage,
   findTripIds,
   loadThreadId,
   loadTranscript,
@@ -11,6 +12,7 @@ import {
   messageToText,
   saveTranscript,
   toBackendMessage,
+  type UploadedChatFile,
 } from "./chat";
 
 /* The chat wire client: the outbound message mapping (UIMessage → backend
@@ -55,7 +57,13 @@ describe("toBackendMessage (UIMessage → relay shape)", () => {
     expect(toBackendMessage(message)).toEqual({
       role: "user",
       content: [
-        { type: "text", text: "What is this?" },
+        {
+          type: "text",
+          // The handle line rides along with the image_url part: the agent's
+          // own view of an image part loses the URL (issue #252), so it gets a
+          // resolvable `name @ url` reference for every attachment.
+          text: "What is this?\n\nfile: abc123.jpg @ /media/t1/abc123.jpg",
+        },
         {
           type: "image_url",
           image_url: { url: "/media/t1/abc123.jpg" },
@@ -65,7 +73,7 @@ describe("toBackendMessage (UIMessage → relay shape)", () => {
     });
   });
 
-  it("sends non-image files as a text link the agent fetches", () => {
+  it("sends a document as a compact handle, never a markdown link (issue #252)", () => {
     const message: UIMessage = {
       id: "u3",
       role: "user",
@@ -73,14 +81,66 @@ describe("toBackendMessage (UIMessage → relay shape)", () => {
         {
           type: "file",
           mediaType: "application/pdf",
-          filename: " itinerary.pdf",
-          url: "/media/t1/def456.pdf",
+          filename: "Roadbook II- RAES.pdf",
+          url: "/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf",
         },
       ],
     };
     const backend = toBackendMessage(message);
     expect(typeof backend.content).toBe("string");
-    expect(backend.content).toContain("/media/t1/def456.pdf");
+    expect(backend.content).toBe(
+      "file: Roadbook II- RAES.pdf @ /inbox/f00c480ad41b70bd53b14d6644bf5300.pdf",
+    );
+    // No markdown link: the agent no longer has to parse a URL out of prose
+    // that the user also sees.
+    expect(String(backend.content)).not.toContain("](");
+  });
+});
+
+describe("composeUserMessage (issue #252: attachments are parts, not prose)", () => {
+  const pdf: UploadedChatFile = {
+    url: "/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf",
+    name: "Roadbook II- RAES.pdf",
+    mediaType: "application/pdf",
+    isImage: false,
+    size: 2_411_724,
+  };
+  const photo: UploadedChatFile = {
+    url: "/media/t1/abc123.jpg",
+    name: "IMG_2812.jpg",
+    mediaType: "image/jpeg",
+    isImage: true,
+    size: 1_048_576,
+  };
+
+  it("sends the user's own words as the message text", () => {
+    const composed = composeUserMessage("  See attached roadbook.  ", [pdf]);
+    expect(composed.text).toBe("See attached roadbook.");
+    // The internal storage path never enters the text the bubble renders.
+    expect(composed.text).not.toContain("/inbox/");
+  });
+
+  it("carries every attachment as a file part with its byte size", () => {
+    expect(composeUserMessage("Here you go", [pdf, photo]).files).toEqual([
+      {
+        type: "file",
+        mediaType: "application/pdf",
+        url: "/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf",
+        filename: "Roadbook II- RAES.pdf",
+        size: 2_411_724,
+      },
+      {
+        type: "file",
+        mediaType: "image/jpeg",
+        url: "/media/t1/abc123.jpg",
+        filename: "IMG_2812.jpg",
+        size: 1_048_576,
+      },
+    ]);
+  });
+
+  it("keeps a plain message plain", () => {
+    expect(composeUserMessage("Hi", [])).toEqual({ text: "Hi", files: [] });
   });
 });
 

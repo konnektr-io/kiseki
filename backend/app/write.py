@@ -44,6 +44,7 @@ from .models import (
     FeatureCard,
     Link,
     Practical,
+    PracticalBlock,
     Role,
     Stage,
     Stat,
@@ -130,6 +131,7 @@ class PracticalPut(_Strict):
     todos: list[TodoItem] = Field(default_factory=list)
     links: list[Link] = Field(default_factory=list)
     notes: Optional[str] = None
+    blocks: list[PracticalBlock] = Field(default_factory=list)
     contacts: list[Contact] = Field(default_factory=list)
 
 
