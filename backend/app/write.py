@@ -177,6 +177,32 @@ class TodoAdd(_Strict):
     links: list[Link] = Field(default_factory=list)
 
 
+class PracticalBlockAdd(_Strict):
+    """POST /api/trips/{id}/practical/blocks body (#273).
+
+    ``index`` is the insert position in the block list (default: append). List
+    position IS the render order (#254), so inserting is how a heading lands
+    where the roadbook puts it — there is deliberately no `order` to send, and
+    no whole-section body to rebuild.
+    """
+
+    title: str
+    body: str
+    index: Optional[int] = None
+
+
+class PracticalBlockPatch(_Strict):
+    """PUT /api/trips/{id}/practical/blocks/{index} body (#273).
+
+    Patch semantics, like day/section blocks: only the fields sent are written,
+    so editing a body cannot silently drop a title. At least one field is
+    required — an empty body is a 422, never a no-op write.
+    """
+
+    title: Optional[str] = None
+    body: Optional[str] = None
+
+
 class BlockFields(_Strict):
     """Editable block fields shared across kinds (id/kind/order excluded)."""
 
@@ -1062,6 +1088,93 @@ def add_todo(trip_dtid: str, actor: dict, body: TodoAdd) -> Trip:
         label=body.label, done=body.done, when=body.when, links=body.links
     ).model_dump(exclude_none=True)
     ops = [{"op": "add", "path": "/practical/todos/-", "value": item}]
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    return _rebuild(client, trip_dtid)
+
+
+def _practical_blocks(trip: Trip) -> list[PracticalBlock]:
+    return trip.practical.blocks
+
+
+def _practical_block_add_op(trip_twin: dict, value: dict, index: int | None) -> dict:
+    """The ONE RFC 6902 op that appends/inserts a practical block (#273).
+
+    Scoped to the blocks array — or, on a section that has never had one, to
+    creating exactly that key. Nothing else about ``practical`` rides in the
+    request, which is what makes the per-block verbs clobber-free: a
+    concurrent todo/link/contact edit cannot be lost, because no op touches
+    those keys (the whole-object PUT was authoritative for all five).
+
+    An explicit ``index`` is the insert position; out of range is a 422, never
+    a silently-ignored append (a caller who asked for position 3 and got the
+    last slot instead has no way to notice).
+    """
+    practical = trip_twin.get("practical")
+    stored_blocks = practical.get("blocks") if isinstance(practical, dict) else None
+    if isinstance(stored_blocks, list):
+        if index is None:
+            return {"op": "add", "path": "/practical/blocks/-", "value": value}
+        if not 0 <= index <= len(stored_blocks):
+            raise WriteError(422, f"No insert position {index} in {len(stored_blocks)} practical blocks")
+        return {"op": "add", "path": f"/practical/blocks/{index}", "value": value}
+    # No stored array yet: position 0 (or append, which is the same thing) is
+    # the only position there is, so create the array rather than patching
+    # into a path that does not exist.
+    if index not in (None, 0):
+        raise WriteError(422, f"No insert position {index} in 0 practical blocks")
+    if isinstance(practical, dict):
+        return {"op": "add", "path": "/practical/blocks", "value": [value]}
+    return {"op": "add", "path": "/practical", "value": {"blocks": [value]}}
+
+
+def add_practical_block(trip_dtid: str, actor: dict, body: PracticalBlockAdd) -> Trip:
+    """Add ONE titled practicality block (#273).
+
+    The smallest useful practical edit: a roadbook heading plus its body, in
+    one call — no trip GET, no section rebuild, no verifying GET, and no
+    silent-clobber window over the rest of the section.
+    """
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    item = PracticalBlock(title=body.title, body=body.body)
+    ops = [_practical_block_add_op(trip_twin, item.model_dump(), body.index)]
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    return _rebuild(client, trip_dtid)
+
+
+def update_practical_block(
+    trip_dtid: str, actor: dict, index: int, body: PracticalBlockPatch
+) -> Trip:
+    """Edit ONE practical block in place (#273) — patch semantics: only the
+    fields sent are written, and every other block keeps its position."""
+    fields = body.model_dump(exclude_unset=True, exclude_none=True)
+    if not fields:
+        raise WriteError(422, "Nothing to update — send title and/or body")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    blocks = _practical_blocks(_trip_of(graph))
+    if not 0 <= index < len(blocks):
+        raise WriteError(404, f"No practical block at index {index}")
+    patched = blocks[index].model_copy(update=fields)
+    ops = [{"op": "replace", "path": f"/practical/blocks/{index}", "value": patched.model_dump()}]
+    ops += _scalar_ops(trip_twin, [("updated", _today())])
+    client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
+    return _rebuild(client, trip_dtid)
+
+
+def delete_practical_block(trip_dtid: str, actor: dict, index: int) -> Trip:
+    """Delete ONE practical block (#273); the remaining blocks keep their order."""
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    trip_twin = _trip_twin(graph, trip_dtid)
+    blocks = _practical_blocks(_trip_of(graph))
+    if not 0 <= index < len(blocks):
+        raise WriteError(404, f"No practical block at index {index}")
+    ops = [{"op": "remove", "path": f"/practical/blocks/{index}"}]
     ops += _scalar_ops(trip_twin, [("updated", _today())])
     client.update_twin_props(trip_dtid, trip_dtid, ops, x_user_id=actor["sub"])
     return _rebuild(client, trip_dtid)

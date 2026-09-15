@@ -37,6 +37,9 @@ Companion pieces:
 | `PUT` | `/api/trips/{trip_id}/practical` | `PracticalPut` | — |
 | `POST` | `/api/trips/{trip_id}/practical/todos` | `TodoAdd` | — |
 | `POST` | `/api/trips/{trip_id}/practical/todos/{index}/toggle` | `TodoToggle` | — |
+| `POST` | `/api/trips/{trip_id}/practical/blocks` | `PracticalBlockAdd` | — |
+| `PUT` | `/api/trips/{trip_id}/practical/blocks/{index}` | `PracticalBlockPatch` | — |
+| `DELETE` | `/api/trips/{trip_id}/practical/blocks/{index}` | `—` | — |
 | `POST` | `/api/trips/{trip_id}/days` | `DayCreate` | Insert a new day at ``index`` (default = append). |
 | `PUT` | `/api/trips/{trip_id}/days/{day_id}` | `DayPatch` | — |
 | `DELETE` | `/api/trips/{trip_id}/days/{day_id}` | `—` | Remove a day (the complement of POST /days). |
@@ -113,6 +116,29 @@ Whole-object replace of the trip's practical value object.
 | Field | Type | Required | Default |
 | --- | --- | --- | --- |
 | `done` | bool | yes | — |
+
+### `PracticalBlockAdd`
+
+POST /api/trips/{id}/practical/blocks body (#273).
+
+*extra=forbid — an unknown field is a 422*
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `title` | str | yes | — |
+| `body` | str | yes | — |
+| `index` | int | NoneType | no | `null` |
+
+### `PracticalBlockPatch`
+
+PUT /api/trips/{id}/practical/blocks/{index} body (#273).
+
+*extra=forbid — an unknown field is a 422*
+
+| Field | Type | Required | Default |
+| --- | --- | --- | --- |
+| `title` | str | NoneType | no | `null` |
+| `body` | str | NoneType | no | `null` |
 
 ### `DayCreate`
 

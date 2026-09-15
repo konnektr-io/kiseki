@@ -54,6 +54,11 @@ A roadbook's practicalities ("Driving times", "Money & tipping", "Water & health
 `blocks`, one section each, instead of being flattened into a single prose string. `notes` stays as
 the single-blob field, so a trip written before `blocks` existed renders exactly as it did.
 
+Each block is addressed by its **list position** (`/api/trips/{trip_id}/practical/blocks/{index}`),
+the way the checklist already is — practical blocks are value objects, not twins, so they carry no
+`id` and no `order`: list position *is* the render order. One block per call, so a practical edit
+never rewrites the rest of the section (the checklist, the links, the contacts).
+
 ### Themes
 
 Per-trip theme presets (palette, typography, album feel) live in the document as a `theme` field —

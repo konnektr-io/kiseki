@@ -39,7 +39,8 @@ invalid token is ignored rather than rejected (public means public).
 
 ## Content
 
-All content writes are `editor+`. Read everything through `GET /api/trips/{trip_id}`.
+All content writes are `editor+`. Read everything through `GET /api/trips/{trip_id}` — or
+`GET /api/trips/{trip_id}/practical` when only the practicalities matter.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -56,8 +57,12 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `PUT` / `PATCH` | `/api/trips/{trip_id}/locations` | Replace / patch the location registry |
 | `PUT` / `PATCH` | `/api/trips/{trip_id}/features` | Overview cards |
 | `PUT` | `/api/trips/{trip_id}/practical` | Practicals (checklist, links, contacts, notes, titled blocks) |
+| `GET` | `/api/trips/{trip_id}/practical` | The practicals on their own, without the rest of the trip document (`todos` and `tricount` stay crew-only) |
 | `POST` | `/api/trips/{trip_id}/practical/todos` | Add a checklist item |
 | `POST` | `/api/trips/{trip_id}/practical/todos/{index}/toggle` | Toggle a checklist item |
+| `POST` | `/api/trips/{trip_id}/practical/blocks` | Add ONE titled practicality block — `{"title", "body"}`, optional `index` inserts at that position (default: append) |
+| `PUT` | `/api/trips/{trip_id}/practical/blocks/{index}` | Edit ONE practical block — patch semantics: only `title` and/or `body` sent are written |
+| `DELETE` | `/api/trips/{trip_id}/practical/blocks/{index}` | Delete ONE practical block |
 
 ## Crew and people
 
