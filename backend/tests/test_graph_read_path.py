@@ -392,3 +392,116 @@ def test_store_corrupt_bundle_propagates(monkeypatch) -> None:
         store_mod.get_trip_by_id("trip-1")
     assert not isinstance(excinfo.value, __import__(
         "app.graph.convert", fromlist=["GraphNotFound"]).GraphNotFound)
+
+
+# ---------------------------------------------------------- the feed read (#264)
+# The feed reads two hops of a trip, not the whole component — that scope is a
+# COST contract (a cold feed was ~6.5 s, ~99.7% of it full-component walks) and
+# no FakeGraph-based test can see either the query shape or the row assembly.
+
+FEED_TRIP = "11111111-1111-4111-8111-111111111111"
+FEED_DAY = "22222222-2222-4222-8222-222222222222"
+FEED_BLOCK = "33333333-3333-4333-8333-333333333333"
+
+
+def test_feed_queries_are_scoped_and_parameterized() -> None:
+    """`$dtid` bound, two fixed hops, and no `[*0..MAX_HOPS]` expansion.
+
+    The variable-length match is what made the feed's read scale with the whole
+    trip's content; the feed only ever walks ``trip -> day -> block``.
+    """
+    for query in (graph_client_mod._Q_FEED_NODES, graph_client_mod._Q_FEED_RELS):
+        assert "$dtid" in query
+        assert "{dtid}" not in query  # parameterized, never interpolated
+        assert "[*0.." not in query  # not a component-wide expansion
+        assert "hasDay" in query and "hasBlock" in query
+        for absent in ("atLocation", "hasCrew", "hasSection", "hasFeature"):
+            assert absent not in query
+
+
+def test_fetch_feed_bundle_keeps_days_and_blocks_and_drops_null_rows(monkeypatch) -> None:
+    """Two scoped queries, one narrow bundle, no invented edge ids.
+
+    A day with no blocks makes the OPTIONAL MATCH collect a null-padded row;
+    that is not an edge. And because ``_rel_from_list`` reads position 3 as
+    ``$relationshipId``, the feed's edge rows must leave it null rather than
+    letting the edge ``index`` be read back as an id.
+    """
+    import app.graph.client as client_mod
+
+    captured = []
+
+    class _FakeClient:
+        def query_twins(self, query, query_parameters=None, **kwargs):
+            captured.append((query, query_parameters))
+            if query is client_mod._Q_FEED_NODES:
+                return iter([{
+                    "days": [{"$dtId": FEED_DAY, "title": "Arrival"}],
+                    "blocks": [{"$dtId": FEED_BLOCK, "title": "Camp", "kind": "note"}],
+                }])
+            return iter([{
+                "day_edges": [[FEED_TRIP, "hasDay", FEED_DAY, None, None, 0]],
+                "block_edges": [
+                    [FEED_DAY, "hasBlock", FEED_BLOCK, None, None, 2],
+                    # OPTIONAL MATCH miss: no block, so no edge.
+                    [FEED_DAY, "hasBlock", None, None, None, None],
+                ],
+            }])
+
+    monkeypatch.setenv("KISEKI_GRAPH_URL", "http://localhost:8080")
+    monkeypatch.setenv("KISEKI_GRAPH_TOKEN", "test-token")
+    monkeypatch.setattr(client_mod.GraphReadClient, "is_enabled", lambda self: True)
+    c = client_mod.GraphReadClient()
+    c._client = _FakeClient()
+
+    bundle = c.fetch_feed_bundle(FEED_TRIP)
+
+    assert len(captured) == 2, "the feed read is two scoped queries"
+    assert all(params == {"dtid": FEED_TRIP} for _, params in captured)
+    assert bundle["$dtId"] == FEED_TRIP
+    # The trip twin, sections, locations and crew are all absent by design.
+    assert [t["$dtId"] for t in bundle["twins"]] == [FEED_DAY, FEED_BLOCK]
+    assert [(r["$sourceId"], r["$relationshipName"], r["$targetId"], r["index"])
+            for r in bundle["relationships"]] == [
+        (FEED_TRIP, "hasDay", FEED_DAY, 0),
+        (FEED_DAY, "hasBlock", FEED_BLOCK, 2),
+    ]
+    assert all("$relationshipId" not in r for r in bundle["relationships"])
+
+
+def test_feed_bundle_is_cached_and_retired_by_a_trip_write(monkeypatch) -> None:
+    """The 60 s cache, and — critically — its retirement on a write.
+
+    Every write retires the trip-keyed read cache so the caller's re-read sees
+    its own edit. The feed's narrow read is trip-keyed and holds exactly the
+    properties a write changes (a block's title and ``$metadata``), so if it is
+    missing from that set an edited trip's feed stays stale for a full TTL.
+    """
+    import app.graph.client as client_mod
+
+    calls: list[str] = []
+
+    class _FakeClient:
+        def query_twins(self, query, query_parameters=None, **kwargs):
+            calls.append(query)
+            if query is client_mod._Q_FEED_NODES:
+                return iter([{"days": [], "blocks": []}])
+            return iter([{"day_edges": [], "block_edges": []}])
+
+    monkeypatch.setenv("KISEKI_GRAPH_URL", "http://localhost:8080")
+    monkeypatch.setenv("KISEKI_GRAPH_TOKEN", "test-token")
+    monkeypatch.setattr(client_mod.GraphReadClient, "is_enabled", lambda self: True)
+    c = client_mod.GraphReadClient()
+    c._client = _FakeClient()
+
+    assert client_mod._GRAPH_TTL["fetch_feed_bundle"] == 60.0
+    assert "fetch_feed_bundle" in client_mod._CREW_CACHED_READS
+
+    c.fetch_feed_bundle(FEED_TRIP)
+    warm = len(calls)
+    c.fetch_feed_bundle(FEED_TRIP)
+    assert len(calls) == warm, "the second read must come from the 60 s cache"
+
+    client_mod._invalidate_graph_cache(trip_dtid=FEED_TRIP)
+    c.fetch_feed_bundle(FEED_TRIP)
+    assert len(calls) == warm + 2, "a write must force the feed read to re-query"

@@ -10,8 +10,9 @@ Kept deliberately thin:
 * **Nothing here caches.** The reads are ``@_cached_graph`` (60 s) in the
   client, so a layer here would be a second staleness rule to reason about.
 * **Item rows read the RAW bundle.** ``convert.py`` strips ``$metadata`` (the
-  write times), so a followed trip's items are built from the twins
-  ``fetch_graph`` returns — the same cached copy the trip page reads.
+  write times), so items are built from the twins ``fetch_feed_bundle`` returns
+  — the feed-shaped slice (days + their blocks, #264), which carries the same
+  raw properties without walking the whole trip.
 * **``at`` stays the raw ISO-8601 string** the graph returned. Ordering is
   string comparison, and ISO-8601 UTC sorts lexicographically = chronologically,
   so a timestamp is never re-derived through a parsed datetime of a different
@@ -316,12 +317,16 @@ def _item_entries(graph: Any, trips: list[dict], limit: int = ITEMS_TRIPS) -> li
     decided (stream 1 is mine; stream 2 passed #196's listing rule), so nothing
     private is walked here. Walking my OWN trips matters as much as followed
     ones: a bare "Updated" on my trip row says nothing, while its blocks name
-    what actually moved. The bundle read reuses the 60 s cached copy the trip
-    page pays for; a trip whose bundle is missing or unreadable contributes no
-    items and keeps its trip row, because the optional half of the feed must
-    never be able to empty it.
+    what actually moved.
+
+    The read is ``fetch_feed_bundle`` (#264), the feed-shaped slice — days and
+    their blocks — NOT ``fetch_graph``: the full-trip bundle was ~0.9-2.9 s per
+    trip and ~99.7% of this route's cold cost, paid to read two hops of it. A
+    trip whose bundle is missing or unreadable contributes no items and keeps
+    its trip row, because the optional half of the feed must never be able to
+    empty it.
     """
-    fetch = getattr(graph, "fetch_graph", None)
+    fetch = getattr(graph, "fetch_feed_bundle", None)
     if fetch is None or not trips:
         return []
     out: list[dict] = []

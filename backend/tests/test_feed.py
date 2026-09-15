@@ -434,9 +434,15 @@ def test_feed_clamps_the_limit_at_the_route(client, rsa_keypair, monkeypatch) ->
 
 # ------------------------------------------------------- item-level entries
 # Task 7 of the plan: a followed trip contributes its ITEMS, not just the trip
-# row. The write times come from the RAW bundle ``fetch_graph`` returns (it is
-# the same cached copy the trip page reads); ``convert.py`` strips ``$metadata``,
-# which is exactly why the feed must not go through the converted model.
+# row. The write times come from the RAW bundle the graph client returns —
+# ``fetch_feed_bundle`` since #264, the feed-shaped slice (days + their blocks);
+# ``convert.py`` strips ``$metadata``, which is exactly why the feed must not go
+# through the converted model.
+#
+# The fixtures below are NARROW on purpose: no Trip twin, no section/location/
+# crew twins, only the two edge sets the feed orders by. A fixture carrying the
+# whole component would keep passing even if the feed went back to rebuilding
+# from more than it is given (the trip twin is only ever read from ``$dtId``).
 
 
 def _raw_twin(dtid, model, *, at=None, by=None, props_meta=None, **props):
@@ -461,12 +467,15 @@ NOTE_ID = "block-note-0000-0000-000000000002"
 
 
 def _day_bundle(*, gallery_at="2026-09-14T11:45:00Z", note_at="2026-09-14T10:00:00Z"):
-    """A followed trip's raw bundle: one day, a 4-photo gallery, one note block."""
+    """A followed trip's raw bundle as ``fetch_feed_bundle`` returns it: one day,
+    a 4-photo gallery, one note block, and the two edge sets — nothing else.
+
+    The Trip twin is deliberately absent (the feed reads the trip id off
+    ``$dtId``, never off a twin), so this fixture is the real narrow shape.
+    """
     return {
         "$dtId": TRIP_B,
         "twins": [
-            _raw_twin(TRIP_B, "Trip", at="2026-09-14T11:00:00Z", by=OTHER,
-                      title="Burning Man 2027"),
             _raw_twin(DAY_ID, "Day", at="2026-09-14T11:30:00Z", by=OTHER,
                       date="2027-02-15", title="Arrival"),
             _raw_twin(
@@ -635,9 +644,11 @@ def test_items_of_trip_counts_photo_objects_not_just_bare_filenames() -> None:
 class _ItemsGraph:
     """A read client whose bundles are known, and which records what it walked.
 
-    Only the two ordered reads + ``fetch_graph`` are defined: if feed.py ever
-    reaches for anything else, this double fails loudly instead of silently
-    passing.
+    Only the two ordered reads + ``fetch_feed_bundle`` are defined, and
+    ``fetch_graph`` is an explicit FAILURE (#264). The feed reads the narrow
+    feed-shaped slice, and the whole-component walk is precisely what made this
+    route cost seconds — so if feed.py ever reaches for it again, this double
+    fails loudly instead of silently passing and quietly re-introducing the bug.
     """
 
     def __init__(self, followed: list[dict], bundles: dict[str, dict], *, raising=False,
@@ -654,11 +665,17 @@ class _ItemsGraph:
     def trips_of_followed(self, sub, limit=30):
         return list(self._followed)
 
-    def fetch_graph(self, trip_dtid: str):
+    def fetch_feed_bundle(self, trip_dtid: str):
         self.walked.append(trip_dtid)
         if self._raising:
             raise RuntimeError("graph down")
         return self._bundles.get(trip_dtid)
+
+    def fetch_graph(self, trip_dtid: str):
+        raise AssertionError(
+            f"the feed walked the FULL trip bundle of {trip_dtid} (#264) — "
+            "it must read fetch_feed_bundle"
+        )
 
 
 def _followed_row(dtid, *, at, discoverable=True, title="A Trip"):
@@ -816,3 +833,84 @@ def test_ordered_trip_row_reads_the_actor_alias() -> None:
     )
     assert row["by"] == "auth0|me"
     assert row["at"] == "2026-09-14T10:00:00Z"
+
+
+# -------------------------------------------------------- the read cost (#264)
+# A cold feed cost ~6.5 s, ~99.7% of it three sequential walks of the WHOLE
+# component — 66 twins / 95 edges to read 16 days and their 32 blocks on the
+# Canada trip — because ``_item_entries`` rebuilt items from ``fetch_graph``.
+# The two tests below are the two halves of the fix's contract: the narrow slice
+# loses no row, and nothing goes back to paying for the whole bundle.
+
+
+def _load_full_bundle(slug: str) -> dict:
+    """A real trip's whole component, as ``fetch_graph`` returns it."""
+    import json
+    from pathlib import Path
+
+    p = Path(__file__).resolve().parent.parent / "data" / "mocks" / f"{slug}.graph.anon.json"
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _narrow_slice(bundle: dict) -> dict:
+    """``bundle`` reduced to what ``fetch_feed_bundle`` returns — the two hops.
+
+    Built from the FULL bundle with the same edges the query matches, so this is
+    a real subset of real trip data, not a hand-made fixture that happens to fit.
+    """
+    root = str(bundle.get("$dtId"))
+    rels = list(bundle.get("relationships") or [])
+    day_edges = [r for r in rels
+                 if r.get("$sourceId") == root and r.get("$relationshipName") == "hasDay"]
+    day_ids = {r.get("$targetId") for r in day_edges}
+    block_edges = [r for r in rels
+                   if r.get("$sourceId") in day_ids
+                   and r.get("$relationshipName") == "hasBlock"]
+    keep = day_ids | {r.get("$targetId") for r in block_edges}
+    return {
+        "$dtId": root,
+        "twins": [t for t in bundle.get("twins") or [] if t.get("$dtId") in keep],
+        "relationships": day_edges + block_edges,
+    }
+
+
+@pytest.mark.parametrize("slug", ["canada-2027", "chile-peru-2027", "japan-campervan-2028"])
+def test_items_of_trip_is_identical_on_the_feed_shaped_slice(slug: str) -> None:
+    """The correctness gate for #264: the narrow slice loses no row.
+
+    Identical ``items_of_trip`` output is the entire claim of the optimisation —
+    only the cost may change. The slice drops the trip twin, sections,
+    locations, crew and features; if ``items_of_trip`` ever comes to need
+    anything the feed query does not fetch, the rows diverge HERE rather than on
+    a deployed feed that still looks plausible.
+    """
+    full = _load_full_bundle(slug)
+    narrow = _narrow_slice(full)
+    assert len(narrow["twins"]) < len(full["twins"])  # it really is a subset
+
+    def rows_of(bundle: dict) -> list[dict]:
+        return feed_mod.items_of_trip(
+            bundle, trip_id=str(full["$dtId"]), trip_title="T", source="followed-user",
+        )
+
+    rows = rows_of(narrow)
+    assert rows, "the fixture must produce rows or this proves nothing"
+    assert rows == rows_of(full)
+
+
+def test_build_feed_never_reads_the_full_trip_bundle() -> None:
+    """The regression net for the cost: ``fetch_graph`` raises in the double.
+
+    The rows are IDENTICAL whichever read the feed uses — which is exactly why
+    the cost went unnoticed — so no assertion about output can catch a slide
+    back to the whole-component walk. ``_ItemsGraph.fetch_graph`` therefore
+    raises: reaching for the full bundle fails loudly instead of quietly
+    re-introducing a multi-second cold feed.
+    """
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z")],
+                        {TRIP_B: _day_bundle()})
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert graph.walked == [TRIP_B]
+    assert [i["label"] for i in feed["items"] if i["kind"] == "item"] == [
+        "4 photos added", "description updated",
+    ]
