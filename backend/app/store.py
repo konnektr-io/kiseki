@@ -154,6 +154,40 @@ def list_trips_for_user(user_dtid: str) -> list[dict]:
     ]
 
 
+def list_showcase_trips(limit: int | None = None) -> list[dict]:
+    """Public, discoverable trips for the signed-out landing (#249).
+
+    Graph-backed, with the anonymised fixtures standing in when no graph is
+    wired — and they are held to the SAME rule, so a dev box never shows a
+    listing production would hide. Cards only: no crew edge, no token, no
+    ``practical`` is read on this path, because an anonymous caller reaches it.
+    """
+    from .graph.client import SHOWCASE_LIMIT_DEFAULT, clamp_showcase_limit
+
+    cap = clamp_showcase_limit(SHOWCASE_LIMIT_DEFAULT if limit is None else limit)
+    client = get_graph_client()
+    if client is not None:
+        return client.list_showcase_trips(cap)
+    out: list[dict] = []
+    for trip in _anon_trips():
+        if trip.visibility != "public" or not trip.discoverable:
+            continue
+        out.append(
+            {
+                "dtId": trip.id,
+                "title": trip.title,
+                "subtitle": trip.subtitle,
+                "stage": trip.stage,
+                "startDate": trip.startDate,
+                "endDate": trip.endDate,
+                "cover": trip.cover,
+            }
+        )
+        if len(out) >= cap:
+            break
+    return out
+
+
 def get_trip_role_for_user(
     trip_dtid: str,
     user_dtid: str,

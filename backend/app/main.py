@@ -96,7 +96,7 @@ from .write import (
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, search_place, photo_by_name as place_photo_bytes
-from .graph.client import GraphWriteError
+from .graph.client import SHOWCASE_LIMIT_DEFAULT, GraphWriteError, clamp_showcase_limit
 from .graph.convert import GraphNotFound
 from .media import (
     RangeNotSatisfiable,
@@ -126,6 +126,7 @@ from .pdf import render_booklet_pdf
 from .tricount import TriCountError, fetch_snapshot
 from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_graph_client
+from .store import list_showcase_trips
 from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
@@ -404,6 +405,33 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
     trips = list_trips_for_user(resolve_actor_sub(user))
     for row in trips:
         if isinstance(row, dict) and row.get("dtId"):
+            resolve_media_urls(row, row["dtId"])
+    return {"trips": trips}
+
+
+@app.get("/api/showcase")
+def showcase(
+    response: Response,
+    limit: int = Query(default=SHOWCASE_LIMIT_DEFAULT),
+) -> dict:
+    """Public, discoverable trips for the signed-out landing page (#249).
+
+    Anonymous on purpose, and not a new disclosure: ``/api/trips/{id}`` already
+    serves a ``visibility == "public"`` trip to a caller with no token, so
+    listing them tells a visitor nothing they could not open one at a time. The
+    rule is deliberately narrower than that route — public AND ``discoverable``
+    (#196), the owner's listing opt-in — so a public trip that opted out of
+    being listed stays off the front door, and a private one never matches.
+
+    Cards, not documents: no crew, no claim/follow token, no ``practical``.
+    Cached for 60 s, because the front door is the one surface hit by people who
+    will never sign in and a trip published a minute ago appearing a minute
+    later is fine.
+    """
+    response.headers["Cache-Control"] = "public, max-age=60"
+    trips = list_showcase_trips(limit)
+    for row in trips:
+        if row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
     return {"trips": trips}
 

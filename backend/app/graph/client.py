@@ -72,7 +72,9 @@ _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
               # the ordered reads above. Its OWN key: it no longer shares
               # ``fetch_graph``'s entry, so the trip page still pays for the
               # full bundle while the feed stops paying for it entirely.
-              "fetch_feed_bundle": 60.0}
+              "fetch_feed_bundle": 60.0,
+              # The landing showcase (#249): same 60 s as the reads above.
+              "list_showcase_trips": 60.0}
 
 
 def _cached_graph(method: Callable) -> Callable:
@@ -175,6 +177,25 @@ MAX_HOPS = 3
 # graph to order the whole store before slicing.
 FEED_LIMIT_MAX = 50
 FEED_LIMIT_DEFAULT = 30
+
+# The signed-out landing's showcase read (#249). Small on purpose: the front
+# door shows a shelf of trips, not an archive, and every extra card is bytes
+# an anonymous visitor pays for.
+SHOWCASE_LIMIT_MAX = 24
+SHOWCASE_LIMIT_DEFAULT = 8
+
+
+def clamp_showcase_limit(limit: Any) -> int:
+    """A validated int in ``1..SHOWCASE_LIMIT_MAX`` for the landing showcase.
+
+    Same contract as ``clamp_feed_limit``: unparseable input falls back to the
+    default instead of failing a read the front door depends on.
+    """
+    try:
+        n = int(limit)
+    except (TypeError, ValueError):
+        return SHOWCASE_LIMIT_DEFAULT
+    return max(1, min(n, SHOWCASE_LIMIT_MAX))
 
 
 def clamp_feed_limit(limit: Any) -> int:
@@ -335,6 +356,29 @@ WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT [t.`$dtId`, t.visibility, t.title, t.subtitle, t.stage,
                          t.startDate, t.endDate, t.slug, t.cover, crew.role,
                          t.discoverable]) AS trips
+"""
+
+# The signed-out front door (#249): PUBLIC, DISCOVERABLE trips as cards —
+# {dtId, title, subtitle, stage, dates, cover} and nothing else. Anonymous
+# callers reach this, so it must never be a weaker gate than the one-trip read
+# it advertises: ``/api/trips/{id}`` already serves a ``public`` trip to a
+# caller with no token, so LISTING public trips discloses nothing that opening
+# one does not. The rule is narrower than that route all the same —
+# ``discoverable`` is the owner's listing opt-in (#196) — so a public trip that
+# opted out of being listed stays off the landing page. ``private`` never
+# matches.
+#
+# Rows, not ``collect()``: a bare LIMIT lets the planner stop after N matches
+# instead of materialising every trip in the store first. No ORDER BY, because
+# ordering is a display concern and the caller sorts.
+_Q_SHOWCASE_TRIPS = """
+MATCH (t:Twin)
+WHERE t.visibility = 'public' AND t.discoverable = true
+RETURN t.`$dtId` AS dtId, t.visibility AS visibility,
+       t.discoverable AS discoverable, t.title AS title,
+       t.subtitle AS subtitle, t.stage AS stage, t.startDate AS startDate,
+       t.endDate AS endDate, t.cover AS cover
+LIMIT {limit}
 """
 
 # ACL: the role a user has on ONE trip (issue #5). Trip-scoped via `$dtid`;
@@ -600,6 +644,51 @@ class GraphReadClient:
             if summary.get("$model") == TRIP_MODEL or summary.get("dtId"):
                 out.append(summary)
         return out
+
+    @_cached_graph
+    def list_showcase_trips(self, limit: int = SHOWCASE_LIMIT_DEFAULT) -> list[dict]:
+        """Public, discoverable trips as cards — the signed-out landing (#249).
+
+        Anonymous-safe by construction: the query reads card fields only, so
+        this path cannot leak crew, a claim/follow token or ``practical`` that
+        the one-trip public read hides. The rule is re-checked in Python rather
+        than trusted to the WHERE clause — a listing that outlives its filter is
+        a privacy bug — and that check is strict, so an absent flag never reads
+        as "listable".
+
+        Cached for 60 s like the other hot reads: the front door is hit by
+        people who never sign in, and a trip published a minute ago appearing a
+        minute later is fine. Returns ``[]`` when the graph is disabled or the
+        read fails — the landing collapses the band instead of showing a broken
+        shelf, and a marketing page must never 500 because the graph is down.
+        """
+        if not self.is_enabled():
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_SHOWCASE_TRIPS.format(limit=clamp_showcase_limit(limit))
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — a landing read must not 5xx
+            print(f"[kiseki] graph showcase read failed: {exc}")
+            return []
+        cards: list[dict] = []
+        for row in rows:
+            card = self._trip_card_from_row(row)
+            if card is not None:
+                cards.append(card)
+        if not cards:
+            # Not an error, but this is the failure that hides: a query AGE
+            # accepts and that matches nothing looks exactly like a landing
+            # page that was designed without examples. Say so once per cache
+            # window (60 s) — with the row count, so a filter typo and an empty
+            # graph are distinguishable from the log alone.
+            print(
+                "[kiseki] showcase read listed no trips "
+                f"({len(rows)} row(s) matched, limit={clamp_showcase_limit(limit)})"
+            )
+        return cards
 
     @_cached_graph
     def trips_for_user_ordered(
@@ -1199,6 +1288,34 @@ class GraphReadClient:
             if v is not None:
                 out[k] = v
         return out
+
+    @staticmethod
+    def _trip_card_from_row(row: Any) -> Optional[dict]:
+        """One ``_Q_SHOWCASE_TRIPS`` row to a landing card, or ``None``.
+
+        ``None`` means "not listable": no dtId, not public, or not
+        ``discoverable``. The graph filters those already, but this is the
+        second lock on a privacy boundary, so it compares strictly — a missing
+        property must never read as True — and returns an allowlisted dict
+        rather than the row, so a future column added to the query cannot ride
+        along to an anonymous caller by accident.
+        """
+        if not isinstance(row, dict):
+            return None
+        dt_id = row.get("dtId")
+        if not dt_id:
+            return None
+        if row.get("visibility") != "public" or row.get("discoverable") is not True:
+            return None
+        return {
+            "dtId": dt_id,
+            "title": row.get("title") or "",
+            "subtitle": row.get("subtitle") or "",
+            "stage": row.get("stage") or "",
+            "startDate": row.get("startDate"),
+            "endDate": row.get("endDate"),
+            "cover": row.get("cover"),
+        }
 
     @staticmethod
     def _trip_summary_from_list(row: Any) -> dict:

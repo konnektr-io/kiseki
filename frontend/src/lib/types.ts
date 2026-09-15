@@ -177,6 +177,25 @@ export interface Person {
   claimed?: boolean;
 }
 
+/**
+ * One card in the signed-out landing page's examples band (#249).
+ *
+ * Read from `GET /api/showcase`, which answers anonymously with public AND
+ * discoverable trips and returns cards, not documents — there is deliberately
+ * no crew, no claim/follow token and no `practical` on this type, because the
+ * server never sends them. A card is a link: the trip itself lives at
+ * `/t/<dtId>`.
+ */
+export interface ShowcaseTrip {
+  dtId: string;
+  title: string;
+  subtitle: string;
+  stage: Stage;
+  startDate?: string | null;
+  endDate?: string | null;
+  cover?: string | null;
+}
+
 export interface TripSummary {
   dtId: string;
   visibility: Visibility;
