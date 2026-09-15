@@ -31,10 +31,10 @@ URL, so they are passed as Cypher query parameters (``$dtid`` /
 ``query_parameters`` to the server's ``/query`` endpoint, where the Cypher
 engine binds them safely. (A defensive regex still validates each value; it is
 defense-in-depth, not what makes the query safe.) The one value that is NOT a
-parameter is ``MAX_HOPS`` in the variable-length-edge bound ``[*0..MAX_HOPS]``:
-Apache AGE rejects a parameter there (range bounds must be compile-time
-literals), and ``MAX_HOPS`` is a constant non-negative int, so it is inlined as
-a literal.
+parameter is ``MAX_HOPS``: it decides how many hops the trip's closure read
+walks, and Apache AGE rejects a parameter in a range bound (they must be
+compile-time literals), so the hop chain is generated from it in Python and the
+constant is inlined as a literal — see ``_hop_chain`` (#267).
 
 If the SDK is missing or the endpoint is absent, ``is_enabled()`` is False and
 the backend serves the local ``trip.json`` files directly (local-dev / CI mode).
@@ -288,19 +288,50 @@ def _ordered_trip_row(row: dict) -> dict:
         out["discoverable"] = bool(row.get("discoverable"))
     return out
 
+# The trip's connected component is read as an EXPLICIT hop chain, never as
+# `-[*0..MAX_HOPS]->`. The variable-length form expands every PATH of length
+# <= MAX_HOPS, and path multiplicity is what costs: on a 102-twin trip the
+# closure holds 140 distinct edges but 1,665 path instances (`hasBlock` alone:
+# 996 instances for ~51 blocks, because a block is reachable by more than one
+# route). That expansion was 1,331 ms of a 1,461 ms read; chaining one-hop
+# OPTIONAL MATCHes computes the identical node set in 32 ms (issue #267).
+# Both queries are GENERATED from MAX_HOPS so the bound cannot drift out of
+# them — a hardcoded chain would silently under-fetch if MAX_HOPS rose.
+def _hop_chain(max_hops: int) -> str:
+    """One ``OPTIONAL MATCH`` per hop: ``(trip)-->(h1)-->(h2)-->…``."""
+    lines: list[str] = []
+    prev = "trip"
+    for i in range(1, max_hops + 1):
+        lines.append(f"OPTIONAL MATCH ({prev})-->(h{i}:Twin)")
+        prev = f"h{i}"
+    return "\n".join(lines)
+
+
+def _closure_expr(max_hops: int) -> str:
+    """``collect(DISTINCT trip) + collect(DISTINCT h1) + …`` — hop 0 included."""
+    parts = ["collect(DISTINCT trip)"]
+    parts += [f"collect(DISTINCT h{i})" for i in range(1, max_hops + 1)]
+    return " + ".join(parts)
+
+
+_HOP_CHAIN = _hop_chain(MAX_HOPS)
+_CLOSURE = _closure_expr(MAX_HOPS)
+
 # All twins in the trip's connected component (trip itself + every node
 # reachable along outgoing edges). A single query, scoped to the trip — not the
-# whole store. `$dtid` is a bound parameter; MAX_HOPS is a literal range bound.
-# NOTE: the path is deliberately NOT bound (`MATCH path = ...`): AGE would
-# materialize every path object between every reachable pair, which dominates
-# the query cost. Binding only the end node lets the planner work with the
-# reachability closure instead.
+# whole store. `$dtid` is a bound parameter.
+# The UNWIND + `collect(DISTINCT n)` round trip is what preserves the old
+# `collect(DISTINCT n)` contract: a node can sit at more than one hop, so the
+# concatenated lists carry duplicates, and `fetch_graph` builds its twin list
+# positionally — un-deduped input would surface as repeated twins.
 _Q_NODES = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
-MATCH (trip)-[*0..{max_hops}]->(n:Twin)
+{chain}
+WITH {closure} AS closure
+UNWIND closure AS n
 RETURN collect(DISTINCT n) AS nodes
-""".format(max_hops=MAX_HOPS)
+""".format(chain=_HOP_CHAIN, closure=_CLOSURE)
 
 # All relationships whose source is in the trip's component. Each edge comes back
 # as a plain LIST — for SHAPE reasons, not because AGE refuses `$` keys (it
@@ -314,13 +345,25 @@ RETURN collect(DISTINCT n) AS nodes
 # drive relationship writes (issue #89: every relationship read back as
 # id-less). `displayName` (#196) is the crew's own trip-relative name on
 # hasCrew edges; shorter rows (pre-#196 edges) simply omit it.
+# The closure is UNWOUND and matched per node rather than re-expanded: that is
+# what stopped the hop-3 closure being paid for twice (issue #267). The
+# `WHERE b IS NOT NULL` is load-bearing, not defensive: `OPTIONAL MATCH` after
+# an UNWIND emits `[leaf, null, null, …]` for every node with no outgoing edge,
+# and `_rel_from_list` maps such a row straight into the bundle as
+# `{"$sourceId": <leaf>, "$relationshipName": None, …}` — 217 rows instead of
+# the correct 140. A mandatory `MATCH` cannot be used to drop them instead:
+# AGE rejects re-matching the UNWIND'd variable ("42712: variable 'a' already
+# exists").
 _Q_RELS = """
 MATCH (trip:Twin)
 WHERE trip.`$dtId` = $dtid
-MATCH (trip)-[*0..{max_hops}]->(a:Twin)
-MATCH (a)-[r]->(b:Twin)
+{chain}
+WITH {closure} AS closure
+UNWIND closure AS a
+OPTIONAL MATCH (a)-[r]->(b:Twin)
+WITH a, r, b WHERE b IS NOT NULL
 RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.role, r.index, r.note, r.displayName]) AS rels
-""".format(max_hops=MAX_HOPS)
+""".format(chain=_HOP_CHAIN, closure=_CLOSURE)
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
 # Returns a flat LIST per trip [dtId, visibility, title, subtitle, stage, startDate,
