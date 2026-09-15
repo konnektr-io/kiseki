@@ -31,8 +31,17 @@ vi.mock("@ai-sdk/react", () => ({
   useChat: () => chatMock.current,
 }));
 
-import { ChatAuthError } from "../lib/chat";
-import { ChatPanel, shouldOfferReconnect } from "./chat-panel";
+/* The panel reads its whole chat surface from `useTripChat` — messages, status,
+ * error, `recovery` and whether a turn is still attachable (`resumable`, which
+ * the real hook derives from the transport's stored turn, issue #256). The
+ * actual module's helpers stay real. */
+vi.mock("../lib/chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/chat")>();
+  return { ...actual, useTripChat: () => chatMock.current };
+});
+
+import { ChatAuthError, type TurnRecovery } from "../lib/chat";
+import { ChatPanel, chatOutage } from "./chat-panel";
 
 function assistantText(text: string): UIMessage {
   return { id: "a1", role: "assistant", parts: [{ type: "text", text }] };
@@ -70,9 +79,15 @@ function stubChat(overrides: Record<string, unknown> = {}) {
     messages: [],
     status: "ready",
     error: undefined,
+    // The turn side of the surface (#256): no recovery reported yet, and a
+    // relay that still holds this thread's turn — the tests that need the
+    // other side pass `recovery: "unavailable"` / `resumable: false`.
+    recovery: "idle" as TurnRecovery,
+    resumable: true,
     sendMessage: async () => {},
     stop: async () => {},
     regenerate: async () => {},
+    resumeTurn: async () => false,
     ...overrides,
   };
 }
@@ -336,11 +351,24 @@ describe("ChatPanel messages", () => {
 });
 
 describe("ChatPanel errors", () => {
-  it("shows the error banner with retry on turn failure", () => {
-    stubChat({ status: "error", error: new Error("boom") });
+  /* #256: the one case the panel still offers a re-send. It has to be a turn
+   * that produced NOTHING (no answer to show) and that the relay no longer
+   * holds — and the button says what it costs. The old generic banner's "Try
+   * again" re-ran a FINISHED turn from a one-word button, which is what the
+   * reporter hit after 30 minutes away. */
+  it("offers an explicit re-run when a turn produced nothing", () => {
+    stubChat({
+      messages: [userText("Plan my Hokkaido trip")],
+      status: "error",
+      error: new Error("boom"),
+      recovery: "unavailable",
+      resumable: false,
+    });
     const html = renderPanel("trip-1");
-    expect(html).toContain("boom");
-    expect(html).toContain("Try again");
+    expect(html).toContain("Run again");
+    expect(html).toContain("starts over");
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("Reconnect");
   });
 
   it("routes a 401 to the sign-in-again CTA, not a retry", () => {
@@ -351,6 +379,7 @@ describe("ChatPanel errors", () => {
     const html = renderPanel("trip-1");
     expect(html).toContain("Sign in again");
     expect(html).not.toContain("Try again");
+    expect(html).not.toContain("Run again");
   });
 
   it("shows no-access on a 403", () => {
@@ -374,10 +403,15 @@ describe("ChatPanel reconnect (issue #152: dropped turn)", () => {
           parts: [{ type: "text", text: "partial…" }],
         },
       ],
+      // the relay is still holding the cut turn, so attaching can finish it
+      // (#217) — and the button only attaches (#256)
+      resumable: true,
     });
     const html = renderPanel("trip-1");
     expect(html).toContain("Connection lost");
     expect(html).toContain("Reconnect");
+    expect(html).not.toContain("Run again");
+    expect(html).not.toContain("Try again");
   });
 
   it("shows no banner on a clean finish", () => {
@@ -392,80 +426,152 @@ describe("ChatPanel reconnect (issue #152: dropped turn)", () => {
     expect(html).not.toContain("Connection lost");
     expect(html).not.toContain("Reconnect");
   });
+
+  /* Production thread `a68fb220` (#256): the turn was answered, the app came
+   * back 40 minutes later, the relay's sweep had dropped the turn and the
+   * transport error that followed was stale. The reporter got two warnings —
+   * and clicking one of them re-ran the agent. A settled turn with an answer on
+   * screen owes the user NOTHING: this is the transcript a manual refresh
+   * renders. */
+  it("shows nothing for a settled turn the relay has forgotten (#256)", () => {
+    stubChat({
+      messages: [
+        userText("Create a trip"),
+        assistantText("Here is your Hokkaido trip."),
+      ],
+      status: "error",
+      error: new Error("network error"),
+      recovery: "unavailable",
+      resumable: false,
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Here is your Hokkaido trip.");
+    expect(html).not.toContain("Connection lost");
+    expect(html).not.toContain("Reconnect");
+    expect(html).not.toContain("Run again");
+    expect(html).not.toContain("Try again");
+  });
+
+  it("offers a re-run when a forgotten turn left no answer either (#256)", () => {
+    stubChat({
+      messages: [userText("Create a trip")],
+      status: "error",
+      error: new Error("network error"),
+      recovery: "unavailable",
+      resumable: false,
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Run again");
+    expect(html).not.toContain("Try again");
+    expect(html).not.toContain("Reconnect");
+  });
 });
 
-/* When to offer Reconnect (#152 → #217). The banner is the LAST resort: a turn
- * the relay cut that nothing is picking up. A thread that is re-attaching to
- * its turn (or already has) must not offer it — the resume is happening. */
-describe("shouldOfferReconnect (#217)", () => {
+/* What the panel owes the user about the turn its transcript ends on
+ * (#152 → #217 → #256): say nothing, offer an attach, or offer an explicit
+ * re-run. The decision moved out of the banner because "there is nothing left
+ * to attach to" used to mean "re-send the transcript and re-run the agent" —
+ * silently, from a button that promised the opposite. */
+describe("chatOutage (#256)", () => {
   const cut: UIMessage = {
     id: "a1",
     role: "assistant",
     metadata: { interrupted: true },
     parts: [{ type: "text", text: "partial…" }],
   };
-  const base = { working: false, error: undefined, recovery: "idle" as const };
+  const empty: UIMessage = {
+    id: "a1",
+    role: "assistant",
+    parts: [],
+  } as unknown as UIMessage;
+  const base = {
+    working: false,
+    error: undefined,
+    recovery: "idle" as TurnRecovery,
+    resumable: true,
+  };
 
-  it("offers it for a cut turn nothing is resuming", () => {
-    expect(shouldOfferReconnect({ ...base, lastMessage: cut })).toBe(true);
-    expect(shouldOfferReconnect({ ...base, lastMessage: userText("hi") })).toBe(
-      false,
-    );
+  it("offers Reconnect while the relay still holds the turn", () => {
+    expect(chatOutage({ ...base, lastMessage: cut })).toBe("reconnect");
+    // a transport error on a partially streamed answer is the same case (#237)
     expect(
-      shouldOfferReconnect({ ...base, lastMessage: assistantText("done") }),
-    ).toBe(false);
-    expect(shouldOfferReconnect({ ...base, lastMessage: null })).toBe(false);
+      chatOutage({
+        ...base,
+        error: new Error("network error"),
+        lastMessage: assistantText("The Daisetsuzan stretch…"),
+      }),
+    ).toBe("reconnect");
+    // ...and so is a user tail whose turn the relay can still be asked about
+    expect(
+      chatOutage({
+        ...base,
+        error: new Error("network error"),
+        lastMessage: userText("hi"),
+      }),
+    ).toBe("reconnect");
+  });
+
+  it("says nothing once the turn is gone but an answer is on screen", () => {
+    const gone = { ...base, resumable: false, recovery: "unavailable" as const };
+    expect(chatOutage({ ...gone, lastMessage: assistantText("done") })).toBe(
+      "none",
+    );
+    // the stale error must not resurrect the banner (#256)
+    expect(
+      chatOutage({
+        ...gone,
+        error: new Error("network error"),
+        lastMessage: assistantText("done"),
+      }),
+    ).toBe("none");
+    // a CUT turn still has its text: that is the transcript a refresh renders
+    expect(chatOutage({ ...gone, lastMessage: cut })).toBe("none");
+    expect(chatOutage({ ...gone, lastMessage: null })).toBe("none");
+    // no failure, nothing to report
+    expect(chatOutage({ ...base, lastMessage: userText("hi") })).toBe("none");
+  });
+
+  it("offers an explicit re-run when nothing arrived at all", () => {
+    const gone = { ...base, resumable: false, recovery: "unavailable" as const };
+    expect(
+      chatOutage({
+        ...gone,
+        error: new Error("network error"),
+        lastMessage: userText("hi"),
+      }),
+    ).toBe("rerun");
+    // a turn that never produced a word, cut before anything arrived
+    expect(chatOutage({ ...gone, error: new Error("net"), lastMessage: empty })).toBe(
+      "rerun",
+    );
+    expect(chatOutage({ ...gone, lastMessage: cut })).toBe("none");
   });
 
   it("stays out of the way while the turn is being attached to", () => {
     expect(
-      shouldOfferReconnect({ ...base, recovery: "checking", lastMessage: cut }),
-    ).toBe(false);
+      chatOutage({ ...base, recovery: "checking", lastMessage: cut }),
+    ).toBe("none");
     // the attach rebuilt the turn — the affordance has nothing left to do
     expect(
-      shouldOfferReconnect({ ...base, recovery: "attached", lastMessage: cut }),
-    ).toBe(false);
-    // ...but once the relay holds nothing, re-sending is the user's call
-    expect(
-      shouldOfferReconnect({
-        ...base,
-        recovery: "unavailable",
-        lastMessage: cut,
-      }),
-    ).toBe(true);
+      chatOutage({ ...base, recovery: "attached", lastMessage: cut }),
+    ).toBe("none");
   });
 
   it("never competes with live work", () => {
-    expect(shouldOfferReconnect({ ...base, working: true, lastMessage: cut })).toBe(
-      false,
+    expect(chatOutage({ ...base, working: true, lastMessage: cut })).toBe(
+      "none",
     );
   });
 
-  /** #238: on a phone the socket dies with the screen, so no terminal chunk —
-   *  and therefore no `interrupted` flag — ever arrives. The error the
-   *  transport surfaces IS the drop, and the turn is still worth attaching to
-   *  (the relay kept working), so the button must be there. */
-  it("offers it for a turn the transport errored on (#237)", () => {
-    const partial: UIMessage = {
-      id: "a2",
-      role: "assistant",
-      parts: [{ type: "text", text: "The Daisetsuzan stretch…" }],
-    };
-    const dropped = { ...base, error: new Error("network error") };
-    expect(shouldOfferReconnect({ ...dropped, lastMessage: partial })).toBe(true);
-    // a user tail is not a dropped answer — there is nothing to attach to
+  it("leaves session failures to the auth banner", () => {
     expect(
-      shouldOfferReconnect({ ...dropped, lastMessage: userText("hi") }),
-    ).toBe(false);
-    expect(shouldOfferReconnect({ ...dropped, lastMessage: null })).toBe(false);
-    // ...and an attach that is already running still owns the turn
-    expect(
-      shouldOfferReconnect({
-        ...dropped,
-        recovery: "checking",
-        lastMessage: partial,
+      chatOutage({
+        ...base,
+        resumable: false,
+        error: new ChatAuthError(401, "gone"),
+        lastMessage: userText("hi"),
       }),
-    ).toBe(false);
+    ).toBe("none");
   });
 });
 
