@@ -31,7 +31,14 @@ class AppErrorBoundary extends Component<
   }
 }
 
-createRoot(document.getElementById("root")!).render(
+const container = document.getElementById("root")!;
+// "/" is prerendered (#249, E4): `landing.html` already carries the marketing copy
+// inside this element, so it paints — and is crawlable — before this module runs.
+// React must own a container it did not render, so the prerendered children go
+// first and the app takes over; on every other route this is a no-op.
+if (container.firstChild) container.replaceChildren();
+
+createRoot(container).render(
   <StrictMode>
     <AppErrorBoundary>
       <BrowserRouter>
