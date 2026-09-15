@@ -168,3 +168,24 @@ export function humanizeDays(days: number): string {
   if (weeks === 1) return "1 week";
   return `${weeks} weeks`;
 }
+
+const MINUTE_MS = 60_000;
+
+/** "just now" / "12 min ago" / "3 h ago" / "2 d ago", then a plain date.
+ *  `now` is injectable so tests never race the wall clock. Moved here from
+ *  FeedPage when FeedRow was lifted into components/ (#249): the row renders
+ *  outside the page now, and a component importing time formatting from a page
+ *  would be the dependency pointing the wrong way. */
+export function relativeTime(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const minutes = Math.floor((now - t) / MINUTE_MS);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} d ago`;
+  return formatDate(iso.slice(0, 10));
+}

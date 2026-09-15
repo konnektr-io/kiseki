@@ -19,36 +19,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Play } from "lucide-react";
 import { TripAccessError, fetchFeed } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
-import { formatDate } from "../lib/dates";
-import { isVideoSrc, posterFor } from "../lib/media";
 import { usePageTitle } from "../lib/seo";
 import type { FeedDoc, FeedEntry } from "../lib/types";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
-import { Badge, Button, Card } from "../components/ui";
+import { FeedRow } from "../components/FeedRow";
+import { Button, Card } from "../components/ui";
 
 /* ---------------- pure helpers (kept exported for the tests) ---------------- */
 
-const MINUTE = 60_000;
-
-/** "just now" / "12 min ago" / "3 h ago" / "2 d ago", then a plain date.
- *  `now` is injectable so tests never race the wall clock. */
-export function relativeTime(iso: string | null | undefined, now: number = Date.now()): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const minutes = Math.floor((now - t) / MINUTE);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days} d ago`;
-  return formatDate(iso.slice(0, 10));
-}
+// `relativeTime` lives in `lib/dates` since FeedRow was lifted into components/
+// (#249); re-exported here so existing imports keep working.
+export { relativeTime } from "../lib/dates";
 
 export interface FeedGroup {
   tripId: string;
@@ -71,13 +55,6 @@ export function groupByTrip(entries: FeedEntry[]): FeedGroup[] {
     group.entries.push(entry);
   }
   return groups;
-}
-
-/** The properties the graph stamped, in words: "Updated title, cover photo". */
-function changesLabel(entry: FeedEntry): string {
-  const changes = entry.changes ?? [];
-  if (!changes.length) return "Updated";
-  return `Updated ${changes.join(", ")}`;
 }
 
 /* ---------------- states ---------------- */
@@ -128,83 +105,6 @@ function FailurePanel({
         )}
       </div>
     </Card>
-  );
-}
-
-function Thumbs({ thumbs }: { thumbs: string[] }) {
-  if (!thumbs.length) return null;
-  return (
-    <div className="mt-3 flex flex-wrap gap-2">
-      {thumbs.map((src) => {
-        // A clip's thumbnail is its poster frame with a play badge (#250): a
-        // <video> here would be a heavier preview that does not scrub, and this
-        // row shows what was written, not a player.
-        if (isVideoSrc(src)) {
-          const poster = posterFor(src);
-          return (
-            <span
-              key={src}
-              className="relative block h-20 w-20 overflow-hidden rounded-lg border border-border bg-black/85"
-            >
-              {poster && (
-                <img
-                  src={poster}
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  className="h-20 w-20 object-cover opacity-80"
-                />
-              )}
-              <span className="absolute inset-0 grid place-items-center">
-                <Play className="h-6 w-6 text-white" aria-hidden="true" />
-              </span>
-              <span className="sr-only">Video</span>
-            </span>
-          );
-        }
-        return (
-          <img
-            key={src}
-            src={src}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="h-20 w-20 rounded-lg border border-border object-cover"
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function FeedRow({ entry, now }: { entry: FeedEntry; now: number }) {
-  const isItem = entry.kind === "item";
-  return (
-    <li className="px-4 py-3">
-      <Link to={entry.href} className="block focus-visible:focus-ring">
-        {isItem && (
-          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {entry.dayTitle || `Day ${(entry.dayIndex ?? 0) + 1}`}
-          </span>
-        )}
-        <p className="text-sm">
-          <span className="font-medium">
-            {isItem ? entry.blockTitle || entry.label : changesLabel(entry)}
-          </span>
-          <span className="text-muted-foreground">
-            {isItem && entry.blockTitle ? ` · ${entry.label}` : ""}
-            {" · "}
-            {relativeTime(entry.at, now)}
-          </span>
-          {entry.source === "my-trip" && (
-            <Badge variant="outline" className="ml-2 align-middle">
-              You
-            </Badge>
-          )}
-        </p>
-        {isItem && <Thumbs thumbs={entry.thumbs ?? []} />}
-      </Link>
-    </li>
   );
 }
 

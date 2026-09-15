@@ -1,27 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, MapPin, MessageCircle, Ticket } from "lucide-react";
+import { ArrowRight, MapPin, MessageCircle, Search, Ticket } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
-import { Button, StageBadge } from "../components/ui";
-import { fetchMyTrips } from "../lib/api";
-import { formatDate } from "../lib/dates";
+import { FeedRow } from "../components/FeedRow";
+import { Button, Card, StageBadge } from "../components/ui";
+import { fetchFeed, fetchMyTrips, fetchShowcase } from "../lib/api";
+import { formatDate, tripTodayIso } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
+import { filterTrips, nextUpTrip, presentStages, upNextLabel, type TripFilter } from "../lib/home";
+import { sortShowcaseTrips } from "../lib/marketing";
 import { usePageTitle } from "../lib/seo";
 import { MarketingLanding } from "./LandingMarketing";
-import type { TripSummary } from "../lib/types";
+import type { FeedEntry, ShowcaseTrip, Stage, TripSummary } from "../lib/types";
 
 /**
- * Landing page (issue #7).
+ * Landing page (issue #7; discovery home #249 slice 2).
  *
- * - Signed in: "My trips" — a card grid of every trip the user has a crew
- *   role on (link straight to the protected /t/<id> routes).
- * - Signed out: the marketing landing (#249) — what Kiseki is, real public
- *   trips you can open, and the way in. It replaced a four-line centred hero
- *   ("Open your trip link to continue, or sign in") that told a stranger
- *   nothing about the product.
+ * - Signed out: the marketing landing (#249).
+ * - Signed in: the discovery home — four bands in a fixed order, no map yet
+ *   (slice 3 puts this on the §2.2 map canvas; the bands move as-is into the
+ *   rail/sheet furniture):
+ *
+ *   1. **Up next** — the live trip, else the soonest-starting one (`lib/home`).
+ *   2. **Your trips** — every trip you have a crew role on, furthest-along first.
+ *   3. **Following** — the newest writes on trips of people you follow (the same
+ *      `FeedRow` `/feed` renders; the home shows the first page, `/feed` keeps
+ *      the archive). Never re-sorted: the server owns feed order (#199).
+ *   4. **Discover** — public, discoverable trips as cards, minus your own.
+ *
+ * One comparator inside the trip bands (`sortShowcaseTrips`), one filter
+ * (`filterTrips`: free text + stage chips), both pure and tested. An empty band
+ * collapses to one line of copy — never an empty frame. Feed and showcase load
+ * soft: if either fails the band collapses instead of erroring the page,
+ * because a home with your trips is still a home.
  *
  * The old landing logo image is gone (it drifted from the app icon); the
  * wordmark lives in `AppHeader`'s brand, where every route gets it.
@@ -53,7 +67,21 @@ function SignInButton() {
   );
 }
 
-function TripCard({ trip }: { trip: TripSummary }) {
+/** The minimum TripCard reads: TripSummary and ShowcaseTrip both qualify.
+ *  `cover` admits `null` because the showcase shape does — a missing cover
+ *  renders the map-pin fallback either way. */
+type CardTrip = {
+  dtId: string;
+  cover?: string | null;
+  title: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  subtitle?: string | null;
+  stage: Stage;
+  role?: string;
+};
+
+function TripCard({ trip }: { trip: CardTrip }) {
   const dates =
     trip.startDate && trip.endDate
       ? `${formatDate(trip.startDate)} → ${formatDate(trip.endDate)}`
@@ -124,6 +152,36 @@ function TripGridSkeleton() {
  */
 type TripsError = { kind: "expired" } | { kind: "load"; message: string };
 
+function Band({
+  title,
+  blurb,
+  action,
+  children,
+}: {
+  title: string;
+  blurb?: string;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-label={title} className="mt-10">
+      <div className="mb-4 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="font-heading text-xl font-semibold tracking-wide">{title}</h2>
+          {blurb ? <p className="mt-0.5 text-sm text-muted-foreground">{blurb}</p> : null}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** An empty band collapses to one line — never an empty frame. */
+function Collapsed({ children }: { children: ReactNode }) {
+  return <p className="text-sm text-muted-foreground">{children}</p>;
+}
+
 function AuthenticatedLanding() {
   const {
     isLoading: authLoading,
@@ -132,6 +190,8 @@ function AuthenticatedLanding() {
     loginWithRedirect,
   } = useAuth0();
   const [trips, setTrips] = useState<TripSummary[] | null>(null);
+  const [feed, setFeed] = useState<FeedEntry[] | null>(null);
+  const [discover, setDiscover] = useState<ShowcaseTrip[] | null>(null);
   const [error, setError] = useState<TripsError | null>(null);
   // Bumped by the Retry button — the fetch effect depends on it, so a retry
   // genuinely re-runs the load (previously Retry only cleared the error and
@@ -146,22 +206,47 @@ function AuthenticatedLanding() {
   // empty state when they don't. Attachments attach to the user's inbox
   // (there is no trip yet); the agent promotes them once it creates one.
   const [chatOpen, setChatOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [stages, setStages] = useState<readonly Stage[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     if (!isAuthenticated) {
       setTrips(null);
+      setFeed(null);
+      setDiscover(null);
       setError(null);
       return;
     }
     setTrips(null);
+    setFeed(null);
+    setDiscover(null);
     setError(null);
-    getAccessTokenSilently()
-      .then((at) => fetchMyTrips(at))
-      .then((rows) => {
-        if (!cancelled) setTrips(rows);
-      })
-      .catch((e: unknown) => {
+    void (async () => {
+      try {
+        const token = await getAccessTokenSilently();
+        // Trips are the page; feed and showcase are bands. The two bands load
+        // soft (a failure collapses the band) so a hiccup in either never
+        // blanks the home.
+        const [tripsRes, feedRes, discoverRes] = await Promise.allSettled([
+          fetchMyTrips(token),
+          fetchFeed(token),
+          fetchShowcase(),
+        ]);
+        if (cancelled) return;
+        if (tripsRes.status === "rejected") {
+          const e = tripsRes.reason;
+          setError(
+            isSessionExpiredError(e)
+              ? { kind: "expired" }
+              : { kind: "load", message: e instanceof Error ? e.message : "Failed to load trips" },
+          );
+          return;
+        }
+        setTrips(tripsRes.value);
+        setFeed(feedRes.status === "fulfilled" ? feedRes.value.items : null);
+        setDiscover(discoverRes.status === "fulfilled" ? discoverRes.value : null);
+      } catch (e: unknown) {
         if (cancelled) return;
         // A stored session that can no longer be renewed is not a load
         // failure — showing "Missing Refresh Token (audience: …)" with a
@@ -172,11 +257,51 @@ function AuthenticatedLanding() {
             ? { kind: "expired" }
             : { kind: "load", message: e instanceof Error ? e.message : "Failed to load trips" },
         );
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [isAuthenticated, getAccessTokenSilently, attempt]);
+
+  const filter: TripFilter = useMemo(() => ({ q: query, stages }), [query, stages]);
+
+  const orderedTrips = useMemo(
+    () => (trips ? filterTrips(sortShowcaseTrips(trips), filter) : null),
+    [trips, filter],
+  );
+  const nextUp = useMemo(() => (trips ? nextUpTrip(trips) : null), [trips]);
+  const gridTrips = useMemo(
+    () => orderedTrips?.filter((t) => t.dtId !== nextUp?.dtId) ?? null,
+    [orderedTrips, nextUp],
+  );
+  const followed = useMemo(() => {
+    if (!feed) return null;
+    const q = query.trim().toLowerCase();
+    return feed
+      .filter((e) => e.source === "followed-user")
+      .filter(
+        (e) =>
+          !q ||
+          e.tripTitle.toLowerCase().includes(q) ||
+          (e.blockTitle ?? "").toLowerCase().includes(q) ||
+          (e.label ?? "").toLowerCase().includes(q),
+      )
+      .slice(0, 6);
+  }, [feed, query]);
+  const discoverTrips = useMemo(() => {
+    if (!discover) return null;
+    const mine = new Set((trips ?? []).map((t) => t.dtId));
+    return filterTrips(
+      sortShowcaseTrips(discover.filter((t) => !mine.has(t.dtId))),
+      filter,
+    );
+  }, [discover, trips, filter]);
+  const stageChips = useMemo(
+    () => presentStages([...(trips ?? []), ...(discover ?? [])]),
+    [trips, discover],
+  );
+  const todayIso = useMemo(() => tripTodayIso({}), []);
 
   if (authLoading) {
     return (
@@ -192,23 +317,24 @@ function AuthenticatedLanding() {
     return <MarketingLanding signIn={<SignInButton />} />;
   }
 
+  const toggleStage = (stage: Stage) =>
+    setStages((prev) => (prev.includes(stage) ? prev.filter((s) => s !== stage) : [...prev, stage]));
+
   return (
     <div className="min-h-screen">
       <AppHeader actions={<AuthButton />} />
       <main className="mx-auto max-w-5xl px-4 py-8">
-        <div className="mb-6 flex items-end justify-between gap-4">
+        <div className="mb-2 flex items-end justify-between gap-4">
           <div>
-            <h2 className="font-heading text-2xl font-semibold tracking-wide">
-              My trips
-            </h2>
+            <h2 className="font-heading text-2xl font-semibold tracking-wide">Home</h2>
             <p className="text-sm text-muted-foreground">
-              Every journey you're part of — pick one to open the booklet.
+              Your trips, the people you follow, and trips worth discovering.
             </p>
           </div>
-          {/* Landing chat launcher — top-right of the trips list (only when
-              the user has trips; the empty state gets a center button below,
-              so a brand-new user still finds the assistant). Opens the same
-              floating popup as the in-trip chat (#9 / M4 v2). */}
+          {/* Landing chat launcher — top-right of the home (only when the user
+              has trips; the empty state gets a center button below, so a
+              brand-new user still finds the assistant). Opens the same floating
+              popup as the in-trip chat (#9 / M4 v2). */}
           {trips && trips.length > 0 && (
             <Button
               variant="outline"
@@ -224,18 +350,54 @@ function AuthenticatedLanding() {
           )}
         </div>
 
+        {/* Search + stage filters sit above the bands and filter the trip bands
+            (feed rows carry no stage, so the chips skip them — the text applies). */}
+        {trips && trips.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <label className="relative min-w-52 flex-1 sm:max-w-xs">
+              <span className="sr-only">Search trips</span>
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search trips"
+                className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:focus-ring"
+              />
+            </label>
+            {stageChips.map((stage) => {
+              const active = stages.includes(stage);
+              return (
+                <button
+                  key={stage}
+                  type="button"
+                  onClick={() => toggleStage(stage)}
+                  aria-pressed={active}
+                  className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
+                    active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {stage}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {error ? (
           error.kind === "expired" ? (
             <div
               role="alert"
-              className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
+              className="mt-6 rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
             >
-              <p className="text-sm font-medium text-destructive">
-                Your session expired.
-              </p>
+              <p className="text-sm font-medium text-destructive">Your session expired.</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                Sign in again to reload your trips — this usually takes one
-                click.
+                Sign in again to reload your trips — this usually takes one click.
               </p>
               <Button
                 variant="outline"
@@ -253,11 +415,9 @@ function AuthenticatedLanding() {
           ) : (
             <div
               role="alert"
-              className="rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
+              className="mt-6 rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
             >
-              <p className="text-sm font-medium text-destructive">
-                {error.message}
-              </p>
+              <p className="text-sm font-medium text-destructive">{error.message}</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -271,13 +431,13 @@ function AuthenticatedLanding() {
         ) : trips === null ? (
           <TripGridSkeleton />
         ) : trips.length === 0 ? (
-          <div className="rounded-xl border border-border bg-card p-10 text-center">
+          <div className="mt-6 rounded-xl border border-border bg-card p-10 text-center">
             <Ticket className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
             <h3 className="font-heading text-lg font-semibold">No trips yet</h3>
             <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-              Plan your first journey with the Kiseki assistant — describe the
-              trip you have in mind and it will build the booklet for you. Or
-              ask a trip owner for their join link to hop onto an existing one.
+              Plan your first journey with the Kiseki assistant — describe the trip you have in
+              mind and it will build the booklet for you. Or ask a trip owner for their join link
+              to hop onto an existing one.
             </p>
             <Button
               onClick={() => setChatOpen(true)}
@@ -290,11 +450,90 @@ function AuthenticatedLanding() {
             </Button>
           </div>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2">
-            {trips.map((trip) => (
-              <TripCard key={trip.dtId} trip={trip} />
-            ))}
-          </div>
+          <>
+            {nextUp && !query && stages.length === 0 && (
+              <Band title="Up next" blurb={upNextLabel(nextUp, todayIso)}>
+                <div className="max-w-xl">
+                  <TripCard trip={nextUp} />
+                </div>
+              </Band>
+            )}
+
+            <Band
+              title="Your trips"
+              blurb={
+                gridTrips?.length
+                  ? "Every journey you're part of — pick one to open the booklet."
+                  : undefined
+              }
+            >
+              {gridTrips && gridTrips.length > 0 ? (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {gridTrips.map((trip) => (
+                    <TripCard key={trip.dtId} trip={trip} />
+                  ))}
+                </div>
+              ) : (
+                <Collapsed>
+                  {query || stages.length > 0
+                    ? "No trips match this search."
+                    : "Every journey you're part of will land here."}
+                </Collapsed>
+              )}
+            </Band>
+
+            <Band
+              title="Following"
+              blurb="The newest writes on trips of people you follow."
+              action={
+                <Link
+                  to="/feed"
+                  className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+                >
+                  Open the feed
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              }
+            >
+              {followed === null ? (
+                <Collapsed>Loading what the people you follow are writing…</Collapsed>
+              ) : followed.length > 0 ? (
+                <Card className="overflow-hidden">
+                  <ul className="divide-y divide-border">
+                    {followed.map((entry, i) => (
+                      <FeedRow
+                        key={`${entry.kind}-${entry.at ?? "?"}-${entry.href}-${i}`}
+                        entry={entry}
+                        now={Date.now()}
+                      />
+                    ))}
+                  </ul>
+                </Card>
+              ) : (
+                <Collapsed>
+                  Nothing here yet — follow people to see their public trips as they write them.
+                </Collapsed>
+              )}
+            </Band>
+
+            <Band title="Discover" blurb="Public trips worth a look.">
+              {discover === null ? (
+                <Collapsed>Looking for public trips…</Collapsed>
+              ) : discoverTrips && discoverTrips.length > 0 ? (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {discoverTrips.map((trip) => (
+                    <TripCard key={trip.dtId} trip={trip} />
+                  ))}
+                </div>
+              ) : (
+                <Collapsed>
+                  {query || stages.length > 0
+                    ? "No public trips match this search."
+                    : "No public trips to discover right now."}
+                </Collapsed>
+              )}
+            </Band>
+          </>
         )}
 
         {/* Landing chat popup (issue #9 / M4 v2): the same floating drawer as
