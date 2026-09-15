@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+import { FileText, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { Markdown } from "../lib/markdown";
@@ -9,6 +9,7 @@ import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
   chatContextKey,
+  composeUserMessage,
   findTripIds,
   loadThreadId,
   messageActivities,
@@ -22,35 +23,64 @@ import {
 } from "../lib/chat";
 
 /**
- * Whether the transcript should offer Reconnect — the last assistant message
- * is a turn the relay CUT, and nothing is picking it up.
+ * What the panel owes the user about the turn its transcript ends on:
+ * `"none"` (say nothing), `"reconnect"` (there is a live turn to attach to) or
+ * `"rerun"` (nothing arrived and nothing is left to attach to).
  *
- * Every exclusion matters: a turn that is being attached to is already being
- * continued (`checking`), one that WAS attached to has been rebuilt and needs
- * no affordance, and a cut transcript with no re-attach in flight is exactly
- * the case the button exists for. Kept as a predicate so the rule is readable
- * and testable on its own, apart from rendering (issue #217).
+ * Issue #256: this used to be "may I offer Reconnect?" only, and the caller
+ * turned "the relay no longer holds this turn" into `chat.regenerate()` — a
+ * SILENT re-send of the same user message that re-ran the agent for another
+ * half hour, while the banner promised nothing was sent twice. A turn the
+ * relay has forgotten cannot be recovered at all, so the decision has to cover
+ * the whole surface:
  *
- * An `error` on an assistant tail is the SAME case, not a reason to hide the
- * button (#237): the relay's cut `finish` only exists when the UPSTREAM stream
- * ends early, and a phone whose socket dies with the screen never receives a
- * terminal chunk at all. Gating on `interrupted` therefore left the one
- * scenario the affordance was built for — screen off, "network error", no way
- * back — with nothing to press.
+ * - An answer on screen means the turn SETTLED while the app was away (the
+ *   relay's TTL only bounds how long a settled turn stays ATTACHABLE). A
+ *   manual refresh renders exactly this transcript, so show nothing: no
+ *   Reconnect (there is nothing to attach to) and no Retry (the work is done).
+ * - With a stored turn key the only offer is `reconnect`, which ATTACHES
+ *   (#217) and never re-sends.
+ * - A turn that produced no answer at all, and that nothing can attach to, is
+ *   the one state an explicit "Run again" can still fix. It names what it
+ *   costs; a re-send is never a fallback.
+ *
+ * Every exclusion still matters: a turn that is being attached to is already
+ * being continued (`checking`), one that WAS attached to has been rebuilt and
+ * needs no affordance, and a cut transcript with a live turn behind it is
+ * exactly the case the Reconnect button exists for. Kept as a predicate so the
+ * rule is readable and testable on its own, apart from rendering (#217/#237).
+ *
+ * An `error` on an assistant tail is the SAME case as a cut finish, not a
+ * reason to drop the affordance (#237): the relay's cut `finish` only exists
+ * when the UPSTREAM stream ends early, and a phone whose socket dies with the
+ * screen never receives a terminal chunk at all.
  */
-export function shouldOfferReconnect(args: {
+export type ChatOutage = "none" | "reconnect" | "rerun";
+
+export function chatOutage(args: {
   working: boolean;
   error: Error | undefined;
   recovery: TurnRecovery;
+  /** Whether the transport still holds a turn key this thread can attach to. */
+  resumable: boolean;
   lastMessage: UIMessage | null;
-}): boolean {
+}): ChatOutage {
   // A turn that is still arriving is the attach path's business (see
-  // `attachLostTurn`), not the button's.
-  if (args.working) return false;
-  if (args.recovery === "checking" || args.recovery === "attached") return false;
+  // `attachLostTurn`), not a banner's.
+  if (args.working) return "none";
+  // Session failures are not turn outages — the auth banner routes those.
+  if (args.error instanceof ChatAuthError) return "none";
+  if (args.recovery === "checking" || args.recovery === "attached") return "none";
   const last = args.lastMessage;
-  if (last === null || last.role !== "assistant") return false;
-  return messageInterrupted(last) || args.error !== undefined;
+  if (last === null) return "none";
+  const cut = last.role === "assistant" && messageInterrupted(last);
+  if (args.error === undefined && !cut) return "none";
+  if (args.resumable) return "reconnect";
+  // Nothing left to attach to. An answer on screen — even a cut one — is the
+  // transcript a manual refresh renders: say nothing, and never re-send.
+  const answered =
+    last.role === "assistant" && messageToText(last).trim() !== "";
+  return answered ? "none" : "rerun";
 }
 
 /**
@@ -181,7 +211,7 @@ function ChatThread({
       }
     },
   });
-  const { messages, status, error, recovery } = chat;
+  const { messages, status, error, recovery, resumable } = chat;
   const busy = status === "submitted" || status === "streaming";
   // Re-attaching a turn this thread was left in the middle of (#217) is live
   // work from the user's point of view, even though the SDK hasn't started
@@ -211,28 +241,33 @@ function ChatThread({
       onTurnComplete?.();
     }
   }, [busy, working, recovery, error, onTurnComplete]);
-  // A dropped turn (issue #152): the relay closed the stream without the
-  // agent's terminal event, so it marked the finish `interrupted`. The turn
-  // looks "done" but the agent never finished — offer Reconnect. Since #217
-  // that ATTACHES to the turn the relay is still holding (the agent kept
-  // working while the connection was gone); re-sending the transcript stays
-  // the fallback for when there is nothing left to attach to.
+  // What the transcript owes the user about the turn it ends on (#152 → #217 →
+  // #256). The reconnect case has two sources: the relay's CUT `finish`
+  // (`interrupted`, an upstream drop) and a transport error — a phone whose
+  // socket dies with the screen never receives a terminal chunk at all. Since
+  // #217 that ATTACHES to the turn the relay is still holding (the agent kept
+  // working while the connection was gone). A turn the relay no longer holds is
+  // NOT recoverable: it settled while the app was away (show what we have) or
+  // it produced nothing (offer an explicit re-run) — never a silent re-send.
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
-  const droppedTurn = shouldOfferReconnect({
+  const outage = chatOutage({
     working,
     error,
     recovery,
+    resumable,
     lastMessage,
   });
 
   const reconnect = async () => {
-    if (!droppedTurn || busy) return;
+    if (outage !== "reconnect" || busy) return;
     if (isPostHogConfigured) posthog.capture("chat_reconnect_requested");
-    // Attach first (#217). Only when the relay no longer knows the turn —
-    // it restarted, or the turn settled while we were away — fall back to
-    // re-sending on the same threadId, which is what #152 did.
-    const attached = await chat.resumeTurn();
-    if (!attached) await chat.regenerate();
+    // Attach, and only attach (#217). Re-sending the transcript when the relay
+    // no longer knows the turn was the #152 fallback and is exactly what #256
+    // removes: it re-ran a finished turn (the agent redid ~35 minutes of work)
+    // while the banner claimed nothing was sent twice. `resumeTurn` probes
+    // first, so a turn the relay has forgotten is dropped locally and the
+    // banner clears — the transcript stays as it is.
+    await chat.resumeTurn();
   };
 
   const [draft, setDraft] = useState("");
@@ -273,21 +308,10 @@ function ChatThread({
 
   const send = async () => {
     if (!canSend) return;
-    const images: FileUIPart[] = [];
-    const docLinks: string[] = [];
-    for (const a of readyFiles) {
-      if (a.file.isImage) {
-        images.push({
-          type: "file",
-          mediaType: a.file.mediaType,
-          url: a.file.url,
-          filename: a.file.name,
-        });
-      } else {
-        docLinks.push(`[${a.file.name}](${a.file.url})`);
-      }
-    }
-    const text = [draft.trim(), ...docLinks].filter(Boolean).join("\n\n");
+    // Attachments travel as PARTS, never as URLs pasted into the prose: the
+    // bubble chips them and the agent gets its handle line separately (issue
+    // #252). The visible message text is the user's own words.
+    const message = composeUserMessage(draft, readyFiles.map((a) => a.file));
     if (isPostHogConfigured) {
       posthog.capture("chat_message_sent", {
         conversation_scope: tripId ? "trip" : "general",
@@ -299,7 +323,9 @@ function ChatThread({
     setAttachments([]);
     setUploadError(null);
     await chat.sendMessage(
-      images.length > 0 ? { text, files: images } : { text },
+      message.files.length > 0
+        ? { text: message.text, files: message.files }
+        : { text: message.text },
     );
   };
 
@@ -404,14 +430,17 @@ function ChatThread({
         {working && <AgentActivity messages={messages} />}
       </div>
 
-      {droppedTurn && (
+      {outage === "reconnect" && (
         <ChatReconnectBanner onReconnect={() => void reconnect()} />
       )}
 
-      {error && (
-        <ChatErrorBanner
+      {outage === "rerun" && (
+        <ChatRerunBanner onRunAgain={() => void chat.regenerate()} />
+      )}
+
+      {error instanceof ChatAuthError && (
+        <ChatAuthBanner
           error={error}
-          onRetry={() => chat.regenerate()}
           onSignIn={() =>
             loginWithRedirect({
               appState: { returnTo: window.location.pathname },
@@ -538,31 +567,96 @@ function ChatThread({
   );
 }
 
+/** Human-readable byte size for an attachment chip ("1.2 MB", "840 kB"). */
+function formatBytes(bytes: number | undefined): string | null {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+function isImageFile(part: FileUIPart): boolean {
+  return part.mediaType === "image" || part.mediaType.startsWith("image/");
+}
+
+/**
+ * Attachments read as chips, never as URLs pasted into the prose (issue
+ * #252): a document is a name + size pill that opens the file, a photo batch
+ * is a count pill carrying one thumbnail (the composer already showed the
+ * pictures one by one), a single photo stays a thumbnail. The row wraps and
+ * every label truncates, so no attachment can widen the bubble.
+ */
+function AttachmentRow({ files }: { files: FileUIPart[] }) {
+  const images = files.filter(isImageFile);
+  const docs = files.filter((part) => !isImageFile(part));
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {images.length === 1 ? (
+        <img
+          src={images[0].url}
+          alt={images[0].filename ?? "Attached image"}
+          loading="lazy"
+          className="aspect-[4/3] w-28 rounded-lg border border-border object-cover"
+        />
+      ) : images.length > 1 ? (
+        <span
+          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-xs text-foreground"
+          title={images.map((part) => part.filename ?? "photo").join(", ")}
+        >
+          <img
+            src={images[0].url}
+            alt=""
+            className="h-5 w-5 shrink-0 rounded-full object-cover"
+          />
+          {`${images.length} photos`}
+        </span>
+      ) : null}
+      {docs.map((part, i) => {
+        const size = formatBytes((part as { size?: number }).size);
+        return (
+          <a
+            key={i}
+            href={part.url}
+            target="_blank"
+            rel="noreferrer"
+            title={part.filename ?? part.url}
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/70"
+          >
+            <FileText
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span className="truncate">{part.filename ?? "Attachment"}</span>
+            {size && (
+              <span className="shrink-0 text-muted-foreground">
+                {`· ${size}`}
+              </span>
+            )}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function UserBubble({ message }: { message: UIMessage }) {
   const text = messageToText(message);
-  const files = message.parts.filter((part) => part.type === "file");
+  const files = message.parts.filter(
+    (part): part is FileUIPart => part.type === "file",
+  );
   return (
-    <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1.5">
-      {files.length > 0 && (
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {files.map((part, i) =>
-            part.type === "file" &&
-            (part.mediaType === "image" ||
-              part.mediaType.startsWith("image/")) ? (
-              <img
-                key={i}
-                src={part.url}
-                alt={part.filename ?? "Attached image"}
-                loading="lazy"
-                className="aspect-[4/3] w-28 rounded-lg border border-border object-cover"
-              />
-            ) : null,
-          )}
-        </div>
-      )}
+    <div className="ml-auto flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
+      {files.length > 0 && <AttachmentRow files={files} />}
       {text && (
-        <div className="rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm leading-relaxed text-primary-foreground">
-          <p className="whitespace-pre-wrap">{text}</p>
+        <div className="min-w-0 rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm leading-relaxed text-primary-foreground">
+          <p className="whitespace-pre-wrap wrap-anywhere">{text}</p>
         </div>
       )}
     </div>
@@ -594,6 +688,14 @@ function AgentBubble({ message }: { message: UIMessage }) {
   );
 }
 
+/**
+ * Reconnect affordance for a turn the relay is still holding while the client
+ * lost the wire (#152, #217, #237). `resumable` gates it (see `chatOutage`):
+ * the button ATTACHES to the stored turn and re-reads it from the frame it
+ * stopped at, so it never re-sends — and a turn the relay has forgotten gets no
+ * button at all, because there is nothing to attach to. Session failures are
+ * the auth banner's business (401 → sign in, 403 → access).
+ */
 function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
   return (
     <div
@@ -601,8 +703,8 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
       className="mx-3 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-center"
     >
       <p className="text-xs text-muted-foreground">
-        Connection lost — the agent didn&apos;t finish. Reconnect continues
-        the same turn (nothing is sent twice).
+        Connection lost — the agent hasn&apos;t finished this turn. Reconnect
+        picks it up where you left off; your message is not sent again.
       </p>
       <Button
         variant="outline"
@@ -611,6 +713,39 @@ function ChatReconnectBanner({ onReconnect }: { onReconnect: () => void }) {
         className="mt-2 text-xs"
       >
         Reconnect
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The last-resort path for a turn that produced NOTHING and that the relay no
+ * longer holds (issue #256): the request failed, or the relay restarted/topped
+ * it out, so attaching is impossible and there is no answer to fall back on.
+ * Unlike the old "Try again" — which quietly re-sent the transcript and re-ran
+ * the agent, even for a finished turn — this is the only re-send the panel
+ * offers, it is never automatic, and it says what it costs. A turn with an
+ * answer on screen gets no such offer: that turn settled, and the transcript
+ * already shows everything that came back.
+ */
+function ChatRerunBanner({ onRunAgain }: { onRunAgain: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="mx-3 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-center"
+    >
+      <p className="text-xs text-muted-foreground">
+        This turn didn&apos;t get an answer and can&apos;t be picked up any
+        more. Running it again starts over — the agent redoes your last
+        message.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onRunAgain}
+        className="mt-2 text-xs"
+      >
+        Run again
       </Button>
     </div>
   );
@@ -675,24 +810,37 @@ function AgentActivity({ messages }: { messages: UIMessage[] }) {
   );
 }
 
-function ChatErrorBanner({
+/**
+ * Session-level failures: the ONE error class the panel still surfaces itself
+ * (401 → sign in again, 403 → no access). Everything else is a turn OUTCOME
+ * and belongs to `chatOutage` — the plain "error message + Try again" banner
+ * this replaces was the second way a finished turn got re-sent (issue #256).
+ */
+function ChatAuthBanner({
   error,
-  onRetry,
   onSignIn,
 }: {
-  error: Error;
-  onRetry: () => void;
+  error: ChatAuthError;
   onSignIn: () => void;
 }) {
-  if (error instanceof ChatAuthError && error.status === 401) {
-    return (
-      <div
-        role="alert"
-        className="mx-3 mb-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-center"
+  const expired = error.status === 401;
+  return (
+    <div
+      role="alert"
+      className="mx-3 mb-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-center"
+    >
+      <p
+        className={
+          expired
+            ? "text-xs font-medium text-destructive"
+            : "text-xs text-muted-foreground"
+        }
       >
-        <p className="text-xs font-medium text-destructive">
-          Your session expired — sign in again to keep chatting.
-        </p>
+        {expired
+          ? "Your session expired — sign in again to keep chatting."
+          : "You don't have access to chat about this trip."}
+      </p>
+      {expired && (
         <Button
           variant="outline"
           size="sm"
@@ -701,35 +849,7 @@ function ChatErrorBanner({
         >
           Sign in again
         </Button>
-      </div>
-    );
-  }
-  if (error instanceof ChatAuthError && error.status === 403) {
-    return (
-      <div
-        role="alert"
-        className="mx-3 mb-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-center"
-      >
-        <p className="text-xs text-muted-foreground">
-          You don&apos;t have access to chat about this trip.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div
-      role="alert"
-      className="mx-3 mb-1 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5 text-center"
-    >
-      <p className="text-xs text-muted-foreground">{error.message}</p>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRetry}
-        className="mt-2 text-xs"
-      >
-        Try again
-      </Button>
+      )}
     </div>
   );
 }
