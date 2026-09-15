@@ -505,3 +505,87 @@ def test_feed_bundle_is_cached_and_retired_by_a_trip_write(monkeypatch) -> None:
     client_mod._invalidate_graph_cache(trip_dtid=FEED_TRIP)
     c.fetch_feed_bundle(FEED_TRIP)
     assert len(calls) == warm + 2, "a write must force the feed read to re-query"
+
+
+# --------------------------------------------------------------------------- #
+# Issue #267 — the trip read must not pay for PATH ENUMERATION twice.
+# --------------------------------------------------------------------------- #
+
+def test_trip_queries_expand_the_closure_by_hops_not_by_paths() -> None:
+    """``-[*0..MAX_HOPS]->`` expands every PATH of length <= MAX_HOPS, and the
+    path multiplicity — not the reachability — is what cost: the closure of a
+    102-twin trip holds 140 distinct edges but 1,665 path instances
+    (``hasBlock`` alone: 996 instances for ~51 blocks). Both trip queries must
+    build the closure from single-hop adjacency lookups instead.
+
+    This is the regression net for #267: reintroducing the variable-length form
+    is SILENT (the output stays correct, just ~40x slower), so it has to fail
+    loudly here.
+    """
+    import app.graph.client as client_mod
+
+    for name in ("_Q_NODES", "_Q_RELS"):
+        query = getattr(client_mod, name)
+        assert "[*0.." not in query, (
+            f"{name} re-introduced a variable-length path expansion; it walks "
+            f"every path of length <= MAX_HOPS instead of the closure (#267)"
+        )
+        assert "collect(DISTINCT trip)" in query, "hop 0 (the trip) must be included"
+        for hop in range(1, client_mod.MAX_HOPS + 1):
+            assert f"(h{hop}:Twin)" in query, f"{name} is missing hop {hop}"
+        assert f"(h{client_mod.MAX_HOPS + 1}:Twin)" not in query, (
+            f"{name} walks past MAX_HOPS"
+        )
+
+
+def test_hop_chain_and_closure_are_generated_from_max_hops() -> None:
+    """The chain is GENERATED from MAX_HOPS, not hardcoded: a literal 3-hop
+    chain would silently under-fetch the moment MAX_HOPS rose, and the read
+    would keep returning a plausible-looking but truncated trip."""
+    import app.graph.client as client_mod
+
+    assert client_mod._hop_chain(1) == "OPTIONAL MATCH (trip)-->(h1:Twin)"
+    assert client_mod._closure_expr(1) == (
+        "collect(DISTINCT trip) + collect(DISTINCT h1)"
+    )
+
+    four = client_mod._hop_chain(4)
+    assert four.count("OPTIONAL MATCH") == 4
+    assert "(h3)-->(h4:Twin)" in four
+    assert "(h4)-->(h5:Twin)" not in four
+    assert client_mod._closure_expr(4).endswith("collect(DISTINCT h4)")
+
+    # the shipped constants must agree with the current MAX_HOPS
+    assert client_mod._HOP_CHAIN == client_mod._hop_chain(client_mod.MAX_HOPS)
+    assert client_mod._CLOSURE == client_mod._closure_expr(client_mod.MAX_HOPS)
+
+
+def test_rels_query_drops_leaf_rows_before_collecting() -> None:
+    """``OPTIONAL MATCH`` after an ``UNWIND`` emits ``[leaf, null, null, ...]``
+    for every node with no outgoing edge, and ``_rel_from_list`` maps that row
+    straight into the bundle as a junk edge (measured live: 217 rows instead of
+    the correct 140). The ``WHERE b IS NOT NULL`` guard is what prevents it.
+
+    A mandatory ``MATCH`` cannot be used to drop these instead — AGE rejects
+    re-matching the UNWIND'd variable ("42712: variable 'a' already exists").
+    """
+    import app.graph.client as client_mod
+
+    query = client_mod._Q_RELS
+    assert "WHERE b IS NOT NULL" in query
+    optional = query.index("OPTIONAL MATCH (a)-[r]->(b:Twin)")
+    guard = query.index("WHERE b IS NOT NULL")
+    collect = query.index("RETURN collect(DISTINCT [a.")
+    assert optional < guard < collect, "the guard must sit between match and collect"
+
+
+def test_rel_from_list_turns_a_leaf_row_into_a_junk_edge() -> None:
+    """Why the guard in ``_Q_RELS`` is load-bearing rather than defensive: the
+    normalizer does NOT drop a null edge row — it yields a relationship whose
+    source is a real twin and whose name/target are ``None``."""
+    import app.graph.client as client_mod
+
+    junk = client_mod.GraphReadClient._rel_from_list(["leaf-dtid", None, None, None])
+    assert junk["$sourceId"] == "leaf-dtid"
+    assert junk["$relationshipName"] is None
+    assert junk["$targetId"] is None
