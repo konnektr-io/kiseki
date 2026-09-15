@@ -12,8 +12,14 @@
 
 ## 1. What Kiseki should feel like
 
-Kiseki is **a printed travel booklet that happens to be alive**. That's the whole idea, and it's the
+Kiseki is **one document for the whole life of a trip — planned with the people who are coming,
+kept honest while it happens, and printed at the end.** That's the whole idea, and it's the
 tiebreaker for every design argument.
+
+The document is what makes it ours; the people are what make it something you do with others. The
+product is no longer only for its owner — a trip has a crew and join links, and, when its owner
+opts in, a discoverable presence on the front door — so every surface has to read for someone who is
+not the owner, may not be signed in, and cannot see the owner's other trips.
 
 | Feel | Not |
 |---|---|
