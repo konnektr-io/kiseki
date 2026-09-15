@@ -183,6 +183,35 @@ def test_plan_calls_run_in_the_canonical_order():
     assert "blocks" not in day_body
 
 
+def test_practical_blocks_travel_in_the_practical_put():
+    """#254: the roadbook recipe's titled practicalities reach the server in the
+    practical PUT body — the same call that already carries todos and contacts.
+    The headings are the roadbook's own, in order."""
+    plan = _valid_plan()
+    plan["practical"] = {
+        "todos": [{"label": "Book the capsule hotel"}],
+        "blocks": [
+            {"title": "Driving times", "body": "San José → Tortuguero: 3 h 30 + 1 h 30 boat"},
+            {"title": "Money & tipping", "body": "10 % service charge; cash at the SINAC gates"},
+            {"title": "Water & health", "body": "Tap water is fine; repellent on the Caribbean coast"},
+        ],
+    }
+    errors, warnings = aw.validate_plan(plan, EXISTING)
+    assert errors == [] and warnings == []
+    calls = aw.plan_calls(plan, TRIP_ID, EXISTING)
+    body = next(b for m, p, b in calls if p == f"/api/trips/{TRIP_ID}/practical")
+    assert [b["title"] for b in body["blocks"]] == ["Driving times", "Money & tipping", "Water & health"]
+
+
+def test_unknown_practical_key_is_still_rejected():
+    """Adding `blocks` must not open `practical` to arbitrary keys — a roadbook
+    recipe that invents one gets told before any write happens."""
+    plan = _valid_plan()
+    plan["practical"] = {"blocks": [{"title": "x", "body": "y"}], "notesBlocks": []}
+    errors, _ = aw.validate_plan(plan, EXISTING)
+    assert any("`practical` keys not accepted" in e and "notesBlocks" in e for e in errors)
+
+
 def test_cli_advertises_fill_and_dry_run():
     out = subprocess.run(
         [sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True, timeout=30

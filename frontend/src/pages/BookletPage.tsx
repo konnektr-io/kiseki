@@ -248,7 +248,7 @@ export function BookletPage() {
       )}
 
       {/* key info — contacts / dates / group / essentials (booklet 'At a glance') */}
-      {(trip.practical.contacts?.length || trip.practical.notes || trip.crew.length > 0) && (
+      {(trip.practical.contacts?.length || trip.practical.notes || trip.practical.blocks?.length || trip.crew.length > 0) && (
         <div className="booklet-section">
           <SectionHeading title="Key info" />
           <div className="grid grid-cols-2 gap-4">
@@ -299,6 +299,21 @@ export function BookletPage() {
               </div>
             )}
           </div>
+          {/* #254 — the roadbook's practicalities keep their own headings in
+              print too: full-width kicker + prose under the grid, never a
+              blob. `kicker` is the booklet's heading voice (DESIGN §4). */}
+          {trip.practical.blocks?.length ? (
+            <div className="mt-4 space-y-3">
+              {trip.practical.blocks.map((b, i) => (
+                <div key={`${b.title}-${i}`}>
+                  <p className="kicker mb-1">{b.title}</p>
+                  <div className="text-xs leading-relaxed text-muted-foreground">
+                    <Markdown>{b.body}</Markdown>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
     </div>
