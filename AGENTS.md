@@ -89,7 +89,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | POST | `/api/trips/{trip_id}/blocks/{block_id}/move` | promote/demote day ↔ section (§7.5) |
 | PUT | `/api/trips/{trip_id}/containers/{id}/block-order` | exact-set reorder `{block_ids: [...]}` |
 | PATCH | `/api/trips/{trip_id}/crew/{person_id}` | `note` editor+ · `role` owner |
-| POST | `/api/trips/{trip_id}/crew` | add placeholder person (they claim later) |
+| POST | `/api/trips/{trip_id}/crew` | add placeholder person (they claim later). With `sub`: attach an account that already exists — no placeholder, no invite link; owner-only + only someone the caller follows |
 | DELETE | `/api/trips/{trip_id}/crew/{person_id}` | owner-only |
 | PUT | `/api/trips/{trip_id}/locations` | replace registry (`locations: [...]`, incl. durable place metadata `placeId`/`address`/`website`/`phone`/`openingHours`/`types`/`wheelchairAccessible` + short-lived `rating`); explicit null clears the field, `[]` clears a list field, absent fields untouched |
 | PATCH | `/api/trips/{trip_id}/locations` | named upserts only (match by `id` else `name`; new names append, nothing deleted); explicit null clears the field, absent fields untouched |

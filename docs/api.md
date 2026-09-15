@@ -63,7 +63,7 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| `POST` | `/api/trips/{trip_id}/crew` | `editor+` | Add a crew placeholder |
+| `POST` | `/api/trips/{trip_id}/crew` | `editor+` | Add a crew placeholder — or, with `sub`, attach an account that already exists (no placeholder, no invite link); that mode is `owner` and only accepts someone the caller follows |
 | `PATCH` | `/api/trips/{trip_id}/crew/{person_id}` | `editor+` | Update role, note, display name, order |
 | `DELETE` | `/api/trips/{trip_id}/crew/{person_id}` | `owner` | Remove a crew member |
 | `GET` | `/api/users/{sub}` | user | A user profile (public name, trips, counts) |

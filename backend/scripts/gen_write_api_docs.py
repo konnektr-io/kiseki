@@ -469,6 +469,11 @@ def render() -> tuple[str, list[str]]:
     add("| `Field(s) ['notes'] are not permitted` on `POST /days` | `DayCreate` is "
         "`extra=forbid` | let `fill` do it (see above) — the `notes` go in a follow-up "
         "`PUT /days/<id>` |")
+    add("| `contact` is not accepted with `sub` | `CrewAdd` can attach an ACCOUNT "
+        "that already exists (`sub`) instead of a placeholder — but that account's "
+        "contact belongs to their own profile, and this trip never edits someone "
+        "else's identity | drop `contact`; the `sub` mode is owner-only and only "
+        "accepts someone the caller follows |")
     add("")
     add("## Keeping this honest")
     add("")

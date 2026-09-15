@@ -228,7 +228,7 @@ def _read_body(args) -> bytes | None:
 #     "sections":  [{title, days?: [first,last], locationRefs?: [name],
 #                    blocks?: [...]}],
 #     "practical": {todos[], links[], notes, blocks[] (=[{title, body}]), contacts[]},
-#     "crew":      [{name, role?, note?, contact?}]
+#     "crew":      [{name, role?, note?, contact?, sub?}]
 #   }
 #
 # Order is fixed and load-bearing (issue #160): scalars → locations → features

@@ -35,7 +35,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
-from .graph.convert import GraphNotFound, graph_to_trip
+from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
 from .sanitize import sanitize_custom_html
 from .models import (
     BlockKind,
@@ -269,10 +269,24 @@ class CrewPatch(_Strict):
 
 
 class CrewAdd(_Strict):
+    """POST /crew body — two ways to add a crew member.
+
+    Default: an unclaimed placeholder Person (they claim later via the invite,
+    #6) — it grants nobody access until then.
+
+    With ``sub``: an account that already exists on Kiseki (#198 follow-up) —
+    the crew entry attaches to that account's ``User`` twin directly, so they
+    are crew the moment it lands (read access immediately, no invite link, no
+    claim step). Owner-only, and only for an account the caller follows.
+    ``name`` is still the trip-relative label; ``contact`` is refused (it
+    belongs to their own profile, not to this trip).
+    """
+
     name: str = Field(min_length=1)
     role: Role = "viewer"
     note: Optional[str] = None
     contact: Optional[str] = None
+    sub: Optional[str] = None
 
 
 class LocationWrite(_Strict):
@@ -2024,48 +2038,103 @@ def patch_crew(trip_dtid: str, actor: dict, person_id: str, patch: CrewPatch) ->
     return _rebuild(client, trip_dtid)
 
 
+def _crew_edges(graph: dict, trip_dtid: str) -> list[dict]:
+    """Every ``hasCrew`` edge of this trip (in graph order)."""
+    return [
+        r for r in graph.get("relationships", [])
+        if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
+    ]
+
+
+def _crew_names(graph: dict, trip_dtid: str) -> set[str]:
+    """The names this trip's crew RENDERS as — the edge's ``displayName``
+    (#196) with the twin's own name as the fallback, exactly as the read path
+    resolves it. Two crew members must never render the same label, so both
+    add paths refuse a duplicate here (not against raw twin names, which are
+    not what the Crew page shows)."""
+    out: set[str] = set()
+    for r in _crew_edges(graph, trip_dtid):
+        twin = _twin(graph, r.get("$targetId") or "")
+        if twin is None:
+            continue
+        name = crew_edge_name(r) or twin.get("displayName") or twin.get("name")
+        if isinstance(name, str) and name:
+            out.add(name)
+    return out
+
+
+def _next_crew_index(graph: dict, trip_dtid: str) -> int:
+    """Display order for a new crew edge: max+1, never a count (an edge PATCH
+    reorders storage, so a count could collide)."""
+    used: list[int] = []
+    for r in _crew_edges(graph, trip_dtid):
+        index = r.get("index")
+        if isinstance(index, int):
+            used.append(index)
+    return max(used) + 1 if used else 0
+
+
 def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
-    """Add an unclaimed placeholder Person + hasCrew edge (they claim later, #6)."""
+    """Add a crew member: an unclaimed placeholder, or an existing account.
+
+    ``sub`` absent (#6): a Person twin + hasCrew edge they claim later through
+    the invite — it grants nobody access until then, so editor+ may add one.
+
+    ``sub`` present (#198 follow-up): the crew entry attaches to that
+    account's ``User`` twin, i.e. they are crew the moment the edge lands. That
+    is access granted outright — the same thing the owner hands out when they
+    share the join link — so it is OWNER-only, and only for an account the
+    caller already FOLLOWS: the follow graph is the picker's source, so no
+    arbitrary ``sub`` can be attached to a trip.
+    """
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
 
     if body.role == "owner" and actor["role"] != "owner":
         raise WriteError(403, "Only the trip owner can grant the owner role")
-    existing_names = {
-        t.get("name") for t in graph.get("twins", [])
-        if (r := next((
-            r for r in graph.get("relationships", [])
-            if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
-            and r.get("$targetId") == t.get("$dtId")
-        ), None)) is not None
-    }
-    if body.name in existing_names:
+
+    if body.sub:
+        if actor["role"] != "owner":
+            raise WriteError(
+                403, "Only the trip owner can add an existing account to the crew"
+            )
+        if body.contact:
+            raise WriteError(
+                422,
+                "`contact` is not accepted with `sub` — that account's contact "
+                "belongs to their own profile, and this trip never edits someone "
+                "else's identity",
+            )
+        if not client.user_twin_exists(body.sub):
+            raise WriteError(404, "Unknown user")
+        if body.sub not in client.following_of(actor["sub"]):
+            raise WriteError(403, "You can only add people you follow")
+        if any(r.get("$targetId") == body.sub for r in _crew_edges(graph, trip_dtid)):
+            raise WriteError(409, f"{body.name!r} is already on this trip's crew")
+
+    if body.name in _crew_names(graph, trip_dtid):
         raise WriteError(409, f"{body.name!r} is already on this trip's crew")
 
-    person_id = _new_id()
-    props: dict[str, Any] = {
-        "$dtId": person_id,
-        "$metadata": {"$model": PERSON_MODEL},
-        "name": body.name,
-    }
-    if body.contact:
-        props["contact"] = body.contact
-    client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+    person_id = body.sub or _new_id()
+    if not body.sub:
+        # Placeholder identity — the account (if any) is created at claim time.
+        props: dict[str, Any] = {
+            "$dtId": person_id,
+            "$metadata": {"$model": PERSON_MODEL},
+            "name": body.name,
+        }
+        if body.contact:
+            props["contact"] = body.contact
+        client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
 
-    used = [
-        r.get("index") for r in graph.get("relationships", [])
-        if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
-        and isinstance(r.get("index"), int)
-    ]
-    index = max(used) + 1 if used else 0
     rel: dict[str, Any] = {
         "$relationshipId": _rel_id(trip_dtid, "hasCrew", person_id),
         "$sourceId": trip_dtid,
         "$relationshipName": "hasCrew",
         "$targetId": person_id,
         "role": body.role,
-        "index": index,
+        "index": _next_crew_index(graph, trip_dtid),
         # The crew's OWN name for this trip rides the edge (#196) — the read
         # path renders Person.name from here, so a later claim (which swaps
         # the twin to the account's User) never renames the crew member.

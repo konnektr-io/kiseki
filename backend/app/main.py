@@ -1346,6 +1346,16 @@ def post_crew(
     body: CrewAdd,
     actor: dict = Depends(require_trip_role("editor")),
 ) -> dict:
+    """Add a crew member (editor+).
+
+    Two modes, both in ``CrewAdd``: a placeholder Person they claim later via
+    the invite (default), or an account that already exists on Kiseki — pass
+    its ``sub`` to attach the crew entry to that account directly (#198
+    follow-up: "add someone I follow" — no fake person, no join link). The
+    account path grants access the moment it lands, so it is OWNER-only and
+    only accepts an account the caller already follows (both enforced in the
+    write service, 403).
+    """
     trip = _write(write_svc.add_crew, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])
 
