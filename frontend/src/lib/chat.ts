@@ -583,6 +583,9 @@ export interface UploadedChatFile {
   name: string;
   mediaType: string;
   isImage: boolean;
+  /** True when the server transcoded the upload before storing it — HEIC →
+   * JPEG (#251). `url`/`mediaType` are already the stored form. */
+  converted: boolean;
   /** Byte size of the picked file — shown on the attachment chip. */
   size: number;
 }
@@ -620,15 +623,29 @@ export async function uploadChatFile(
     }
     throw new Error(`Upload failed (${res.status}): ${message}`);
   }
-  const body = (await res.json()) as { url?: unknown };
+  const body = (await res.json()) as {
+    url?: unknown;
+    contentType?: unknown;
+    converted?: unknown;
+  };
   if (typeof body.url !== "string" || !body.url) {
     throw new Error("Upload failed: the server returned no URL.");
   }
+  // The SERVER decides the type, not the browser (#251): an iPhone photo is
+  // stored as JPEG, so a part typed `image/heic` would describe something the
+  // URL does not serve — and browsers that report no type for a `.heic` at
+  // all (`file.type === ""`) sent the photo as a text link instead of an
+  // image.
+  const mediaType =
+    typeof body.contentType === "string" && body.contentType
+      ? body.contentType
+      : file.type || "application/octet-stream";
   return {
     url: body.url,
     name: file.name,
-    mediaType: file.type || "application/octet-stream",
-    isImage: file.type.startsWith("image/"),
+    mediaType,
+    isImage: mediaType.startsWith("image/"),
+    converted: body.converted === true,
     size: file.size,
   };
 }
