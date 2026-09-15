@@ -178,9 +178,69 @@ export function ChatPanel({
 }
 
 type Attachment =
-  | { state: "uploading"; name: string }
-  | { state: "ready"; file: UploadedChatFile }
-  | { state: "failed"; name: string; error: string };
+  | { id: string; state: "uploading"; name: string }
+  | { id: string; state: "ready"; file: UploadedChatFile }
+  | { id: string; state: "failed"; name: string; error: string };
+
+/** Monotonic id per attachment (#251) — React keys AND upload reconciliation.
+ *  Never derived from the filename: two photos called `IMG_0001.jpg` are two
+ *  attachments, and matching them by name made the second upload's result
+ *  overwrite the first, leaving a chip stuck in `uploading` and the file out
+ *  of the message. */
+let attachmentSeq = 0;
+function newAttachmentId(): string {
+  attachmentSeq += 1;
+  return `attachment-${attachmentSeq}`;
+}
+
+/** The visible accounting of what the composer holds (#251): what is ready,
+ *  what was transcoded on the way in, and what failed — never a silent loss.
+ *  Exported for the render tests. */
+export function summarizeAttachments(attachments: Attachment[]): string {
+  const ready = attachments.filter(
+    (a): a is { id: string; state: "ready"; file: UploadedChatFile } =>
+      a.state === "ready",
+  );
+  const failed = attachments.filter(
+    (a): a is { id: string; state: "failed"; name: string; error: string } =>
+      a.state === "failed",
+  );
+  const uploading = attachments.length - ready.length - failed.length;
+  const photos = ready.filter((a) => a.file.isImage).length;
+  const documents = ready.length - photos;
+  const kinds = [
+    photos > 0 ? `${photos} ${photos === 1 ? "photo" : "photos"}` : "",
+    documents > 0
+      ? `${documents} ${documents === 1 ? "document" : "documents"}`
+      : "",
+  ].filter(Boolean);
+
+  const parts: string[] = [];
+  if (ready.length > 0) {
+    // With failures the denominator matters ("I picked 20"): say how many of
+    // the picked files actually attached. Otherwise the kind breakdown.
+    parts.push(
+      failed.length > 0
+        ? `${ready.length} of ${attachments.length} attached`
+        : `${kinds.join(" · ")} attached`,
+    );
+  }
+  const converted = ready.filter((a) => a.file.converted).length;
+  if (converted > 0) parts.push(`${converted} converted`);
+  if (failed.length > 0) {
+    // The reason is what makes the failure actionable (a HEIC the server
+    // refused, a size cap, …) — the chip carries the full text.
+    parts.push(`${failed.length} failed: ${briefUploadError(failed[0].error)}`);
+  }
+  if (uploading > 0) parts.push(`${uploading} uploading…`);
+  return parts.join(" · ");
+}
+
+/** Server error text without the transport wrapper — `Upload failed (422): x`
+ *  reads as noise in a one-line summary. */
+function briefUploadError(message: string): string {
+  return message.replace(/^Upload failed \(\d+\):\s*/, "").trim();
+}
 
 function ChatThread({
   tripId,
@@ -300,7 +360,8 @@ function ChatThread({
   }, [draft]);
 
   const readyFiles = attachments.filter(
-    (a): a is { state: "ready"; file: UploadedChatFile } => a.state === "ready",
+    (a): a is { id: string; state: "ready"; file: UploadedChatFile } =>
+      a.state === "ready",
   );
   const uploading = attachments.some((a) => a.state === "uploading");
   const canSend =
@@ -312,11 +373,20 @@ function ChatThread({
     // bubble chips them and the agent gets its handle line separately (issue
     // #252). The visible message text is the user's own words.
     const message = composeUserMessage(draft, readyFiles.map((a) => a.file));
+    // The count travels WITH the message (#251): the transcript then says how
+    // many files a turn actually carried (8 and 10 used to look identical),
+    // and the agent can state it without guessing from image parts.
+    const attachmentNote =
+      readyFiles.length > 0 ? summarizeAttachments(attachments) : "";
+    const text = [attachmentNote, message.text].filter(Boolean).join("\n\n");
     if (isPostHogConfigured) {
       posthog.capture("chat_message_sent", {
         conversation_scope: tripId ? "trip" : "general",
         has_text: Boolean(draft.trim()),
         attachment_count: readyFiles.length,
+        attachment_converted: readyFiles.filter((a) => a.file.converted).length,
+        attachment_failed: attachments.filter((a) => a.state === "failed")
+          .length,
       });
     }
     setDraft("");
@@ -324,21 +394,26 @@ function ChatThread({
     setUploadError(null);
     await chat.sendMessage(
       message.files.length > 0
-        ? { text: message.text, files: message.files }
-        : { text: message.text },
+        ? { text, files: message.files }
+        : { text },
     );
   };
 
   const attach = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setUploadError(null);
-    const picked = Array.from(files);
+    const picked = Array.from(files).map((file) => ({
+      file,
+      id: newAttachmentId(),
+    }));
     setAttachments((prev) => [
       ...prev,
-      ...picked.map((f): Attachment => ({ state: "uploading", name: f.name })),
+      ...picked.map(
+        ({ file, id }): Attachment => ({ id, state: "uploading", name: file.name }),
+      ),
     ]);
     await Promise.all(
-      picked.map(async (file) => {
+      picked.map(async ({ file, id }) => {
         try {
           // No tripId → the file lands in the user's inbox (landing chat);
           // the agent promotes it into the trip it creates (#9 / M4).
@@ -349,23 +424,22 @@ function ChatThread({
           );
           setAttachments((prev) =>
             prev.map((a) =>
-              a.state === "uploading" && a.name === file.name
-                ? { state: "ready", file: uploaded }
-                : a,
+              a.id === id ? { id, state: "ready", file: uploaded } : a,
             ),
           );
           if (isPostHogConfigured) {
             posthog.capture("chat_attachment_uploaded", {
               conversation_scope: tripId ? "trip" : "general",
               attachment_type: uploaded.isImage ? "image" : "document",
+              converted: uploaded.converted,
             });
           }
         } catch (e) {
           const message = e instanceof Error ? e.message : "Upload failed.";
           setAttachments((prev) =>
             prev.map((a) =>
-              a.state === "uploading" && a.name === file.name
-                ? { state: "failed", name: file.name, error: message }
+              a.id === id
+                ? { id, state: "failed", name: file.name, error: message }
                 : a,
             ),
           );
@@ -450,50 +524,66 @@ function ChatThread({
       )}
 
       {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-2 border-t border-border/60 px-4 pt-2.5">
-          {attachments.map((a, i) => (
-            <span
-              key={`${a.state === "ready" ? a.file.name : a.name}-${i}`}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-xs"
-            >
-              {a.state === "uploading" && (
-                <>
-                  <Loader2
-                    className="h-3.5 w-3.5 animate-spin text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <span className="truncate">{a.name}</span>
-                </>
-              )}
-              {a.state === "ready" && (
-                <>
-                  {a.file.isImage ? (
-                    <img
-                      src={a.file.url}
-                      alt=""
-                      className="h-6 w-6 rounded object-cover"
+        <div className="border-t border-border/60 px-4 pt-2.5">
+          {/* The count, always visible while the batch is in flight and after
+              it lands (#251): "8 or 10?" was unanswerable from the composer. */}
+          <p
+            className="text-xs text-muted-foreground"
+            aria-live="polite"
+            data-testid="attachment-summary"
+          >
+            {summarizeAttachments(attachments)}
+          </p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            {attachments.map((a) => (
+              <span
+                key={a.id}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-xs"
+              >
+                {a.state === "uploading" && (
+                  <>
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin text-muted-foreground"
+                      aria-hidden="true"
                     />
-                  ) : null}
-                  <span className="truncate">{a.file.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${a.file.name}`}
-                    onClick={() =>
-                      setAttachments((prev) => prev.filter((_, j) => j !== i))
-                    }
-                    className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    <span className="truncate">{a.name}</span>
+                  </>
+                )}
+                {a.state === "ready" && (
+                  <>
+                    {a.file.isImage ? (
+                      <img
+                        src={a.file.url}
+                        alt=""
+                        className="h-6 w-6 rounded object-cover"
+                      />
+                    ) : null}
+                    <span className="truncate">{a.file.name}</span>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${a.file.name}`}
+                      onClick={() =>
+                        setAttachments((prev) =>
+                          prev.filter((other) => other.id !== a.id),
+                        )
+                      }
+                      className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
+                  </>
+                )}
+                {a.state === "failed" && (
+                  <span
+                    className="truncate text-destructive"
+                    title={a.error}
                   >
-                    <X className="h-3.5 w-3.5" aria-hidden="true" />
-                  </button>
-                </>
-              )}
-              {a.state === "failed" && (
-                <span className="truncate text-destructive" title={a.error}>
-                  {a.name} — upload failed
-                </span>
-              )}
-            </span>
-          ))}
+                    {a.name} — {briefUploadError(a.error)}
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
       )}
       {uploadError && (
@@ -507,7 +597,7 @@ function ChatThread({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,.pdf,.doc,.docx,.txt,.md"
+          accept="image/*,.heic,.heif,.pdf,.doc,.docx,.txt,.md"
           className="sr-only"
           aria-label="Attach a file"
           onChange={(e) => void attach(e.target.files)}

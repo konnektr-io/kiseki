@@ -99,11 +99,13 @@ from .places import place_details, search_place, photo_by_name as place_photo_by
 from .graph.client import GraphWriteError
 from .graph.convert import GraphNotFound
 from .media import (
+    UnsupportedUpload,
     content_addressed_key,
     get_media_store,
     is_valid_media_name,
     is_valid_media_path,
     media_content_type,
+    normalize_upload,
     object_key_for,
     resolve_media_urls,
 )
@@ -1929,35 +1931,66 @@ async def post_files(
     trip via ``POST /api/files/promote`` once the trip exists. Bytes are
     content-addressed in both cases; the returned URL is what the SPA drops
     into the next chat message as an ``image_url`` part (or text link).
+
+    What is stored is always renderable (#251): a HEIC/HEIF photo (iPhone
+    default) is transcoded to JPEG with its EXIF intact — browsers cannot
+    display HEIC, and one was previously stored as-is, served as
+    ``application/octet-stream`` and silently invisible. A file that cannot be
+    stored in a displayable form is refused with a 422 naming it, never
+    accepted and then dropped.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     raw = await file.read()
     if not raw:
         raise HTTPException(422, "Empty file")
-    ext = Path(file.filename or "").suffix.lower()
-    name = content_addressed_key(raw, ext)
+    # HEIC → JPEG at ingest (#251): an iPhone photo stored as-is was served as
+    # `application/octet-stream` and rendered nowhere. A file that cannot be
+    # stored in a displayable form is refused HERE, per file, with the reason —
+    # never accepted and then dropped from the reply.
+    try:
+        stored, ext, converted = normalize_upload(raw, file.filename or "")
+    except UnsupportedUpload as exc:
+        raise HTTPException(422, str(exc)) from exc
+    name = content_addressed_key(stored, ext)
     # Photo ingest (#190): the capture timestamp + GPS travel with the
     # response so the client can place the batch without re-reading bytes.
+    # Read from the STORED bytes — the transcode carries EXIF across, so a
+    # HEIC photo reports the same capture metadata a JPEG would.
     # Additive — the `url` contract is unchanged.
-    sha = hashlib.sha256(raw).hexdigest()
-    exif = extract_exif(raw)
+    sha = hashlib.sha256(stored).hexdigest()
+    exif = extract_exif(stored)
+    content_type = media_content_type(name)
     if trip_id is None:
         # Inbox staging (landing chat). Content-addressed name = capability.
         store = get_media_store()
         if store is None:
             raise HTTPException(503, "Media storage is not configured")
-        store.put(f"inbox/{name}", raw, media_content_type(name))
-        return {"url": f"/inbox/{name}", "sha256": sha, "exif": exif}
+        store.put(f"inbox/{name}", stored, content_type)
+        return {
+            "url": f"/inbox/{name}",
+            "sha256": sha,
+            "exif": exif,
+            "name": name,
+            "contentType": content_type,
+            "converted": converted,
+        }
     require_actor_trip_access(actor_sub, trip_id, min_role="editor")
     store = get_media_store()
     if store is None:
         raise HTTPException(503, "Media storage is not configured")
     store.put(
         object_key_for(trip_id.lower(), name),
-        raw,
-        media_content_type(name),
+        stored,
+        content_type,
     )
-    return {"url": f"/media/{trip_id.lower()}/{name}", "sha256": sha, "exif": exif}
+    return {
+        "url": f"/media/{trip_id.lower()}/{name}",
+        "sha256": sha,
+        "exif": exif,
+        "name": name,
+        "contentType": content_type,
+        "converted": converted,
+    }
 
 
 class PromoteBody(BaseModel):
