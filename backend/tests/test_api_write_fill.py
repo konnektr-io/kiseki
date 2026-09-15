@@ -557,11 +557,13 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
         }],
         "sections": [],
     }
-    state = {"patched": [], "blocks": []}
+    state = {"patched": [], "blocks": [], "queries": []}
 
     def fake_request(method, base, path, token, body=None, raw=None):
         if method == "get" and path.startswith("/api/places/search"):
-            q = urllib.parse.unquote(path.split("q=", 1)[1])
+            params = urllib.parse.parse_qs(path.split("?", 1)[1])
+            state["queries"].append(params)
+            q = params["q"][0]
             return 200, {"available": True, "placeId": f"ChIJ-{q}", "lat": 35.0, "lng": 139.0,
                          "name": q, "address": f"{q}, Japan"}
         if method == "patch" and path.endswith("/locations"):
@@ -583,6 +585,12 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
 
     assert {entry["name"] for entry in report["locations_resolved"]} == {"Tokyo", "Shinjuku Gyoen"}
     assert state["patched"][0]["locations"][0]["placeId"] == "ChIJ-Tokyo"
+    # #255: the first lookup has nothing to bias toward; the second rides the
+    # coordinates the first one just placed, so a namesake loses to the trip.
+    assert "lat" not in state["queries"][0]
+    assert float(state["queries"][1]["lat"][0]) == 35.0
+    assert float(state["queries"][1]["lng"][0]) == 139.0
+    assert state["queries"][1]["radius"] == ["200000"]
     # both resolve from the registry entry their `location` points at
     assert report["blocks_resolved"] == 2
     assert {path.rsplit("/", 1)[-1] for path, _ in state["blocks"]} == {"blk-1", "blk-2"}
@@ -615,3 +623,312 @@ def test_photo_verb_needs_a_trip_id():
     )
     assert out.returncode != 0
     assert "--trip-id" in out.stderr
+
+
+# ---------------------------------------------------------------------------
+# #255 — cost per build. Each test here pins one thing that used to be a
+# throwaway script written mid-run: strip_empty.py, split_days.py, fix_places.py.
+# ---------------------------------------------------------------------------
+
+
+def _get_shaped_block(**overrides) -> dict:
+    """A block exactly as `GET /api/trips/<id>` hands it back: every key, defaults in."""
+    block = {
+        "kind": "meal",
+        "title": "Yatai lunch",
+        "time": "13:00",
+        "location": "Fukuoka",
+        "cost": 18.0,
+        "currency": "EUR",
+        "description": None,
+        "links": [],
+        "items": [],
+        "images": [],
+        "status": None,
+        "bookingCode": None,
+        "html": None,
+        "distance": None,
+        "duration": None,
+        "route": None,
+        "via": None,
+        "from": None,
+        "to": None,
+        "mode": None,
+        "placeId": None,
+    }
+    block.update(overrides)
+    return block
+
+
+def test_normalize_plan_strips_what_the_write_model_would_422_on():
+    """A plan grown from a GET carries every BlockFields key with its default.
+
+    The server validates on presence, so `items: []` on a meal and `mode: null`
+    on a lunch are both 422s. That is what strip_empty.py was written for in the
+    #255 run; the filler does it now, before the first call.
+    """
+    plan = {"days": [{"date": "2027-04-02", "blocks": [_get_shaped_block()]}]}
+
+    normalized, notes = aw.normalize_plan(plan)
+
+    assert normalized["days"][0]["blocks"][0] == {
+        "kind": "meal",
+        "title": "Yatai lunch",
+        "time": "13:00",
+        "location": "Fukuoka",
+        "cost": 18.0,
+        "currency": "EUR",
+    }
+    assert any("empty field(s)" in note for note in notes)
+    # the caller's plan is not mutated — a dry run must not change the input
+    assert plan["days"][0]["blocks"][0]["items"] == []
+
+
+def test_normalize_plan_keeps_a_transport_block_intact():
+    """The fields transport needs survive: only the *other* kind's keys are dropped."""
+    plan = {
+        "days": [
+            {
+                "date": "2027-04-02",
+                "blocks": [
+                    {
+                        "kind": "transport",
+                        "title": "AMS → FUK",
+                        "from": "Amsterdam",
+                        "to": "Fukuoka",
+                        "mode": "flight",
+                        "distance": "9,200 km",
+                        "duration": "13 h",
+                        "via": ["Helsinki"],
+                        "items": [],  # ← still empty, still dropped
+                    }
+                ],
+            }
+        ]
+    }
+
+    normalized, _ = aw.normalize_plan(plan)
+
+    assert normalized["days"][0]["blocks"][0] == {
+        "kind": "transport",
+        "title": "AMS → FUK",
+        "from": "Amsterdam",
+        "to": "Fukuoka",
+        "mode": "flight",
+        "distance": "9,200 km",
+        "duration": "13 h",
+        "via": ["Helsinki"],
+    }
+
+
+def test_nested_empty_values_are_dropped_too():
+    """`{"links": [{"url": "", "label": "x"}]}` is a 422 on the inner key."""
+    plan = {
+        "days": [
+            {
+                "date": "2027-04-02",
+                "notes": {"tips": [], "blurb": "Bring cash.", "tags": ["food"]},
+                "blocks": [{"kind": "note", "title": "x", "links": [{"url": "", "label": "Menu"}]}],
+            }
+        ]
+    }
+
+    normalized, _ = aw.normalize_plan(plan)
+
+    day = normalized["days"][0]
+    assert day["notes"] == {"blurb": "Bring cash.", "tags": ["food"]}
+    assert day["blocks"][0]["links"] == [{"label": "Menu"}]
+
+
+def test_validate_still_refuses_a_real_transport_field_on_a_lunch():
+    """Normalizing drops *empty* leftovers; a value the author typed is an error.
+
+    `mode: "car"` on a meal is a mistake about the itinerary, not GET noise, so
+    it stays a pre-flight failure (and names the block) instead of vanishing.
+    """
+    plan = {"days": [{"date": "2027-04-02", "blocks": [{"kind": "meal", "title": "Lunch", "mode": "car"}]}]}
+
+    errors, _ = aw.validate_plan(plan, None)
+
+    assert any("mode" in err and "days[0].blocks[0]" in err for err in errors)
+
+
+def test_validate_names_an_unknown_day_field():
+    """`day["summary"]` is not a DayFields key — said before the write, not by a 422."""
+    plan = {"days": [{"date": "2027-04-02", "title": "Day", "summary": "a day"}]}
+
+    errors, _ = aw.validate_plan(plan, None)
+
+    assert any("summary" in err for err in errors)
+
+
+def test_plan_calls_post_days_sends_only_what_daycreate_accepts():
+    """POST /days takes index/date/title. `notes`/`map`/`meta` on it is a 422."""
+    plan = {
+        "days": [
+            {
+                "date": "2027-09-22",
+                "title": "Playa",
+                "notes": "Pack goggles.",
+                "meta": {"sunset": "18:40"},
+            }
+        ]
+    }
+
+    calls = aw.plan_calls(plan, TRIP_ID, EXISTING)
+
+    creates = [body for method, path, body in calls if method == "post" and path.endswith("/days")]
+    assert creates == [{"date": "2027-09-22", "title": "Playa"}]
+
+
+def test_day_extra_bodies_carry_what_the_create_could_not():
+    """The follow-up PUT the filler owes a NEW day, and nothing for an existing one."""
+    plan = {"days": [{"date": "2027-09-22", "title": "Playa", "notes": "Pack goggles."}]}
+
+    new = aw.day_extra_bodies(plan, {"id": TRIP_ID, "days": []})
+    assert new == [("2027-09-22", {"notes": "Pack goggles."})]
+
+    # a day the plan matched to a live id gets its whole body in plan_calls
+    existing_day = {"id": TRIP_ID, "days": [{"id": "day-1", "date": "2027-09-20"}]}
+    plan_with_id = {"days": [{"id": "day-1", "date": "2027-09-20", "notes": "keep"}]}
+    assert aw.day_extra_bodies(plan_with_id, existing_day) == []
+
+
+def test_fill_lands_the_day_notes_after_the_create(monkeypatch, capsys, tmp_path):
+    """End to end: the notes arrive in a second call, without the agent noticing."""
+    plan = {"days": [{"date": "2027-09-22", "title": "Playa", "notes": "Pack goggles."}]}
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+
+    calls: list[tuple[str, str, dict]] = []
+    live: dict = {"id": TRIP_ID, "days": [], "sections": [], "locations": []}
+
+    def fake_request(method, base, path, token, body=None, raw=None):
+        calls.append((method, path, body or {}))
+        if method == "post" and path.endswith("/days"):
+            live["days"].append({"id": "day-new", "blocks": [], **(body or {})})
+            return 200, live
+        if method in ("put", "patch"):
+            return 200, live
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: json.loads(json.dumps(live)))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_write.py", "fill", TRIP_ID, "--file", str(plan_file), "--no-resolve", "--token", "t"],
+    )
+
+    assert aw.main() == 0
+
+    create_at = next(i for i, c in enumerate(calls) if c[0] == "post")
+    assert calls[create_at][2] == {"date": "2027-09-22", "title": "Playa"}  # no notes
+    follow = [c for c in calls if "/days/day-new" in c[1]]
+    assert follow == [("put", f"/api/trips/{TRIP_ID}/days/day-new", {"notes": "Pack goggles."})]
+    assert create_at < next(i for i, c in enumerate(calls) if "/days/day-new" in c[1])
+    assert "notes/map/meta for 2027-09-22" in capsys.readouterr().err
+
+
+def test_dry_run_lists_the_day_notes_pass(monkeypatch, capsys, tmp_path):
+    """A dry run has to admit the extra call, or the plan reads as one call per day."""
+    plan = {"days": [{"date": "2027-09-22", "title": "Playa", "notes": "Pack goggles."}]}
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: EXISTING)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_write.py", "fill", TRIP_ID, "--file", str(plan_file), "--dry-run", "--no-resolve",
+         "--token", "t"],
+    )
+
+    assert aw.main() == 0
+
+    out = capsys.readouterr().out
+    assert "1 day-notes patch(es)" in out
+    assert "day-notes pass — POST /days takes index/date/title ONLY" in out
+    assert "<new day 2027-09-22>" in out
+
+
+def test_dry_run_rejects_the_plan_instead_of_writing_half_of_it(monkeypatch, capsys, tmp_path):
+    """A plan error stops at nothing-written, with every error listed."""
+    plan = {"days": [{"date": "2027-09-20", "blocks": [{"kind": "meal", "title": "Lunch", "mode": "car"}]}]}
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(json.dumps(plan), encoding="utf-8")
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: EXISTING)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["api_write.py", "fill", TRIP_ID, "--file", str(plan_file), "--token", "t"],
+    )
+
+    assert aw.main() == 2
+
+    err = capsys.readouterr().err
+    assert "plan rejected before any write:" in err
+    assert "mode" in err
+
+
+def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
+    """#255 → fix_places.py: the same venue name exists in several countries."""
+    trip = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "San José", "placeId": "P-SJ-CITY", "lat": 9.93, "lng": -84.08},
+            {"name": "Hotel Presidente"},   # Madrid's is 8,500 km away
+            {"name": "Café Central"},       # only ever resolves to Vienna's
+            {"name": "A remote island"},    # resolves to nothing at all
+        ],
+        "days": [],
+        "sections": [],
+    }
+    seen: list[dict] = []
+
+    def fake_request(method, base, path, token, body=None, raw=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            params = urllib.parse.parse_qs(path.split("?", 1)[1])
+            seen.append(params)
+            q = params["q"][0]
+            if q == "Hotel Presidente":
+                if "lat" in params:  # biased → the Costa Rican one
+                    return 200, {"available": True, "placeId": "P-SJ-HOTEL", "lat": 9.94, "lng": -84.09,
+                                 "name": "Hotel Presidente", "address": "San José, Costa Rica"}
+                return 200, {"available": True, "placeId": "P-MADRID", "lat": 40.42, "lng": -3.70,
+                             "name": "Hotel Presidente", "address": "Madrid, Spain"}
+            if q == "Café Central":
+                return 200, {"available": True, "placeId": "P-VIENNA", "lat": 48.21, "lng": 16.37,
+                             "name": "Café Central", "address": "Vienna, Austria"}
+            return 200, {"available": False}
+        if method == "patch" and path.endswith("/locations"):
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    # the trip's own coordinates are known before the first lookup, so no
+    # namesake-prone lookup ever went out unbiased
+    by_name: dict[str, list[dict]] = {}
+    for params in seen:
+        by_name.setdefault(params["q"][0], []).append(params)
+
+    assert all("lat" in lookups[0] for lookups in by_name.values())
+    assert by_name["Hotel Presidente"][0]["lat"] == ["9.93000"]
+    assert by_name["Hotel Presidente"][0]["radius"] == ["200000"]
+    # a look that comes back empty is retried once without the bias, so a venue
+    # genuinely somewhere else still gets an answer — and is reported as off-trip
+    assert by_name["A remote island"][-1] == {"q": ["A remote island"]}
+    resolved = {entry["name"]: entry["placeId"] for entry in report["locations_resolved"]}
+    assert resolved["Hotel Presidente"] == "P-SJ-HOTEL"  # not Madrid
+    assert resolved["Café Central"] == "P-VIENNA"        # resolvable, but wrong country
+    assert "San José" not in resolved                    # already pinned: untouched
+    assert [entry["name"] for entry in report["locations_off_trip"]] == ["Café Central"]
+    off = report["locations_off_trip"][0]
+    assert off["km_from_trip"] > 5000
+    # everything the CLI's "resolved OUTSIDE the trip's own area (a namesake?)"
+    # warning needs — the resolution is reported, never silently pinned
+    assert off["matched"] == "Café Central" and off["address"] == "Vienna, Austria"
+    assert report["locations_unresolved"] == ["A remote island"]

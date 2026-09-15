@@ -34,6 +34,10 @@ from .config import GOOGLE_MAPS_API_KEY, GOOGLE_PLACES_URL
 _DETAILS_TTL = 300.0  # 5 min — rating + review snippets + photo metadata
 _PHOTO_TTL = 900.0  # 15 min — proxied photo bytes (issue #95 decision)
 _SEARCH_TTL = 86400.0  # 24 h — venue name → place_id is effectively static
+#: Default radius of the location bias `search_place` sends, in metres, when the
+#: caller supplies a point but no radius: big enough to hold a country-scale
+#: trip's spread, since Google treats the circle as a ranking hint (#255).
+_BIAS_RADIUS_M = 200_000
 _MAX_REVIEW_SNIPPETS = 3
 
 _details_cache: dict[str, tuple[float, dict]] = {}
@@ -170,7 +174,12 @@ def place_details(place_id: str) -> dict | None:
     return out
 
 
-def search_place(query: str) -> dict | None:
+def search_place(
+    query: str,
+    *,
+    near: tuple[float, float] | None = None,
+    radius_m: int | None = None,
+) -> dict | None:
     """Resolve a venue's TEXT query to its ``place_id`` + exact coordinates.
 
     The resolution step the content agent needs (issue #187): a venue name in,
@@ -178,6 +187,13 @@ def search_place(query: str) -> dict | None:
     hand-rolled a Places script (which died with the turn budget) or wrote
     city-level locations, which is how a trip ends up with a generic
     ``maps/search?api=1&query=Tokyo`` link on every activity.
+
+    ``near``/``radius_m`` bias the candidate ranking toward a point the caller
+    already trusts (the trip's own coordinates). Place names repeat across
+    countries — "Hotel Presidente" is a Madrid hotel and a San José hotel — and
+    the unbiased top result is whatever Google ranks first, so a trip silently
+    acquires a venue on another continent. It is a bias, not a filter: a genuine
+    far-away entry still resolves (the caller reports it instead, #255).
 
     Places API (New) ``places:searchText``. Compliance (#15/#95): this function
     returns Google content but persists nothing — the caller stores only
@@ -190,13 +206,24 @@ def search_place(query: str) -> dict | None:
     text = (query or "").strip()
     if not places_configured() or not text:
         return None
-    cache_key = text.lower()
+    bias = None
+    if near is not None and isinstance(near[0], (int, float)) and isinstance(near[1], (int, float)):
+        bias = (round(float(near[0]), 5), round(float(near[1]), 5), int(radius_m or _BIAS_RADIUS_M))
+    cache_key = text.lower() if bias is None else f"{text.lower()}|{bias}"
     hit = _search_cache.get(cache_key)
     now = time.monotonic()
     if hit and hit[0] > now:
         return hit[1]
 
-    body = json.dumps({"textQuery": text, "maxResultCount": 1}).encode("utf-8")
+    request: dict = {"textQuery": text, "maxResultCount": 1}
+    if bias is not None:
+        request["locationBias"] = {
+            "circle": {
+                "center": {"latitude": bias[0], "longitude": bias[1]},
+                "radius": float(bias[2]),
+            }
+        }
+    body = json.dumps(request).encode("utf-8")
     status, raw = _request(
         f"{GOOGLE_PLACES_URL}/places:searchText",
         method="POST",
