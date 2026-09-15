@@ -103,6 +103,7 @@ describe("composeUserMessage (issue #252: attachments are parts, not prose)", ()
     name: "Roadbook II- RAES.pdf",
     mediaType: "application/pdf",
     isImage: false,
+    isVideo: false,
     converted: false,
     size: 2_411_724,
   };
@@ -111,6 +112,7 @@ describe("composeUserMessage (issue #252: attachments are parts, not prose)", ()
     name: "IMG_2812.jpg",
     mediaType: "image/jpeg",
     isImage: true,
+    isVideo: false,
     converted: false,
     size: 1_048_576,
   };
@@ -143,6 +145,50 @@ describe("composeUserMessage (issue #252: attachments are parts, not prose)", ()
 
   it("keeps a plain message plain", () => {
     expect(composeUserMessage("Hi", [])).toEqual({ text: "Hi", files: [] });
+  });
+
+  it("hands the agent a clip as a handle, never as vision input (#250)", () => {
+    const clip: UploadedChatFile = {
+      url: "/media/t1/deadbeefdeadbeefdeadbeefdeadbeef.mp4",
+      name: "clip.mp4",
+      mediaType: "video/mp4",
+      isImage: false,
+      isVideo: true,
+      converted: false,
+      size: 18_000_000,
+    };
+    // The composer carries the clip as a file part, exactly like a document…
+    expect(composeUserMessage("Day 3, the gorge", [clip]).files).toEqual([
+      {
+        type: "file",
+        mediaType: "video/mp4",
+        url: "/media/t1/deadbeefdeadbeefdeadbeefdeadbeef.mp4",
+        filename: "clip.mp4",
+        size: 18_000_000,
+      },
+    ]);
+    // …and the relay sends the agent a URL it can fetch. A video must NOT
+    // become an `image_url` part: no model reads a clip, and sending one
+    // there would be a black box the agent cannot interpret. Text-only
+    // content is the proof no vision part was added.
+    const backend = toBackendMessage({
+      id: "m1",
+      role: "user",
+      parts: [
+        { type: "text", text: "Day 3, the gorge" },
+        {
+          type: "file",
+          mediaType: "video/mp4",
+          url: "/media/t1/deadbeefdeadbeefdeadbeefdeadbeef.mp4",
+          filename: "clip.mp4",
+        },
+      ],
+    } as UIMessage);
+    expect(typeof backend.content).toBe("string");
+    expect(String(backend.content)).toContain("clip.mp4");
+    expect(String(backend.content)).toContain(
+      "/media/t1/deadbeefdeadbeefdeadbeefdeadbeef.mp4",
+    );
   });
 });
 

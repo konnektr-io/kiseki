@@ -685,15 +685,20 @@ describe("ChatPanel close button", () => {
 describe("summarizeAttachments (#251)", () => {
   const ready = (
     name: string,
-    { image = true, converted = false }: { image?: boolean; converted?: boolean } = {},
+    {
+      image = true,
+      video = false,
+      converted = false,
+    }: { image?: boolean; video?: boolean; converted?: boolean } = {},
   ) => ({
     id: name,
     state: "ready" as const,
     file: {
       url: `/media/trip-1/${name}`,
       name,
-      mediaType: image ? "image/jpeg" : "application/pdf",
+      mediaType: video ? "video/mp4" : image ? "image/jpeg" : "application/pdf",
       isImage: image,
+      isVideo: video,
       converted,
       size: 1024,
     },
@@ -746,5 +751,24 @@ describe("summarizeAttachments (#251)", () => {
 
   it("is empty when nothing is attached", () => {
     expect(summarizeAttachments([])).toBe("");
+  });
+
+  it("counts a clip as its own kind — never as a photo (#250)", () => {
+    // A clip is not a photo with a different extension: the composer has to
+    // say which batch arrived, or the user cannot tell whether the video they
+    // picked is in the batch at all.
+    expect(
+      summarizeAttachments([
+        ready("a.jpg"),
+        ready("b.jpg"),
+        ready("clip.mp4", { image: false, video: true }),
+      ]),
+    ).toBe("2 photos · 1 video attached");
+    expect(
+      summarizeAttachments([
+        ready("clip.mp4", { image: false, video: true }),
+        ready("take-2.MOV", { image: false, video: true }),
+      ]),
+    ).toBe("2 videos attached");
   });
 });

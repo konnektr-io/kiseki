@@ -1,5 +1,6 @@
 import { useTrip } from "../components/theme";
 import { DayBlocks, BlockGlyph } from "../components/blocks";
+import { TripMedia } from "../components/photos";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces, markerNumber, findLocation } from "../lib/maps";
 import { classifyTransportMode } from "../lib/transport";
@@ -35,11 +36,14 @@ function FeatureBlock({ f }: { f: Feature }) {
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           {f.images.map((src) => (
-            <img key={src} src={src} alt="" className="h-40 w-full rounded object-cover" />
+            // TripMedia: a clip in a feature plays on screen, and PRINT gets
+            // its poster frame with a link to the file instead of an embed
+            // (#250 — the booklet links a video, never inlines it).
+            <TripMedia key={src} src={src} alt="" className="h-40 w-full rounded object-cover" />
           ))}
         </div>
       ) : f.image && !f.map ? (
-        <img src={f.image} alt="" className="mt-3 max-h-64 w-full rounded object-cover" />
+        <TripMedia src={f.image} alt="" className="mt-3 max-h-64 w-full rounded object-cover" />
       ) : null}
 
       {f.chips?.length ? (
@@ -56,7 +60,7 @@ function FeatureBlock({ f }: { f: Feature }) {
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {f.cards.map((c) => (
             <div key={c.title} className="overflow-hidden rounded border border-border">
-              {c.image && <img src={c.image} alt="" className="h-24 w-full object-cover" />}
+              {c.image && <TripMedia src={c.image} alt="" className="h-24 w-full object-cover" />}
               <div className="p-2.5">
                 <p className="font-heading text-sm font-semibold uppercase leading-tight">
                   {findLocation(trip, c.title) ? `${markerNumber(trip, findLocation(trip, c.title)!)} ` : ""}

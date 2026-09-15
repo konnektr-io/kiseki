@@ -132,7 +132,7 @@ Identity rules:
 | Concern | Home |
 |---|---|
 | Trips, days, blocks, sections, locations, features, crew, users | Konnektr Graph (AGE/PostgreSQL) |
-| Trip media (covers, galleries, photos) | Garage S3 bucket, private, streamed via `/media/<trip-id>/<file>` |
+| Trip media (covers, galleries, photos, video clips) | Garage S3 bucket, private, streamed via `/media/<trip-id>/<file>` (byte ranges, so a clip seeks) |
 | Agent conversation history | The agent's own side, scoped per user and trip |
 | `trip.json` / `*.graph.json` | **Authoring scratch only** — git-ignored, never read at runtime |
 | Anonymised samples | `backend/data/mocks/*.graph.anon.json`, committed, used for local dev and CI |

@@ -19,9 +19,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
+import { Play } from "lucide-react";
 import { TripAccessError, fetchFeed } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { formatDate } from "../lib/dates";
+import { isVideoSrc, posterFor } from "../lib/media";
 import { usePageTitle } from "../lib/seo";
 import type { FeedDoc, FeedEntry } from "../lib/types";
 import { AppHeader } from "../components/AppHeader";
@@ -133,16 +135,44 @@ function Thumbs({ thumbs }: { thumbs: string[] }) {
   if (!thumbs.length) return null;
   return (
     <div className="mt-3 flex flex-wrap gap-2">
-      {thumbs.map((src) => (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="h-20 w-20 rounded-lg border border-border object-cover"
-        />
-      ))}
+      {thumbs.map((src) => {
+        // A clip's thumbnail is its poster frame with a play badge (#250): a
+        // <video> here would be a heavier preview that does not scrub, and this
+        // row shows what was written, not a player.
+        if (isVideoSrc(src)) {
+          const poster = posterFor(src);
+          return (
+            <span
+              key={src}
+              className="relative block h-20 w-20 overflow-hidden rounded-lg border border-border bg-black/85"
+            >
+              {poster && (
+                <img
+                  src={poster}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  className="h-20 w-20 object-cover opacity-80"
+                />
+              )}
+              <span className="absolute inset-0 grid place-items-center">
+                <Play className="h-6 w-6 text-white" aria-hidden="true" />
+              </span>
+              <span className="sr-only">Video</span>
+            </span>
+          );
+        }
+        return (
+          <img
+            key={src}
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="h-20 w-20 rounded-lg border border-border object-cover"
+          />
+        );
+      })}
     </div>
   );
 }

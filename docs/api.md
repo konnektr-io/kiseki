@@ -88,7 +88,7 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `POST` | `/api/chat` | user | Send a turn to the agent; server-sent events in the Vercel-AI UI-message-stream shape |
 | `GET` | `/api/chat/turn` | user | Attach to a run in progress at a cursor (survives reloads) |
 | `POST` | `/api/chat/stop` | user | Stop the running turn — the only thing that does |
-| `POST` | `/api/files` | user | Upload files for the agent (inbox). HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |
+| `POST` | `/api/files` | user | Upload files for the agent (inbox) — photos, videos and documents, each family streamed to disk under its own cap (64 MB / 1 GB / 32 MB) with a per-file `413` when over; `posterOf=<clip>` adds a video's poster frame. HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |
 | `POST` | `/api/files/promote` | user | Promote an inbox file into trip media / the right attachment point |
 
 The agent's own trip writes use the same endpoints above, carrying the acting user's identity and
@@ -104,6 +104,11 @@ therefore the acting user's role.
 - HEIC/HEIF (iPhone photos) is transcoded to JPEG on ingest, EXIF (capture time + GPS) intact;
   a file the server cannot decode comes back as a per-file `422` whose message the composer shows on
   the file's chip.
+- A video is uploaded as itself — the stack has no transcoder, so the clip the user picked is the
+  clip that is stored, and `/media/...` answers byte ranges so the player can seek it. What the
+  composer adds is the poster: it captures the first frame in the browser and sends it as a second
+  upload with `posterOf=<clip>`, which the server stores as `<stem>_poster.jpg`. Surfaces derive the
+  poster from the video's own name, so nothing else had to learn a new field.
 
 ## Photos and expenses
 
@@ -130,7 +135,10 @@ therefore the acting user's role.
 
 Routes outside the schema (not public API, still part of the app): `GET /media/{trip_id}/{file}`
 (streams a stored media object; the path is validated structurally and the object is addressed by the
-trip's durable `$dtId` + filename — a crew-level media ACL is the planned plug-in point, [#64]),
+trip's durable `$dtId` + filename. One byte range is honoured — `206` + `Content-Range`, `416` when
+unsatisfiable, `Content-Length` and `Accept-Ranges` always set — so a `<video>` in the UI seeks
+through this same route instead of pulling the whole clip again; a crew-level media ACL is the
+planned plug-in point, [#64]),
 `GET /inbox/{file}` (agent inbox; the key is a content hash, so the name is the capability),
 `GET /api/maps/static/{path}` (legacy static-map proxy), `GET /robots.txt`, and the SPA catch-all
 which serves the app shell only for `/`, `/t/*`, `/join/*`, `/u/*`, `/me`, `/feed`.

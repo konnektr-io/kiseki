@@ -73,7 +73,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | GET | `/api/users/{sub}/followers` · `/following` | drill-in people lists (#196) — capped at 200 entries with the true-total `count`; no email, ever |
 | POST / DELETE | `/api/users/{sub}/follow` | follow / unfollow a person (#196) — one-directional, grants NO trip access; user-token-only (M2M refused 403); 400 self, 404 unknown |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
-| POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4). HEIC/HEIF (iPhone photos) is transcoded to JPEG at ingest — by extension *or* by content, EXIF kept for the photo-placement path — and anything that cannot be decoded is a per-file `422` naming the file, never an accept-and-store-forever (#251). The response carries the STORED form: `url`, `name`, `contentType`, `sha256` (of the stored bytes), `exif`, `converted` |
+| POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4). Videos (`mp4`, `m4v`, `mov`, `webm`) upload like photos and are stored as-is — there is no transcoder in the stack, so the browser's own player does the work, and a clip's poster frame arrives as a SECOND upload carrying `posterOf=<video name>` (stored beside the clip as `<stem>_poster.jpg`). Every upload family has its own cap (image 64 MB, video 1024 MB, document 32 MB) enforced WHILE the body streams to disk, and the extension must belong to the family — too large is a `413`, wrong kind a per-file `422`. HEIC/HEIF (iPhone photos) is transcoded to JPEG at ingest — by extension *or* by content, EXIF kept for the photo-placement path — and anything that cannot be decoded is a per-file `422` naming the file, never an accept-and-store-forever (#251). The response carries the STORED form: `url`, `name`, `contentType`, `sha256` (of the stored bytes), `exif`, `converted` |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
 | PUT | `/api/trips/{trip_id}/practical` | whole practical object |
 | POST | `/api/trips/{trip_id}/practical/todos` | append todo |
@@ -126,7 +126,10 @@ would otherwise fall back to `maps/search?api=1&query=<city>`.
 public domain / CC BY / CC BY-SA — NC and ND are skipped), downloads, uploads into
 the trip and prints the bare filename plus the credit/licence to record. That is
 the media pipeline the booklet needs, and the reason the 422 gate above is a gate
-rather than a warning.
+rather than a warning. Videos ride the same route and the same gate (`mp4` /
+`m4v` / `mov` / `webm`, up to 1 GB, stored as-is — no transcoder): put the
+stored clip in a block's `images` and the app plays it there, while the booklet
+prints a link to it instead of a frame, because print cannot play.
 
 **Bulk fill — the default for building a trip** (one validated plan, one run;
 ~11 calls instead of ~100, and the whole 422 class is checked before the first
@@ -294,6 +297,15 @@ writeup; in short:
     `kiseki-s3`). Without S3 config the route falls back to a local
     `backend/data/assets/` tree only when one exists (dev scratch / legacy
     checkout); the repo ships none, so prod serves 404 without the bucket.
+  - **Videos (#250)**: a clip is stored and served like a photo — same bucket,
+    same content-addressed key, same URL. The GET route honours ONE byte range
+    (`Accept-Ranges: bytes`; `206` + `Content-Range`, `416` when unsatisfiable)
+    and always sets `Content-Length`, so `<video>` seeks instead of
+    re-downloading. No CDN, no second route, no transcoder. A clip's poster is
+    a plain image stored as `<stem>_poster.jpg` next to it: the data model
+    gained NO poster field — every surface derives the poster from the video's
+    own name (`posterFor` in `frontend/src/lib/media.ts`), which is also why a
+    video file carries no EXIF path and never enters the photo-placement flow.
 
 ## Maps (dynamic + print)
 

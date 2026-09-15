@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Button, Card, Separator, StageBadge } from "../components/ui";
+import { TripMedia } from "../components/photos";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
@@ -28,11 +29,13 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
           {f.images.map((src) => (
-            <img key={src} src={src} alt={f.title} className="h-40 w-full rounded-lg border border-border object-cover" />
+            // TripMedia, not <img>: a clip plays here and prints as its poster
+            // frame with a link (#250) — an <img src="….mp4"> shows nothing.
+            <TripMedia key={src} src={src} alt={f.title} className="h-40 w-full rounded-lg border border-border object-cover" />
           ))}
         </div>
       ) : f.image && !f.map ? (
-        <img src={f.image} alt={f.title} className="mt-3 max-h-64 w-full rounded-lg border border-border object-cover" />
+        <TripMedia src={f.image} alt={f.title} className="mt-3 max-h-64 w-full rounded-lg border border-border object-cover" />
       ) : null}
 
       {f.chips?.length ? (
@@ -60,7 +63,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
           <div className="mt-3 hidden grid-cols-2 gap-3 md:grid md:grid-cols-4">
             {f.cards.map((c) => (
               <div key={c.title} className="overflow-hidden rounded-lg border border-border">
-                {c.image && <img src={c.image} alt={c.title} className="h-24 w-full object-cover" />}
+                {c.image && <TripMedia src={c.image} alt={c.title} className="h-24 w-full object-cover" />}
                 <div className="p-2.5">
                   <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
                   {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
@@ -96,7 +99,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
             <div className="mt-2 space-y-2.5 md:hidden">
               {f.cards.map((c) => (
                 <div key={c.title} className="overflow-hidden rounded-lg border border-border">
-                  {c.image && <img src={c.image} alt={c.title} className="h-28 w-full object-cover" />}
+                  {c.image && <TripMedia src={c.image} alt={c.title} className="h-28 w-full object-cover" />}
                   <div className="p-2.5">
                     <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
                     {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
