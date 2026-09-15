@@ -282,7 +282,35 @@ CREW_ROLES = ("viewer", "editor", "owner")
 # than inlined so tests/test_follow_197.py can walk the whole tuple: a
 # crew-only field added inline is a leak no test can enumerate, which is why
 # the assertion is written against this registry. Add the field HERE.
-CREW_ONLY_FIELDS: tuple[tuple[str, ...], ...] = (("practical", "tricount"),)
+CREW_ONLY_FIELDS: tuple[tuple[str, ...], ...] = (
+    ("practical", "tricount"),
+    # #249 (Niko, 2026-09-15): the pre-trip checklist is the crew's own
+    # logistics — it names bookings and what is still to be paid — and a
+    # landing page or a discoverable trip must not hand it to a stranger.
+    ("practical", "todos"),
+)
+
+# Financial and booking detail on a BLOCK, stripped for a non-crew reader wherever
+# the block lives (#249). A booking code is a key to someone else's reservation
+# and a cost is nobody's business from a public page — the same class of leak as
+# `practical.tricount`, one container deeper.
+#
+# Keyed by NAME rather than by dot path, unlike CREW_ONLY_FIELDS: blocks live in
+# `days[].blocks[]` today and in `sections[].blocks[]` when they are still ideas,
+# and the next container (an editorial feature card, a new section type) would
+# silently re-expose every booking code if this were a path list. A name-matched
+# recursive walk cannot miss one; `CREW_ONLY_FIELDS` still handles fields that
+# are only sensitive in one place.
+CREW_ONLY_KEYS: frozenset[str] = frozenset({"cost", "currency", "bookingCode"})
+
+# Block KINDS that are the crew's paperwork rather than the trip's content, so a
+# non-crew reader does not receive the block at all (#249). A `booking` block is
+# a reservation end to end: on the live Canada trip its title, its
+# `bookingCode` ("STHS Feb 20–24") AND its description ("Deposit paid
+# ($2,964.15 CAD, 35%). Balance due Dec 10, 2026.") are the same disclosure — and
+# only the code is a structured field. Amounts in prose cannot be redacted by
+# key, so the block goes whole.
+CREW_ONLY_BLOCK_KINDS: frozenset[str] = frozenset({"booking"})
 
 
 def _drop_path(data: dict, path: tuple[str, ...]) -> None:
@@ -294,6 +322,49 @@ def _drop_path(data: dict, path: tuple[str, ...]) -> None:
         if cursor is None:
             return
     cursor.pop(path[-1], None)
+
+
+def _redact_non_crew(data: object) -> tuple[int, int]:
+    """Apply both crew-only registries to a nested document, in one walk.
+
+    Drops every ``CREW_ONLY_KEYS`` name wherever it appears, and removes any block
+    whose ``kind`` is in ``CREW_ONLY_BLOCK_KINDS`` from the list holding it.
+
+    Recursive by design (contrast ``_drop_path``): where a block sits is an
+    implementation detail — ``days[].blocks[]`` today, ``sections[].blocks[]``
+    while an idea is still unscheduled, something new next — and the leak being
+    guarded is exactly the container nobody thought of. Matching by name and kind
+    cannot miss one, whereas a path list can.
+
+    Returns ``(keys_dropped, blocks_dropped)`` so a test can tell a redaction that
+    found nothing from one that worked: a silent no-match is indistinguishable
+    from a correct strip otherwise.
+    """
+    keys_dropped = 0
+    blocks_dropped = 0
+    if isinstance(data, list):
+        kept: list[object] = []
+        for item in data:
+            if isinstance(item, dict) and item.get("kind") in CREW_ONLY_BLOCK_KINDS:
+                blocks_dropped += 1
+                continue
+            sub_keys, sub_blocks = _redact_non_crew(item)
+            keys_dropped += sub_keys
+            blocks_dropped += sub_blocks
+            kept.append(item)
+        if len(kept) != len(data):
+            data[:] = kept
+        return keys_dropped, blocks_dropped
+    if isinstance(data, dict):
+        for key in list(data.keys()):
+            if key in CREW_ONLY_KEYS:
+                data.pop(key, None)
+                keys_dropped += 1
+                continue
+            sub_keys, sub_blocks = _redact_non_crew(data[key])
+            keys_dropped += sub_keys
+            blocks_dropped += sub_blocks
+    return keys_dropped, blocks_dropped
 
 
 def _public_trip(
@@ -314,6 +385,32 @@ def _public_trip(
     followers the sharing key and, with it, the crew's expense registry in
     the Tricount app. Crew roles (viewer/editor/owner) keep it — the snapshot
     endpoint re-checks the role server-side.
+
+    ``practical.todos``, every block's ``cost`` / ``currency`` / ``bookingCode``,
+    and every ``booking`` block (#249, Niko 2026-09-15) are stripped the same way.
+    The checklist is where a crew writes "pay the balance", a booking code is a key
+    to someone else's reservation, and a booking block is paperwork end to end —
+    on the live Canada trip its description alone carried "Deposit paid ($2,964.15
+    CAD, 35%). Balance due Dec 10, 2026." None of it belongs to whoever happens to
+    be reading a discoverable trip, let alone to a stranger who followed a link on
+    the marketing page. A public trip still shows its route, days, places and
+    photos — the trip, without the crew's paperwork.
+
+    That deliberately OVERRIDES the falsy-value contract (``test_api.py``)
+    for those three names: a deliberate ``cost: 0`` is still a cost, so its guard
+    now asserts both halves — omitted for a stranger, kept for the crew — while
+    ``order``, ``items``, ``subtitle`` and friends keep #220's contract untouched.
+
+    KNOWN GAP, deliberately left to a follow-up: money can still appear in the free
+    prose of a block that is NOT kind ``booking`` — on the live trip, 2 blocks
+    (a ``lodging`` stay and an ``activity``) mention a rate. Prose cannot be
+    redacted by key, and hiding block descriptions from strangers would gut the
+    page, so it is a content convention at most. ``practical.notes`` /
+    ``practical.blocks`` (prose such as "Money & tipping") and
+    ``practical.contacts`` (crew phone numbers/emails) are likewise NOT stripped:
+    both are bigger judgement calls, and both are flagged in #249 rather than
+    silently decided. Making all of ``practical`` crew-only is the obvious next
+    move if any of it is judged too private.
 
     ``crew`` on a DISCOVERABLE trip (#196 phase B) renders as initials for a
     viewer with no crew role (``my_role`` None) — see
@@ -351,10 +448,12 @@ def _public_trip(
     data.pop("claimToken", None)
     data.pop("followToken", None)
     # Crew-only fields, from the registry above — a follower/anonymous caller
-    # gets the trip without the crew's own surfaces (#196).
+    # gets the trip without the crew's own surfaces (#196), and a non-crew reader
+    # never gets a booking code or a cost from any block, wherever it sits (#249).
     if my_role not in CREW_ROLES:
         for path in CREW_ONLY_FIELDS:
             _drop_path(data, path)
+        _redact_non_crew(data)
     resolve_media_urls(data, trip.id)
     if my_role:
         data["myRole"] = my_role
