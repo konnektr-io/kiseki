@@ -158,6 +158,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import math
 import mimetypes
 import os
 import re
@@ -259,6 +260,140 @@ BLOCK_FIELDS = {
     "via", "from", "to", "mode", "location", "placeId",
     "images",
 }
+#: Fields the server accepts on ONE block kind only (mirror of
+#: `_validate_block_kind_fields` in app/write.py). PRESENCE is what 422s, not
+#: truthiness — so a plan built by round-tripping a GET (every key present, the
+#: unset ones as `null`/`[]`) dies on its first non-transport block with
+#: "Field(s) [...] are only valid on transport blocks". Measured 2026-09-15:
+#: 422 at block 1/43, which cost a whole second run (#255).
+KIND_ONLY_FIELDS: dict[str, set[str]] = {
+    "distance": {"transport"},
+    "duration": {"transport"},
+    "route": {"transport"},
+    "via": {"transport"},
+    "from": {"transport"},
+    "to": {"transport"},
+    "mode": {"transport"},
+    "html": {"custom"},
+    "items": {"todo", "gallery"},
+}
+#: DayCreate (POST /days) is extra=forbid and takes these ONLY — `notes`, `map`
+#: and `meta` are DayPatch. A plan day carrying them on a NEW day 422s the very
+#: first call of the run (`split_days.py`, #255).
+DAY_CREATE_FIELDS = {"index", "date", "title"}
+#: DayPatch (PUT /days/<id>) owns everything a day can hold.
+DAY_PATCH_FIELDS = {"title", "notes", "map", "meta"}
+#: Every key a plan day may carry.
+DAY_FIELDS = {"id", "index", "date", "title", "notes", "map", "meta", "blocks"}
+
+
+def _is_empty(value: Any) -> bool:
+    """The value a GET hands back for a field nobody set — i.e. "untouched"."""
+    return value is None or (isinstance(value, (str, list, dict, tuple)) and not value)
+
+
+def _strip_empty(node: Any) -> Any:
+    """Recursively drop empty values — absent is the write API's "leave it"."""
+    if isinstance(node, dict):
+        return {k: _strip_empty(v) for k, v in node.items() if not _is_empty(v)}
+    if isinstance(node, list):
+        return [_strip_empty(v) for v in node]
+    return node
+
+
+def _normalize_block(block: dict, empty_counts: dict[str, int], dropped: list[str], where: str) -> dict:
+    """One block body, as the write model will actually accept it."""
+    kind = str(block.get("kind") or "")
+    out: dict[str, Any] = {}
+    for key, value in block.items():
+        if key in ("kind", "container", "order"):
+            out[key] = value
+            continue
+        allowed = KIND_ONLY_FIELDS.get(key)
+        if allowed is not None and kind not in allowed:
+            if not _is_empty(value):
+                dropped.append(
+                    f"{where}: dropped `{key}` — only valid on {'/'.join(sorted(allowed))} blocks"
+                )
+            continue
+        if _is_empty(value):
+            empty_counts[key] = empty_counts.get(key, 0) + 1
+            continue
+        out[key] = _strip_empty(value)
+    return out
+
+
+def normalize_plan(plan: dict) -> tuple[dict, list[str]]:
+    """Return ``(plan_the_API_accepts, notes)`` — the two invariants `fill` owns.
+
+    A plan an agent actually writes is usually grown from a live GET, so every
+    block carries every BlockFields key, with ``null``/``[]``/``""`` for the ones
+    that do not apply. The write model is coarse on purpose and validates on
+    presence, so that is a guaranteed 422 mid-run. Both classes are removed here
+    instead, before the first call:
+
+    1. **Fields another kind owns** — transport-only fields off a transport,
+       ``html`` off custom, ``items`` off todo/gallery (the server's own rule).
+    2. **Empty values** — ``items: []``, ``images: []``, ``mode: null``, ``…``.
+       "Absent" is exactly what an empty value meant: leave the field untouched.
+       Clearing a field deliberately is a plain ``put``, not a fill plan.
+
+    This is the script-side half of #255: "no empty `items`/`images` arrays" was a
+    throwaway script in that run because the filler demanded a hand-cleaned plan.
+    """
+    normalized = json.loads(json.dumps(plan))
+    notes: list[str] = []
+    empty_counts: dict[str, int] = {}
+    hard: list[str] = []
+
+    for i, day in enumerate(normalized.get("days") or []):
+        if not isinstance(day, dict):
+            continue
+        for key in list(day):
+            if key == "blocks":
+                continue
+            if _is_empty(day[key]):
+                del day[key]
+            else:
+                # …and the same rule one level down: `notes: {"tips": []}` is a
+                # GET's empty `tips`, not an author's intention to clear it.
+                day[key] = _strip_empty(day[key])
+        day["blocks"] = [
+            _normalize_block(block, empty_counts, hard, f"days[{i}].blocks[{j}]")
+            for j, block in enumerate(day.get("blocks") or [])
+            if isinstance(block, dict)
+        ]
+    for i, sec in enumerate(normalized.get("sections") or []):
+        if not isinstance(sec, dict):
+            continue
+        for key in ("title", "days", "locationRefs"):
+            if key in sec and _is_empty(sec[key]):
+                del sec[key]
+        sec["blocks"] = [
+            _normalize_block(block, empty_counts, hard, f"sections[{i}].blocks[{j}]")
+            for j, block in enumerate(sec.get("blocks") or [])
+            if isinstance(block, dict)
+        ]
+
+    for key in ("scalars", "practical"):
+        if isinstance(normalized.get(key), dict):
+            normalized[key] = _strip_empty(normalized[key])
+    for key in ("locations", "features", "crew"):
+        if isinstance(normalized.get(key), list):
+            normalized[key] = [_strip_empty(entry) for entry in normalized[key]]
+
+    total = sum(empty_counts.values())
+    if total:
+        top = ", ".join(
+            f"{key}×{count}"
+            for key, count in sorted(empty_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:6]
+        )
+        notes.append(
+            f"normalized: dropped {total} empty field(s) the write model treats as absent "
+            f"({top}) — a GET round-trip fills every key in with its default"
+        )
+    notes.extend(hard)
+    return normalized, notes
 
 
 class PlanError(Exception):
@@ -425,6 +560,22 @@ def validate_plan(plan: dict, existing: dict | None = None) -> tuple[list[str], 
             unknown_fields = set(block) - BLOCK_FIELDS
             if unknown_fields:
                 errors.append(f"{where} has unknown block fields {sorted(unknown_fields)}")
+            # A non-empty value for another kind's field is a 422 on the server,
+            # so stop before the run rather than at block 1/43 (see #255). The
+            # empty variant is not an error — `normalize_plan` drops it, because
+            # a GET round-trip puts `null`/`[]` on every key (#255).
+            for field, kinds in KIND_ONLY_FIELDS.items():
+                if field in block and kind not in kinds and not _is_empty(block[field]):
+                    errors.append(
+                        f"{where}.{field} is only valid on {'/'.join(sorted(kinds))} blocks "
+                        f"(kind {kind!r}) — move it to the right kind or drop it"
+                    )
+        unknown_day_fields = set(day) - DAY_FIELDS
+        if unknown_day_fields:
+            errors.append(
+                f"days[{i}] has unknown field(s) {sorted(unknown_day_fields)} — "
+                f"allowed: {sorted(DAY_FIELDS)}"
+            )
 
     day_count = len(days) if days else len((existing or {}).get("days") or [])
     sections = plan.get("sections")
@@ -563,7 +714,17 @@ def plan_calls(plan: dict, trip_id: str, existing: dict | None = None) -> list[t
             body.pop("date", None)  # PUT /days/<id> patches; the date is the identity
             calls.append(("put", f"{base}/days/{day_id}", body))
         else:
-            calls.append(("post", f"{base}/days", body))
+            # POST /days is DayCreate: extra=forbid, `index`/`date`/`title` only.
+            # `notes`/`map`/`meta` belong to DayPatch and follow in
+            # `day_extra_bodies` once the create has handed the day an id — a
+            # hand-split plan was a whole throwaway script in #255.
+            calls.append(
+                (
+                    "post",
+                    f"{base}/days",
+                    {k: v for k, v in body.items() if k in DAY_CREATE_FIELDS},
+                )
+            )
 
     existing_sections = {
         str(s.get("title") or "").strip().lower(): s.get("id")
@@ -591,6 +752,64 @@ def plan_calls(plan: dict, trip_id: str, existing: dict | None = None) -> list[t
             continue  # POST /crew would add a second card for the same person
         calls.append(("post", f"{base}/crew", person))
     return calls
+
+
+def day_extra_bodies(plan: dict, existing: dict | None = None) -> list[tuple[str, dict]]:
+    """``(date, body)`` for the day fields ``POST /days`` refuses on a NEW day.
+
+    Only the client knows which days are new, and only the server knows the id it
+    hands back, so this is split in two: this function decides *what* has to
+    follow, :func:`day_create_extras` resolves *where* to send it once the create
+    has returned. A day the plan matched to an existing id is skipped — an
+    existing day gets its whole body in :func:`plan_calls`.
+    """
+    if not plan.get("days"):
+        # No day of the plan is being created: existing days are PUT whole.
+        return []
+    known = {
+        d.get("date"): d.get("id")
+        for d in (existing or {}).get("days") or []
+        if d.get("id")
+    }
+    out: list[tuple[str, dict]] = []
+    for day in plan.get("days") or []:
+        if day.get("id") or known.get(day.get("date")):
+            continue
+        body = {
+            key: value
+            for key, value in day.items()
+            if key in DAY_PATCH_FIELDS and key != "title" and not _is_empty(value)
+        }
+        if body:
+            out.append((str(day.get("date")), body))
+    return out
+
+
+def day_create_extras(
+    plan: dict,
+    existing: dict | None,
+    trip: dict | None,
+) -> list[tuple[str, str, dict]]:
+    """``(date, day_id, body)`` for the day patches that must follow the creates.
+
+    ``DayCreate`` is ``extra=forbid`` and takes ``index``/``date``/``title`` only;
+    ``notes``, ``map`` and ``meta`` are ``DayPatch``. A plan with a new day that
+    carries any of them therefore needs a second call once the day has an id.
+    Doing that inside `fill` is what removes the hand-written split from the
+    trip-generation loop (#255): the plan says what the day holds, and the filler
+    decides how many calls that takes.
+    """
+    live = {
+        d.get("date"): d.get("id")
+        for d in (trip or {}).get("days") or []
+        if d.get("id")
+    }
+    out: list[tuple[str, str, dict]] = []
+    for date, body in day_extra_bodies(plan, existing):
+        day_id = live.get(date)
+        if day_id:
+            out.append((date, str(day_id), body))
+    return out
 
 
 def block_intents(plan: dict, existing: dict | None = None) -> list[tuple[str, str, dict]]:
@@ -766,21 +985,79 @@ def _server_base(trip_id: str, base: str, token: str) -> dict:
 
 #: Block kinds that name a real-world venue and therefore want a Maps key.
 _VENUE_KINDS = {"activity", "lodging", "meal", "booking"}
+#: Radius of the location bias sent with a venue query, in km. A hint to Google's
+#: ranking, not a filter — big enough to hold a country-scale trip's spread.
+_BIAS_RADIUS_KM = 200
+#: How far a hit may sit from the trip's own middle before it is treated as a
+#: namesake and reported. Generous on purpose: a trip legitimately spans a
+#: country; a different country is the failure this catches (#255).
+_OFF_TRIP_KM = 300
 
 
-def _resolve_query(query: str, base: str, token: str) -> dict | None:
+def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle distance in km — enough to spot a namesake on another continent."""
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * 6371.0088 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def _coords(entry: dict) -> tuple[float, float] | None:
+    lat, lng = entry.get("lat"), entry.get("lng")
+    if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+        return (float(lat), float(lng))
+    return None
+
+
+def _trip_anchor(trip: dict) -> tuple[float, float] | None:
+    """The trip's own middle, from the locations it has already placed.
+
+    The median, not the mean: one namesake that resolved to the wrong continent
+    must not drag the anchor to the middle of the Atlantic. ``None`` when nothing
+    in the trip has coordinates yet — then there is nothing to bias toward and
+    the resolver stays unbounded (as it always was).
+    """
+    points = [c for c in (_coords(loc) for loc in trip.get("locations") or []) if c]
+    if not points:
+        return None
+    lats = sorted(p[0] for p in points)
+    lngs = sorted(p[1] for p in points)
+    mid = len(points) // 2
+    if len(points) % 2:
+        return (lats[mid], lngs[mid])
+    return ((lats[mid - 1] + lats[mid]) / 2, (lngs[mid - 1] + lngs[mid]) / 2)
+
+
+def _resolve_query(
+    query: str,
+    base: str,
+    token: str,
+    near: tuple[float, float] | None = None,
+    radius_km: int = _BIAS_RADIUS_KM,
+) -> dict | None:
     """``GET /api/places/search?q=`` — venue name → place_id + coordinates.
 
     The server holds the Google key and caches the lookup; a miss (no key, no
     match, Google error) answers ``{"available": false}`` and comes back here as
     ``None`` so callers treat every kind of miss identically.
+
+    ``near`` biases the candidates toward a point the caller already trusts. Place
+    names repeat across countries — "Hotel Presidente" resolves to Madrid as
+    happily as to San José — and an unbiased text search hands back whatever
+    Google ranks first, which is how a trip silently acquires a venue on another
+    continent (the hand-written ``fix_places.py`` of #255). The bias is a hint,
+    not a filter, so a genuine far-away entry still resolves.
     """
     text = str(query or "").strip()
     if not text:
         return None
-    status, body = _request(
-        "get", base, f"/api/places/search?q={urllib.parse.quote(text)}", token, None
-    )
+    path = f"/api/places/search?q={urllib.parse.quote(text)}"
+    if near is not None:
+        path += (
+            f"&lat={near[0]:.5f}&lng={near[1]:.5f}&radius={int(radius_km) * 1000}"
+        )
+    status, body = _request("get", base, path, token, None)
     if status != 200 or not isinstance(body, dict) or not body.get("available"):
         return None
     return body if body.get("placeId") else None
@@ -794,7 +1071,12 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
 
     1. **Registry locations without a ``placeId``** are resolved by name and
        patched (``placeId`` + real ``lat``/``lng`` + address). A city entry
-       resolves to the city, a venue entry to the venue.
+       resolves to the city, a venue entry to the venue. Each lookup is biased
+       toward the trip's own coordinates (``_trip_anchor``), because place names
+       repeat across countries: "Hotel Presidente" is in Madrid as well as in San
+       José, and an unbiased search silently returns one on another continent.
+       A hit that stays far from the trip is reported in ``locations_off_trip``
+       rather than written quietly.
     2. **Venue blocks without a ``placeId``** get one, copied from the registry
        entry their ``location`` points at once that entry has a ``placeId``.
        Blocks naming no resolvable venue are reported instead. Without this the
@@ -809,20 +1091,46 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
     report: dict = {
         "locations_resolved": [],
         "locations_unresolved": [],
+        "locations_off_trip": [],
         "blocks_resolved": 0,
         "blocks_unresolved": [],
         "blocks_without_venue": [],
     }
 
+    # Bias every name lookup toward where the trip already is. Recomputed as the
+    # loop places entries, so the first resolved city anchors the rest (#255).
     upserts: list[dict] = []
     for loc in trip.get("locations") or []:
         name = str(loc.get("name") or "").strip()
         if not name or loc.get("placeId"):
             continue
-        hit = _resolve_query(name, base, token)
+        anchor = _trip_anchor(trip)
+        hit = _resolve_query(name, base, token, near=anchor)
+        if not hit:
+            # Nothing yet to bias toward (or the bias changed nothing): the
+            # unbounded query is still the fallback, exactly as before.
+            hit = _resolve_query(name, base, token)
         if not hit:
             report["locations_unresolved"].append(name)
             continue
+        if anchor is not None and _coords(hit):
+            distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
+            if distance > _OFF_TRIP_KM:
+                # A namesake. Take the unbiased candidate only if it is nearer —
+                # never silently, and never without saying so.
+                plain = _resolve_query(name, base, token)
+                if plain and _coords(plain) and _haversine_km(_coords(plain), anchor) < distance:  # type: ignore[arg-type]
+                    hit = plain
+                    distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
+            if distance > _OFF_TRIP_KM:
+                report["locations_off_trip"].append(
+                    {
+                        "name": name,
+                        "matched": hit.get("name"),
+                        "address": hit.get("address"),
+                        "km_from_trip": round(distance, 1),
+                    }
+                )
         entry: dict = {"name": name, "placeId": hit["placeId"]}
         if hit.get("lat") is not None:
             entry["lat"] = hit["lat"]
@@ -833,6 +1141,12 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
         report["locations_resolved"].append(
             {"name": name, "placeId": hit["placeId"], "matched": hit.get("name")}
         )
+        # Place it right away so the next lookup is biased by this one too.
+        trip = dict(trip)
+        trip["locations"] = [
+            {**(l or {}), **entry} if str((l or {}).get("name") or "").strip() == name else l
+            for l in trip.get("locations") or []
+        ]
 
     if upserts:
         status, payload = _request(
@@ -909,6 +1223,15 @@ def resolve_places_verb(args) -> int:
         print(
             f"warning: could not resolve {report['locations_unresolved']} — check the name "
             "(or that GOOGLE_MAPS_API_KEY is set on the server)",
+            file=sys.stderr,
+        )
+    if report.get("locations_off_trip"):
+        print(
+            "warning: resolved OUTSIDE the trip's own area (a namesake?): "
+            + "; ".join(
+                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km)"
+                for o in report["locations_off_trip"]
+            ),
             file=sys.stderr,
         )
     return 0
@@ -1110,16 +1433,32 @@ def fill_trip(args) -> int:
             print(f"  ✗ {err}", file=sys.stderr)
         return 2
 
+    # Everything the write model would 422 on is removed here rather than at
+    # block 1/43: another kind's fields, and the empty values a GET round-trip
+    # leaves on every key. One plan, one run (#255).
+    plan, notes = normalize_plan(plan)
+    for note in notes:
+        print(f"note: {note}", file=sys.stderr)
+
     calls = plan_calls(plan, args.path, existing)
     if args.dry_run:
         intents = block_intents(plan, existing)
+        extras = day_extra_bodies(plan, existing)
         print(
-            f"dry run — {len(calls)} call(s) + {len(intents)} block write(s), "
-            "nothing written:"
+            f"dry run — {len(calls)} call(s) + {len(intents)} block write(s) + "
+            f"{len(extras)} day-notes patch(es), nothing written:"
         )
         for method, path, body in calls:
             summary = json.dumps(body, ensure_ascii=False) if body else ""
             print(f"  {method.upper():6s} {path} {summary[:120]}")
+        if extras:
+            print(
+                "  day-notes pass — POST /days takes index/date/title ONLY (DayCreate is "
+                "extra=forbid), so notes/map/meta follow once the day has an id:"
+            )
+            for date, body in extras:
+                summary = json.dumps(body, ensure_ascii=False)
+                print(f"  {'PUT':6s} /api/trips/{args.path}/days/<new day {date}> {summary[:120]}")
         if intents:
             print(
                 "  block pass — runs AFTER the re-GET (a block POST needs its container's id, "
@@ -1156,6 +1495,26 @@ def fill_trip(args) -> int:
 
     # blocks need ids, so they come after a re-GET (days/sections now exist)
     trip = _server_base(args.path, base, token)
+
+    # A day this run just created has an id now, so the day fields the POST
+    # refused (notes/map/meta — DayCreate is extra=forbid) can land (#255).
+    for date, day_id, body in day_create_extras(plan, existing, trip):
+        status, payload = _request("put", base, f"/api/trips/{args.path}/days/{day_id}", token, body)
+        mark = "✓" if 200 <= status < 300 else "✗"
+        print(
+            f"{mark} PUT    /api/trips/{args.path}/days/{day_id} "
+            f"(notes/map/meta for {date}) → {status}",
+            file=sys.stderr,
+        )
+        if not 200 <= status < 300:
+            detail = json.dumps(payload, ensure_ascii=False)[:400] if not isinstance(payload, str) else payload[:400]
+            print(f"  {detail}", file=sys.stderr)
+            print(
+                "stopped in the day-notes pass — re-GET and re-run the plan to continue",
+                file=sys.stderr,
+            )
+            return 1
+
     block_calls: list[tuple[str, str, dict]] = []
     for container_type, label, body in block_intents(plan, trip):
         if not body["container"]["id"]:
@@ -1208,6 +1567,7 @@ def fill_trip(args) -> int:
     resolution: dict = {
         "locations_resolved": [],
         "locations_unresolved": [],
+        "locations_off_trip": [],
         "blocks_resolved": 0,
         "blocks_unresolved": [],
         "blocks_without_venue": [],
@@ -1234,6 +1594,7 @@ def fill_trip(args) -> int:
         "blocks_updated_in_place": matched,
         "venue_locations_resolved": len(resolution["locations_resolved"]),
         "venue_locations_unresolved": resolution["locations_unresolved"],
+        "venue_locations_off_trip": resolution.get("locations_off_trip") or [],
         "blocks_pinned_to_a_venue": resolution["blocks_resolved"],
         "blocks_without_venue": [
             f"{b.get('day')}: {b.get('title')}" for b in resolution["blocks_without_venue"]
@@ -1243,6 +1604,17 @@ def fill_trip(args) -> int:
     if empty:
         print(
             f"warning: {len(empty)} day(s) still have no blocks: {', '.join(empty)}",
+            file=sys.stderr,
+        )
+    if resolution.get("locations_off_trip"):
+        print(
+            f"warning: {len(resolution['locations_off_trip'])} location(s) resolved OUTSIDE the "
+            "trip's own area — a namesake, most likely: "
+            + "; ".join(
+                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km away)"
+                for o in resolution["locations_off_trip"]
+            )
+            + ". Give the entry a qualified name or pass its `placeId` explicitly",
             file=sys.stderr,
         )
     if resolution["blocks_without_venue"]:

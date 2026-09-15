@@ -1626,13 +1626,26 @@ def places_details_endpoint(request: Request, place_id: str) -> dict:
 
 
 @app.get("/api/places/search")
-def places_search_endpoint(request: Request, q: str = Query(..., min_length=2)) -> dict:
+def places_search_endpoint(
+    request: Request,
+    q: str = Query(..., min_length=2),
+    lat: float | None = Query(None, ge=-90, le=90),
+    lng: float | None = Query(None, ge=-180, le=180),
+    radius: int | None = Query(None, ge=1000, le=500_000, description="metres"),
+) -> dict:
     """Resolve a venue NAME to its ``place_id`` + exact coordinates (#187).
 
     The content agent's resolution step: it knows the venue ("Shinjuku Gyoen",
     "Hotel Gracery Shinjuku") and needs the durable key + real coordinates,
     instead of anchoring an activity to the city and shipping a generic
     ``maps/search?api=1&query=Tokyo`` link.
+
+    ``lat``/``lng``/``radius`` bias the ranking toward a point the caller trusts
+    (normally the trip's other locations). Place names repeat across countries —
+    "Hotel Presidente" is a Madrid hotel and a San José hotel — so without a bias
+    a trip can acquire a venue on the wrong continent with nothing in the
+    response to show it (#255). The bias is a Google ranking hint, not a filter.
+    Both coordinates are required for it to apply; either one alone is ignored.
 
     Same contract as the sibling proxies: the Google key stays server-side, a
     short-TTL in-process cache absorbs repeat lookups, and an unconfigured key /
@@ -1641,7 +1654,8 @@ def places_search_endpoint(request: Request, q: str = Query(..., min_length=2)) 
     persisted here — the documented storable field is ``placeId`` (#15/#95).
     """
     _rate_limit(request, "places-search", 60)
-    found = search_place(q)
+    near = (lat, lng) if lat is not None and lng is not None else None
+    found = search_place(q, near=near, radius_m=radius)
     return found if found else {"available": False}
 
 

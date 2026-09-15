@@ -300,24 +300,44 @@ def test_search_place_is_none_without_key_match_or_on_failure(monkeypatch):
 
 
 def test_search_endpoint_payload_and_unavailable(monkeypatch):
-    monkeypatch.setattr(main_mod, "search_place", lambda q: None)
+    monkeypatch.setattr(main_mod, "search_place", lambda q, *, near=None, radius_m=None: None)
     r = client.get("/api/places/search", params={"q": "nothing here"})
     assert r.status_code == 200
     assert r.json() == {"available": False}
 
-    monkeypatch.setattr(
-        main_mod,
-        "search_place",
-        lambda q: {"available": True, "placeId": "ChIJ1", "lat": 1.0, "lng": 2.0, "query": q},
-    )
+    seen: dict = {}
+
+    def recording_search(q, *, near=None, radius_m=None):
+        seen["q"], seen["near"], seen["radius_m"] = q, near, radius_m
+        return {"available": True, "placeId": "ChIJ1", "lat": 1.0, "lng": 2.0, "query": q}
+
+    monkeypatch.setattr(main_mod, "search_place", recording_search)
     r = client.get("/api/places/search", params={"q": "Shinjuku Gyoen"})
     assert r.status_code == 200
     body = r.json()
     assert body["available"] is True and body["placeId"] == "ChIJ1"
+    assert seen["near"] is None and seen["radius_m"] is None  # a bare query stays bare
+
+    # #255: a caller that knows where the trip is pins the ranking there
+    r = client.get(
+        "/api/places/search",
+        params={"q": "Café Central", "lat": 9.93, "lng": -84.08, "radius": 200_000},
+    )
+    assert r.status_code == 200
+    assert seen["q"] == "Café Central"
+    assert seen["near"] == (9.93, -84.08)
+    assert seen["radius_m"] == 200_000
+
+    # half a coordinate is not a bias: either both or none
+    r = client.get("/api/places/search", params={"q": "Hotel Presidente", "lat": 9.93})
+    assert r.status_code == 200
+    assert seen["near"] is None and seen["radius_m"] is None
 
 
 def test_search_endpoint_needs_a_query(monkeypatch):
-    monkeypatch.setattr(main_mod, "search_place", lambda q: {"available": True, "placeId": "x"})
+    monkeypatch.setattr(
+        main_mod, "search_place", lambda q, *, near=None, radius_m=None: {"available": True, "placeId": "x"}
+    )
     assert client.get("/api/places/search").status_code == 422
     assert client.get("/api/places/search", params={"q": "a"}).status_code == 422
 
