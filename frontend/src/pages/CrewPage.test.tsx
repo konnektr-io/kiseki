@@ -192,4 +192,19 @@ describe("Add crew from the people you follow (#198 follow-up)", () => {
     expect(empty).toContain("add someone by name below and share the invite link");
     expect(empty).toContain("Contact (optional)");
   });
+
+  it("caps a long follow list at 8 chips and offers a search box", () => {
+    const many: ProfilePerson[] = Array.from({ length: 12 }, (_, i) => ({
+      sub: `google-oauth2|p${i}`,
+      name: `Person ${i}`,
+    }));
+    const html = renderPanel({ following: many });
+    expect((html.match(/aria-pressed=/g) ?? []).length).toBe(8);
+    expect(html).toContain('id="crew-add-search"');
+    // SSR inserts a comment node between the count and the text: match loosely
+    expect(html).toMatch(/4(<!-- -->)? more — search to narrow the list/);
+    // above the cap there is no search box at all — nothing to narrow
+    const few = renderPanel({ following: FOLLOWING });
+    expect(few).not.toContain('id="crew-add-search"');
+  });
 });

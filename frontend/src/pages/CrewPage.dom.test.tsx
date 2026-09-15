@@ -183,4 +183,57 @@ describe("CrewPage add-from-following (#198 follow-up)", () => {
     expect(container.textContent).not.toContain("People you follow");
     expect(container.querySelector("#crew-add-contact")).not.toBeNull();
   });
+
+  it("a long follow list is searched, capped, and keeps the picked person visible", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({
+      sub: `google-oauth2|p${i}`,
+      name: `Person ${i}`,
+    }));
+    mocks.useFollowing.mockReturnValue({ people: many, loading: false });
+    mount("owner");
+    await openPanel();
+
+    // capped at 8 with the rest behind the search box
+    const chips = () => Array.from(container.querySelectorAll("button[aria-pressed]"));
+    expect(chips()).toHaveLength(8);
+    expect(container.textContent).toContain("4 more — search to narrow the list");
+
+    const search = container.querySelector<HTMLInputElement>("#crew-add-search");
+    expect(search).not.toBeNull();
+    const type = async (value: string) => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, "value",
+      )!.set!;
+      act(() => {
+        setter.call(search, value);
+        search!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await flush();
+    };
+
+    // pick "Person 3" first, then search for someone else: the picked chip
+    // must survive the filter (it is what the Add button will submit)
+    const person3 = chips().find((c) => c.textContent?.includes("Person 3"))!;
+    act(() => {
+      person3.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    await type("person 11");
+    const afterSearch = chips();
+    expect(afterSearch).toHaveLength(2);
+    expect(afterSearch.map((c) => c.textContent)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Person 3"),
+        expect.stringContaining("Person 11"),
+      ]),
+    );
+    expect(afterSearch.find((c) => c.textContent?.includes("Person 3"))?.getAttribute("aria-pressed")).toBe("true");
+
+    await type("nobody");
+    expect(container.textContent).toContain("No one you follow matches");
+    // …and still only the pinned selection is offered
+    expect(chips()).toHaveLength(1);
+    expect(container.querySelector<HTMLInputElement>("#crew-add-name")?.value).toBe("Person 3");
+  });
 });

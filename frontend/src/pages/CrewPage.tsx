@@ -26,6 +26,11 @@ const ROLE_LABELS: Record<Role, string> = {
 };
 const ROLE_ORDER: Role[] = ["owner", "editor", "viewer", "follower"];
 
+/** How many "people you follow" chips the add panel shows before it switches to
+ *  search-only (#198 follow-up): a follow list is unbounded, a row of pills is
+ *  not. */
+const MAX_FOLLOW_CHIPS = 8;
+
 function initials(name: string) {
   return name
     .split(/\s+/)
@@ -189,9 +194,23 @@ export function AddCrewPanel({
   const [role, setRole] = useState<Role>("viewer");
   const [note, setNote] = useState("");
   const [contact, setContact] = useState("");
+  const [query, setQuery] = useState("");
 
   const onCrew = new Set(crewIds);
   const candidates = following.filter((p) => !onCrew.has(p.sub));
+  // A long follow list is the normal case for anyone who uses the follow
+  // graph, so the picker searches and caps: at most MAX_FOLLOW_CHIPS buttons,
+  // with the rest behind the search box. The currently picked person stays
+  // pinned — narrowing the list must never hide who is selected.
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? candidates.filter((p) => p.name.toLowerCase().includes(needle))
+    : candidates;
+  const picked = candidates.find((p) => p.sub === sub);
+  const pinned = picked && !matches.includes(picked) ? [picked] : [];
+  const shown = [...pinned, ...matches.filter((p) => p !== picked)]
+    .slice(0, MAX_FOLLOW_CHIPS);
+  const hiddenCount = matches.length - (shown.length - pinned.length);
 
   const pick = (person: ProfilePerson) => {
     if (sub === person.sub) {
@@ -231,17 +250,41 @@ export function AddCrewPanel({
             <p className="text-xs text-muted-foreground">Loading people you follow…</p>
           ) : candidates.length ? (
             <>
-              <div className="flex flex-wrap gap-1.5">
-                {candidates.map((p) => (
-                  <FollowedChip
-                    key={p.sub}
-                    person={p}
-                    selected={sub === p.sub}
-                    busy={busy}
-                    onPick={() => pick(p)}
-                  />
-                ))}
-              </div>
+              {candidates.length > MAX_FOLLOW_CHIPS && (
+                <input
+                  id="crew-add-search"
+                  type="search"
+                  className={`${inputCls} mb-2`}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  disabled={busy}
+                  aria-label="Search people you follow"
+                  placeholder={`Search ${candidates.length} people you follow`}
+                />
+              )}
+              {shown.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {shown.map((p) => (
+                    <FollowedChip
+                      key={p.sub}
+                      person={p}
+                      selected={sub === p.sub}
+                      busy={busy}
+                      onPick={() => pick(p)}
+                    />
+                  ))}
+                </div>
+              )}
+              {needle !== "" && matches.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No one you follow matches “{query.trim()}”.
+                </p>
+              )}
+              {hiddenCount > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {hiddenCount} more — search to narrow the list.
+                </p>
+              )}
               <p className="mt-1.5 text-xs text-muted-foreground">
                 Pick someone and they join this trip right away — they already have an
                 account, so there is no invite link to send.
