@@ -27,7 +27,6 @@ const mocks = vi.hoisted(() => ({
   fetchTrip: vi.fn(),
   refetchTrip: vi.fn(),
   downloadBooklet: vi.fn(),
-  fetchJoinLink: vi.fn(),
 }));
 
 vi.mock("@auth0/auth0-react", () => ({
@@ -57,12 +56,12 @@ vi.mock("../lib/api", async () => {
     fetchTrip: mocks.fetchTrip,
     refetchTrip: mocks.refetchTrip,
     downloadBooklet: mocks.downloadBooklet,
-    fetchJoinLink: mocks.fetchJoinLink,
   };
 });
 
 const { TripAccessError } = await import("../lib/api");
 const { TripLayout } = await import("./TripLayout");
+const { SettingsPage } = await import("./SettingsPage");
 
 const TRIP = {
   id: "b16680e7-a338-4c76-9cd7-fa13d45be594",
@@ -98,18 +97,21 @@ let container: HTMLDivElement;
 let root: Root;
 let uncaught: unknown[];
 
-function mount() {
+function mount(initialEntry = `/t/${TRIP.id}`) {
   uncaught = [];
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container, {
-    onUncaughtError: (error) => uncaught.push(error),
+    onUncaughtError: (error: unknown) => uncaught.push(error),
   });
   act(() => {
     root.render(
-      <MemoryRouter initialEntries={[`/t/${TRIP.id}`]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
-          <Route path="/t/:tripId" element={<TripLayout />} />
+          <Route path="/t/:tripId" element={<TripLayout />}>
+            {/* App.tsx registers this child route the same way (#248). */}
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
         </Routes>
       </MemoryRouter>,
     );
@@ -193,5 +195,52 @@ describe("TripLayout", () => {
     expect(uncaught).toEqual([]);
     expect(text()).not.toContain("Something went wrong");
     expect(text()).toContain("You don't have access to this trip.");
+  });
+
+  it("the header menu keeps the booklet + a way into settings, and nothing else (#248)", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount();
+    await flush();
+
+    const trigger = container.querySelector('button[aria-label="Trip actions"]');
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    expect(text()).toContain("Download booklet PDF");
+    const link = container.querySelector(`a[href="/t/${TRIP.id}/settings"]`);
+    expect(link, "the settings entry point").not.toBeNull();
+    // The trip-level rows are on the page now — the header keeps one row and
+    // a two-item menu.
+    expect(text()).not.toContain("Delete trip");
+    expect(container.querySelectorAll('[role="menu"] select')).toHaveLength(0);
+  });
+
+  it("a viewer gets no settings entry point (#248)", async () => {
+    mocks.fetchTrip.mockResolvedValue({ ...TRIP, myRole: "viewer" });
+    mount();
+    await flush();
+
+    const trigger = container.querySelector('button[aria-label="Trip actions"]');
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(text()).toContain("Download booklet PDF");
+    expect(container.querySelector(`a[href="/t/${TRIP.id}/settings"]`)).toBeNull();
+  });
+
+  it("the /settings child route renders the page inside the layout shell", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount(`/t/${TRIP.id}/settings`);
+    await flush();
+
+    expect(uncaught).toEqual([]);
+    expect(text()).not.toContain("Something went wrong");
+    // The layout's own chrome stays (shared header + nav)…
+    expect(text()).toContain("Itinerary");
+    // …and the settings groups render inside its Outlet.
+    expect(text()).toContain("Trip identity");
+    expect(text()).toContain("Danger zone");
   });
 });

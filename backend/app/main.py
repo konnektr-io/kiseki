@@ -2525,8 +2525,11 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         # — a normalized "/media/../pic.jpg" (-> "/pic.jpg"), a decoded traversal
         # that missed the media route, a deleted endpoint — must 404, never the
         # index shell (a 200 shell reads like the path exists and masks 404s).
-        # NB: adding a route to App.tsx means adding it here too, or the deep
-        # link / reload 404s while in-app navigation still works.
+        # NB: a route registered in App.tsx must be covered here too, or the
+        # deep link / reload 404s while in-app navigation still works. The trip
+        # tree is matched by PREFIX ("t/…"), so every child of /t/:tripId is
+        # covered automatically (#248 — /t/<id>/settings needed no line here);
+        # only a new TOP-LEVEL route needs its own branch.
         is_spa_route = (
             full_path == ""
             or full_path == "t"

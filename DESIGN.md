@@ -413,6 +413,9 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
                                   the whole-route view
 /t/<id>/practical     Practical
 /t/<id>/crew          Crew
+/t/<id>/settings      Settings    trip-level settings — stage, theme, sharing, the invite
+                                  links, integrations and delete (editor+; reached from the
+                                  header's overflow menu, not the nav — #248)
 ```
 
 Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Practical* (with *Today*
@@ -420,7 +423,9 @@ swapping in while `live` — that is the four). Crew folds into Overview — it'
 page. There is **no Map nav item** (2026-09, #93): the maps live inside the itinerary and day
 pages (§7.6), so Itinerary keeps its calendar glyph and no icon is surrendered. A future nav
 item must earn the slot under the same test: if it is a filtered view of its parent, it is a
-filter or an anchor, not a page.
+filter or an anchor, not a page. **Settings stays off-nav for the same reason** (#248): it is
+where the trip's own chrome sends you — the overflow menu keeps the per-visit action (the
+booklet) and links here for everything that configures the trip.
 
 #### List vs. detail — keep both, and let each do one job
 

@@ -372,6 +372,11 @@ export interface Trip {
   endDate?: string;
   timezone?: string; // IANA, e.g. "Asia/Tokyo" — trip-local "today", fallback viewer-local
   visibility: Visibility;
+  /** #196/#228 — LISTED (on profiles, in the follower feed), a decision
+   *  separate from `visibility`. The server document has carried it since
+   *  #228 (default true on write, an absent key reads false); the settings
+   *  page (#248) is the first surface to offer it. */
+  discoverable?: boolean;
   myRole?: string;
   cover?: string;
   coverCredit?: string;

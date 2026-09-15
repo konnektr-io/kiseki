@@ -72,6 +72,18 @@ def test_trip_deep_link_still_serves_the_spa_shell() -> None:
     _assert_shell(client.get("/t/some-trip-id/crew"))
 
 
+def test_trip_settings_deep_link_serves_the_spa_shell() -> None:
+    """The #248 child route.
+
+    Trip settings is a child of ``/t/:tripId``, which the whitelist already
+    covers by prefix — this pins the fact, because that prefix match is the
+    only thing standing between a reload on ``/t/<id>/settings`` and the API's
+    JSON 404 (the #196 phase-D trap, one level down).
+    """
+    _require_shell()
+    _assert_shell(client.get("/t/some-trip-id/settings"))
+
+
 def test_feed_deep_link_serves_the_spa_shell() -> None:
     """#199's /feed joined the whitelist in App.tsx — and here.
 
