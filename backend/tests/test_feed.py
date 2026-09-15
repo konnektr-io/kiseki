@@ -546,8 +546,9 @@ def test_items_of_trip_counts_a_card_images_write_too() -> None:
     assert rows[0]["thumbs"] == [f"/media/{TRIP_B}/solo.jpg"]
 
 
-def test_items_of_trip_caps_rows_and_keeps_the_newest() -> None:
-    """A busy trip may not push every trip row off the page."""
+def test_items_of_trip_caps_rows_and_gives_the_slots_to_the_photos() -> None:
+    """A busy trip may not push every trip row off the page — and (#253) its
+    photoless writes may not eat the slots the pictures need."""
     bundle = _day_bundle()
     ids = []
     for i in range(6):
@@ -570,6 +571,65 @@ def test_items_of_trip_caps_rows_and_keeps_the_newest() -> None:
         (row["at"] for row in rows), reverse=True
     )
     assert rows[0]["at"] == "2026-09-14T15:00:00Z"
+    # The photo row kept its slot: six newer photoless writes did not evict it,
+    # so only the newest five of them fit beside it.
+    assert [row["blockTitle"] for row in rows if row["thumbs"]] == ["Camp"]
+    assert [row["blockTitle"] for row in rows if not row["thumbs"]] == [
+        "Extra 5", "Extra 4", "Extra 3", "Extra 2", "Extra 1",
+    ]
+
+
+def test_items_of_trip_keeps_the_photos_when_the_prose_moves_after_them() -> None:
+    """#253: place the photos, then edit the text — the row still shows them.
+
+    The most ordinary sequence of writes on a trip, and exactly what blanked the
+    feed: the block's own stamp is newer than the photo stamp, and gating the
+    thumbnails on the photo stamp degraded the row to a bare "updated".
+    """
+    bundle = _day_bundle()
+    for twin in bundle["twins"]:
+        if twin["$dtId"] == GALLERY_ID:
+            twin["$metadata"]["$lastUpdateTime"] = "2026-09-14T12:30:00Z"
+            twin["$metadata"]["description"] = {
+                "$lastUpdateTime": "2026-09-14T12:30:00Z", "$lastUpdatedBy": OTHER,
+            }
+            twin["description"] = "Sunset over the playa."
+    rows = feed_mod.items_of_trip(
+        bundle, trip_id=TRIP_B, trip_title="Burning Man 2027", source="followed-user",
+    )
+    gallery = next(row for row in rows if row["blockTitle"] == "Camp")
+    assert gallery["thumbs"] == [
+        f"/media/{TRIP_B}/a.jpg", f"/media/{TRIP_B}/b.jpg", f"/media/{TRIP_B}/c.jpg",
+    ]
+    # ...and the label still says what moved after the photos.
+    assert gallery["label"] == "4 photos · description updated"
+    assert gallery["at"] == "2026-09-14T12:30:00Z"
+    assert gallery["by"] == OTHER
+
+
+def test_items_of_trip_counts_photo_objects_not_just_bare_filenames() -> None:
+    """#247 stores gallery photos as `{"url": …}`; the feed read must see them.
+
+    `items` is the array the gallery and todo kinds SHARE, and that object is
+    the only shape the graph's DTDL `items` schema accepts — a read that keeps
+    `str` values only, as the feed did, reports a full photo gallery as
+    photoless (#253).
+    """
+    bundle = _day_bundle()
+    for twin in bundle["twins"]:
+        if twin["$dtId"] == GALLERY_ID:
+            twin["items"] = [
+                {"url": "a.jpg"},
+                {"url": "/media/an-old-slug/c.jpg"},         # legacy path: canonicalized
+                {"label": "Bring water", "done": False},     # a todo item, not a picture
+                {"url": "https://example.com/hotlink.jpg"},  # external: not trip media
+            ]
+    rows = feed_mod.items_of_trip(
+        bundle, trip_id=TRIP_B, trip_title="Burning Man 2027", source="followed-user",
+    )
+    gallery = next(row for row in rows if row["blockTitle"] == "Camp")
+    assert gallery["label"] == "2 photos added"
+    assert gallery["thumbs"] == [f"/media/{TRIP_B}/a.jpg", f"/media/{TRIP_B}/c.jpg"]
 
 
 class _ItemsGraph:
