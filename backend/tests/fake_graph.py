@@ -222,6 +222,34 @@ class FakeGraph:
         bundle["$dtId"] = trip_dtid
         return bundle
 
+    def fetch_feed_bundle(self, trip_dtid: str) -> dict | None:
+        """The feed's narrow read (#264): days + their blocks, nothing else.
+
+        Mirrors ``GraphReadClient.fetch_feed_bundle`` — the same
+        ``{twins, relationships}`` shape and the same unknown-id shape as
+        ``fetch_graph`` above, but carrying only the two hops
+        ``trip -[:hasDay]-> day -[:hasBlock]-> block``.
+
+        Derived from the SAME store rather than a second fixture: a fixture edit
+        must not be able to make this double disagree with the full bundle, and
+        a test that reads rows through it has to work when the trip twin,
+        sections, locations and crew are absent.
+        """
+        t = self.twin(trip_dtid)
+        if t is None or self.kind(trip_dtid) != "Trip":
+            return {"$dtId": trip_dtid, "twins": [], "relationships": []}
+        day_ids = [r["$targetId"] for r in self.rels_from(trip_dtid, "hasDay")]
+        edges = [r for r in self.rels_from(trip_dtid, "hasDay")]
+        for day_id in day_ids:
+            edges += self.rels_from(day_id, "hasBlock")
+        keep = set(day_ids) | {r["$targetId"] for r in edges
+                               if r.get("$relationshipName") == "hasBlock"}
+        return {
+            "$dtId": trip_dtid,
+            "twins": copy.deepcopy([tw for tw in self.twins if tw.get("$dtId") in keep]),
+            "relationships": copy.deepcopy(edges),
+        }
+
     def user_twin_exists(self, user_dtid: str) -> bool:
         return self.twin(user_dtid) is not None
 

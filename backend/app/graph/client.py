@@ -67,7 +67,12 @@ _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
               # subgraph fetch they reuse. The feed is a poll, so a minute of
               # staleness is fine — and it is why feed.py must NOT add a second
               # cache layer of its own.
-              "trips_for_user_ordered": 60.0, "trips_of_followed": 60.0}
+              "trips_for_user_ordered": 60.0, "trips_of_followed": 60.0,
+              # The feed's own narrow read (#264) — same 60 s poll budget as
+              # the ordered reads above. Its OWN key: it no longer shares
+              # ``fetch_graph``'s entry, so the trip page still pays for the
+              # full bundle while the feed stops paying for it entirely.
+              "fetch_feed_bundle": 60.0}
 
 
 def _cached_graph(method: Callable) -> Callable:
@@ -94,8 +99,13 @@ def _clear_graph_cache() -> None:
 
 
 # The cached reads a crew write (claim #6 / follow #65) makes stale. Keyed on
-# ids, so retiring them is a subset match on the memoized args.
-_CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user"}
+# ids, so retiring them is a subset match on the memoized args. Every trip-keyed
+# read belongs here: a write retires the read cache so the caller's re-read sees
+# its own edit (``_invalidate_graph_cache``), and the feed's narrow read (#264)
+# is trip-keyed — omitting it would leave an edited trip's feed rows stale for
+# up to its full TTL.
+_CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user",
+                      "fetch_feed_bundle"}
 # Token lookups are keyed by the SECRET, not the trip id — a rotation or a
 # revoke must therefore retire them by token value (#197). Crew writes
 # deliberately leave them cached (a claim/link write doesn't change what a
@@ -355,6 +365,39 @@ WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT t.`$dtId`) AS following
 """
 
+# --- the feed's own read (#264) -------------------------------------------
+# The activity feed walks exactly two hops of a trip — days, then each day's
+# blocks — and reads nothing else (``feed.items_of_trip``). Doing that through
+# ``fetch_graph`` meant paying for the WHOLE connected component: ``_Q_NODES``
+# expands every twin within MAX_HOPS and ``_Q_RELS`` collects every edge in it,
+# which measured ~0.9-2.9 s per trip and ~99.7% of the feed's 6.5 s cold load
+# (three sequential walks) — cost driven by trip CONTENT, not trip count.
+# Scoped to the two hops the feed reads, the same trip answers in ~8 ms.
+#
+# Deliberately NOT folded into ``fetch_graph``: the trip page needs the whole
+# document, and narrowing that read would silently break it. Two reads, two
+# cache keys, each paying only for what it uses.
+_Q_FEED_NODES = """
+MATCH (trip:Twin)
+WHERE trip.`$dtId` = $dtid
+MATCH (trip)-[:hasDay]->(day:Twin)
+OPTIONAL MATCH (day)-[:hasBlock]->(block:Twin)
+RETURN collect(DISTINCT day) AS days, collect(DISTINCT block) AS blocks
+"""
+
+# Edge rows are emitted in the ``_Q_RELS`` shape ([src, name, tgt, relId, role,
+# index]) with the two unused middle slots left null, so ``_rel_from_list``
+# maps them without a second mapper. Only ``index`` matters: it is what orders
+# days and blocks (``feed._edge_targets``) — AGE row order is not stable.
+_Q_FEED_RELS = """
+MATCH (trip:Twin)
+WHERE trip.`$dtId` = $dtid
+MATCH (trip)-[de:hasDay]->(day:Twin)
+OPTIONAL MATCH (day)-[be:hasBlock]->(block:Twin)
+RETURN collect(DISTINCT [trip.`$dtId`, type(de), day.`$dtId`, null, null, de.index]) AS day_edges,
+       collect(DISTINCT [day.`$dtId`, type(be), block.`$dtId`, null, null, be.index]) AS block_edges
+"""
+
 
 class GraphReadClient:
     """Read trips from a live Konnektr Graph (konnektr-graph SDK)."""
@@ -464,6 +507,62 @@ class GraphReadClient:
 
         twins = [self._norm_node(n) for n in nodes if n]
         relationships = [self._rel_from_list(r) for r in raw_rels if r]
+        return {"$dtId": trip_dtid, "twins": twins, "relationships": relationships}
+
+    @_cached_graph
+    def fetch_feed_bundle(self, trip_dtid: str) -> Optional[dict]:
+        """The trip slice the ACTIVITY FEED reads — days and their blocks (#264).
+
+        Same ``{twins, relationships}`` bundle shape as ``fetch_graph``, so
+        ``feed.items_of_trip`` reads it unchanged, but scoped to the two hops
+        that function actually walks: ``trip -[:hasDay]-> day -[:hasBlock]->
+        block``. Sections, locations, crew, features, practicalities and every
+        other edge are not in it, and neither is any twin beyond those days and
+        blocks.
+
+        This is a performance read, not a second source of truth: the feed
+        walked the whole component per trip (~0.9-2.9 s) to read two hops of it,
+        and only the edges the feed orders by (``index``) come back. Use
+        ``fetch_graph`` for anything that needs the trip document.
+
+        Returns ``None`` when the graph is disabled or the id is malformed, and
+        a Trip-less bundle for an unknown id — the live graph's shape (#171),
+        same as ``fetch_graph``.
+        """
+        if not self.is_enabled() or not _DTID_RE.match(trip_dtid or ""):
+            return None
+        try:
+            node_rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FEED_NODES, query_parameters={"dtid": trip_dtid}
+                )
+            )
+            rel_rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_FEED_RELS, query_parameters={"dtid": trip_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph feed bundle fetch({trip_dtid}) failed: {exc}")
+            return None
+
+        nodes = (node_rows[0] or {}) if node_rows else {}
+        edges = (rel_rows[0] or {}) if rel_rows else {}
+
+        # ``collect()`` skips nulls, so a day with no blocks contributes the day
+        # alone; DAYS come before BLOCKS, and a block belongs to exactly one day,
+        # so the twin map the feed indexes cannot collide.
+        twins = [self._norm_node(n) for n in (nodes.get("days") or []) if n]
+        twins += [self._norm_node(n) for n in (nodes.get("blocks") or []) if n]
+
+        raw_rels = (edges.get("day_edges") or []) + (edges.get("block_edges") or [])
+        relationships = [
+            self._rel_from_list(r)
+            for r in raw_rels
+            # An OPTIONAL MATCH miss collects a null-padded row; a row without a
+            # target is not an edge.
+            if isinstance(r, (list, tuple)) and len(r) > 2 and r[2]
+        ]
         return {"$dtId": trip_dtid, "twins": twins, "relationships": relationships}
 
     @_cached_graph
