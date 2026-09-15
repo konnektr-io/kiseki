@@ -32,12 +32,14 @@ function fail(message) {
 if (!existsSync(shellPath)) fail(`no built shell at ${shellPath} — run vite build first`);
 if (!existsSync(ssrEntry)) fail(`no SSR entry at ${ssrEntry} — run vite build --ssr first`);
 
-const { renderLandingHtml } = await import(ssrEntry);
+const { renderLandingHtml, PRERENDER_MARKER } = await import(ssrEntry);
 const body = renderLandingHtml();
 
-// The copy that must exist without JavaScript.
-if (!body.includes("Every trip, from first idea to printed book.")) {
-  fail("the prerendered body has no headline — the page did not render");
+// The copy that must exist without JavaScript. The marker comes FROM the page's own
+// copy module (via the SSR entry), not from a literal here: a duplicated string only
+// proves the two literals agree, and it fails the build on every headline rewrite.
+if (!body.includes(PRERENDER_MARKER)) {
+  fail(`the prerendered body has no headline (${PRERENDER_MARKER}) — the page did not render`);
 }
 // Data must NOT be in the artifact: this repo is public (AGENTS.md) and the
 // prerender runs without a graph.
