@@ -442,7 +442,8 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
    * ones it never saw (`turnKey` + `cursor`) and the agent keeps working
    * meanwhile — no re-send, no duplicated work. Returning null (no turn, or
    * one the relay no longer knows after a restart) sets `lastAttachFailed`,
-   * so the caller can put back what it dropped and fall back to re-sending.
+   * and the caller reports that outage: a turn the relay has swept cannot be
+   * recovered, and re-sending it is never a fallback (issue #256).
    *
    * Callers that resume after dropping the part of the turn already on
    * screen rewind to 0 first, so the whole turn is rebuilt in ONE assistant
@@ -480,8 +481,8 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         }),
       });
     } catch {
-      // Offline, DNS, aborted — nothing to attach to, so let the caller decide
-      // (it falls back to re-sending, which fails visibly if the net is down).
+      // Offline, DNS, aborted — nothing attached, so let the caller report the
+      // outage (`resumable` stays true, so the attach offer stays with it).
       this.attachFailed = true;
       return null;
     }
@@ -769,8 +770,9 @@ export interface ResumeSurface {
  * SETTLED while nobody was watching recoverable at all: the relay still has
  * its frames, and replaying them delivers the answer the client never saw.
  *
- * Returns false when there is nothing to attach to, which the caller turns
- * into its re-send fallback — a user action, never automatic.
+ * Returns false when there is nothing to attach to. That is NOT a re-send
+ * trigger (issue #256): a turn the relay has swept is gone for good, so the
+ * caller reports the outcome instead — `recovery` says what the attach did.
  */
 export async function resumeStoredTurn(args: {
   transport: KisekiChatTransport;
@@ -894,10 +896,18 @@ export function useTripChat({
 
   const [recovery, setRecovery] = useState<TurnRecovery>("idle");
 
-  /** Continue (or recover) this thread's turn — see `resumeStoredTurn`. */
-  const resumeTurn = useCallback(
-    (): Promise<boolean> =>
-      resumeStoredTurn({
+  /**
+   * Continue (or recover) this thread's turn — see `resumeStoredTurn`. Owns the
+   * `recovery` state so every caller reports the same thing (issue #256): the
+   * `.then(...).catch(...)` dance used to live at each call site, so the panel
+   * could not tell "the relay has forgotten this turn" from "nobody asked yet"
+   * and fell back to re-sending. `resumeStoredTurn` resolves `false` in exactly
+   * that forgotten case, and it never re-sends.
+   */
+  const resumeTurn = useCallback(async (): Promise<boolean> => {
+    setRecovery("checking");
+    try {
+      const resumed = await resumeStoredTurn({
         transport,
         chat,
         status: (turn) =>
@@ -907,9 +917,14 @@ export function useTripChat({
             tripId: turn.tripId,
             getToken,
           }),
-      }),
-    [transport, chat, threadId, getToken],
-  );
+      });
+      setRecovery(resumed ? "attached" : "unavailable");
+      return resumed;
+    } catch {
+      setRecovery("unavailable");
+      return false;
+    }
+  }, [transport, chat, threadId, getToken]);
 
   // Opening a thread picks up whatever the relay is still holding for it. This
   // is the half of resumption that was missing: the work had always survived
@@ -927,10 +942,7 @@ export function useTripChat({
     recoveredAt.set(threadId, now);
     recovered.current = threadId;
     if (!transport.resumable) return;
-    setRecovery("checking");
-    void resumeTurn()
-      .then((resumed) => setRecovery(resumed ? "attached" : "unavailable"))
-      .catch(() => setRecovery("unavailable"));
+    void resumeTurn();
   }, [threadId, transport, resumeTurn]);
 
   /** "The user came back to a turn that never finished" (#237) — the case the
@@ -954,13 +966,9 @@ export function useTripChat({
       return;
     }
     attaching.current = true;
-    setRecovery("checking");
-    void resumeTurn()
-      .then((attached) => setRecovery(attached ? "attached" : "unavailable"))
-      .catch(() => setRecovery("unavailable"))
-      .finally(() => {
-        attaching.current = false;
-      });
+    void resumeTurn().finally(() => {
+      attaching.current = false;
+    });
   }, [transport, chat.status, resumeTurn]);
 
   // The connection dropped mid-turn. #227's banner keys on the relay's CUT
@@ -998,5 +1006,11 @@ export function useTripChat({
     };
   }, [attachLostTurn]);
 
-  return { ...chat, resumeTurn, recovery };
+  // `resumable` (#256): does this thread still hold a turn key the relay can be
+  // asked to attach to? The panel's `chatOutage` needs it to tell "the relay is
+  // still holding this turn — offer Reconnect (an attach, never a re-send)"
+  // from "the turn is gone — say nothing, or offer an explicit re-run when
+  // nothing arrived at all". Read at render time; every flip is accompanied by
+  // a `recovery` transition, which re-renders.
+  return { ...chat, resumeTurn, recovery, resumable: transport.resumable };
 }
