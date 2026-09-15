@@ -56,7 +56,18 @@ import type { ShowcaseTrip } from "../lib/types";
  * - The sign-in CTA arrives as a node from the page that owns the auth SDK, so
  *   this file stays renderable with no Auth0 context at all.
  */
-export function MarketingLanding({ signIn }: { signIn?: ReactNode }) {
+export function MarketingLanding({
+  signIn,
+  headerActions,
+}: {
+  signIn?: ReactNode;
+  /**
+   * The bar's account chip. Defaults to `AuthButton`; the prerender (E4) passes
+   * `null` because it runs in Node, where AuthButton's Auth0 provider does not
+   * exist and a rendered chip would be one a no-JS visitor could not use.
+   */
+  headerActions?: ReactNode;
+}) {
   const [trips, setTrips] = useState<ShowcaseTrip[] | null>(null);
   // A cover can 404 (its media object was replaced). The hero is designed to
   // work without a photograph, so a stranger never sees a broken image, and
@@ -82,7 +93,7 @@ export function MarketingLanding({ signIn }: { signIn?: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <AppHeader actions={<AuthButton />} />
+      <AppHeader actions={headerActions === undefined ? <AuthButton /> : headerActions} />
 
       <main>
         {/* ---------- The hero: one real trip, at full bleed ---------- */}

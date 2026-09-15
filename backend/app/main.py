@@ -2293,6 +2293,16 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
     _NOINDEX_META = '<meta name="robots" content="noindex, nofollow, noai, noimageai" />'
     _TRIP_HTML = _index_html.replace("<title>", f"{_NOINDEX_META}\n    <title>")
 
+    # The signed-out front door is PRERENDERED (#249, E4): the frontend build
+    # writes a second shell with the landing's static copy already inside #root,
+    # and "/" serves THAT one — so a crawler, or a visitor before the bundle runs,
+    # gets real content instead of an empty div. Every other SPA route keeps the
+    # plain shell: a deep link onto a trip must never paint the marketing copy
+    # first. With no such file (an older build, a bare checkout) "/" falls back to
+    # the plain shell, i.e. what shipped before this change.
+    _landing = STATIC_DIR / "landing.html"
+    _LANDING_HTML = _landing.read_text() if _landing.is_file() else _index_html
+
     @app.get("/robots.txt", include_in_schema=False)
     def robots_txt() -> PlainTextResponse:
         return PlainTextResponse(
@@ -2361,7 +2371,10 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         # crew role, so it forwards the caller's Bearer token on the loopback GET to
         # this /t/<id>/booklet route. Strip it into a window global so the SPA
         # can attach it to its own /api/* fetches — no Auth0 login required.
-        html = _TRIP_HTML if is_trip else _index_html
+        # SPA shell — "/" gets the prerendered landing (its copy exists without
+        # JS), trips get the noindex shell, everything else the plain one.
+        is_landing = full_path in ("", "/")
+        html = _TRIP_HTML if is_trip else (_LANDING_HTML if is_landing else _index_html)
         auth = request.headers.get("Authorization", "")
         if is_trip and auth.lower().startswith("bearer "):
             token = auth.split(" ", 1)[1].strip()

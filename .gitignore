@@ -8,6 +8,7 @@ __pycache__/
 # Node
 node_modules/
 frontend/dist/
+frontend/dist-ssr/
 frontend/.vite/
 
 # Build artifacts
