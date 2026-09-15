@@ -92,6 +92,7 @@ Whole-object replace of the trip's practical value object.
 | `todos` | array[TodoItem] | no | — |
 | `links` | array[Link] | no | — |
 | `notes` | str | NoneType | no | `null` |
+| `blocks` | array[PracticalBlock] | no | — |
 | `contacts` | array[Contact] | no | — |
 
 ### `TodoAdd`
