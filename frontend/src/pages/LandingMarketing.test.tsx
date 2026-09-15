@@ -2,23 +2,23 @@
 /**
  * The signed-out landing page (#249).
  *
- * This page has one job — tell a stranger what Kiseki is and get them into a
- * trip — and four constraints worth a test each:
+ * This page has one job — tell a stranger what Kiseki is — and four constraints
+ * worth a test each:
  *
- * - **The claim stands alone.** Copy renders with no data at all, so the front
- *   door is readable when the graph is not (and prerenderable later).
- * - **The examples are fetched, never baked in.** This repo is public and
- *   carries no trip data (AGENTS.md); with nothing fetched, the page contains
- *   no trip links and no media URLs — that absence is asserted, not assumed.
- * - **The photography is real or absent, never fake.** The hero photograph is
- *   the lead trip's own cover, and with no trip it degrades to a designed panel
- *   rather than a broken image or a grey box.
- * - **No social proof we do not have.** No ratings, review counts, user numbers
- *   or testimonials — the page must not grow them by accident.
- *
- * The real `fetchShowcase` runs against a stubbed `fetch`, so the request the
- * page makes (and the absence of credentials on it) is under test too.
+ * - **It makes no network call at all.** The page shows an INVENTED example, not
+ *   the graph. That is the fix for the leak this revision exists for: a stranger
+ *   following a link from here landed on real trips, with booking codes, costs and
+ *   the crew's checklist in them. Nothing fetched means nothing to leak, nothing to
+ *   degrade and no empty state — and the prerender carries the whole page.
+ * - **No real trip surface anywhere in it:** no `/t/` link, no `/media/` URL, no
+ *   trip id, no booking code.
+ * - **Photography is committed, local and present.** Every `<img>` points at
+ *   `/marketing/…` and that file exists on disk — a typo here is a broken hero in
+ *   production, which no unit test would otherwise catch.
+ * - **No social proof we do not have.** No ratings, review counts or user numbers.
  */
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
@@ -41,25 +41,12 @@ vi.mock("@auth0/auth0-react", () => ({
 }));
 
 const { MarketingLanding } = await import("./LandingMarketing");
-const { sortShowcaseTrips, leadShowcaseTrip, closingShowcaseTrip } = await import(
-  "../lib/marketing"
-);
+const { sortShowcaseTrips } = await import("../lib/marketing");
 
-// Placeholder ids and titles — never real trip data (this repo is public).
-const A = "11111111-1111-4111-8111-111111111111";
-const B = "22222222-2222-4222-8222-222222222222";
-const C = "33333333-3333-4333-8333-333333333333";
-
-function card(
-  dtId: string,
-  title: string,
-  stage: string,
-  startDate: string,
-  endDate?: string,
-  cover: string | null = `/media/${dtId}/c.jpg`,
-) {
-  return { dtId, title, subtitle: "Somewhere", stage, startDate, endDate, cover };
-}
+// `import.meta.url` is an http:// URL under vitest's jsdom environment, so
+// `fileURLToPath` refuses it — resolve from the frontend root instead (vitest runs
+// with that as its cwd).
+const PUBLIC_DIR = resolve(process.cwd(), "public");
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -79,13 +66,6 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** Stub global fetch; returns the spy so a test can inspect the request. */
-function stubFetch(body: unknown, ok = true) {
-  const spy = vi.fn(async () => ({ ok, json: async () => body }) as unknown as Response);
-  vi.stubGlobal("fetch", spy);
-  return spy;
-}
-
 function ssr(node: ReactElement): string {
   return renderToString(<MemoryRouter>{node}</MemoryRouter>)
     .replace(/&amp;/g, "&")
@@ -93,7 +73,6 @@ function ssr(node: ReactElement): string {
     .replace(/&quot;/g, '"');
 }
 
-/** Mount and let the showcase effect settle. */
 async function mount(node: ReactElement): Promise<HTMLElement> {
   await act(async () => {
     root!.render(<MemoryRouter>{node}</MemoryRouter>);
@@ -102,10 +81,11 @@ async function mount(node: ReactElement): Promise<HTMLElement> {
 }
 
 describe("the claim", () => {
-  it("renders with no data at all — no fetch resolution needed", () => {
+  it("renders the whole page with no data and no fetch", () => {
     const out = ssr(<MarketingLanding />);
-    expect(out).toContain("Every trip, from first idea to printed book.");
+    expect(out).toContain("Plan it together. Live it for real.");
     expect(out).toContain("A trip moves through three stages.");
+    expect(out).toContain("One day of an example trip.");
     expect(out).toContain("Something you can hold.");
     expect(out).toContain("Every trip carries the same parts.");
     expect(out).toContain("Private until you say otherwise.");
@@ -114,38 +94,36 @@ describe("the claim", () => {
     expect(out).toContain("reading a trip needs no account");
   });
 
-  it("carries no trip links or media of its own", () => {
-    // With no fetch, a trips band would have to come from baked-in data.
-    // There is none: this repo is public and holds no trip data.
+  it("never calls the network — that is the whole point of the invented example", async () => {
+    const spy = vi.fn(() => {
+      throw new Error("the landing page must not fetch anything");
+    });
+    vi.stubGlobal("fetch", spy);
+    await mount(<MarketingLanding />);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("says out loud that the example is fiction", () => {
+    // Honesty in the one place a reader could otherwise assume these are real trips.
+    expect(ssr(<MarketingLanding />)).toContain("invented");
+  });
+
+  it("carries no trip link, media URL or trip id", () => {
     const out = ssr(<MarketingLanding />);
     expect(out).not.toContain('href="/t/');
     expect(out).not.toContain("/media/");
-    expect(out).not.toContain(">Real trips<");
+    // The codes that were actually readable on a live public trip before v0.41.1:
+    // if real content ever comes back to this page, one of these will trip.
+    for (const leaked of ["9GMOL3", "STHS", "b16680e7", "bf29a027"]) {
+      expect(out).not.toContain(leaked);
+    }
   });
 
-  it("offers the sign-in CTA in the hero only when the page was given one", () => {
-    const CTA = <a href="#sign-in-sentinel">Sign in</a>;
-    expect(ssr(<MarketingLanding />)).not.toContain("sign-in-sentinel");
-    expect(ssr(<MarketingLanding signIn={CTA} />)).toContain("sign-in-sentinel");
-  });
-
-  it("does not put a second sign-in beside the hero's trip CTA", async () => {
-    // The bar already carries Sign in. A trip to open is the hero's action, so
-    // the only sign-in left on the page is the closing band's — one, not two.
-    const CTA = <a href="#sign-in-sentinel">Sign in</a>;
-    stubFetch({ trips: [card(A, "A placeholder trip", "booked", "2027-02-15")] });
-    const el = await mount(<MarketingLanding signIn={CTA} />);
-    expect(el.querySelectorAll('a[href="#sign-in-sentinel"]')).toHaveLength(1);
-  });
-
-  it("falls back to signing in as the hero's action when there is nothing to open", async () => {
-    // Its own test on purpose: re-rendering the same component type into one
-    // root PRESERVES state, so a second `mount` in the same test would still be
-    // looking at the first fetch's trips.
-    const CTA = <a href="#sign-in-sentinel">Sign in</a>;
-    stubFetch({ trips: [] });
-    const el = await mount(<MarketingLanding signIn={CTA} />);
-    expect(el.querySelectorAll('a[href="#sign-in-sentinel"]')).toHaveLength(2);
+  it("never invents social proof", () => {
+    const text = ssr(<MarketingLanding />);
+    for (const fabricated of ["★", "review", "Review", "testimonial", "million", "trusted by"]) {
+      expect(text).not.toContain(fabricated);
+    }
   });
 
   it("keeps one h1 on the page (the brand bar owns it)", () => {
@@ -153,168 +131,92 @@ describe("the claim", () => {
     expect(h1s).toHaveLength(1);
   });
 
-  it("never invents social proof", async () => {
-    stubFetch({ trips: [card(A, "A placeholder trip", "booked", "2027-02-15")] });
-    const el = await mount(<MarketingLanding />);
-    for (const fabricated of ["★", "review", "Review", "testimonial", "million", "trusted by"]) {
-      expect(el.textContent).not.toContain(fabricated);
-    }
+  it("offers the sign-in CTA only when the page was given one", () => {
+    const CTA = <a href="#sign-in-sentinel">Sign in</a>;
+    expect(ssr(<MarketingLanding />)).not.toContain("sign-in-sentinel");
+    expect(ssr(<MarketingLanding signIn={CTA} />)).toContain("sign-in-sentinel");
+  });
+
+  it("keeps the hero to ONE action, so it cannot duplicate the bar's Sign in", () => {
+    // The bar carries Sign in. A second one beside the hero's CTA was a real
+    // review catch on the previous revision.
+    const CTA = <a href="#sign-in-sentinel">Sign in</a>;
+    const html = ssr(<MarketingLanding signIn={CTA} />);
+    expect(html.match(/#sign-in-sentinel/g) ?? []).toHaveLength(1);
+    expect(html).toContain('href="#demo"');
   });
 });
 
 describe("the photography", () => {
-  it("leads with the lead trip's own cover, eagerly loaded", async () => {
-    stubFetch({
-      trips: [card(B, "Second trip", "planned", "2027-05-01"), card(A, "Lead trip", "live", "2027-02-01")],
-    });
+  it("uses only committed local assets, and every one of them exists", async () => {
     const el = await mount(<MarketingLanding />);
-    // `live` sorts first, so its cover is the one at full bleed.
-    const hero = el.querySelector(`img[src="/media/${A}/c.jpg"]`);
-    expect(hero).not.toBeNull();
-    // The hero is above the fold: never lazy (§9).
+    // `main img` — the header's logo lives outside it and is not a marketing asset.
+    const srcs = [...el.querySelectorAll("main img")].map((img) => img.getAttribute("src") ?? "");
+    expect(srcs.length).toBeGreaterThanOrEqual(5);
+    for (const src of srcs) {
+      expect(src.startsWith("/marketing/"), `${src} is not a committed asset`).toBe(true);
+      expect(existsSync(`${PUBLIC_DIR}${src}`), `${src} is missing from frontend/public`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("loads the hero eagerly and everything below it lazily (§9)", async () => {
+    const el = await mount(<MarketingLanding />);
+    const images = [...el.querySelectorAll("main img")];
+    const hero = images.find((img) => img.getAttribute("src") === "/marketing/hero.jpg");
+    expect(hero).toBeTruthy();
     expect(hero!.getAttribute("loading")).toBeNull();
-    // And it is a door onto the real trip.
-    expect(el.querySelector(`a[href="/t/${A}"]`)).not.toBeNull();
+    for (const img of images.filter((i) => i !== hero)) {
+      expect(img.getAttribute("loading"), `${img.getAttribute("src")} is not lazy`).toBe("lazy");
+    }
   });
 
-  it("shows no photograph at all — but the same design — with nothing to show", async () => {
-    stubFetch({ trips: [] });
+  it("gives every image alt text, and the decorative ones an empty alt", async () => {
     const el = await mount(<MarketingLanding />);
-    expect(el.querySelector('img[src^="/media/"]')).toBeNull();
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-  });
-
-  it("leads with a coverless trip rather than no hero at all", async () => {
-    stubFetch({ trips: [card(A, "No cover yet", "idea", "2027-02-01", undefined, null)] });
-    const el = await mount(<MarketingLanding />);
-    expect(el.querySelector('img[src^="/media/"]')).toBeNull();
-    expect(el.querySelector(`a[href="/t/${A}"]`)).not.toBeNull();
-  });
-
-  it("survives a cover that fails to load", async () => {
-    stubFetch({ trips: [card(A, "Broken cover", "booked", "2027-02-15")] });
-    const el = await mount(<MarketingLanding />);
-    const hero = el.querySelector(`img[src="/media/${A}/c.jpg"]`)!;
-    await act(async () => {
-      hero.dispatchEvent(new Event("error"));
-    });
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-    expect(el.querySelector(`a[href="/t/${A}"]`)).not.toBeNull();
-  });
-
-  it("puts the trip's real day count on the booklet cover", async () => {
-    stubFetch({ trips: [card(A, "A placeholder trip", "booked", "2027-02-15", "2027-03-02")] });
-    const el = await mount(<MarketingLanding />);
-    expect(el.textContent).toContain("A placeholder trip");
-    expect(el.textContent).toMatch(/\d+ days/);
+    for (const img of el.querySelectorAll("img")) {
+      expect(img.hasAttribute("alt"), `${img.getAttribute("src")} has no alt`).toBe(true);
+    }
   });
 });
 
-describe("the trips band", () => {
-  it("shows what the API returns, linking each trip to its route", async () => {
-    stubFetch({
-      trips: [
-        card(A, "A placeholder trip", "booked", "2027-02-15", "2027-03-02"),
-        card(B, "Another trip", "idea", "2027-04-01"),
-        card(C, "A third trip", "planned", "2027-06-01"),
-      ],
-    });
+describe("the example trip", () => {
+  it("shows the parts that make it legible as a trip", async () => {
     const el = await mount(<MarketingLanding />);
-    for (const id of [A, B, C]) {
-      expect(el.querySelector(`a[href="/t/${id}"]`)).not.toBeNull();
-    }
-    // The span is humanised ("2 weeks"), not a raw ISO range.
-    expect(el.textContent).toMatch(/\d+ (day|days|week|weeks)/);
+    const text = el.textContent ?? "";
+    expect(text).toContain("Nine days in Tokyo");
+    expect(text).toContain("Day 3");
+    expect(text).toContain("Golden Gai");
+    expect(text).toContain("Booked · confirmation on file");
+    expect(text).toContain("Shinjuku");
   });
 
-  it("asks for the showcase once, anonymously, and for nothing else", async () => {
-    const spy = stubFetch({ trips: [] });
-    await mount(<MarketingLanding />);
-    expect(spy).toHaveBeenCalledTimes(1);
-    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit | undefined];
-    expect(url).toBe("/api/showcase");
-    // No Authorization: the signed-out door must never look like a signed-in read.
-    expect(JSON.stringify(init ?? {})).not.toContain("Authorization");
-    expect(JSON.stringify(init ?? {})).not.toContain("Bearer");
-  });
-
-  it("collapses silently when the graph returns nothing", async () => {
-    stubFetch({ trips: [] });
+  it("shows a booking chip with no code in it", async () => {
     const el = await mount(<MarketingLanding />);
-    expect(el.textContent).not.toContain("Being planned right now.");
-    expect(el.textContent).not.toContain("Real trips");
-    // Still a complete page: the claim and the closing CTA are unaffected.
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-    expect(el.querySelector("#how")).not.toBeNull();
-  });
-
-  it("says nothing about a failure — a stranger sees no error state", async () => {
-    stubFetch({ detail: "boom" }, false);
-    const el = await mount(<MarketingLanding />);
-    expect(el.textContent).not.toContain("Real trips");
-    for (const word of ["error", "Error", "failed", "Failed", "unavailable"]) {
-      expect(el.textContent).not.toContain(word);
-    }
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-  });
-
-  it("survives an unreachable server", async () => {
-    const spy = vi.fn(async () => {
-      throw new TypeError("NetworkError");
-    });
-    vi.stubGlobal("fetch", spy);
-    const el = await mount(<MarketingLanding />);
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-    expect(el.textContent).not.toContain("Real trips");
-  });
-
-  it("survives a body in the wrong shape", async () => {
-    stubFetch({ trips: "not-an-array" });
-    const el = await mount(<MarketingLanding />);
-    expect(el.textContent).toContain("Every trip, from first idea to printed book.");
-    expect(el.textContent).not.toContain("Real trips");
+    const chip = [...el.querySelectorAll("p")].find((p) =>
+      (p.textContent ?? "").includes("confirmation on file"),
+    );
+    expect(chip).toBeTruthy();
+    // The feature, without anyone's reference: no code-like token in the chip.
+    expect(chip!.textContent ?? "").not.toMatch(/\b[A-Z0-9]{5,}\b/);
   });
 });
 
-describe("the ordering rule", () => {
+describe("the ordering rule (kept for the signed-in discovery home)", () => {
   it("sorts furthest-along first, then soonest, then title", () => {
     const ordered = sortShowcaseTrips([
-      card(C, "Zeta", "idea", "2027-01-01"),
-      card(A, "Alpha", "booked", "2027-09-01"),
-      card(B, "Beta", "booked", "2027-03-01"),
+      { dtId: "c", title: "Zeta", subtitle: "", stage: "idea", startDate: "2027-01-01", cover: null },
+      { dtId: "a", title: "Alpha", subtitle: "", stage: "booked", startDate: "2027-09-01", cover: null },
+      { dtId: "b", title: "Beta", subtitle: "", stage: "booked", startDate: "2027-03-01", cover: null },
     ] as never);
     expect(ordered.map((t) => t.title)).toEqual(["Beta", "Alpha", "Zeta"]);
   });
 
-  it("leads with a trip happening right now", () => {
-    const ordered = sortShowcaseTrips([
-      card(A, "Booked", "booked", "2027-01-01"),
-      card(B, "Live", "live", "2027-06-01"),
-    ] as never);
-    expect(ordered[0].title).toBe("Live");
-  });
-
   it("keeps an unknown stage instead of dropping the trip", () => {
     const ordered = sortShowcaseTrips([
-      card(A, "Known", "planned", "2027-01-01"),
-      card(B, "Novel", "something-new", "2026-01-01"),
+      { dtId: "a", title: "Known", subtitle: "", stage: "planned", startDate: "2027-01-01", cover: null },
+      { dtId: "b", title: "Novel", subtitle: "", stage: "something-new", startDate: "2026-01-01", cover: null },
     ] as never);
     expect(ordered.map((t) => t.title)).toEqual(["Known", "Novel"]);
-  });
-
-  it("leads with a trip that can carry a photograph", () => {
-    const coverless = card(A, "No cover", "booked", "2027-01-01", undefined, null);
-    const withCover = card(B, "Has cover", "idea", "2027-02-01");
-    expect(leadShowcaseTrip([coverless, withCover] as never)?.dtId).toBe(B);
-    // Nothing to choose from: the coverless trip still leads, never null.
-    expect(leadShowcaseTrip([coverless] as never)?.dtId).toBe(A);
-    expect(leadShowcaseTrip([])).toBeNull();
-  });
-
-  it("never spends the lead's photo twice in the closing band", () => {
-    const lead = card(A, "Lead", "booked", "2027-01-01");
-    const other = card(B, "Other", "idea", "2027-02-01");
-    expect(closingShowcaseTrip([lead, other] as never, lead as never)?.dtId).toBe(B);
-    expect(closingShowcaseTrip([lead] as never, lead as never)).toBeNull();
   });
 });

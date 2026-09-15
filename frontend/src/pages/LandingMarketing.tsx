@@ -1,60 +1,45 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { ArrowRight, MapPin } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowRight } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { StageBadge } from "../components/ui";
-import { fetchShowcase } from "../lib/api";
-import { dayCount, formatDate, humanizeDays } from "../lib/dates";
 import {
   MARKETING_BOOKLET,
   MARKETING_CLOSING,
+  MARKETING_DEMO,
   MARKETING_FOOTER,
   MARKETING_HERO,
   MARKETING_INSIDE,
   MARKETING_PRIVACY,
   MARKETING_STEPS,
   MARKETING_TRUST,
-  closingShowcaseTrip,
-  leadShowcaseTrip,
-  sortShowcaseTrips,
 } from "../lib/marketing";
-import type { ShowcaseTrip } from "../lib/types";
 
 /**
- * The signed-out landing page (#249) — the front door for someone who has never
- * signed in, and the whole of what they see.
+ * The signed-out landing page (#249).
  *
- * The redesign (this file's second version) answers a fair complaint: the first
- * version was *organized* but dull. It was a claim, a three-step list, an icon
- * grid and cards — no photograph above the fold, and the display face (Bebas
- * Neue, DESIGN.md §4 "cover titles") never used once, so the page was set
- * entirely in the heading face at small sizes. It used half the system.
+ * Three revisions in, and this one is the honest one. v1 was a claim, a step list,
+ * an icon grid and cards — organised but dull, with no photograph above the fold
+ * and the display face unused. v2 fixed that with photography and the poster voice,
+ * but it illustrated itself with the owner's REAL trips: the hero was one trip's
+ * cover, the cards linked into them, and a stranger following a link landed on
+ * booking codes, costs and the crew's checklist. Public is not the same as "fine to
+ * advertise from a landing page".
  *
- * What changed, and why it is the same brand:
- * - **Photography leads** (§9: "photos carry most of the emotional weight").
- *   The hero is a real trip's cover at full bleed with a scrim, which is the
- *   identical pattern to the trip overview's own cover (`OverviewPage`) —
- *   borrowed from inside the app, not from a consumer travel app.
- * - **The display face is used for what it is for** — one big cover title,
- *   uppercase, tight — and the heading face keeps every other heading.
- * - **The spine is the trip's life** (idea → together → live it and keep it),
- *   not the document: crews, the feed, discovery and print all shipped since
- *   "living document" described the product.
- * - **The icon grid became a definition list.** Six icon-and-sentence columns
- *   is a spec sheet; the same copy as a list beside the booklet spread reads.
+ * So the page now shows an invented example, and therefore:
  *
- * Deliberately still true, from the first version:
- * - It is a DOCUMENT surface (DESIGN.md §2), not a map surface.
- * - Every word renders with NO network call, which is why the copy is readable
- *   when the graph is not — and why a prerender (a later slice) can put it in
- *   front of a crawler.
- * - The photographic bands read `GET /api/showcase` and COLLAPSE when they have
- *   nothing (no data, no graph, a 500). A stranger must never see an error state
- *   and must never see a private trip: the server filters to public AND
- *   discoverable, and this page never fetches a trip by id.
- * - The sign-in CTA arrives as a node from the page that owns the auth SDK, so
- *   this file stays renderable with no Auth0 context at all.
+ * - **It makes no network call at all.** No showcase read, no trip read, no trip
+ *   link, no trip id — which also means it cannot degrade: there is no empty state,
+ *   no failure state and nothing to be missing. The prerender (`scripts/prerender.mjs`)
+ *   therefore carries the whole page, not just the copy.
+ * - **The crew's paperwork cannot leak through it**, because no real trip's content
+ *   is in it. The example's booking chip says "confirmation on file" and carries no
+ *   code: the feature, without anyone's reference.
+ * - **Print is demoted.** The booklet is one stage, one band and one entry in
+ *   "what is inside" — the headline is about planning and living the trip.
+ *
+ * The sign-in CTA still arrives as a node from the page that owns the auth SDK, so
+ * this file renders with no Auth0 context (and the prerender passes `null`).
  */
 export function MarketingLanding({
   signIn,
@@ -68,45 +53,19 @@ export function MarketingLanding({
    */
   headerActions?: ReactNode;
 }) {
-  const [trips, setTrips] = useState<ShowcaseTrip[] | null>(null);
-  // A cover can 404 (its media object was replaced). The hero is designed to
-  // work without a photograph, so a stranger never sees a broken image, and
-  // never an empty grey box either.
-  const [heroCoverFailed, setHeroCoverFailed] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void fetchShowcase().then((found) => {
-      // Guarded so a resolved fetch cannot set state after unmount (the landing
-      // is the one page people navigate away from mid-load).
-      if (alive) setTrips(sortShowcaseTrips(found));
-    });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const ordered = trips ?? [];
-  const lead = leadShowcaseTrip(ordered);
-  const closing = closingShowcaseTrip(ordered, lead);
-  const heroCover = lead?.cover && !heroCoverFailed ? lead.cover : null;
-
   return (
     <div className="min-h-screen">
       <AppHeader actions={headerActions === undefined ? <AuthButton /> : headerActions} />
 
       <main>
-        {/* ---------- The hero: one real trip, at full bleed ---------- */}
+        {/* ---------- The hero ---------- */}
         <section className="relative isolate overflow-hidden bg-scrim text-white">
-          {heroCover ? (
-            <img
-              src={heroCover}
-              alt=""
-              fetchPriority="high"
-              onError={() => setHeroCoverFailed(true)}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          ) : null}
+          <img
+            src="/marketing/hero.jpg"
+            alt=""
+            fetchPriority="high"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
           {/* §9: a scrim, always — the same gradient the trip overview uses. */}
           <div
             className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/55 to-black/30"
@@ -114,31 +73,28 @@ export function MarketingLanding({
           />
           <div className="relative mx-auto flex min-h-[560px] max-w-5xl flex-col justify-end px-6 pb-16 pt-24 sm:min-h-[620px] sm:pb-20">
             <p className="kicker text-white/70">{MARKETING_HERO.kicker}</p>
-            <h2 className="mt-4 max-w-[20ch] font-display text-5xl uppercase leading-[0.92] text-balance sm:text-6xl md:text-7xl">
+            <h2 className="mt-4 max-w-[18ch] font-display text-5xl uppercase leading-[0.92] text-balance sm:text-6xl md:text-7xl">
               {MARKETING_HERO.headline}
             </h2>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-white/85">
               {MARKETING_HERO.lede}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              {lead ? (
-                <Link to={`/t/${lead.dtId}`} className={CTA_PRIMARY}>
-                  {MARKETING_HERO.primaryCta}
-                  <ArrowRight className="h-4 w-4" aria-hidden />
-                </Link>
-              ) : (
-                // With a trip to open, that IS the hero's action — the sign-in
-                // sits in the bar directly above, and two Sign in buttons in one
-                // screenful reads as clutter (the first screenshot showed it).
-                // With nothing to open, signing in is the only way forward.
-                signIn
-              )}
-              <a href="#how" className={CTA_ON_PHOTO}>
+              {/* ONE action, and not a second Sign in: the bar above already carries
+                  that, and two of them in one screenful reads as clutter (caught in
+                  review on the previous revision). Showing the product is the
+                  hero's job; signing in is the bar's. */}
+              <a href="#demo" className={CTA_PRIMARY}>
                 {MARKETING_HERO.secondaryCta}
+                <ArrowRight className="h-4 w-4" aria-hidden />
               </a>
             </div>
             <p className="mt-6 text-sm text-white/70">{MARKETING_HERO.guestNote}</p>
-            <ul className="mt-8 flex flex-wrap gap-x-8 gap-y-2 border-t border-white/20 pt-5 text-[11px] font-medium uppercase tracking-[0.14em] text-white/85">
+            {/* The house accent rule (the same detail the trip's stat strip uses)
+                instead of a full-width hairline, which read as an unanchored divider
+                over a photograph. */}
+            <span className="mt-8 block h-0.5 w-8 rounded-full bg-accent" aria-hidden />
+            <ul className="mt-4 flex flex-wrap gap-x-8 gap-y-2 text-[11px] font-medium uppercase tracking-[0.14em] text-white/85">
               {MARKETING_TRUST.map((line) => (
                 <li key={line}>{line}</li>
               ))}
@@ -176,42 +132,174 @@ export function MarketingLanding({
           </div>
         </section>
 
-        {/* ---------- Real trips, as photographs ---------- */}
-        {ordered.length > 0 ? (
-          <section
-            id="trips"
-            aria-labelledby="trips-heading"
-            className="border-b border-border px-6 py-16 sm:py-24"
-          >
-            <div className="mx-auto max-w-6xl">
-              <p className="kicker">Real trips</p>
-              <h2
-                id="trips-heading"
-                className="mt-3 max-w-[24ch] font-heading text-3xl leading-tight sm:text-4xl"
-              >
-                Being planned right now.
-              </h2>
-              <p className="mt-4 max-w-2xl text-muted-foreground">
-                Live trips from Kiseki, in the state they are really in. A public
-                trip opens without an account.
-              </p>
-              <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {ordered.map((trip) => (
-                  <TripPanel key={trip.dtId} trip={trip} />
-                ))}
+        {/* ---------- The example ---------- */}
+        <section
+          id="demo"
+          aria-labelledby="demo-heading"
+          className="border-b border-border px-6 py-16 sm:py-24"
+        >
+          <div className="mx-auto max-w-6xl">
+            <p className="kicker">{MARKETING_DEMO.kicker}</p>
+            <h2
+              id="demo-heading"
+              className="mt-3 max-w-[24ch] font-heading text-3xl leading-tight sm:text-4xl"
+            >
+              {MARKETING_DEMO.title}
+            </h2>
+            <p className="mt-4 max-w-2xl text-muted-foreground">{MARKETING_DEMO.caption}</p>
+
+            <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+              {/* the day */}
+              <article className="overflow-hidden rounded-xl border border-border bg-card">
+                <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border p-5">
+                  <div>
+                    <p className="font-heading text-lg leading-tight">
+                      {MARKETING_DEMO.trip.title}
+                    </p>
+                    <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+                      {MARKETING_DEMO.trip.meta}
+                    </p>
+                  </div>
+                  <StageBadge stage={MARKETING_DEMO.trip.stage} />
+                </header>
+
+                <div className="border-b border-border px-5 py-4">
+                  <p className="kicker">{MARKETING_DEMO.day.label}</p>
+                  <p className="mt-1.5 font-heading text-xl leading-tight">
+                    {MARKETING_DEMO.day.title}
+                  </p>
+                </div>
+
+                <ul className="divide-y divide-border">
+                  {MARKETING_DEMO.day.rows.map((row) => (
+                    <li key={row.title} className="p-5">
+                      <div className="flex gap-4">
+                        <p className="w-12 shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+                          {row.time}
+                        </p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                            {row.kind}
+                          </p>
+                          <p className="mt-1 font-heading text-lg leading-tight">{row.title}</p>
+                          {row.body ? (
+                            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                              {row.body}
+                            </p>
+                          ) : null}
+                          {row.chip ? (
+                            <p className="mt-3 inline-flex items-center rounded-full bg-accent/10 px-2.5 py-1 text-xs font-medium text-accent">
+                              {row.chip}
+                            </p>
+                          ) : null}
+                          {row.photo ? (
+                            <div className="relative mt-3 aspect-[16/10] overflow-hidden rounded-lg bg-muted">
+                              <img
+                                src={row.photo.src}
+                                alt={row.photo.alt}
+                                loading="lazy"
+                                className="h-full w-full object-cover"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+
+              {/* the rest of the trip */}
+              <div className="space-y-6">
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <p className="kicker">{MARKETING_DEMO.route.label}</p>
+                  <p className="mt-2 font-heading text-lg leading-tight">
+                    {MARKETING_DEMO.route.title}
+                  </p>
+                  <ExampleRouteMap />
+                  <ul className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                    {MARKETING_DEMO.route.stops.map((stop, index) => (
+                      <li key={stop} className="inline-flex items-center gap-1.5">
+                        <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-primary/10 text-[11px] font-semibold tabular-nums text-primary">
+                          {index + 1}
+                        </span>
+                        {stop}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {MARKETING_DEMO.route.body}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-border bg-card p-5">
+                  <p className="kicker">{MARKETING_DEMO.crew.label}</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    {MARKETING_DEMO.crew.initials.map((initial) => (
+                      <span
+                        key={initial}
+                        aria-hidden
+                        className="inline-grid h-8 w-8 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+                      >
+                        {initial}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {MARKETING_DEMO.crew.note}
+                  </p>
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-border bg-card">
+                  <div className="relative aspect-[16/10] bg-muted">
+                    <img
+                      src={MARKETING_DEMO.note.src}
+                      alt={MARKETING_DEMO.note.alt}
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <p className="p-5 text-sm leading-relaxed text-muted-foreground">
+                    {MARKETING_DEMO.note.text}
+                  </p>
+                </div>
               </div>
             </div>
-          </section>
-        ) : null}
+          </div>
+        </section>
 
-        {/* ---------- The booklet ---------- */}
+        {/* ---------- The booklet, and what is inside ---------- */}
         <section
           id="booklet"
           aria-labelledby="booklet-heading"
           className="border-b border-border px-6 py-16 sm:py-24"
         >
           <div className="mx-auto grid max-w-6xl gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] md:items-center md:gap-16">
-            <BookletCover trip={lead} />
+            {/* On a tinted panel: bare on white the spread had nothing holding it, so
+                the band read as the weakest on the page. */}
+            <div className="rounded-xl bg-muted p-6 sm:p-8">
+              <div className="relative mx-auto aspect-[3/4] w-full max-w-xs overflow-hidden rounded-lg border border-border bg-card shadow-card">
+                <img
+                  src="/marketing/day-rain.jpg"
+                  alt=""
+                  loading="lazy"
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+                <div
+                  className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/15"
+                  aria-hidden
+                />
+                <div className="relative flex h-full flex-col justify-end p-5">
+                  <p className="kicker text-white/70">Day 1</p>
+                  <p className="mt-2 font-display text-3xl uppercase leading-[0.95] text-white">
+                    Nine days in Tokyo
+                  </p>
+                  <p className="mt-2 text-[11px] uppercase tracking-[0.14em] tabular-nums text-white/75">
+                    9 days
+                  </p>
+                </div>
+              </div>
+            </div>
             <div>
               <p className="kicker">{MARKETING_BOOKLET.kicker}</p>
               <h2
@@ -253,7 +341,7 @@ export function MarketingLanding({
             >
               {MARKETING_PRIVACY.title}
             </h2>
-            <div className="mt-10 grid gap-8 sm:grid-cols-3">
+            <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
               {MARKETING_PRIVACY.points.map((point) => (
                 <div key={point.key}>
                   <p className="font-heading text-lg">{point.title}</p>
@@ -264,19 +352,17 @@ export function MarketingLanding({
           </div>
         </section>
 
-        {/* ---------- Closing: a second trip, not the same photo twice ---------- */}
+        {/* ---------- Closing ---------- */}
         <section
           aria-labelledby="start-heading"
           className="relative isolate overflow-hidden bg-scrim text-white"
         >
-          {closing?.cover ? (
-            <img
-              src={closing.cover}
-              alt=""
-              loading="lazy"
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-          ) : null}
+          <img
+            src="/marketing/closing.jpg"
+            alt=""
+            loading="lazy"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
           <div
             className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/60 to-black/35"
             aria-hidden
@@ -289,14 +375,12 @@ export function MarketingLanding({
               {MARKETING_CLOSING.title}
             </h2>
             <p className="mt-4 max-w-xl text-white/85">{MARKETING_CLOSING.body}</p>
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              {signIn}
-              {lead ? (
-                <Link to={`/t/${lead.dtId}`} className={CTA_ON_PHOTO}>
-                  {MARKETING_HERO.primaryCta}
-                </Link>
-              ) : null}
-            </div>
+            {/* Rendered only when the page was given a CTA: the prerender has none
+                (AuthButton needs the browser), and an empty flex box would ship as
+                dead markup in the crawlable shell. */}
+            {signIn ? (
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3">{signIn}</div>
+            ) : null}
           </div>
         </section>
       </main>
@@ -315,107 +399,61 @@ export function MarketingLanding({
 
 /**
  * Buttons that navigate carry the same vocabulary as `ui.Button` on an anchor —
- * there is no `asChild`, and a trip link is a route, not a `<button>`.
+ * there is no `asChild`, and these are anchors, not `<button>`s.
  */
+/** The hero's one action, and the closing band's, in the `ui.Button` vocabulary. */
 const CTA_PRIMARY =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 focus-visible:focus-ring";
-const CTA_ON_PHOTO =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-white/45 px-5 text-sm font-medium text-white transition-colors hover:bg-white/10 focus-visible:focus-ring";
-
-/** "Feb 15, 2027 – Mar 2, 2027 · 2 weeks", or just what is known. */
-function dateLine(trip: ShowcaseTrip): string | null {
-  if (!trip.startDate) return null;
-  const start = formatDate(trip.startDate);
-  const range = trip.endDate ? `${start} – ${formatDate(trip.endDate)}` : start;
-  const days = dayCount(trip.startDate, trip.endDate ?? undefined);
-  const span = days && days > 1 ? humanizeDays(days) : null;
-  return span ? `${range} · ${span}` : range;
-}
-
-/** "16 days" — the numeral the booklet prints, not a humanised span. */
-function dayLabel(trip: ShowcaseTrip | null): string | null {
-  if (!trip?.startDate) return null;
-  const days = dayCount(trip.startDate, trip.endDate ?? undefined);
-  if (!days) return null;
-  return `${days} ${days === 1 ? "day" : "days"}`;
-}
-
-function TripPanel({ trip }: { trip: ShowcaseTrip }) {
-  // A cover can 404 (the media object was replaced). A landing page falls back
-  // to a mark; it never shows a broken image to a stranger.
-  const [coverFailed, setCoverFailed] = useState(false);
-  const dates = dateLine(trip);
-  return (
-    <Link
-      to={`/t/${trip.dtId}`}
-      className="group overflow-hidden rounded-xl border border-border bg-card focus-visible:focus-ring"
-    >
-      <div className="relative aspect-[16/10] bg-muted">
-        {trip.cover && !coverFailed ? (
-          <img
-            src={trip.cover}
-            alt=""
-            loading="lazy"
-            onError={() => setCoverFailed(true)}
-            className="h-full w-full object-cover transition-transform duration-500 motion-safe:group-hover:scale-[1.03]"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <MapPin className="h-6 w-6 text-muted-foreground" aria-hidden />
-          </div>
-        )}
-        <div className="scrim absolute inset-0" aria-hidden />
-        <div className="absolute inset-x-4 bottom-4">
-          <StageBadge stage={trip.stage} className="text-foreground" />
-          <p className="mt-2 font-heading text-xl leading-tight text-white">{trip.title}</p>
-          {dates ? <p className="mt-1 text-xs tabular-nums text-white/80">{dates}</p> : null}
-        </div>
-      </div>
-      {trip.subtitle ? (
-        <p className="p-4 text-sm text-muted-foreground">{trip.subtitle}</p>
-      ) : null}
-    </Link>
-  );
-}
 
 /**
- * The booklet's first page, built from the lead trip the same way the real
- * booklet is (cover photo + title + day count) — the print artifact is the one
- * thing a consumer travel app cannot answer (DESIGN.md §1, §12). With no trip
- * to show it is still a page: the panel keeps its paper, not a grey box.
+ * The example's map, drawn rather than photographed.
+ *
+ * Deliberately not a real route-map image: the one a real trip carries is built on
+ * Google Maps tiles, so it is neither ours to license for a public page nor
+ * fictional — and a "fake trip" illustrated with somebody's actual route would be
+ * the same mistake this revision is fixing, one level down. A drawn line is
+ * honest, carries no data, and is on-brand for a cartographic product.
  */
-function BookletCover({ trip }: { trip: ShowcaseTrip | null }) {
-  const days = dayLabel(trip);
+function ExampleRouteMap() {
   return (
-    <div className="mx-auto w-full max-w-sm">
-      <div className="relative aspect-[3/4] overflow-hidden rounded-lg border border-border bg-card shadow-card">
-        {trip?.cover ? (
-          <img
-            src={trip.cover}
-            alt=""
-            loading="lazy"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-        ) : null}
-        <div
-          className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/35 to-black/15"
-          aria-hidden
+    <div className="mt-4 overflow-hidden rounded-lg border border-border bg-muted">
+      <svg
+        viewBox="0 0 360 200"
+        role="img"
+        aria-label="An example route drawn as a dashed line through five numbered stops"
+        className="h-auto w-full"
+      >
+        {/* land shapes — a schematic hint, not a map of anywhere */}
+        <path d="M0 150 L70 120 L140 138 L210 104 L280 126 L360 96 L360 200 L0 200 Z" className="fill-border" />
+        <path d="M0 60 L60 40 L130 66 L190 34 L250 58 L320 30 L360 44 L360 0 L0 0 Z" className="fill-border/60" />
+        {/* the route */}
+        <path
+          d="M48 150 C96 118, 120 92, 168 96 S244 130, 292 74"
+          fill="none"
+          strokeWidth="2.5"
+          strokeDasharray="7 5"
+          className="stroke-primary"
         />
-        <div className="relative flex h-full flex-col justify-end p-5">
-          <p className="kicker text-white/70">Day 1</p>
-          <p className="mt-2 font-display text-3xl uppercase leading-[0.95] text-white">
-            {trip?.title ?? "Your trip"}
-          </p>
-          {days ? (
-            <p className="mt-2 text-[11px] uppercase tracking-[0.14em] tabular-nums text-white/75">
-              {days}
-            </p>
-          ) : null}
-        </div>
-      </div>
-      <p className="mt-3 text-center text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-        The booklet's cover
-      </p>
+        {[
+          { x: 48, y: 150, n: 1 },
+          { x: 112, y: 104, n: 2 },
+          { x: 186, y: 96, n: 3 },
+          { x: 248, y: 118, n: 4 },
+          { x: 292, y: 74, n: 5 },
+        ].map((pin) => (
+          <g key={pin.n}>
+            <circle cx={pin.x} cy={pin.y} r="9" className="fill-card stroke-primary" strokeWidth="2" />
+            <text
+              x={pin.x}
+              y={pin.y + 3.5}
+              textAnchor="middle"
+              className="fill-primary text-[9px] font-semibold tabular-nums"
+            >
+              {pin.n}
+            </text>
+          </g>
+        ))}
+      </svg>
     </div>
   );
 }

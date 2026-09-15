@@ -1,28 +1,28 @@
-import type { ShowcaseTrip } from "./types";
+import type { ShowcaseTrip, Stage } from "./types";
 
 /**
- * Copy and ordering rules for the signed-out landing page (#249).
+ * Copy and content for the signed-out landing page (#249).
  *
- * WHAT IS DELIBERATELY NOT HERE: trips. This repo is public and carries no trip
- * data (`AGENTS.md`) — no titles, dates, crew names or media URLs — so the
- * photographic bands read `GET /api/showcase` (public AND discoverable trips, as
- * cards) instead of a list committed beside the code. Two things fall out of
- * that, and both are wanted: the front door shows the real graph, and every word
- * in THIS file is static, so the copy renders — and can be prerendered for a
- * crawler — with no network call at all.
+ * WHAT IS DELIBERATELY NOT HERE: real trips. This repo is public (`AGENTS.md`),
+ * and the first version of this page proved why the rule matters: it linked to
+ * the owner's real trips, and a stranger following a link landed on booking codes,
+ * costs and a checklist naming balances. A landing page is the worst place for
+ * anybody's paperwork.
  *
- * Three rules the copy obeys, beyond DESIGN.md §1 (concrete, calm, no
- * superlatives, no exclamation marks, nothing that has not shipped):
+ * So the page shows a FICTIONAL example instead — invented trip, invented day,
+ * invented crew initials — built from copy in this file plus photographs the owner
+ * has declared rights-free (`frontend/public/marketing/CREDITS.md`). Three
+ * consequences, all wanted:
  *
- * - **The spine is the trip's life, not the document's.** Six stages, crews,
- *   invites, a feed, discovery and print all shipped after "living document" was
- *   the whole product. That phrase is now one section — the document is what
- *   stays true, not what the product is for.
- * - **Photography leads, copy explains** (DESIGN.md §9). The hero and every band
- *   below it is a photograph with words on it, not a paragraph with a thumbnail.
- * - **No social proof we do not have.** No review counts, ratings, user numbers
- *   or testimonials — inventing them would be worth nothing, and DESIGN.md §1
- *   puts Kiseki on the other side of the consumer-travel-app fence.
+ * - the page renders with NO network call at all (so a prerender carries all of it),
+ * - there is no `discoverable` trip, no real URL and no crew name anywhere in it,
+ * - and it cannot degrade: nothing is fetched, so nothing can be missing.
+ *
+ * `GET /api/showcase` still exists and still serves the real graph — the signed-in
+ * discovery home reads it next. This page just stops advertising people's trips.
+ *
+ * Copy rules (DESIGN.md §1): concrete, calm, no superlatives, no exclamation marks,
+ * nothing that has not shipped. And no social proof we do not have.
  */
 
 export interface MarketingStep {
@@ -34,28 +34,30 @@ export interface MarketingStep {
 /** The hero: the claim, and the two things a stranger can do about it. */
 export const MARKETING_HERO = {
   kicker: "Trip documents for crews",
-  headline: "Every trip, from first idea to printed book.",
-  lede: "Plan the route with the people who are coming, keep it honest while you are away, and finish with something worth printing — one document per trip, instead of a plan in one app and the photos in another.",
-  primaryCta: "Open a real trip",
-  secondaryCta: "See how it works",
   /**
-   * The message for the visitor who arrived on a link someone sent them — the
-   * single most common way a stranger meets Kiseki. It must survive: reading a
-   * trip needs no account.
+   * Print is deliberately NOT in the headline. The booklet is a real feature and
+   * the one artifact no consumer travel app answers, but it is the *end* of a
+   * trip: leading with it made the page about paper instead of about the trip.
+   * It survives as one stage, one band and one line in "what is inside".
    */
+  headline: "Plan it together. Live it for real.",
+  lede: "The route, the days, the places and the people in one document that stays true while you are away — and prints as a booklet when the trip is over.",
+  secondaryCta: "See what a trip looks like",
+  /** For the visitor who arrived on a link someone sent them. Reading needs no account. */
   guestNote: "Sent a trip link? Open it — reading a trip needs no account.",
 } as const;
 
 /**
- * What we can say about ourselves without inventing anything. Each of these is
- * checkable in the product: there is no advertising, the analytics SDK only
- * loads after the visitor allows it (`lib/posthog.ts` + `CookieConsent`), and a
- * trip is private to its crew until its owner publishes it (`discoverable`).
+ * What we can say about ourselves without inventing anything. Each is checkable in
+ * the product: there is no advertising, the analytics SDK only loads after the
+ * visitor allows it (`lib/posthog.ts` + `CookieConsent`), a trip is private to its
+ * crew until its owner publishes it, and — since v0.41.1 — a reader without a crew
+ * role gets no booking code, no cost and no checklist (see `_public_trip`).
  */
 export const MARKETING_TRUST = [
   "No ads",
   "Analytics only if you allow them",
-  "Private until you say otherwise",
+  "Booking codes stay with the crew",
 ] as const;
 
 /** The three beats of a trip's life. This is the page's spine. */
@@ -77,22 +79,111 @@ export const MARKETING_STEPS: MarketingStep[] = [
   },
 ];
 
+/** One row in the example day — the same shape a real block renders in. */
+export interface DemoRow {
+  time: string;
+  kind: string;
+  title: string;
+  body?: string;
+  photo?: { src: string; alt: string };
+  chip?: string;
+}
+
+/**
+ * The example trip.
+ *
+ * Fictional on purpose and labelled as such on the page: the trip, the crew and
+ * the booking are invented, so no real trip's content can leak through the front
+ * door by being "just an example". The photographs are the owner's rights-free
+ * ones (see CREDITS.md), and the map is drawn in the component — a screenshot of a
+ * real route map would have been neither ours to license nor fictional.
+ */
+export interface MarketingDemo {
+  kicker: string;
+  title: string;
+  caption: string;
+  trip: { title: string; meta: string; stage: Stage };
+  day: { label: string; title: string; rows: DemoRow[] };
+  crew: { label: string; initials: string[]; note: string };
+  route: { label: string; title: string; body: string; stops: string[] };
+  note: { src: string; alt: string; text: string };
+}
+
+export const MARKETING_DEMO: MarketingDemo = {
+  kicker: "What a trip looks like",
+  title: "One day of an example trip.",
+  caption:
+    "The trip below is invented — the crew, the plan and the booking are fiction, so nothing here is anyone's. A real trip reads exactly like this, with its own colour.",
+  trip: {
+    title: "Nine days in Tokyo",
+    meta: "Planned · 9 days · Mar 2027",
+    stage: "planned" as const,
+  },
+  day: {
+    label: "Day 3",
+    title: "Golden Gai, and a slow morning",
+    rows: [
+      {
+        time: "09:00",
+        kind: "Activity",
+        title: "Coffee in Shinjuku Gyoen",
+        body: "Gate opens at nine. Walk the pond loop before the crowds and let the city start without you.",
+        photo: {
+          src: "/marketing/day-garden.jpg",
+          alt: "A quiet garden pond and footbridge with a skyscraper behind the trees",
+        },
+      },
+      {
+        time: "20:00",
+        kind: "Activity",
+        title: "Golden Gai — six seats and a jukebox",
+        body: "Pick a bar by the signboard. Cash only, and nobody minds if you stay for one more.",
+        photo: {
+          src: "/marketing/day-alley.jpg",
+          alt: "A narrow lantern-lit alley of tiny bars at night",
+        },
+      },
+      {
+        time: "—",
+        kind: "Lodging",
+        title: "Stay: Shinjuku, four nights",
+        body: "Booked in advance, confirmation on file with the trip.",
+        chip: "Booked · confirmation on file",
+      },
+    ],
+  },
+  crew: {
+    label: "Crew",
+    initials: ["A", "M", "R"],
+    note: "Everyone on the trip opens the same link. Reading it needs no account, and the crew's own notes stay with the crew.",
+  },
+  route: {
+    label: "The map",
+    title: "The whole route on one map",
+    body: "Legs, stays and day trips on a single surface, so the shape of the trip is visible before anything is booked. This one is drawn for the example.",
+    stops: ["Shinjuku", "Yanaka", "Kōenji", "Shibuya", "Golden Gai"],
+  },
+  note: {
+    src: "/marketing/day-rain.jpg",
+    alt: "A rainy Tokyo street crossing under umbrellas at dusk",
+    text: "Photos land on the block they happened in — by capture time, not upload order.",
+  },
+};
+
 export interface MarketingFeature {
   key: string;
   title: string;
   body: string;
 }
 
-/** The parts every trip carries — a definition list, not an icon grid. */
+/**
+ * The parts every trip carries — a definition list, not an icon grid. Print is
+ * one entry here, which is where a secondary feature belongs.
+ */
 export const MARKETING_INSIDE = {
   kicker: "What is inside",
   title: "Every trip carries the same parts.",
   items: [
-    {
-      key: "booklet",
-      title: "A booklet, not a form",
-      body: "Written to be read: on the phone while you travel, or printed for the road.",
-    },
     {
       key: "map",
       title: "The whole route",
@@ -102,6 +193,11 @@ export const MARKETING_INSIDE = {
       key: "crew",
       title: "Crew and join links",
       body: "Invite the people coming. They see the trip — not your other trips.",
+    },
+    {
+      key: "feed",
+      title: "What your people are up to",
+      body: "Follow the people you travel with and their trips show up in your feed.",
     },
     {
       key: "identity",
@@ -114,21 +210,17 @@ export const MARKETING_INSIDE = {
       body: "Ask for a change in the trip's own chat, and the document follows.",
     },
     {
-      key: "feed",
-      title: "What your people are up to",
-      body: "Follow the people you travel with and their trips show up in your feed.",
+      key: "booklet",
+      title: "A booklet at the end",
+      body: "When the trip is over it prints — written to be read on the road, and to keep.",
     },
   ] satisfies MarketingFeature[],
 } as const;
 
-/**
- * The one thing a consumer travel app has no answer to: the print artifact
- * (DESIGN.md §1 — "a printed travel booklet that happens to be alive", §12).
- */
 export const MARKETING_BOOKLET = {
   kicker: "At the end",
   title: "Something you can hold.",
-  body: "The booklet is generated from the same document you planned in — itinerary, route and photos, laid out for paper. Nothing is retyped, so the printout matches the trip that actually happened.",
+  body: "The booklet is generated from the same document you planned in, so nothing is retyped and the printout matches the trip that actually happened.",
 } as const;
 
 export const MARKETING_PRIVACY = {
@@ -139,6 +231,11 @@ export const MARKETING_PRIVACY = {
       key: "default",
       title: "Private by default",
       body: "A new trip is visible to you and the crew you invite. Putting a trip on this front door is a deliberate opt-in, per trip.",
+    },
+    {
+      key: "paperwork",
+      title: "The paperwork stays with the crew",
+      body: "Booking codes, costs and the pre-trip checklist are visible to the crew only. A trip that is public shows its route, days, places and photos — not what anyone paid.",
     },
     {
       key: "analytics",
@@ -164,12 +261,14 @@ export const MARKETING_FOOTER = {
 } as const;
 
 /**
- * The stage ladder, furthest-along first.
+ * The stage ladder, furthest-along first — the display rule for a list of
+ * discoverable trips.
  *
- * Someone travelling *now* is the most convincing thing this page can show, so
- * `live` leads and a finished trip trails. Keyed by string rather than the
- * `Stage` union so an unknown stage from the graph sorts last instead of
- * crashing the page.
+ * NOT used by this page any more (it shows an invented example, not the graph).
+ * It stays because it is the ordering the signed-in discovery home reads off
+ * `GET /api/showcase`, and because the rule is worth having in one exported place
+ * rather than re-derived: `live` leads, a finished trip trails, and an unknown
+ * stage from the graph sorts last instead of crashing the page.
  */
 const STAGE_WEIGHT: Record<string, number> = {
   live: 0,
@@ -184,14 +283,6 @@ const STAGE_WEIGHT: Record<string, number> = {
 /** Where an unrecognised stage lands: after everything we know, never dropped. */
 const UNKNOWN_STAGE_WEIGHT = 99;
 
-/**
- * Display order for the page — the ONE rule it sorts by.
- *
- * Stage weight first, then the trip that starts soonest, then the title as a
- * stable tiebreak. Keeping this in one exported function is the point: when
- * someone asks "why is that trip first?", the answer is here, not spread across
- * the components that happen to render the cards.
- */
 export function sortShowcaseTrips(trips: readonly ShowcaseTrip[]): ShowcaseTrip[] {
   const weight = (trip: ShowcaseTrip) => STAGE_WEIGHT[trip.stage] ?? UNKNOWN_STAGE_WEIGHT;
   return [...trips].sort((a, b) => {
@@ -202,25 +293,4 @@ export function sortShowcaseTrips(trips: readonly ShowcaseTrip[]): ShowcaseTrip[
     if (startA !== startB) return startA < startB ? -1 : 1;
     return a.title.localeCompare(b.title);
   });
-}
-
-/**
- * The trip the page leads with.
- *
- * One trip is *shown*, not just listed: it becomes the hero photograph and the
- * booklet's cover, so the lead has to be a trip that can carry a photograph.
- * A coverless trip still leads if it is all we have — the hero is designed to
- * work without an image (see `MarketingLanding`) and must never fall back to an
- * empty grey box.
- */
-export function leadShowcaseTrip(trips: readonly ShowcaseTrip[]): ShowcaseTrip | null {
-  return trips.find((trip) => Boolean(trip.cover)) ?? trips[0] ?? null;
-}
-
-/** A second trip for the closing band, so the page does not repeat one photo. */
-export function closingShowcaseTrip(
-  trips: readonly ShowcaseTrip[],
-  lead: ShowcaseTrip | null,
-): ShowcaseTrip | null {
-  return trips.find((trip) => trip !== lead && Boolean(trip.cover)) ?? null;
 }
