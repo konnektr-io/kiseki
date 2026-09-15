@@ -86,6 +86,21 @@ def test_docstring_documents_bulk_fill_verb() -> None:
     assert "cost` as a\nnumber" in text or "cost" in text
 
 
+def test_docstring_documents_binary_get_out() -> None:
+    """A non-JSON response (the booklet PDF) is fetchable — issue #281.
+
+    The content agent verifies a finished build by pulling
+    `/api/trips/<id>/booklet.pdf`; `get` used to die decoding that PDF's bytes,
+    so the flag that makes the fetch binary-safe has to be visible in the help
+    text the agent reads — and therefore in both workspace copies (the reason
+    this is pinned here, next to the other capability-surface contracts).
+    """
+    text = _run("--help").stdout
+    assert "--out" in text
+    assert "booklet.pdf" in text
+    assert "binary" in text
+
+
 def test_create_trip_arg_contract() -> None:
     """create-trip takes --title/--subtitle only — no body flags."""
     no_title = _run("create-trip", "--subtitle", "x")

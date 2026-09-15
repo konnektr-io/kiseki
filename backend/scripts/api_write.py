@@ -141,6 +141,24 @@ trip and everything scoped to it — `delete /api/trips/<id>`; expect 204,
 then a 404 on the second call. Never leave a stray empty trip behind
 (issue #163).
 
+A response that is NOT JSON — the booklet, any binary artifact (issue #281):
+
+    python scripts/api_write.py get /api/trips/<trip_id>/booklet.pdf --out /tmp/booklet.pdf
+    # → bytes=184320 content-type=application/pdf out=/tmp/booklet.pdf
+
+`--out <file>` writes the response body as raw BYTES and prints that one-line
+summary (`bytes=N content-type=…`), so `get` is binary-safe: the PDF never
+touches the text decoder. Without `--out` a body that is not UTF-8 text is
+refused with a clear message naming `--out` — never a `UnicodeDecodeError`
+traceback (that is the failure this verb used to die of, half-way through a
+booklet verification). The target file is removed BEFORE the request, so a
+failed fetch (403/404/timeout) can never leave a stale artifact behind to be
+mistaken for a fresh one — assert on the bytes you just fetched, not on a file
+that might predate the run. Verifying a finished build:
+
+    python scripts/api_write.py get /api/trips/<trip_id>/booklet.pdf --out /tmp/booklet.pdf
+    test "$(stat -c%s /tmp/booklet.pdf)" -gt 10000 && head -c4 /tmp/booklet.pdf
+
 Bodies with quotes/apostrophes: write the JSON to a file and pass --file
 (inline shell quoting of apostrophes is the classic failure).
 
@@ -1649,6 +1667,9 @@ def main() -> int:
                     help="API path, e.g. /api/trips/<trip_id>/blocks (omit for create-trip)")
     ap.add_argument("--json", help="JSON body inline")
     ap.add_argument("--file", help="JSON body from file ('-' = stdin)")
+    ap.add_argument("--out",
+                    help="get: write the response body to this file as raw bytes "
+                         "(binary-safe — booklet.pdf); prints bytes=N content-type=…")
     ap.add_argument("--title", help="Trip title (create-trip only)")
     ap.add_argument("--subtitle", help="Trip subtitle (create-trip only)")
     ap.add_argument("--token", help="Bearer token (default: $KISEKI_TOKEN)")
@@ -1703,6 +1724,17 @@ def main() -> int:
     else:
         body = _read_body(args)
     url = args.base.rstrip("/") + ("/" + path.lstrip("/") if path else "")
+    if args.out:
+        # Clear the target BEFORE the request (issue #281): a failed fetch must
+        # not leave yesterday's booklet sitting there looking fresh.
+        try:
+            os.remove(args.out)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            print(f"error: cannot replace {args.out}: {exc}", file=sys.stderr)
+            return 1
+
     req = urllib.request.Request(url, method=method.upper(), data=body)
     req.add_header("Authorization", f"Bearer {token}")
     if body is not None:
@@ -1710,7 +1742,8 @@ def main() -> int:
 
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            payload = resp.read().decode("utf-8")
+            raw = resp.read()
+            content_type = resp.headers.get("Content-Type", "")
     except urllib.error.HTTPError as exc:
         detail = ""
         try:
@@ -1721,6 +1754,29 @@ def main() -> int:
         return exc.code
     except urllib.error.URLError as exc:
         print(f"error: cannot reach {url}: {exc.reason}", file=sys.stderr)
+        return 1
+
+    if args.out:
+        # Binary-safe sink: the body is written as bytes and never decoded, so
+        # a PDF (or any non-UTF-8 body) survives intact.
+        try:
+            with open(args.out, "wb") as fh:
+                fh.write(raw)
+        except OSError as exc:
+            print(f"error: cannot write {args.out}: {exc}", file=sys.stderr)
+            return 1
+        print(f"bytes={len(raw)} content-type={content_type or 'unknown'} out={args.out}")
+        return 0
+
+    try:
+        payload = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        # Refuse with the fix, not a traceback: this used to be a
+        # UnicodeDecodeError from deep inside the client.
+        print(f"error: response is not UTF-8 text ({len(raw)} bytes, "
+              f"content-type={content_type or 'unknown'}) — this body is binary; "
+              f"pass --out <file> to save it (e.g. --out /tmp/booklet.pdf)",
+              file=sys.stderr)
         return 1
 
     try:
