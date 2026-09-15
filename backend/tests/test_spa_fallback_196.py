@@ -24,6 +24,10 @@ from app.main import app
 
 client = TestClient(app)
 
+# The shell's empty root: what every SPA route except "/" serves, and what "/"
+# must NOT — the landing is prerendered into that element (see `main.py`).
+EMPTY_ROOT = '<div id="root"></div>'
+
 
 def _require_shell() -> None:
     """Refuse to run without the built SPA.
@@ -130,12 +134,15 @@ def test_root_serves_the_prerendered_landing_and_no_other_route_does() -> None:
 
     root = client.get("/")
     assert root.status_code == 200
-    assert "Every trip, from first idea to printed book." in root.text
-    # Still the app shell, not a static copy of it: the root element is there for
-    # the bundle to take over.
-    assert '<div id="root">' in root.text
+    # The contract is STRUCTURAL, not copy. This test used to assert the landing's
+    # headline text, so a frontend copy rewrite broke a backend test (it did, on the
+    # demo-trips rewrite) — the assertion was pinned to the one thing this layer does
+    # not own. What "/" promises is a shell that arrives with content already inside
+    # #root; every other route promises an empty one.
+    assert EMPTY_ROOT not in root.text, "the prerendered landing was not injected"
+    assert '<div id="root"><' in root.text
 
     for path in ("/t/abc", "/me", "/feed", "/u/google-oauth2%7C1"):
         other = client.get(path)
         assert other.status_code == 200, path
-        assert "Every trip, from first idea to printed book." not in other.text, path
+        assert EMPTY_ROOT in other.text, f"{path} was served the prerendered landing"
