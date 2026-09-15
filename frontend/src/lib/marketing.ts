@@ -1,4 +1,4 @@
-import type { ShowcaseTrip, Stage } from "./types";
+import type { Stage } from "./types";
 
 /**
  * Copy and content for the signed-out landing page (#249).
@@ -290,8 +290,20 @@ const STAGE_WEIGHT: Record<string, number> = {
 /** Where an unrecognised stage lands: after everything we know, never dropped. */
 const UNKNOWN_STAGE_WEIGHT = 99;
 
-export function sortShowcaseTrips(trips: readonly ShowcaseTrip[]): ShowcaseTrip[] {
-  const weight = (trip: ShowcaseTrip) => STAGE_WEIGHT[trip.stage] ?? UNKNOWN_STAGE_WEIGHT;
+/**
+ * The minimum a trip list needs to be orderable. Generic (not `ShowcaseTrip`)
+ * since #249 slice 2: the signed-in home sorts `TripSummary` lists with the
+ * same comparator, and a second sort would be a second answer to "why is this
+ * first?".
+ */
+export interface OrderableTrip {
+  stage: string;
+  startDate?: string | null;
+  title: string;
+}
+
+export function sortShowcaseTrips<T extends OrderableTrip>(trips: readonly T[]): T[] {
+  const weight = (trip: T) => STAGE_WEIGHT[trip.stage] ?? UNKNOWN_STAGE_WEIGHT;
   return [...trips].sort((a, b) => {
     const byStage = weight(a) - weight(b);
     if (byStage !== 0) return byStage;
