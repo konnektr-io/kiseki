@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, Compass, MapPin, MessageCircle, Ticket } from "lucide-react";
+import { ArrowRight, MapPin, MessageCircle, Ticket } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
@@ -10,6 +10,7 @@ import { fetchMyTrips } from "../lib/api";
 import { formatDate } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import { usePageTitle } from "../lib/seo";
+import { MarketingLanding } from "./LandingMarketing";
 import type { TripSummary } from "../lib/types";
 
 /**
@@ -17,45 +18,38 @@ import type { TripSummary } from "../lib/types";
  *
  * - Signed in: "My trips" — a card grid of every trip the user has a crew
  *   role on (link straight to the protected /t/<id> routes).
- * - Signed out: the public hero ("the trip as a living document").
+ * - Signed out: the marketing landing (#249) — what Kiseki is, real public
+ *   trips you can open, and the way in. It replaced a four-line centred hero
+ *   ("Open your trip link to continue, or sign in") that told a stranger
+ *   nothing about the product.
  *
  * The old landing logo image is gone (it drifted from the app icon); the
- * wordmark stays typographic (Bebas Neue) — the style is reused later.
+ * wordmark lives in `AppHeader`'s brand, where every route gets it.
  */
 export function LandingPage() {
   usePageTitle(null);
 
   if (!isAuthConfigured()) {
-    return <AnonymousHero />;
+    return <MarketingLanding />;
   }
   return <AuthenticatedLanding />;
 }
 
-function Wordmark() {
-  return (
-    <h1 className="font-heading text-3xl font-semibold tracking-widest">
-      Kiseki <span className="text-primary">軌跡</span>
-    </h1>
-  );
-}
-
-function AnonymousHero() {
+/**
+ * The landing's sign-in CTA.
+ *
+ * Lives here rather than in `LandingMarketing` because it is the only part of
+ * that page that touches the SDK: the page takes its CTA as a node, so it
+ * renders (and is tested) without an Auth0 context. Only mounted where auth is
+ * actually configured — with no Auth0 app there is nothing to sign in to, and
+ * `MarketingLanding` simply renders no CTA.
+ */
+function SignInButton() {
   const { loginWithRedirect } = useAuth0();
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center gap-5 p-6 text-center">
-      <div className="absolute right-4 top-4">
-        <AuthButton />
-      </div>
-      <Compass className="h-10 w-10 text-primary" strokeWidth={1.5} />
-      <Wordmark />
-      <p className="max-w-sm text-muted-foreground">
-        The trip as a living document. Open your trip link to continue, or sign
-        in to see your trips.
-      </p>
-      <Button variant="outline" onClick={() => loginWithRedirect()} className="mt-2 px-5">
-        Sign in
-      </Button>
-    </div>
+    <Button onClick={() => loginWithRedirect()} className="px-5">
+      Sign in
+    </Button>
   );
 }
 
@@ -195,7 +189,7 @@ function AuthenticatedLanding() {
   }
 
   if (!isAuthenticated) {
-    return <AnonymousHero />;
+    return <MarketingLanding signIn={<SignInButton />} />;
   }
 
   return (

@@ -1,4 +1,4 @@
-import type { FeedDoc, PeopleList, Role, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
+import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -24,6 +24,28 @@ async function apiErrorMessage(res: Response): Promise<string> {
     // not JSON — fall through to the raw text
   }
   return text || `Request failed (${res.status})`;
+}
+
+/**
+ * The signed-out landing's examples (#249): public, discoverable trips as cards.
+ *
+ * Anonymous by design — the server answers this without a token — and the repo
+ * carries no trip data (AGENTS.md), so the front door reads the graph the same
+ * way a visitor does rather than holding a hand-maintained list beside the code.
+ *
+ * It NEVER throws. This is a marketing page: a graph hiccup, a 500 or a body in
+ * the wrong shape means the examples band collapses to nothing, not an error
+ * state in front of someone who has not signed up yet. `[]` is a valid answer.
+ */
+export async function fetchShowcase(): Promise<ShowcaseTrip[]> {
+  try {
+    const res = await fetch("/api/showcase");
+    if (!res.ok) return [];
+    const body = (await res.json()) as { trips?: ShowcaseTrip[] };
+    return Array.isArray(body.trips) ? body.trips : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function fetchTrip(param: string, accessToken?: string): Promise<Trip> {
