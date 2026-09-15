@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { FileText, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+import { FileText, Film, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
+import { TripVideo } from "./photos";
 import { Markdown } from "../lib/markdown";
+import { capturePosterFrame, formatBytes } from "../lib/media";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
@@ -17,6 +19,7 @@ import {
   messageToText,
   newThreadId,
   uploadChatFile,
+  uploadChatPoster,
   useTripChat,
   type TurnRecovery,
   type UploadedChatFile,
@@ -207,9 +210,11 @@ export function summarizeAttachments(attachments: Attachment[]): string {
   );
   const uploading = attachments.length - ready.length - failed.length;
   const photos = ready.filter((a) => a.file.isImage).length;
-  const documents = ready.length - photos;
+  const videos = ready.filter((a) => a.file.isVideo).length;
+  const documents = ready.length - photos - videos;
   const kinds = [
     photos > 0 ? `${photos} ${photos === 1 ? "photo" : "photos"}` : "",
+    videos > 0 ? `${videos} ${videos === 1 ? "video" : "videos"}` : "",
     documents > 0
       ? `${documents} ${documents === 1 ? "document" : "documents"}`
       : "",
@@ -422,15 +427,38 @@ function ChatThread({
             tripId,
             getAccessTokenSilently,
           );
+          // A clip's poster frame follows it (#250): grabbed from the video the
+          // browser already decoded, stored as an ordinary JPEG that the server
+          // names after the clip. Best-effort — the attach has already
+          // succeeded and a clip without a poster still plays.
+          let posterUrl: string | undefined;
+          if (uploaded.isVideo) {
+            const frame = await capturePosterFrame(file);
+            if (frame) {
+              posterUrl =
+                (await uploadChatPoster(
+                  frame,
+                  uploaded.name,
+                  tripId,
+                  getAccessTokenSilently,
+                )) ?? undefined;
+            }
+          }
           setAttachments((prev) =>
             prev.map((a) =>
-              a.id === id ? { id, state: "ready", file: uploaded } : a,
+              a.id === id
+                ? { id, state: "ready", file: { ...uploaded, posterUrl } }
+                : a,
             ),
           );
           if (isPostHogConfigured) {
             posthog.capture("chat_attachment_uploaded", {
               conversation_scope: tripId ? "trip" : "general",
-              attachment_type: uploaded.isImage ? "image" : "document",
+              attachment_type: uploaded.isVideo
+                ? "video"
+                : uploaded.isImage
+                  ? "image"
+                  : "document",
               converted: uploaded.converted,
             });
           }
@@ -557,6 +585,23 @@ function ChatThread({
                         alt=""
                         className="h-6 w-6 rounded object-cover"
                       />
+                    ) : a.file.isVideo ? (
+                      // A clip's chip shows its poster when one was captured
+                      // (#250) with a film mark over it, so a video reads as a
+                      // video and not as a bare filename.
+                      <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-black/80">
+                        {a.file.posterUrl && (
+                          <img
+                            src={a.file.posterUrl}
+                            alt=""
+                            className="absolute inset-0 h-6 w-6 object-cover opacity-70"
+                          />
+                        )}
+                        <Film
+                          className="relative h-3.5 w-3.5 text-white"
+                          aria-hidden="true"
+                        />
+                      </span>
                     ) : null}
                     <span className="truncate">{a.file.name}</span>
                     <button
@@ -597,7 +642,7 @@ function ChatThread({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,.heic,.heif,.pdf,.doc,.docx,.txt,.md"
+          accept="image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md"
           className="sr-only"
           aria-label="Attach a file"
           onChange={(e) => void attach(e.target.files)}
@@ -657,23 +702,32 @@ function ChatThread({
   );
 }
 
-/** Human-readable byte size for an attachment chip ("1.2 MB", "840 kB"). */
-function formatBytes(bytes: number | undefined): string | null {
-  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
-    return null;
-  }
-  const units = ["kB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
-}
-
 function isImageFile(part: FileUIPart): boolean {
   return part.mediaType === "image" || part.mediaType.startsWith("image/");
+}
+
+function isVideoFile(part: FileUIPart): boolean {
+  return part.mediaType === "video" || part.mediaType.startsWith("video/");
+}
+
+/** One clip of a batch: name + size, opening in a new tab (which seeks). */
+function VideoChip({ part }: { part: FileUIPart }) {
+  const size = formatBytes((part as { size?: number }).size);
+  return (
+    <a
+      href={part.url}
+      target="_blank"
+      rel="noreferrer"
+      title={part.filename ?? part.url}
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/70"
+    >
+      <Film className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <span className="truncate">{part.filename ?? "Video"}</span>
+      {size && (
+        <span className="shrink-0 text-muted-foreground">{`· ${size}`}</span>
+      )}
+    </a>
+  );
 }
 
 /**
@@ -682,12 +736,29 @@ function isImageFile(part: FileUIPart): boolean {
  * is a count pill carrying one thumbnail (the composer already showed the
  * pictures one by one), a single photo stays a thumbnail. The row wraps and
  * every label truncates, so no attachment can widen the bubble.
+ *
+ * Videos (#250) are the exception to "never inline": ONE clip plays in the
+ * bubble — that is what a chat attachment is for — while several clips are a
+ * pill each, so a batch of footage cannot turn the transcript into a wall of
+ * players. Both open in a new tab, which now seeks (byte ranges).
  */
 function AttachmentRow({ files }: { files: FileUIPart[] }) {
   const images = files.filter(isImageFile);
-  const docs = files.filter((part) => !isImageFile(part));
+  const videos = files.filter(isVideoFile);
+  const docs = files.filter(
+    (part) => !isImageFile(part) && !isVideoFile(part),
+  );
   return (
     <div className="flex flex-wrap justify-end gap-1.5">
+      {videos.length === 1 && (
+        <TripVideo
+          src={videos[0].url}
+          alt={videos[0].filename ?? "Attached video"}
+          className="w-full max-w-xs"
+        />
+      )}
+      {videos.length > 1 &&
+        videos.map((part) => <VideoChip key={part.url} part={part} />)}
       {images.length === 1 ? (
         <img
           src={images[0].url}

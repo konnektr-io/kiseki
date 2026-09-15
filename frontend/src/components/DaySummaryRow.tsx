@@ -2,6 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { Badge } from "./ui";
 import { BlockGlyph, MetaChips } from "./blocks";
+import { TripMedia } from "./photos";
 import { classifyTransportMode } from "../lib/transport";
 import { formatDay } from "../lib/dates";
 import type { Block, Day } from "../lib/types";
@@ -126,12 +127,12 @@ export function DaySummaryRow({
         {thumbs.length ? (
           <div className={`mt-2.5 grid gap-2 ${thumbs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
             {thumbs.map((src) => (
-              <img
+              // TripMedia: a clip among a day's photos plays here and prints as
+              // its poster + link (#250) instead of as an empty <img>.
+              <TripMedia
                 key={src}
                 src={src}
                 alt=""
-                loading="lazy"
-                decoding="async"
                 className="aspect-[16/9] w-full rounded-lg border border-border object-cover"
               />
             ))}
@@ -259,12 +260,12 @@ export function FoldedDayCard({
         {thumbs.length ? (
           <div className={`mt-2.5 grid gap-2 ${thumbs.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
             {thumbs.map((src) => (
-              <img
+              // TripMedia: a clip among a day's photos plays here and prints as
+              // its poster + link (#250) instead of as an empty <img>.
+              <TripMedia
                 key={src}
                 src={src}
                 alt=""
-                loading="lazy"
-                decoding="async"
                 className="aspect-[16/9] w-full rounded-lg border border-border object-cover"
               />
             ))}

@@ -26,7 +26,9 @@ from app.media import (
     canonicalize_media,
     content_addressed_key,
     is_valid_media_path,
+    is_video_name,
     media_content_type,
+    poster_name_for,
     resolve_media_urls,
 )
 
@@ -160,13 +162,49 @@ def test_media_route_with_s3_store_miss_and_hit(tmp_path, monkeypatch) -> None:
     _s3_env(monkeypatch, tmp_path)
     store = media_mod.get_media_store()
     assert isinstance(store, S3MediaStore)
+    # The route stats the object before streaming it (#250: it needs the size
+    # to advertise ``Accept-Ranges``/``Content-Length``), so a miss is a 404
+    # without ever asking for bytes.
+    monkeypatch.setattr(store, "stat", lambda key: None)
     monkeypatch.setattr(store, "get", lambda key: None)
     assert client.get(f"/media/{TRIP}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg").status_code == 404
+    # A hit streams the object and advertises its length.
+    monkeypatch.setattr(store, "stat", lambda key: len(JPEG))
     monkeypatch.setattr(store, "get", lambda key: iter([JPEG[:512], JPEG[512:]]))
     r = client.get(f"/media/{TRIP}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg")
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/jpeg"
+    assert r.headers["content-length"] == str(len(JPEG))
+    assert r.headers["accept-ranges"] == "bytes"
     assert r.content == JPEG
+
+
+def test_media_route_range_is_read_by_the_store(tmp_path, monkeypatch) -> None:
+    """A ranged read is handed to the store as an OFFSET (#250).
+
+    The route must never pull the whole object and slice it: seeking in a 1 GB
+    clip has to cost the window the player asked for.
+    """
+    _s3_env(monkeypatch, tmp_path)
+    store = media_mod.get_media_store()
+    assert isinstance(store, S3MediaStore)
+    monkeypatch.setattr(store, "stat", lambda key: len(JPEG))
+    seen: dict[str, object] = {}
+
+    def fake_get(key: str, start: int = 0, length: int = 0):
+        seen["key"], seen["start"], seen["length"] = key, start, length
+        return iter([JPEG[start : start + length]])
+
+    monkeypatch.setattr(store, "get", fake_get)
+    r = client.get(
+        f"/media/{TRIP}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg",
+        headers={"Range": "bytes=100-199"},
+    )
+    assert r.status_code == 206
+    assert r.content == JPEG[100:200]
+    assert seen["start"] == 100
+    assert seen["length"] == 100
+    assert r.headers["content-range"] == f"bytes 100-199/{len(JPEG)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -280,3 +318,261 @@ def test_media_content_type_map() -> None:
     assert media_content_type("x.png") == "image/png"
     assert media_content_type("x.webp") == "image/webp"
     assert media_content_type("x.unknown") == "application/octet-stream"
+
+
+# --------------------------------------------------------------------------- #
+# Video: content type, byte ranges, poster convention (#250)
+# --------------------------------------------------------------------------- #
+
+# Deterministic bytes, so every slice below is checkable by content.
+VIDEO = bytes(range(256)) * 8  # 2048 bytes
+
+
+def _video_asset(tmp_path, monkeypatch, name: str = "clip.mp4", data: bytes = VIDEO):
+    monkeypatch.setattr(
+        config, "ASSETS_DIR", _write_asset(tmp_path, TRIP, name, data)
+    )
+
+
+def test_media_content_type_map_video() -> None:
+    """A clip's extension decides its type.
+
+    Served as ``application/octet-stream`` a video is bytes the browser will
+    not play — which is why no surface could render one before (#250).
+    """
+    assert media_content_type("clip.mp4") == "video/mp4"
+    assert media_content_type("clip.MOV") == "video/quicktime"
+    assert media_content_type("clip.m4v") == "video/x-m4v"
+    assert media_content_type("clip.webm") == "video/webm"
+
+
+def test_video_name_and_poster_convention() -> None:
+    """One convention, derived from the video's own name (#250).
+
+    No poster field exists in the data model: every surface derives
+    ``<stem>_poster.jpg`` from the video URL, so there is never a second
+    reference to keep in sync — and nothing to migrate.
+    """
+    assert is_video_name("a" * 32 + ".mp4")
+    assert is_video_name("clip.MOV")
+    assert not is_video_name("a" * 32 + ".jpg")
+    assert not is_video_name("clip")
+    assert poster_name_for("abc.mp4") == "abc_poster.jpg"
+    assert poster_name_for("a" * 32 + ".webm") == "a" * 32 + "_poster.jpg"
+
+
+def test_bare_video_name_canonicalizes_to_media_url() -> None:
+    """A video stored as a BARE filename has to reach its /media URL.
+
+    Trip documents keep bare filenames; every surface renders what
+    ``resolve_media_urls`` emits. While video extensions were missing from the
+    bare-name pattern, an attached clip stayed a bare string and was invisible
+    on every surface — the second half of #250.
+    """
+    name = "a" * 32 + ".mp4"
+    assert canonicalize_media(name, TRIP) == f"/media/{TRIP}/{name}"
+    assert canonicalize_media(name, TRIP).endswith(".mp4")
+    # …as does the poster frame, from the video's name alone.
+    poster = "a" * 32 + "_poster.jpg"
+    assert canonicalize_media(poster, TRIP) == f"/media/{TRIP}/{poster}"
+    # a name with no media extension is prose, not media: untouched.
+    assert canonicalize_media("not-a-file", TRIP) == "not-a-file"
+
+
+def test_media_video_full_body_advertises_ranges(tmp_path, monkeypatch) -> None:
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4")
+    assert r.status_code == 200
+    assert r.content == VIDEO
+    assert r.headers["content-type"] == "video/mp4"
+    assert r.headers["content-length"] == str(len(VIDEO))
+    assert r.headers["accept-ranges"] == "bytes"
+
+
+def test_media_video_first_range_is_206(tmp_path, monkeypatch) -> None:
+    """The request a <video> makes to start playing: bytes 0-N."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206
+    assert r.content == VIDEO[:100]
+    assert r.headers["content-range"] == f"bytes 0-99/{len(VIDEO)}"
+    assert r.headers["content-length"] == "100"
+    assert r.headers["accept-ranges"] == "bytes"
+    assert r.headers["content-type"] == "video/mp4"
+
+
+def test_media_video_open_ended_and_suffix_ranges(tmp_path, monkeypatch) -> None:
+    """`bytes=100-` is what a player resumes with; `bytes=-48` is its tail."""
+    _video_asset(tmp_path, monkeypatch)
+    rest = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=2000-"})
+    assert rest.status_code == 206
+    assert rest.content == VIDEO[2000:]
+    assert rest.headers["content-range"] == f"bytes 2000-{len(VIDEO) - 1}/{len(VIDEO)}"
+
+    tail = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=-48"})
+    assert tail.status_code == 206
+    assert tail.content == VIDEO[-48:]
+    assert tail.headers["content-range"] == f"bytes {len(VIDEO) - 48}-{len(VIDEO) - 1}/{len(VIDEO)}"
+
+
+def test_media_video_range_past_end_is_416(tmp_path, monkeypatch) -> None:
+    """Seeking past the end must say so, not serve an empty 200."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=999999-"})
+    assert r.status_code == 416
+    assert r.headers["content-range"] == f"bytes */{len(VIDEO)}"
+
+
+def test_media_multipart_range_serves_the_whole_object(tmp_path, monkeypatch) -> None:
+    """A range set we do not implement gets the full body, never half of it."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=0-9,20-29"})
+    assert r.status_code == 200
+    assert r.content == VIDEO
+
+
+def _window(store, key: str, start: int, length: int) -> bytes:
+    """Bytes from a windowed ``store.get``, asserting the stream exists."""
+    chunks = store.get(key, start=start, length=length)
+    assert chunks is not None, "windowed get returned no stream"
+    return b"".join(chunks)
+
+
+def test_local_store_get_reads_a_window(tmp_path) -> None:
+    """The window is read where the bytes are — not read whole and sliced."""
+    _write_asset(tmp_path, TRIP, "clip.mp4", VIDEO)
+    store = LocalMediaStore(tmp_path)
+    assert _window(store, f"{TRIP}/clip.mp4", 10, 5) == VIDEO[10:15]
+    assert _window(store, f"{TRIP}/clip.mp4", 2040, 100) == VIDEO[2040:]
+    # a window that starts past the end yields nothing (the route 416s first)
+    assert _window(store, f"{TRIP}/clip.mp4", 9999, 10) == b""
+    assert store.get(f"{TRIP}/missing.mp4") is None
+
+
+# --------------------------------------------------------------------------- #
+# Video: content type, byte ranges, poster convention (#250)
+# --------------------------------------------------------------------------- #
+
+# Deterministic bytes, so every slice below is checkable by content.
+VIDEO = bytes(range(256)) * 8  # 2048 bytes
+
+
+def _video_asset(tmp_path, monkeypatch, name: str = "clip.mp4", data: bytes = VIDEO):
+    monkeypatch.setattr(
+        config, "ASSETS_DIR", _write_asset(tmp_path, TRIP, name, data)
+    )
+
+
+def test_media_content_type_map_video() -> None:
+    """A clip's extension decides its type.
+
+    Served as ``application/octet-stream`` a video is bytes the browser will
+    not play — which is why no surface could render one before (#250).
+    """
+    assert media_content_type("clip.mp4") == "video/mp4"
+    assert media_content_type("clip.MOV") == "video/quicktime"
+    assert media_content_type("clip.m4v") == "video/x-m4v"
+    assert media_content_type("clip.webm") == "video/webm"
+
+
+def test_video_name_and_poster_convention() -> None:
+    """One convention, derived from the video's own name (#250).
+
+    No poster field exists in the data model: every surface derives
+    ``<stem>_poster.jpg`` from the video URL, so there is never a second
+    reference to keep in sync — and nothing to migrate.
+    """
+    assert is_video_name("a" * 32 + ".mp4")
+    assert is_video_name("clip.MOV")
+    assert not is_video_name("a" * 32 + ".jpg")
+    assert not is_video_name("clip")
+    assert poster_name_for("abc.mp4") == "abc_poster.jpg"
+    assert poster_name_for("a" * 32 + ".webm") == "a" * 32 + "_poster.jpg"
+
+
+def test_bare_video_name_canonicalizes_to_media_url() -> None:
+    """A video stored as a BARE filename has to reach its /media URL.
+
+    Trip documents keep bare filenames; every surface renders what
+    ``resolve_media_urls`` emits. While video extensions were missing from the
+    bare-name pattern, an attached clip stayed a bare string and was invisible
+    on every surface — the second half of #250.
+    """
+    name = "a" * 32 + ".mp4"
+    assert canonicalize_media(name, TRIP) == f"/media/{TRIP}/{name}"
+    assert canonicalize_media(name, TRIP).endswith(".mp4")
+    # …as does the poster frame, from the video's name alone.
+    poster = "a" * 32 + "_poster.jpg"
+    assert canonicalize_media(poster, TRIP) == f"/media/{TRIP}/{poster}"
+    # a name with no media extension is prose, not media: untouched.
+    assert canonicalize_media("not-a-file", TRIP) == "not-a-file"
+
+
+def test_media_video_full_body_advertises_ranges(tmp_path, monkeypatch) -> None:
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4")
+    assert r.status_code == 200
+    assert r.content == VIDEO
+    assert r.headers["content-type"] == "video/mp4"
+    assert r.headers["content-length"] == str(len(VIDEO))
+    assert r.headers["accept-ranges"] == "bytes"
+
+
+def test_media_video_first_range_is_206(tmp_path, monkeypatch) -> None:
+    """The request a <video> makes to start playing: bytes 0-N."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=0-99"})
+    assert r.status_code == 206
+    assert r.content == VIDEO[:100]
+    assert r.headers["content-range"] == f"bytes 0-99/{len(VIDEO)}"
+    assert r.headers["content-length"] == "100"
+    assert r.headers["accept-ranges"] == "bytes"
+    assert r.headers["content-type"] == "video/mp4"
+
+
+def test_media_video_open_ended_and_suffix_ranges(tmp_path, monkeypatch) -> None:
+    """`bytes=100-` is what a player resumes with; `bytes=-48` is its tail."""
+    _video_asset(tmp_path, monkeypatch)
+    rest = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=2000-"})
+    assert rest.status_code == 206
+    assert rest.content == VIDEO[2000:]
+    assert rest.headers["content-range"] == f"bytes 2000-{len(VIDEO) - 1}/{len(VIDEO)}"
+
+    tail = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=-48"})
+    assert tail.status_code == 206
+    assert tail.content == VIDEO[-48:]
+    assert tail.headers["content-range"] == f"bytes {len(VIDEO) - 48}-{len(VIDEO) - 1}/{len(VIDEO)}"
+
+
+def test_media_video_range_past_end_is_416(tmp_path, monkeypatch) -> None:
+    """Seeking past the end must say so, not serve an empty 200."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=999999-"})
+    assert r.status_code == 416
+    assert r.headers["content-range"] == f"bytes */{len(VIDEO)}"
+
+
+def test_media_multipart_range_serves_the_whole_object(tmp_path, monkeypatch) -> None:
+    """A range set we do not implement gets the full body, never half of it."""
+    _video_asset(tmp_path, monkeypatch)
+    r = client.get(f"/media/{TRIP}/clip.mp4", headers={"Range": "bytes=0-9,20-29"})
+    assert r.status_code == 200
+    assert r.content == VIDEO
+
+
+def _window(store, key: str, start: int, length: int) -> bytes:
+    """Bytes from a windowed ``store.get``, asserting the stream exists."""
+    chunks = store.get(key, start=start, length=length)
+    assert chunks is not None, "windowed get returned no stream"
+    return b"".join(chunks)
+
+
+def test_local_store_get_reads_a_window(tmp_path) -> None:
+    """The window is read where the bytes are — not read whole and sliced."""
+    _write_asset(tmp_path, TRIP, "clip.mp4", VIDEO)
+    store = LocalMediaStore(tmp_path)
+    assert _window(store, f"{TRIP}/clip.mp4", 10, 5) == VIDEO[10:15]
+    assert _window(store, f"{TRIP}/clip.mp4", 2040, 100) == VIDEO[2040:]
+    # a window that starts past the end yields nothing (the route 416s first)
+    assert _window(store, f"{TRIP}/clip.mp4", 9999, 10) == b""
+    assert store.get(f"{TRIP}/missing.mp4") is None

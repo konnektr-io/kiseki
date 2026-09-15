@@ -3,6 +3,8 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { FileUIPart, UIMessage, UIMessageChunk } from "ai";
 
+import { posterNameFor } from "./media";
+
 /**
  * Chat wire client (issue #9 / M4) — the SPA side of `POST /api/chat`.
  *
@@ -583,11 +585,19 @@ export interface UploadedChatFile {
   name: string;
   mediaType: string;
   isImage: boolean;
+  /** True for a video (#250): rendered as a player, and it gets a poster
+   * frame captured client-side and uploaded beside it (see `posterUrl`). */
+  isVideo: boolean;
   /** True when the server transcoded the upload before storing it — HEIC →
    * JPEG (#251). `url`/`mediaType` are already the stored form. */
   converted: boolean;
   /** Byte size of the picked file — shown on the attachment chip. */
   size: number;
+  /** Poster frame for a video, once one has been captured and stored. The
+   * stored object is `<stem>_poster.jpg` beside the video; every surface
+   * derives it with `posterFor()` rather than keeping a second reference in
+   * the trip document. Absent = no frame captured (never an error). */
+  posterUrl?: string;
 }
 
 /**
@@ -610,7 +620,7 @@ export async function uploadChatFile(
   const token = await getToken();
   const form = new FormData();
   form.append("file", file);
-  if (tripId) form.append("tripId", tripId);
+  if (tripId) form.append("trip_id", tripId);
   const res = await fetch("/api/files", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
@@ -645,9 +655,49 @@ export async function uploadChatFile(
     name: file.name,
     mediaType,
     isImage: mediaType.startsWith("image/"),
+    isVideo: mediaType.startsWith("video/"),
     converted: body.converted === true,
     size: file.size,
   };
+}
+
+/**
+ * Upload a video's poster frame — the still the composer grabbed (#250).
+ *
+ * The same route in its `poster_of` form: the client names the VIDEO it
+ * belongs to and the server derives the stored name (`<stem>_poster.jpg`), so
+ * a poster can only ever belong to a clip that is really there, and every
+ * surface finds it from the video URL alone (`posterFor()`). The frame is an
+ * ordinary JPEG, so this rides the existing image pipeline — which is what
+ * makes a poster cost no new dependency and no ffmpeg.
+ *
+ * Resolves to the stored name, or null when the frame could not be stored: a
+ * clip without a poster still plays, so a failed poster never blocks the
+ * attachment it belongs to.
+ */
+export async function uploadChatPoster(
+  poster: Blob,
+  videoName: string,
+  tripId: string | undefined,
+  getToken: () => Promise<string>,
+): Promise<string | null> {
+  try {
+    const token = await getToken();
+    const form = new FormData();
+    form.append("file", poster, posterNameFor(videoName));
+    form.append("poster_of", videoName);
+    if (tripId) form.append("trip_id", tripId);
+    const res = await fetch("/api/files", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { url?: unknown };
+    return typeof body.url === "string" && body.url ? body.url : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Persisted per-thread transcript (issue #152) — `UIMessage[]` serialized

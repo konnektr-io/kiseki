@@ -99,15 +99,26 @@ from .places import place_details, search_place, photo_by_name as place_photo_by
 from .graph.client import GraphWriteError
 from .graph.convert import GraphNotFound
 from .media import (
+    RangeNotSatisfiable,
     UnsupportedUpload,
+    UploadTooLarge,
     content_addressed_key,
     get_media_store,
     is_valid_media_name,
     is_valid_media_path,
+    is_video_name,
+    key_from_digest,
     media_content_type,
     normalize_upload,
     object_key_for,
+    parse_byte_range,
+    poster_name_for,
+    require_upload_kind,
     resolve_media_urls,
+    stream_upload,
+    to_jpeg,
+    upload_kind,
+    upload_limit,
 )
 from .models import Trip
 from .ratelimit import allow
@@ -1691,8 +1702,61 @@ def places_photo_endpoint(request: Request, ref: str = Query(..., min_length=1))
 # them into this URL shape, so frontend / PDF / graph are unchanged. When no
 # media store is configured (dev / CI without bucket AND no baked assets),
 # the route serves 404 as-is rather than mounting a non-existent directory.
+def _serve_stored_media(request: Request, key: str, file_name: str) -> Response:
+    """Stream one stored media object, honouring a single byte range (#250).
+
+    A video needs this to be usable at all: without ``Content-Length`` and
+    ``Accept-Ranges`` a ``<video>`` element cannot seek — it cannot even learn
+    how long the file is — and without a 206 the browser has to pull the whole
+    clip before it shows a frame. Ranges are answered from the store with an
+    OFFSET (never by reading the object and slicing it), so seeking in a 1 GB
+    video costs the bytes asked for instead of the whole file.
+
+    An unsatisfiable range answers 416 with ``Content-Range: bytes */<size>`` —
+    the truth a player probing past the end needs; a malformed one is ignored
+    and the whole object is served (RFC 9110).
+    """
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(404, "Not Found")
+    size = store.stat(key)
+    if size is None:
+        raise HTTPException(404, "Not Found")
+    headers = {
+        "Cache-Control": "public, max-age=86400, immutable",
+        "Accept-Ranges": "bytes",
+    }
+    try:
+        window = parse_byte_range(request.headers.get("range"), size)
+    except RangeNotSatisfiable:
+        return Response(
+            status_code=416,
+            headers={**headers, "Content-Range": f"bytes */{size}"},
+        )
+    if window is None:
+        chunks = store.get(key)
+        if chunks is None:
+            raise HTTPException(404, "Not Found")
+        headers["Content-Length"] = str(size)
+        return StreamingResponse(
+            chunks, media_type=media_content_type(file_name), headers=headers
+        )
+    start, end = window
+    chunks = store.get(key, start=start, length=end - start)
+    if chunks is None:
+        raise HTTPException(404, "Not Found")
+    headers["Content-Range"] = f"bytes {start}-{end - 1}/{size}"
+    headers["Content-Length"] = str(end - start)
+    return StreamingResponse(
+        chunks,
+        status_code=206,
+        media_type=media_content_type(file_name),
+        headers=headers,
+    )
+
+
 @app.get("/media/{trip_id}/{file_name}", include_in_schema=False)
-def media_file(trip_id: str, file_name: str) -> Response:
+def media_file(trip_id: str, file_name: str, request: Request) -> Response:
     """Stream a trip media object from the configured store.
 
     The first path segment is the trip's ``$dtId`` (dashed UUID) — the durable
@@ -1701,24 +1765,18 @@ def media_file(trip_id: str, file_name: str) -> Response:
     as a 404 with no filesystem/bucket lookup. When valid, the store is asked
     for the bytes; a miss is a 404 (not a 500). This is the single seam where
     a future crew-level media ACL (#64) will plug in.
+
+    Byte ranges (#250) — a video in a block, a gallery or a chat bubble is the
+    same object as any photo here, served with the headers that let a player
+    seek it.
     """
     if not is_valid_media_path(trip_id, file_name):
         raise HTTPException(404, "Not Found")
-    store = get_media_store()
-    if store is None:
-        raise HTTPException(404, "Not Found")
-    chunks = store.get(object_key_for(trip_id, file_name))
-    if chunks is None:
-        raise HTTPException(404, "Not Found")
-    return StreamingResponse(
-        chunks,
-        media_type=media_content_type(file_name),
-        headers={"Cache-Control": "public, max-age=86400, immutable"},
-    )
+    return _serve_stored_media(request, object_key_for(trip_id, file_name), file_name)
 
 
 @app.get("/inbox/{file_name}", include_in_schema=False)
-def inbox_file(file_name: str) -> Response:
+def inbox_file(file_name: str, request: Request) -> Response:
     """Stream a staged inbox file (landing-chat upload, #9 / M4).
 
     Inbox keys are content-addressed (sha256[:32]) — the flat name is the
@@ -1727,20 +1785,14 @@ def inbox_file(file_name: str) -> Response:
     filesystem/bucket lookup). This route exists so the agent can fetch the
     bytes over plain HTTPS before a trip exists; once the file is promoted
     into a trip it is served from the canonical ``/media`` route instead.
+
+    Videos are staged and served the same way, byte ranges included (#250) —
+    an attached clip has to be playable before the trip that will hold it even
+    exists.
     """
     if not is_valid_media_name(file_name):
         raise HTTPException(404, "Not Found")
-    store = get_media_store()
-    if store is None:
-        raise HTTPException(404, "Not Found")
-    chunks = store.get(f"inbox/{file_name}")
-    if chunks is None:
-        raise HTTPException(404, "Not Found")
-    return StreamingResponse(
-        chunks,
-        media_type=media_content_type(file_name),
-        headers={"Cache-Control": "public, max-age=86400, immutable"},
-    )
+    return _serve_stored_media(request, f"inbox/{file_name}", file_name)
 
 
 # ------------------------------------------------------------- chat relay (#9 / M3)
@@ -1930,6 +1982,9 @@ async def post_chat_stop(
 @app.post("/api/files")
 async def post_files(
     trip_id: str | None = Form(default=None),
+    trip_id_camel: str | None = Form(default=None, alias="tripId"),
+    poster_of: str | None = Form(default=None),
+    poster_of_camel: str | None = Form(default=None, alias="posterOf"),
     file: UploadFile = File(...),
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
@@ -1952,59 +2007,171 @@ async def post_files(
     ``application/octet-stream`` and silently invisible. A file that cannot be
     stored in a displayable form is refused with a 422 naming it, never
     accepted and then dropped.
+
+    Types are a curated set (#250): exactly what the composer's picker offers
+    (`UPLOAD_KINDS` in ``app/media.py`` mirrors its ``accept``). Anything else —
+    a zip, a raw camera format, a container no browser plays — is a 422 naming
+    the file, because accepting bytes that no surface renders is how a video
+    used to vanish silently. Videos additionally stream to a spool file with
+    their family's cap enforced on the way (#250: ``await file.read()`` put a
+    whole clip in the API process, and the container is sized for the app).
+
+    ``poster_of`` (#250) makes this request the SECOND half of a video attach:
+    the SPA sends the frame it grabbed from the clip and names the video it
+    belongs to, and the bytes are stored as that video's poster
+    (``<stem>_poster.jpg`` — the convention every render surface derives from
+    the video URL alone, so no model field and no second reference to keep in
+    sync). The client cannot choose the name: it names the VIDEO, the server
+    derives the poster's, so this adds no way to write an arbitrary key.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(422, "Empty file")
-    # HEIC → JPEG at ingest (#251): an iPhone photo stored as-is was served as
-    # `application/octet-stream` and rendered nowhere. A file that cannot be
-    # stored in a displayable form is refused HERE, per file, with the reason —
-    # never accepted and then dropped from the reply.
+    file_name = file.filename or ""
+    # FastAPI matches form field names literally, and the SPA had shipped these
+    # as camelCase (`tripId`) while the route documents the snake_case names —
+    # so every upload from a trip chat landed in the inbox namespace instead of
+    # the trip's. Both spellings are accepted (#250); the SPA now sends the
+    # documented ones.
+    trip_id = trip_id or trip_id_camel
+    poster_of = poster_of or poster_of_camel
+    if poster_of is not None:
+        return await _store_poster_frame(poster_of, file, trip_id, actor_sub)
     try:
-        stored, ext, converted = normalize_upload(raw, file.filename or "")
+        kind = require_upload_kind(file_name, file_name)
     except UnsupportedUpload as exc:
         raise HTTPException(422, str(exc)) from exc
-    name = content_addressed_key(stored, ext)
-    # Photo ingest (#190): the capture timestamp + GPS travel with the
-    # response so the client can place the batch without re-reading bytes.
-    # Read from the STORED bytes — the transcode carries EXIF across, so a
-    # HEIC photo reports the same capture metadata a JPEG would.
-    # Additive — the `url` contract is unchanged.
-    sha = hashlib.sha256(stored).hexdigest()
-    exif = extract_exif(stored)
-    content_type = media_content_type(name)
-    if trip_id is None:
-        # Inbox staging (landing chat). Content-addressed name = capability.
-        store = get_media_store()
-        if store is None:
-            raise HTTPException(503, "Media storage is not configured")
-        store.put(f"inbox/{name}", stored, content_type)
+    if trip_id is not None:
+        require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+    # Authorization decides before configuration does (#250): a caller who may
+    # not write to this trip gets a 403 whether or not the bucket is set up —
+    # the reverse order turned a missing bucket into a reply about permissions.
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(503, "Media storage is not configured")
+    # Spool the body to disk while hashing it (#250): nothing large is ever
+    # held in this process, and the cap is enforced before the bytes are.
+    with tempfile.TemporaryDirectory() as spool_dir:
+        spool = Path(spool_dir) / "upload"
+        try:
+            with spool.open("wb") as sink:
+                size, digest = await asyncio.to_thread(
+                    stream_upload, file.file, sink, upload_limit(kind), file_name
+                )
+        except UploadTooLarge as exc:
+            raise HTTPException(413, str(exc)) from exc
+        except UnsupportedUpload as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if size == 0:
+            raise HTTPException(422, "Empty file")
+        by_reference = kind == "video"  # stored from the spool file, never bytes
+        raw = spool.read_bytes() if not by_reference else b""
+        # HEIC → JPEG at ingest (#251): an iPhone photo stored as-is was served
+        # as `application/octet-stream` and rendered nowhere. A file that cannot
+        # be stored in a displayable form is refused HERE, per file, with the
+        # reason — never accepted and then dropped from the reply.
+        converted = False
+        if by_reference:
+            ext = Path(file_name).suffix.lower()
+        else:
+            try:
+                raw, ext, converted = normalize_upload(raw, file_name)
+            except UnsupportedUpload as exc:
+                raise HTTPException(422, str(exc)) from exc
+        name = key_from_digest(digest, ext) if by_reference else content_addressed_key(raw, ext)
+        content_type = media_content_type(name)
+        # Photo ingest (#190): the capture timestamp + GPS travel with the
+        # response so the client can place the batch without re-reading bytes.
+        # Read from the STORED bytes — the transcode carries EXIF across, so a
+        # HEIC photo reports the same capture metadata a JPEG would.
+        # Additive — the `url` contract is unchanged. A video has no EXIF to
+        # read (and reading a 1 GB clip to look for none is not a trade worth
+        # making), so it reports the empty mapping.
+        sha = digest if by_reference else hashlib.sha256(raw).hexdigest()
+        exif = {} if by_reference else extract_exif(raw)
+        if trip_id is None:
+            # Inbox staging (landing chat). Content-addressed name = capability.
+            key = f"inbox/{name}"
+            if by_reference:
+                store.put_file(key, spool, content_type)
+            else:
+                store.put(key, raw, content_type)
+            return {
+                "url": f"/inbox/{name}",
+                "sha256": sha,
+                "exif": exif,
+                "name": name,
+                "contentType": content_type,
+                "converted": converted,
+            }
+        key = object_key_for(trip_id.lower(), name)
+        if by_reference:
+            store.put_file(key, spool, content_type)
+        else:
+            store.put(key, raw, content_type)
         return {
-            "url": f"/inbox/{name}",
+            "url": f"/media/{trip_id.lower()}/{name}",
             "sha256": sha,
             "exif": exif,
             "name": name,
             "contentType": content_type,
             "converted": converted,
         }
-    require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+
+
+async def _store_poster_frame(
+    video_name: str, file: UploadFile, trip_id: str | None, actor_sub: str
+) -> dict:
+    """Store the poster frame of a just-uploaded video (#250).
+
+    The clip is already stored (the SPA sends its frame only after the video
+    upload answered), so this only has to prove the video exists in the same
+    namespace — a poster for a clip that is not there is a dangling key nobody
+    will ever read, and refusing it keeps ``<stem>_poster.jpg`` meaningful.
+    """
+    label = file.filename or "poster"
+    if not is_valid_media_name(video_name) or not is_video_name(video_name):
+        raise HTTPException(422, "poster_of must name an uploaded video")
+    if trip_id is None:
+        video_key = f"inbox/{video_name}"
+    else:
+        # Same order as post_files: the role gate decides before the bucket
+        # does, so a follower gets a 403 and never a hint about our config.
+        require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+        video_key = object_key_for(trip_id.lower(), video_name)
     store = get_media_store()
     if store is None:
         raise HTTPException(503, "Media storage is not configured")
-    store.put(
-        object_key_for(trip_id.lower(), name),
-        stored,
-        content_type,
-    )
-    return {
-        "url": f"/media/{trip_id.lower()}/{name}",
-        "sha256": sha,
-        "exif": exif,
-        "name": name,
-        "contentType": content_type,
-        "converted": converted,
-    }
+    if store.stat(video_key) is None:
+        raise HTTPException(404, "Video not found")
+    # Spooled and capped like any other upload: the frame is an image, but it
+    # arrives over the same POST body, so it must not be the one path that
+    # reads an unbounded body into this process.
+    with tempfile.TemporaryDirectory() as spool_dir:
+        spool = Path(spool_dir) / "poster"
+        try:
+            with spool.open("wb") as sink:
+                size, _digest = await asyncio.to_thread(
+                    stream_upload, file.file, sink, upload_limit("image"), label
+                )
+        except UploadTooLarge as exc:
+            raise HTTPException(413, str(exc)) from exc
+        except UnsupportedUpload as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if size == 0:
+            raise HTTPException(422, "Empty file")
+        raw = spool.read_bytes()  # bounded by the image cap enforced above
+    try:
+        jpeg = to_jpeg(raw, label)
+    except UnsupportedUpload as exc:
+        raise HTTPException(422, str(exc)) from exc
+    name = poster_name_for(video_name)
+    content_type = media_content_type(name)
+    if trip_id is None:
+        store.put(f"inbox/{name}", jpeg, content_type)
+        url = f"/inbox/{name}"
+    else:
+        store.put(object_key_for(trip_id.lower(), name), jpeg, content_type)
+        url = f"/media/{trip_id.lower()}/{name}"
+    return {"url": url, "name": name, "contentType": content_type, "posterOf": video_name}
 
 
 class PromoteBody(BaseModel):
@@ -2027,6 +2194,11 @@ async def promote_file(
     the bytes live under the trip's own media key and the canonical
     ``/media/<trip>/<name>`` URL (what ``resolve_media_urls`` emits). Returns
     the trip URL; the inbox copy is deleted (a move, not a copy).
+
+    A store-side copy (#250): this used to join every chunk in memory, which
+    for a video is the exact failure the streaming upload exists to avoid.
+    A poster frame follows its video for free — ``<stem>_poster.jpg`` is
+    promoted by the SPA alongside the clip it belongs to.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     trip_id = body.trip_id.lower()
@@ -2037,15 +2209,9 @@ async def promote_file(
     if store is None:
         raise HTTPException(503, "Media storage is not configured")
     inbox_key = f"inbox/{body.file_name}"
-    chunks = store.get(inbox_key)
-    if chunks is None:
+    if store.stat(inbox_key) is None:
         raise HTTPException(404, "Inbox file not found")
-    raw = b"".join(chunks)
-    store.put(
-        object_key_for(trip_id, body.file_name),
-        raw,
-        media_content_type(body.file_name),
-    )
+    store.copy(inbox_key, object_key_for(trip_id, body.file_name))
     store.delete(inbox_key)
     return {"url": f"/media/{trip_id}/{body.file_name}"}
 
