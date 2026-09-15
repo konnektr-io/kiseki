@@ -83,6 +83,8 @@ from .write import (
     FeaturesPut,
     LocationsPatch,
     LocationsPut,
+    PracticalBlockAdd,
+    PracticalBlockPatch,
     PracticalPut,
     SectionCreate,
     SectionPatch,
@@ -1228,6 +1230,33 @@ def delete_trip_route(
     return Response(status_code=204)
 
 
+@app.get("/api/trips/{trip_id}/practical")
+def get_practical(
+    trip_id: str,
+    my_role: str | None = Depends(authorize_trip_path),
+) -> dict:
+    """Read the practical section on its own (#273).
+
+    Verifying a practical edit used to mean re-fetching and re-parsing the
+    whole ~70 k-char trip document; this returns exactly the ``practical``
+    object the document carries — same visibility gate as the trip read
+    (``authorize_trip_path``: public trips are readable, private ones need
+    follower+) and the same crew-only rule, read from the SAME registry
+    (``CREW_ONLY_FIELDS``) so a field the document hides can never leak through
+    this narrower surface: ``practical.todos`` (the crew's own logistics) and
+    ``practical.tricount`` (#111) are crew-only today.
+    """
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    data = trip.practical.model_dump(by_alias=True, exclude_none=True)
+    if my_role not in CREW_ROLES:
+        for path in CREW_ONLY_FIELDS:
+            if path[0] == "practical":
+                _drop_path(data, path[1:])
+    return data
+
+
 @app.put("/api/trips/{trip_id}/practical")
 def put_practical(
     trip_id: str,
@@ -1257,6 +1286,47 @@ def toggle_todo(
 ) -> dict:
     trip = _write(write_svc.toggle_todo, trip_dtid=trip_id.lower(), actor=actor,
                   index=index, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+# Per-block practical verbs (#273) — the practical section's own affordance, so
+# adding/editing/deleting ONE titled block is one call instead of a trip GET +
+# full-section rebuild + verifying GET (which was authoritative for todos,
+# links, notes AND contacts, and silently lost any concurrent edit to them).
+# Addressed by LIST POSITION (the render order, #254) — practical blocks are
+# value objects, not twins, so they have no ids; the `[index]` shape is the one
+# the section already uses for its checklist (`/practical/todos/{index}/toggle`).
+
+@app.post("/api/trips/{trip_id}/practical/blocks", status_code=201)
+def add_practical_block(
+    trip_id: str,
+    body: PracticalBlockAdd,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.add_practical_block, trip_dtid=trip_id.lower(), actor=actor, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.put("/api/trips/{trip_id}/practical/blocks/{index}")
+def update_practical_block(
+    trip_id: str,
+    index: int,
+    body: PracticalBlockPatch,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.update_practical_block, trip_dtid=trip_id.lower(), actor=actor,
+                  index=index, body=body)
+    return _public_trip(trip, my_role=actor["role"])
+
+
+@app.delete("/api/trips/{trip_id}/practical/blocks/{index}")
+def delete_practical_block(
+    trip_id: str,
+    index: int,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    trip = _write(write_svc.delete_practical_block, trip_dtid=trip_id.lower(), actor=actor,
+                  index=index)
     return _public_trip(trip, my_role=actor["role"])
 
 

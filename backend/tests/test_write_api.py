@@ -108,6 +108,7 @@ def test_write_requires_graph_role(client, rsa_keypair) -> None:
     ("put", "", {"title": "Renamed"}),
     ("put", "/practical", {"todos": [], "links": [], "notes": "n", "contacts": []}),
     ("post", "/practical/todos", {"label": "Book lift passes"}),
+    ("post", "/practical/blocks", {"title": "Money & tipping", "body": "10 % service charge"}),
     ("put", "/days/DAY", {"title": "New day title"}),
     ("post", "/days", {"index": 0, "date": "2027-02-14"}),
     ("put", "/sections/SEC", {"title": "New section title"}),
@@ -490,6 +491,195 @@ def test_practical_blocks_are_optional_and_validated(client, rsa_keypair, graph)
     r = _authz(client, "put", url, token, json={"blocks": [{"title": "No body"}]})
     assert r.status_code == 422
     assert _trip_of(g).practical.blocks == []
+
+
+# ------------------------------------------- practical blocks, one at a time (#273)
+def _seed_blocks(client, token, url, *titles) -> None:
+    """Append one titled practical block per title (the #254 shape)."""
+    for title in titles:
+        r = _authz(client, "post", f"{url}/practical/blocks", token,
+                   json={"title": title, "body": f"{title} body"})
+        assert r.status_code == 201, r.text
+
+
+def _block_titles(trip_id: str, client, token, url: str) -> list[str]:
+    return [b["title"] for b in client.get(url, headers=_auth(token)).json()["practical"]["blocks"]]
+
+
+def test_add_practical_block_appends_and_inserts(client, rsa_keypair, graph) -> None:
+    """#273: adding ONE practical block is one call on the section's own path.
+
+    Append by default; an explicit ``index`` inserts at that position, because
+    list position IS the render order (#254) and a roadbook's headings have to
+    land in the roadbook's order.
+    """
+    g = graph()
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}"
+    token = _token_of(rsa_keypair)
+
+    r = _authz(client, "post", f"{url}/practical/blocks", token,
+               json={"title": "Driving times", "body": "San José → Tortuguero: 3 h 30 + 1 h 30 boat"})
+    assert r.status_code == 201, r.text
+    assert [b["title"] for b in r.json()["practical"]["blocks"]] == ["Driving times"]
+
+    _seed_blocks(client, token, url, "Water & health")
+
+    # insert at position 1: the heading lands between the two, not at the end
+    r = _authz(client, "post", f"{url}/practical/blocks", token,
+               json={"title": "Money & tipping", "body": "10 % service charge.", "index": 1})
+    assert r.status_code == 201
+    assert [b["title"] for b in r.json()["practical"]["blocks"]] == [
+        "Driving times", "Money & tipping", "Water & health"]
+
+    # out-of-range insert position: 422, and nothing was written
+    r = _authz(client, "post", f"{url}/practical/blocks", token,
+               json={"title": "Nope", "body": "x", "index": 9})
+    assert r.status_code == 422
+    assert _block_titles(trip.id, client, token, url) == [
+        "Driving times", "Money & tipping", "Water & health"]
+
+    # `order` is server-managed here as everywhere else, and unknown fields are
+    # refused like every other write payload
+    assert _authz(client, "post", f"{url}/practical/blocks", token,
+                  json={"title": "Nope", "body": "x", "order": 3}).status_code == 422
+
+
+def test_edit_and_delete_one_practical_block(client, rsa_keypair, graph) -> None:
+    """#273: PUT patches one block (only the fields sent), DELETE removes one —
+    the neighbours keep their headings and their order."""
+    g = graph()
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}"
+    token = _token_of(rsa_keypair)
+    _seed_blocks(client, token, url, "Driving times", "Money & tipping", "Water & health")
+
+    # patch semantics: a body-only edit keeps the heading
+    r = _authz(client, "put", f"{url}/practical/blocks/1", token,
+               json={"body": "10 % service charge; cash at the SINAC gates."})
+    assert r.status_code == 200, r.text
+    blocks = r.json()["practical"]["blocks"]
+    assert blocks[1] == {"title": "Money & tipping",
+                         "body": "10 % service charge; cash at the SINAC gates."}
+
+    # retitle in place: the position stays, the body survives
+    r = _authz(client, "put", f"{url}/practical/blocks/1", token, json={"title": "Money"})
+    assert r.status_code == 200
+    assert [b["title"] for b in r.json()["practical"]["blocks"]] == [
+        "Driving times", "Money", "Water & health"]
+    assert r.json()["practical"]["blocks"][1]["body"].startswith("10 % service")
+
+    # delete ONE block: the rest keep their order
+    r = _authz(client, "delete", f"{url}/practical/blocks/0", token)
+    assert r.status_code == 200
+    assert [b["title"] for b in r.json()["practical"]["blocks"]] == ["Money", "Water & health"]
+
+    # out-of-range index -> 404, same contract as the todo toggle
+    assert _authz(client, "put", f"{url}/practical/blocks/9", token,
+                  json={"title": "x"}).status_code == 404
+    assert _authz(client, "delete", f"{url}/practical/blocks/9", token).status_code == 404
+    # an empty patch is a 422, never a silent no-op
+    assert _authz(client, "put", f"{url}/practical/blocks/0", token, json={}).status_code == 422
+    assert [b.title for b in _trip_of(g).practical.blocks] == ["Money", "Water & health"]
+
+
+def test_practical_block_edit_leaves_the_rest_of_the_section_untouched(
+    client, rsa_keypair, graph
+) -> None:
+    """#273 acceptance: the smallest practical change no longer rebuilds the
+    whole section. The op is scoped to the blocks array, so a todo/link/contact
+    that lands mid-edit survives — the whole-object PUT was authoritative for
+    all five keys and silently lost it (the reason this issue was filed)."""
+    g = graph()
+    trip = _trip_of(g)
+    url = f"/api/trips/{trip.id}"
+    token = _token_of(rsa_keypair)
+    r = _authz(client, "put", f"{url}/practical", token, json={
+        "todos": [{"label": "Book the 4x4", "done": False}],
+        "links": [{"label": "SINAC", "url": "https://example.com/sinac"}],
+        "notes": "Tap water is fine in San José only.",
+        "contacts": [{"label": "Lodge", "value": "+1 555 0100"}],
+        "blocks": [{"title": "Driving times", "body": "3 h 30"}],
+    })
+    assert r.status_code == 200
+
+    # a checklist item lands WHILE the practical block is being edited — the
+    # exact window the full-section replace could not survive
+    assert _authz(client, "post", f"{url}/practical/todos", token,
+                  json={"label": "Cash for the SINAC gates"}).status_code == 200
+    before = client.get(url, headers=_auth(token)).json()
+
+    r = _authz(client, "put", f"{url}/practical/blocks/0", token,
+               json={"body": "San José → Tortuguero: 3 h 30 + 1 h 30 boat"})
+    assert r.status_code == 200
+    after = client.get(url, headers=_auth(token)).json()
+
+    # the rest of the section is byte-identical — including the todo that
+    # arrived inside the edit window
+    for key in ("todos", "links", "notes", "contacts"):
+        assert after["practical"][key] == before["practical"][key], key
+    assert after["practical"]["blocks"][0]["body"].startswith("San José → Tortuguero")
+    # and nothing outside `practical` moved either (`updated` is the trip's stamp)
+    moved = {k for k in before if k != "practical" and before[k] != after.get(k)}
+    assert moved <= {"updated"}, moved
+
+
+def test_get_practical_reads_the_section_on_its_own(client, rsa_keypair, graph) -> None:
+    """#273: the section is readable without re-parsing the whole trip document,
+    and it returns exactly what the document carries for the SAME caller — the
+    crew-only ``tricount`` strip (#111) applies here too, or this route would
+    hand a follower the expense-registry key the document hides."""
+    g = graph(role="editor")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}"
+    # seed the connection the way the graph holds it (connect/disconnect need the
+    # live Tricount API) — nothing else about `practical` changes
+    g.twin(trip.id)["practical"]["tricount"] = {"registryKey": "twOQZFDbXxZzipcjXG"}
+    store_mod._reset_store_cache()
+    _seed_blocks(client, token, url, "Driving times")
+
+    r = client.get(f"{url}/practical", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json() == client.get(url, headers=_auth(token)).json()["practical"]
+    assert r.json()["tricount"] == {"registryKey": "twOQZFDbXxZzipcjXG"}  # crew keeps it
+    assert "todos" in r.json()  # …and the crew's checklist (#249)
+    assert [b["title"] for b in r.json()["blocks"]] == ["Driving times"]
+
+    g.add_user_role(trip.id, SUB, "follower")
+    store_mod._reset_store_cache()
+    follower = client.get(f"{url}/practical", headers=_auth(token))
+    assert follower.status_code == 200
+    assert "tricount" not in follower.json()
+    assert "todos" not in follower.json()
+    assert follower.json() == client.get(url, headers=_auth(token)).json()["practical"]
+
+    # an id that is not there is a 404, never a silent empty section
+    assert client.get("/api/trips/00000000-0000-4000-8000-000000000000/practical",
+                      headers=_auth(token)).status_code == 404
+
+
+def test_practical_block_verbs_acl(client, rsa_keypair, graph) -> None:
+    """PUT/DELETE on one block take the write path's editor+ gate (the POST leg
+    is covered by the ACL matrix above)."""
+    g = graph(role="owner")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/practical/blocks/0"
+    assert _authz(client, "post", f"/api/trips/{trip.id}/practical/blocks", token,
+                  json={"title": "Driving times", "body": "3 h 30"}).status_code == 201
+
+    for method, body in (("put", {"body": "edited"}), ("delete", None)):
+        assert client.request(method, url, json=body).status_code == 401
+        for low_role in ("viewer", "follower"):
+            g.add_user_role(trip.id, SUB, low_role)
+            r = client.request(method, url, headers=_auth(token), json=body)
+            assert r.status_code == 403, f"{method} allowed {low_role}: {r.status_code}"
+            g.add_user_role(trip.id, SUB, "owner")
+        g.add_user_role(trip.id, SUB, "editor")
+        r = client.request(method, url, headers=_auth(token), json=body)
+        assert r.status_code == 200, f"{method}: {r.status_code} {r.text[:200]}"
+        g.add_user_role(trip.id, SUB, "owner")
 
 
 # ---------------------------------------------------------------- blocks
