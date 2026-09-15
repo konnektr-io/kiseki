@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import type { UIMessage, UIMessageChunk } from "ai";
+import type { FileUIPart, UIMessage, UIMessageChunk } from "ai";
 
 /**
  * Chat wire client (issue #9 / M4) — the SPA side of `POST /api/chat`.
@@ -97,14 +97,55 @@ function absoluteUrl(url: string): string {
   return url;
 }
 
+/** The SDK's file part plus the byte size the bubble's chip shows — the SDK
+ *  type has no room for it, and it survives JSON round-trips, so a restored
+ *  transcript still knows how big the file was. */
+export type AttachmentPart = FileUIPart & { size?: number };
+
+/** The agent-facing handle for one attached file (issue #252).
+ *
+ *  A file NEVER appears as a bare URL in prose: the relay's upstream api
+ *  server takes only `text` and `image_url` parts (docs/chat-m3-design.md
+ *  §3), so a document's handle has to ride in the message text — one compact
+ *  `file: <name> @ <url>` line per attachment, which is both the name the
+ *  agent promotes (`/inbox/<hash>.ext`) or stores (bare media filename) and
+ *  the URL it can fetch. Images keep their `image_url` part for vision and
+ *  get the same line, so every attachment is resolvable by name even when
+ *  the agent's own transcript renders an image part as `[screenshot]`. */
+export function fileHandle(part: { url: string; filename?: string }): string {
+  const url = absoluteUrl(part.url);
+  return `file: ${part.filename ?? url.split("/").pop() ?? url} @ ${url}`;
+}
+
+/** What the composer submits for a draft and its uploaded attachments: the
+ *  message text is the user's OWN words and every attachment travels as a
+ *  file part (rendered as a chip in the bubble — issue #252). */
+export function composeUserMessage(
+  draft: string,
+  files: UploadedChatFile[],
+): { text: string; files: AttachmentPart[] } {
+  return {
+    text: draft.trim(),
+    files: files.map((file) => ({
+      type: "file",
+      mediaType: file.mediaType,
+      url: file.url,
+      filename: file.name,
+      size: file.size,
+    })),
+  };
+}
+
 /** Map one `UIMessage` to the relay's message shape. Image file parts become
  *  `image_url` parts (the agent's vision input — URLs are absolutized so the
- *  agent can fetch them over HTTPS); every other file becomes a text link
- *  the agent fetches. Pure-text messages stay plain strings. */
+ *  agent can fetch them over HTTPS); every file also contributes a compact
+ *  `file: <name> @ <url>` handle to the text (see `fileHandle`) — never a
+ *  markdown link pasted into the user's sentence. Pure-text messages stay
+ *  plain strings. */
 export function toBackendMessage(message: UIMessage): BackendChatMessage {
   const texts: string[] = [];
   const images: string[] = [];
-  const links: string[] = [];
+  const handles: string[] = [];
   for (const part of message.parts) {
     if (part.type === "text") {
       texts.push(part.text);
@@ -112,13 +153,13 @@ export function toBackendMessage(message: UIMessage): BackendChatMessage {
       const url = absoluteUrl(part.url);
       if (part.mediaType === "image" || part.mediaType.startsWith("image/")) {
         images.push(url);
-      } else {
-        const label = part.filename ?? url;
-        links.push(`[${label}](${url})`);
       }
+      handles.push(fileHandle({ url: part.url, filename: part.filename }));
     }
   }
-  const text = [...texts, ...links].filter(Boolean).join("\n\n");
+  const text = [texts.filter(Boolean).join("\n\n"), handles.join("\n")]
+    .filter(Boolean)
+    .join("\n\n");
   if (images.length === 0) {
     return { role: message.role, content: text, id: message.id };
   }
@@ -542,6 +583,8 @@ export interface UploadedChatFile {
   name: string;
   mediaType: string;
   isImage: boolean;
+  /** Byte size of the picked file — shown on the attachment chip. */
+  size: number;
 }
 
 /**
@@ -553,7 +596,8 @@ export interface UploadedChatFile {
  * exists): the file stages in the user's inbox and comes back as an
  * unguessable `/inbox/<hash>.ext` URL — the agent promotes it into the trip
  * it creates via `/api/files/promote`. Either way the next user message
- * carries the URL as an `image_url` part (images) or a text link (docs).
+ * carries the file as a part (an `image_url` for images) plus one compact
+ * `file: <name> @ <url>` handle line per attachment — see `fileHandle`.
  */
 export async function uploadChatFile(
   file: File,
@@ -585,6 +629,7 @@ export async function uploadChatFile(
     name: file.name,
     mediaType: file.type || "application/octet-stream",
     isImage: file.type.startsWith("image/"),
+    size: file.size,
   };
 }
 
