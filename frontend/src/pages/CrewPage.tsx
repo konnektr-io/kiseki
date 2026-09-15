@@ -14,8 +14,9 @@ import {
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { roleAtLeast, withAddedCrew, withCrewMember, withRemovedCrew } from "../lib/editing";
+import { useFollowing } from "../lib/following";
 import { useTripWrite } from "../lib/useTripWrite";
-import type { Person, Role } from "../lib/types";
+import type { Person, ProfilePerson, Role } from "../lib/types";
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
@@ -24,6 +25,11 @@ const ROLE_LABELS: Record<Role, string> = {
   follower: "Follower",
 };
 const ROLE_ORDER: Role[] = ["owner", "editor", "viewer", "follower"];
+
+/** How many "people you follow" chips the add panel shows before it switches to
+ *  search-only (#198 follow-up): a follow list is unbounded, a row of pills is
+ *  not. */
+const MAX_FOLLOW_CHIPS = 8;
 
 function initials(name: string) {
   return name
@@ -112,56 +118,190 @@ function MemberEditor({
   );
 }
 
-/** Inline add-crew form (editor+): name required, role defaults to viewer,
- *  optional note + contact. The server enforces the role ladder (granting
- *  `owner` as a non-owner is a 403) — every option is offered and the
- *  server's error line is the enforcement point. */
-function AddCrewForm({
+/** One selectable row in the "people you follow" picker (#198 follow-up). */
+function FollowedChip({
+  person,
+  selected,
   busy,
+  onPick,
+}: {
+  person: ProfilePerson;
+  selected: boolean;
+  busy: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={busy}
+      onClick={onPick}
+      className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm transition-colors focus-visible:focus-ring disabled:opacity-50 ${
+        selected
+          ? "border-primary bg-primary/10 font-medium text-foreground"
+          : "border-border bg-background text-foreground hover:bg-muted"
+      }`}
+    >
+      {person.avatar ? (
+        <img
+          src={person.avatar}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="h-6 w-6 shrink-0 rounded-full object-cover"
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary"
+        >
+          {initials(person.name)}
+        </span>
+      )}
+      <span className="max-w-[12rem] truncate">{person.name}</span>
+      {selected && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+    </button>
+  );
+}
+
+/** The open add-crew panel (exported for the SSR test): pick someone you
+ *  already follow — they become crew straight away, no placeholder and no
+ *  invite link — or fall through to the manual name form for someone who is
+ *  not on Kiseki yet.
+ *
+ *  Picking is an OWNER-only affordance, mirroring the server (attaching an
+ *  existing account hands out access, so it is the owner's call — see
+ *  `write.add_crew`). */
+export function AddCrewPanel({
+  busy,
+  isOwner,
+  following,
+  crewIds,
+  loadingFollowing,
   onAdd,
+  onClose,
 }: {
   busy: boolean;
+  isOwner: boolean;
+  following: ProfilePerson[];
+  crewIds: string[];
+  loadingFollowing: boolean;
   onAdd: (body: AddCrewMemberBody) => Promise<boolean>;
+  onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [sub, setSub] = useState<string | undefined>(undefined);
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [note, setNote] = useState("");
   const [contact, setContact] = useState("");
+  const [query, setQuery] = useState("");
+
+  const onCrew = new Set(crewIds);
+  const candidates = following.filter((p) => !onCrew.has(p.sub));
+  // A long follow list is the normal case for anyone who uses the follow
+  // graph, so the picker searches and caps: at most MAX_FOLLOW_CHIPS buttons,
+  // with the rest behind the search box. The currently picked person stays
+  // pinned — narrowing the list must never hide who is selected.
+  const needle = query.trim().toLowerCase();
+  const matches = needle
+    ? candidates.filter((p) => p.name.toLowerCase().includes(needle))
+    : candidates;
+  const picked = candidates.find((p) => p.sub === sub);
+  const pinned = picked && !matches.includes(picked) ? [picked] : [];
+  const shown = [...pinned, ...matches.filter((p) => p !== picked)]
+    .slice(0, MAX_FOLLOW_CHIPS);
+  const hiddenCount = matches.length - (shown.length - pinned.length);
+
+  const pick = (person: ProfilePerson) => {
+    if (sub === person.sub) {
+      setSub(undefined);
+      setName("");
+      return;
+    }
+    setSub(person.sub);
+    setName(person.name);
+  };
 
   const submit = async () => {
     const trimmed = name.trim();
     if (!trimmed || busy) return;
-    const ok = await onAdd({
-      name: trimmed,
-      role,
-      ...(note.trim() ? { note: note.trim() } : {}),
-      ...(contact.trim() ? { contact: contact.trim() } : {}),
-    });
+    const body: AddCrewMemberBody = { name: trimmed, role };
+    if (note.trim()) body.note = note.trim();
+    if (sub) body.sub = sub;
+    else if (contact.trim()) body.contact = contact.trim();
+    const ok = await onAdd(body);
     if (ok) {
+      setSub(undefined);
       setName("");
       setRole("viewer");
       setNote("");
       setContact("");
-      setOpen(false);
+      onClose();
     }
   };
 
-  if (!open) {
-    return (
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} disabled={busy}>
-        <UserPlus className="h-3.5 w-3.5" /> Add crew member
-      </Button>
-    );
-  }
-
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div data-crew-add-panel className="rounded-xl border border-border bg-card p-4">
       <p className="kicker mb-2">Add crew member</p>
+      {isOwner && (
+        <div className="mb-3">
+          <p className={labelCls}>People you follow</p>
+          {loadingFollowing ? (
+            <p className="text-xs text-muted-foreground">Loading people you follow…</p>
+          ) : candidates.length ? (
+            <>
+              {candidates.length > MAX_FOLLOW_CHIPS && (
+                <input
+                  id="crew-add-search"
+                  type="search"
+                  className={`${inputCls} mb-2`}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  disabled={busy}
+                  aria-label="Search people you follow"
+                  placeholder={`Search ${candidates.length} people you follow`}
+                />
+              )}
+              {shown.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {shown.map((p) => (
+                    <FollowedChip
+                      key={p.sub}
+                      person={p}
+                      selected={sub === p.sub}
+                      busy={busy}
+                      onPick={() => pick(p)}
+                    />
+                  ))}
+                </div>
+              )}
+              {needle !== "" && matches.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No one you follow matches “{query.trim()}”.
+                </p>
+              )}
+              {hiddenCount > 0 && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {hiddenCount} more — search to narrow the list.
+                </p>
+              )}
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                Pick someone and they join this trip right away — they already have an
+                account, so there is no invite link to send.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You don't follow anyone who isn't on this crew yet — add someone by name
+              below and share the invite link.
+            </p>
+          )}
+        </div>
+      )}
       <div className="space-y-2.5">
         <div>
           <label className={labelCls} htmlFor="crew-add-name">
-            Name
+            {sub ? "Name on this trip" : "Name"}
           </label>
           <input
             id="crew-add-name"
@@ -203,22 +343,29 @@ function AddCrewForm({
             placeholder="e.g. dietary needs, gear, arrival details…"
           />
         </div>
-        <div>
-          <label className={labelCls} htmlFor="crew-add-contact">
-            Contact (optional)
-          </label>
-          <input
-            id="crew-add-contact"
-            className={inputCls}
-            value={contact}
-            onChange={(e) => setContact(e.target.value)}
-            disabled={busy}
-            placeholder="e.g. phone or email"
-          />
-        </div>
+        {sub ? (
+          <p className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-foreground">
+            They have an account, so this adds them straight to the crew — they can read
+            the trip as soon as you save.
+          </p>
+        ) : (
+          <div>
+            <label className={labelCls} htmlFor="crew-add-contact">
+              Contact (optional)
+            </label>
+            <input
+              id="crew-add-contact"
+              className={inputCls}
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+              disabled={busy}
+              placeholder="e.g. phone or email"
+            />
+          </div>
+        )}
       </div>
       <div className="mt-3 flex items-center justify-end gap-2">
-        <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={busy}>
+        <Button variant="ghost" size="sm" onClick={onClose} disabled={busy}>
           <X className="h-3.5 w-3.5" /> Cancel
         </Button>
         <Button variant="default" size="sm" onClick={() => void submit()} disabled={busy || !name.trim()}>
@@ -231,15 +378,18 @@ function AddCrewForm({
 
 export function CrewPage() {
   const trip = useTrip();
-  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect } = useAuth0();
+  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect, user } = useAuth0();
   const { busy, error, run } = useTripWrite();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const isOwner = trip.myRole === "owner";
   const hasPlaceholders = trip.crew.some((p) => !p.claimed);
+  // Only an owner who opened the panel triggers the follow-list read.
+  const { people, loading } = useFollowing(user?.sub, isOwner && adding);
 
   const saveMember = async (person: Person, patch: { note?: string | null; role?: Role }) => {
     setEditingId(null);
@@ -250,14 +400,16 @@ export function CrewPage() {
   };
 
   const addMember = async (body: AddCrewMemberBody): Promise<boolean> => {
-    // Optimistic placeholder id — the canonical doc replaces it on success.
+    // Optimistic row — the canonical doc replaces it on success. An account
+    // add carries the real sub, so the row is already the right identity and
+    // renders as claimed (profile link included) before the round trip lands.
     const temp: Person = {
-      id: `pending-${body.name}`,
+      id: body.sub ?? `pending-${body.name}`,
       name: body.name,
       role: body.role,
       ...(body.note ? { note: body.note } : {}),
       ...(body.contact ? { contact: body.contact } : {}),
-      claimed: false,
+      claimed: Boolean(body.sub),
     };
     const doc = await run(
       (token) => addCrewMember(trip.id, body, token),
@@ -304,13 +456,35 @@ export function CrewPage() {
     }
   };
 
+  /** Add affordance (editor+) — the trigger stays in the title row, but the
+   *  PANEL it opens renders below the title at the crew cards' full width
+   *  (a form squeezed next to the title next to "Copy invite link" read as
+   *  chrome, not as part of the page). */
+  const addButton = canEdit && !adding && (
+    <Button variant="outline" size="sm" onClick={() => setAdding(true)} disabled={busy}>
+      <UserPlus className="h-3.5 w-3.5" /> Add crew member
+    </Button>
+  );
+  const addPanel = canEdit && adding && (
+    <AddCrewPanel
+      busy={busy}
+      isOwner={isOwner}
+      following={people}
+      crewIds={trip.crew.map((p) => p.id)}
+      loadingFollowing={loading}
+      onAdd={addMember}
+      onClose={() => setAdding(false)}
+    />
+  );
+
   if (!trip.crew.length) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Crew</h1>
-          {canEdit && <AddCrewForm busy={busy} onAdd={addMember} />}
+          {addButton}
         </div>
+        {addPanel}
         <p className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground">
           Crew not announced yet.
         </p>
@@ -327,7 +501,7 @@ export function CrewPage() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Crew</h1>
         <div className="flex items-center gap-2">
-          {canEdit && <AddCrewForm busy={busy} onAdd={addMember} />}
+          {addButton}
           {isOwner && hasPlaceholders && (
             <Button variant="outline" size="sm" onClick={() => void copyInviteLink()} disabled={busy}>
               {inviteCopied ? (
@@ -343,6 +517,7 @@ export function CrewPage() {
           )}
         </div>
       </div>
+      {addPanel}
       {trip.crew.map((p) => (
         <Card key={p.id} className="p-4">
           <div className="flex items-center gap-4">

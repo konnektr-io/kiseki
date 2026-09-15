@@ -372,10 +372,15 @@ export interface AddCrewMemberBody {
   role: Role;
   note?: string;
   contact?: string;
+  /** Attach an ACCOUNT that already exists (its Auth0 sub) instead of creating
+   *  an unclaimed placeholder — the "add someone I follow" path (#198
+   *  follow-up). Owner-only server-side, and only for someone the caller
+   *  follows; `contact` is refused with it (their profile owns it). */
+  sub?: string;
 }
 
-/** Add a placeholder crew member (editor+; granting `owner` is owner-only on
- *  the server). Returns the canonical trip doc. */
+/** Add a crew member (editor+ for a placeholder; `sub` is owner-only on the
+ *  server). Returns the canonical trip doc. */
 export async function addCrewMember(
   tripId: string,
   body: AddCrewMemberBody,

@@ -979,6 +979,128 @@ def test_promote_follower_to_viewer_without_claim(client, rsa_keypair, graph) ->
     assert promoted["name"] == "Follower To Promote"  # same entry, new role
 
 
+# ------------------------------------------- crew: add an existing account
+# "Add someone I already follow" (#198 follow-up): CrewAdd.sub attaches the
+# crew entry to that account's User twin — no placeholder, no join link. The
+# account is crew (and can read) the moment the edge lands, so the gate is
+# owner-only AND the caller must follow them.
+def _followed_account(g: FakeGraph, sub: str, name: str) -> str:
+    """Stage a User twin the test user FOLLOWS — the picker's source."""
+    assert g.create_user_twin(sub, {"email": f"{sub.split('|')[-1]}@test.local", "name": name})
+    assert g.follow_user(SUB, sub)
+    return sub
+
+
+def test_add_crew_attaches_a_followed_account(client, rsa_keypair, graph) -> None:
+    """The account path: the entry IS their User twin, it renders the
+    trip-relative name, and it grants read access immediately (no claim)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    target = _followed_account(g, "google-oauth2|friend-followed", "Frieda Friend")
+    before = len(g.twins)
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token, json={
+        "name": "Frieda", "role": "viewer", "note": "cabin 2", "sub": target,
+    })
+    assert r.status_code == 201, r.text[:300]
+    entry = next(c for c in r.json()["crew"] if c["id"] == target)
+    assert entry["name"] == "Frieda"          # the trip's own label wins (#196)
+    assert entry["role"] == "viewer"
+    assert entry["note"] == "cabin 2"
+    assert entry["claimed"] is True            # a real account, not a placeholder
+    # No placeholder was invented, and the ACL resolves for the account itself:
+    assert len(g.twins) == before
+    assert g.role_for_user_on_trip(trip.id, target) == "viewer"
+
+
+def test_add_crew_followed_account_is_owner_only(client, rsa_keypair, graph) -> None:
+    """An editor may add placeholders but NOT attach an account — that hands
+    out access, which only the owner does (same gate as the join link)."""
+    g = graph(role="editor")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    target = _followed_account(g, "google-oauth2|editor-tries", "Editor Tries")
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Editor Tries", "sub": target})
+    assert r.status_code == 403
+    assert g.role_for_user_on_trip(trip.id, target) is None  # nothing was written
+
+    g.add_user_role(trip.id, SUB, "owner")
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Editor Tries", "sub": target})
+    assert r.status_code == 201, r.text[:300]
+
+
+def test_add_crew_account_must_be_followed(client, rsa_keypair, graph) -> None:
+    """The follow graph IS the picker, so an arbitrary sub cannot be attached:
+    the owner adds only people they follow (here: nobody)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    stranger = "google-oauth2|not-followed"
+    assert g.create_user_twin(stranger, {"email": "s@test.local", "name": "Sam Stranger"})
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Sam Stranger", "sub": stranger})
+    assert r.status_code == 403
+    assert g.role_for_user_on_trip(trip.id, stranger) is None
+
+    # unknown sub is a 404 (never a quiet placeholder either)
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Ghost", "sub": "google-oauth2|ghost"})
+    assert r.status_code == 404
+
+
+def test_add_crew_account_refuses_contact_and_duplicates(client, rsa_keypair, graph) -> None:
+    """`contact` belongs to the account's own profile (422), and neither a
+    second entry for the same account nor a second crew member RENDERING the
+    same name is allowed (409 — the name check is on the rendered label)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    target = _followed_account(g, "google-oauth2|dup-target", "Dup Target")
+    url = f"/api/trips/{trip.id}/crew"
+
+    r = _authz(client, "post", url, token,
+               json={"name": "Dup", "sub": target, "contact": "+32 470 00 00 00"})
+    assert r.status_code == 422
+
+    assert _authz(client, "post", url, token,
+                  json={"name": "Dup", "sub": target}).status_code == 201
+    # same account again
+    assert _authz(client, "post", url, token,
+                  json={"name": "Dup Again", "sub": target}).status_code == 409
+    # a placeholder may not render the same label as the account entry
+    assert _authz(client, "post", url, token, json={"name": "Dup"}).status_code == 409
+
+    # and a follower row already on the trip cannot be added a second time
+    follower_sub = "google-oauth2|follower-dup"
+    g.add_user_role(trip.id, follower_sub, "follower", name="Follower Dup")
+    assert g.follow_user(SUB, follower_sub)
+    assert _authz(client, "post", url, token,
+                  json={"name": "Follower Dup", "sub": follower_sub}).status_code == 409
+
+
+def test_add_crew_placeholder_still_grants_nothing(client, rsa_keypair, graph) -> None:
+    """The default path is unchanged: editor+ adds an unclaimed Person that
+    grants no access until the invite is claimed."""
+    g = graph(role="editor")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/crew"
+
+    r = _authz(client, "post", url, token, json={"name": "Placeholder Pat", "role": "editor"})
+    assert r.status_code == 201, r.text[:300]
+    entry = next(c for c in r.json()["crew"] if c["name"] == "Placeholder Pat")
+    assert entry["claimed"] is False
+    assert entry["role"] == "editor"
+    # the placeholder's twin id is opaque, and it resolves for nobody
+    assert g.twin(entry["id"]) is not None
+    assert g.role_for_user_on_trip(trip.id, SUB) == "editor"  # only the caller's own edge
+
+
 # ---------------------------------------------------------------- agent identity
 # The agent has NO identity in the graph (no User twin, no hasCrew edge).
 # User-initiated writes present the acting user's token. The sanctioned M2M

@@ -48,7 +48,7 @@ Companion pieces:
 | `POST` | `/api/trips/{trip_id}/blocks/{block_id}/move` | `BlockMove` | — |
 | `PUT` | `/api/trips/{trip_id}/containers/{container_id}/block-order` | `BlockOrder` | — |
 | `PATCH` | `/api/trips/{trip_id}/crew/{person_id}` | `CrewPatch` | — |
-| `POST` | `/api/trips/{trip_id}/crew` | `CrewAdd` | — |
+| `POST` | `/api/trips/{trip_id}/crew` | `CrewAdd` | Add a crew member (editor+). |
 | `DELETE` | `/api/trips/{trip_id}/crew/{person_id}` | `—` | — |
 | `PUT` | `/api/trips/{trip_id}/locations` | `LocationsPut` | — |
 | `PATCH` | `/api/trips/{trip_id}/locations` | `LocationsPatch` | Incremental location edits — named upserts only (never a replace). |
@@ -248,6 +248,8 @@ Editable block fields shared across kinds (id/kind/order excluded).
 
 ### `CrewAdd`
 
+POST /crew body — two ways to add a crew member.
+
 *extra=forbid — an unknown field is a 422*
 
 | Field | Type | Required | Default |
@@ -256,6 +258,7 @@ Editable block fields shared across kinds (id/kind/order excluded).
 | `role` | "owner" | "editor" | "viewer" | "follower" | no | `viewer` |
 | `note` | str | NoneType | no | `null` |
 | `contact` | str | NoneType | no | `null` |
+| `sub` | str | NoneType | no | `null` |
 
 ### `LocationsPut`
 
@@ -524,6 +527,7 @@ Statuses a block may carry:
 | `cost must be a NUMBER` | `"€40"` instead of `40` + `currency` | number in `cost`, ISO code in `currency` |
 | `days[N] repeats date ...` | the same date twice in one plan | `POST /days` does not dedupe by date — it creates a second day |
 | `Field(s) ['notes'] are not permitted` on `POST /days` | `DayCreate` is `extra=forbid` | let `fill` do it (see above) — the `notes` go in a follow-up `PUT /days/<id>` |
+| `contact` is not accepted with `sub` | `CrewAdd` can attach an ACCOUNT that already exists (`sub`) instead of a placeholder — but that account's contact belongs to their own profile, and this trip never edits someone else's identity | drop `contact`; the `sub` mode is owner-only and only accepts someone the caller follows |
 
 ## Keeping this honest
 
