@@ -8,6 +8,7 @@
  * with `../lib/following` and `../lib/api` stubbed. Gates under test:
  *   - the follow list is fetched ONLY for an owner who opened the panel
  *     (`useFollowing(sub, enabled)` — an editor never triggers a profile read);
+ *   - the panel renders below the title row at full width, never inside it;
  *   - people already on the crew are not offered;
  *   - picking one switches the entry to the ACCOUNT mode: trip label prefilled,
  *     contact gone (it belongs to their profile), and the POST carries `sub`.
@@ -131,6 +132,13 @@ describe("CrewPage add-from-following (#198 follow-up)", () => {
 
     expect(mocks.useFollowing).toHaveBeenCalledWith("google-oauth2|me", true);
     expect(container.textContent).toContain("People you follow");
+    // the panel is a full-width block BELOW the title row — not squeezed into
+    // the header next to "Copy invite link"
+    const panel = container.querySelector("[data-crew-add-panel]");
+    const header = container.querySelector("h1")?.parentElement;
+    expect(panel).not.toBeNull();
+    expect(header?.contains(panel!)).toBe(false);
+    expect(header?.nextElementSibling).toBe(panel);
     // the followed account that is already crew is not offered twice
     const chips = Array.from(container.querySelectorAll("button[aria-pressed]"));
     expect(chips).toHaveLength(1);

@@ -222,7 +222,7 @@ export function AddCrewPanel({
   };
 
   return (
-    <div className="rounded-xl border border-border bg-muted/40 p-3">
+    <div data-crew-add-panel className="rounded-xl border border-border bg-card p-4">
       <p className="kicker mb-2">Add crew member</p>
       {isOwner && (
         <div className="mb-3">
@@ -333,54 +333,20 @@ export function AddCrewPanel({
   );
 }
 
-/** Collapsed-until-clicked add affordance (editor+). Owners additionally get
- *  the "people you follow" picker, which loads on open. */
-function AddCrewForm({
-  busy,
-  isOwner,
-  onAdd,
-}: {
-  busy: boolean;
-  isOwner: boolean;
-  onAdd: (body: AddCrewMemberBody) => Promise<boolean>;
-}) {
-  const trip = useTrip();
-  const { user } = useAuth0();
-  const [open, setOpen] = useState(false);
-  const { people, loading } = useFollowing(user?.sub, isOwner && open);
-
-  if (!open) {
-    return (
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} disabled={busy}>
-        <UserPlus className="h-3.5 w-3.5" /> Add crew member
-      </Button>
-    );
-  }
-
-  return (
-    <AddCrewPanel
-      busy={busy}
-      isOwner={isOwner}
-      following={people}
-      crewIds={trip.crew.map((p) => p.id)}
-      loadingFollowing={loading}
-      onAdd={onAdd}
-      onClose={() => setOpen(false)}
-    />
-  );
-}
-
 export function CrewPage() {
   const trip = useTrip();
-  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect } = useAuth0();
+  const { getAccessTokenSilently, isAuthenticated, loginWithRedirect, user } = useAuth0();
   const { busy, error, run } = useTripWrite();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const isOwner = trip.myRole === "owner";
   const hasPlaceholders = trip.crew.some((p) => !p.claimed);
+  // Only an owner who opened the panel triggers the follow-list read.
+  const { people, loading } = useFollowing(user?.sub, isOwner && adding);
 
   const saveMember = async (person: Person, patch: { note?: string | null; role?: Role }) => {
     setEditingId(null);
@@ -447,13 +413,35 @@ export function CrewPage() {
     }
   };
 
+  /** Add affordance (editor+) — the trigger stays in the title row, but the
+   *  PANEL it opens renders below the title at the crew cards' full width
+   *  (a form squeezed next to the title next to "Copy invite link" read as
+   *  chrome, not as part of the page). */
+  const addButton = canEdit && !adding && (
+    <Button variant="outline" size="sm" onClick={() => setAdding(true)} disabled={busy}>
+      <UserPlus className="h-3.5 w-3.5" /> Add crew member
+    </Button>
+  );
+  const addPanel = canEdit && adding && (
+    <AddCrewPanel
+      busy={busy}
+      isOwner={isOwner}
+      following={people}
+      crewIds={trip.crew.map((p) => p.id)}
+      loadingFollowing={loading}
+      onAdd={addMember}
+      onClose={() => setAdding(false)}
+    />
+  );
+
   if (!trip.crew.length) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Crew</h1>
-          {canEdit && <AddCrewForm busy={busy} isOwner={isOwner} onAdd={addMember} />}
+          {addButton}
         </div>
+        {addPanel}
         <p className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground">
           Crew not announced yet.
         </p>
@@ -470,7 +458,7 @@ export function CrewPage() {
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Crew</h1>
         <div className="flex items-center gap-2">
-          {canEdit && <AddCrewForm busy={busy} isOwner={isOwner} onAdd={addMember} />}
+          {addButton}
           {isOwner && hasPlaceholders && (
             <Button variant="outline" size="sm" onClick={() => void copyInviteLink()} disabled={busy}>
               {inviteCopied ? (
@@ -486,6 +474,7 @@ export function CrewPage() {
           )}
         </div>
       </div>
+      {addPanel}
       {trip.crew.map((p) => (
         <Card key={p.id} className="p-4">
           <div className="flex items-center gap-4">
