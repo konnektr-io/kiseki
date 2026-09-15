@@ -30,10 +30,17 @@ export interface LandingMapStop {
  * - **Nothing is fetched until it is needed.** MapLibre is ~800 kB of WebGL renderer
  *   behind the same `IntersectionObserver` gate `MapView` uses, so a visitor who
  *   never scrolls this far never downloads it.
- * - **No trip document and no backend call.** The route is four numbers per stop,
- *   drawn straight from stop to stop: the app fetches real road geometry per leg
- *   (Directions, server-side), and spending a routing call on every visit to a
- *   marketing page to decorate an example would be a silly way to run a front door.
+ * - **No trip document.** The route is five fixed stops; the road geometry between
+ *   them comes from `GET /api/landing-route`, which serves it live from HERE with
+ *   a 5-minute cache. Hardcoding the polyline is not an option — HERE's terms allow
+ *   routing results outside the platform for 30 days at most (Japan: 24 h), so a
+ *   committed copy would be a licence violation, not an optimisation. Until that
+ *   fetch lands (or when it fails) the map draws the stops straight, exactly as
+ *   before — the line upgrades to real roads when they arrive.
+ *
+ * The road geometry carries a credit requirement of its own (© HERE), so the map
+ * shows a small "Road route © HERE" caption — but only when it is actually drawing
+ * HERE roads rather than the straight fallback.
  *
  * Attribution is maplibre's own (`attributionControl`), off the OpenFreeMap style —
  * the tiles are community-funded, so the credit is required and is shown.
@@ -54,6 +61,8 @@ export function LandingMap({
   const [webgl2, setWebgl2] = useState<boolean | null>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** True once the map is drawing live HERE roads (credit requirement, © HERE). */
+  const [road, setRoad] = useState(false);
   // `stops` comes from a module constant, but keying on its contents keeps the
   // effect honest if a caller ever builds the array inline.
   const stopsKey = stops.map((s) => `${s.name}:${s.lng},${s.lat}`).join("|");
@@ -97,7 +106,10 @@ export function LandingMap({
 
     void (async () => {
       try {
-        const lib = await loadMapLibre();
+        // The library and the roads load together: a warm backend cache makes the
+        // fetch cost nothing, and the map does not wait for either — pins and
+        // tiles render first, the line upgrades to real roads when they arrive.
+        const [lib, roadCoords] = await Promise.all([loadMapLibre(), fetchRoadGeometry()]);
         if (cancelled || !ref.current) return;
         const stops = stopsRef.current;
         const colors = mapColors(ref.current);
@@ -159,7 +171,9 @@ export function LandingMap({
             properties: {},
             geometry: {
               type: "LineString",
-              coordinates: stops.map((s) => [s.lng, s.lat]),
+              // Real roads when HERE answered, the straight stop-to-stop line
+              // until then or when it did not.
+              coordinates: roadCoords ?? stops.map((s) => [s.lng, s.lat]),
             },
           },
         });
@@ -178,7 +192,10 @@ export function LandingMap({
           paint: { "line-color": colors.route, "line-width": 3 },
         });
 
-        if (!cancelled) setReady(true);
+        if (!cancelled) {
+          if (roadCoords) setRoad(true);
+          setReady(true);
+        }
       } catch {
         if (!cancelled) setFailed(true);
       }
@@ -191,9 +208,10 @@ export function LandingMap({
   }, [onScreen, stopsKey]);
 
   return (
-    <div
-      className={`relative mt-4 aspect-[9/5] overflow-hidden rounded-lg border border-border bg-muted ${className}`}
-    >
+    <>
+      <div
+        className={`relative mt-4 aspect-[9/5] overflow-hidden rounded-lg border border-border bg-muted ${className}`}
+      >
       {/* The drawn stand-in. Holds the height, so the real map cannot shift the page. */}
       <div
         aria-hidden={ready ? "true" : undefined}
@@ -210,8 +228,47 @@ export function LandingMap({
           ready ? "opacity-100" : "opacity-0"
         }`}
       />
-    </div>
+      </div>
+      {/* HERE's credit, and only when its roads are what is drawn. */}
+      {road ? <p className="mt-2 text-[11px] text-muted-foreground">Road route © HERE</p> : null}
+    </>
   );
+}
+
+/**
+ * The example's roads, live from the backend (`GET /api/landing-route`).
+ *
+ * Null when anything is off — no backend, no HERE key, a HERE error, a bad
+ * shape — and the map keeps the straight stop-to-stop line. The shape is
+ * validated rather than trusted: a fetch that returns something unexpected
+ * must degrade, never crash the map's source.
+ */
+async function fetchRoadGeometry(): Promise<[number, number][] | null> {
+  try {
+    const res = await fetch("/api/landing-route");
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (typeof data !== "object" || data === null) return null;
+    const { road, coordinates } = data as { road?: unknown; coordinates?: unknown };
+    if (road !== true || !Array.isArray(coordinates) || coordinates.length < 2) return null;
+    const pts: [number, number][] = [];
+    for (const pt of coordinates) {
+      if (
+        !Array.isArray(pt) ||
+        pt.length !== 2 ||
+        typeof pt[0] !== "number" ||
+        typeof pt[1] !== "number" ||
+        !Number.isFinite(pt[0]) ||
+        !Number.isFinite(pt[1])
+      ) {
+        return null;
+      }
+      pts.push([pt[0], pt[1]]);
+    }
+    return pts;
+  } catch {
+    return null;
+  }
 }
 
 /** The example trip is a plan, not a booking — so its pins are the planned ones. */
