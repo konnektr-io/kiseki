@@ -33,11 +33,20 @@ describe("the prerendered landing", () => {
   });
 
   it("carries the example, since the whole body is now static", () => {
-    // The page fetches nothing, so the prerender is the complete page rather than a
-    // degraded no-data version of it.
+    // The page fetches nothing of its own, so the prerender is the complete page
+    // rather than a degraded no-data version of it.
     const html = renderLandingHtml();
-    expect(html).toContain("One day of an example trip.");
+    expect(html).toContain("Nine days in Tokyo.");
     expect(html).toContain("/marketing/hero.jpg");
+  });
+
+  it("carries the drawn route, which is what a no-JS visitor gets instead of the map", () => {
+    // The real map is MapLibre over canvas, so it can never be prerendered; the
+    // drawing underneath it can, and it also holds the box's height so the page does
+    // not jump when the map arrives.
+    const html = renderLandingHtml();
+    expect(html).toContain("A route drawn as a dashed line through five numbered stops");
+    expect(html).toContain('data-landing-map="idle"');
   });
 
   it("renders no auth control, which could not work without JavaScript", () => {
