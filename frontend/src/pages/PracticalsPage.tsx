@@ -15,6 +15,7 @@ export function PracticalsPage() {
   const { busy, error, run } = useTripWrite();
   const todos = trip.practical.todos ?? [];
   const links = trip.practical.links ?? [];
+  const blocks = trip.practical.blocks ?? [];
   const contacts = trip.practical.contacts ?? [];
   const done = todos.filter((t) => t.done).length;
   // #231: the TriCount card is only worth a slot here once the trip is
@@ -104,6 +105,20 @@ export function PracticalsPage() {
           )}
         </Card>
       )}
+
+      {/* #254 — the roadbook's practicalities under their OWN headings
+          ("Driving times", "Money & tipping", "Water & health"). This is a
+          document surface, so these render as heading + prose, deliberately
+          WITHOUT card chrome: a wall of text becomes a readable, printable
+          set of sections, and the page stays booklet-faithful (DESIGN §2.1). */}
+      {blocks.map((b, i) => (
+        <section key={`${b.title}-${i}`} className="space-y-1.5">
+          <h2 className="font-heading text-lg font-semibold tracking-wide">{b.title}</h2>
+          <div className="text-sm leading-relaxed text-muted-foreground">
+            <Markdown>{b.body}</Markdown>
+          </div>
+        </section>
+      ))}
 
       {contacts.length > 0 && (
         <Card className="p-5">

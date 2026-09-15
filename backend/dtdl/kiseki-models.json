@@ -1000,6 +1000,25 @@
               "schema": "string"
             },
             {
+              "name": "blocks",
+              "schema": {
+                "@type": "Array",
+                "elementSchema": {
+                  "@type": "Object",
+                  "fields": [
+                    {
+                      "name": "title",
+                      "schema": "string"
+                    },
+                    {
+                      "name": "body",
+                      "schema": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
               "name": "contacts",
               "schema": {
                 "@type": "Array",

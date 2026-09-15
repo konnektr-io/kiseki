@@ -293,10 +293,19 @@ export interface Theme {
   preset?: string | null;
 }
 
+/** One titled practicalities section (#254) — a heading plus a markdown body.
+ *  List position is the render order; `notes` stays as the single-blob
+ *  back-compat field for trips that predate blocks. */
+export interface PracticalBlock {
+  title: string;
+  body: string;
+}
+
 export interface Practical {
   todos?: TodoItem[];
   links?: Link[];
   notes?: string;
+  blocks?: PracticalBlock[];
   contacts?: Contact[];
   tricount?: TricountConfig;
 }
@@ -356,7 +365,7 @@ export interface Trip {
   features?: Feature[];
   sections?: TripSection[];
   crew: Person[];
-  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; contacts?: Contact[]; tricount?: TricountConfig };
+  practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; blocks?: PracticalBlock[]; contacts?: Contact[]; tricount?: TricountConfig };
   days: Day[];
   updated?: string;
 }

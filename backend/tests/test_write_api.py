@@ -435,6 +435,63 @@ def test_put_practical_replaces_whole_object(client, rsa_keypair, graph) -> None
     assert p["contacts"][0]["value"] == "+1 555 0100"
 
 
+def test_put_practical_blocks_keep_their_own_headings(client, rsa_keypair, graph) -> None:
+    """#254: a roadbook's practicalities land in `blocks[]`, one titled section
+    each, in list order — instead of being flattened into the single `notes`
+    string. A whole-object PUT must preserve the order (the read path rebuilds
+    from the graph, so an unordered set would show up here)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    r = _authz(client, "put", f"/api/trips/{trip.id}/practical", token, json={
+        "todos": [],
+        "links": [],
+        "notes": "Tap water is fine in San José only.",
+        "contacts": [],
+        "blocks": [
+            {"title": "Driving times", "body": "San José → Tortuguero: 3 h 30 + 1 h 30 boat"},
+            {"title": "Money & tipping", "body": "10 % service charge; cash at the SINAC gates"},
+        ],
+    })
+    assert r.status_code == 200
+    p = r.json()["practical"]
+    assert [b["title"] for b in p["blocks"]] == ["Driving times", "Money & tipping"]
+    assert p["blocks"][0]["body"].startswith("San José → Tortuguero")
+    # the legacy blob is NOT migrated or dropped — it still renders beside them
+    assert p["notes"].startswith("Tap water")
+
+    # persisted, not just echoed: the canonical document carries the same order
+    got = client.get(f"/api/trips/{trip.id}", headers=_auth(token)).json()
+    assert [b["title"] for b in got["practical"]["blocks"]] == ["Driving times", "Money & tipping"]
+
+
+def test_practical_blocks_are_optional_and_validated(client, rsa_keypair, graph) -> None:
+    """#254: `blocks` is optional (a pre-#254 payload still validates and, being
+    a whole-object replace, clears them) and a malformed block is refused with a
+    422 rather than stored half-formed."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/practical"
+
+    r = _authz(client, "put", url, token, json={
+        "todos": [], "links": [], "contacts": [],
+        "blocks": [{"title": "Water & health", "body": "Repellent on the Caribbean coast."}],
+    })
+    assert r.status_code == 200
+    assert [b["title"] for b in r.json()["practical"]["blocks"]] == ["Water & health"]
+
+    # a payload with no `blocks` key = replace-whole-object, so they go
+    r = _authz(client, "put", url, token, json={"notes": "blob only"})
+    assert r.status_code == 200
+    assert r.json()["practical"]["blocks"] == []
+
+    # a block without a body is a validation error, never a stored half-block
+    r = _authz(client, "put", url, token, json={"blocks": [{"title": "No body"}]})
+    assert r.status_code == 422
+    assert _trip_of(g).practical.blocks == []
+
+
 # ---------------------------------------------------------------- blocks
 def _day_and_section(g):
     trip = _trip_of(g)

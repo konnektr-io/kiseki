@@ -104,3 +104,59 @@ describe("practicals page — TriCount card (#231)", () => {
     expect(html).toContain("Book the ferry");
   });
 });
+
+/* #254 — a roadbook's practicalities used to collapse into the single `notes`
+ * string (one 688-char blob on the live trip). They now come in as titled
+ * `blocks[]`, each rendering under its own heading in list order. The legacy
+ * blob is NOT migrated on read: a trip that has one keeps showing it. */
+describe("practicals page — titled practicalities blocks (#254)", () => {
+  // The issue's own acceptance case: a roadbook section with these three
+  // headings produces three titled blocks, in this order.
+  const blocks: NonNullable<Trip["practical"]["blocks"]> = [
+    { title: "Driving times", body: "San José to Tortuguero: 3 h 30 + 1 h 30 boat" },
+    { title: "Money & tipping", body: "10 % service charge; cash at the SINAC gates" },
+    { title: "Water & health", body: "Tap water is fine in San José; repellent on the Caribbean coast" },
+  ];
+
+  it("renders each block under its own heading, in list order", () => {
+    const html = renderPage({ blocks });
+    expect(html).toContain("Driving times");
+    expect(html).toContain("Tortuguero");
+    // React escapes `&` in text nodes (SSR writes `&amp;`) — the heading still
+    // has to be the roadbook's, verbatim.
+    expect(html).toMatch(/Money &(amp;)? tipping/);
+    expect(html).toContain("SINAC gates");
+    expect(html).toMatch(/Water &(amp;)? health/);
+    // Order is the data's, not the renderer's.
+    const order = ["Driving times", /Money &(amp;)? tipping/, /Water &(amp;)? health/];
+    const positions = order.map((s) =>
+      typeof s === "string" ? html.indexOf(s) : html.search(s as RegExp),
+    );
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("keeps a legacy notes blob beside the blocks — nothing is migrated away", () => {
+    const html = renderPage({ notes: "Tap water is fine in San José only.", blocks });
+    expect(html).toContain("Tap water is fine");
+    expect(html).toContain("At a glance");
+    expect(html).toContain("Driving times");
+  });
+
+  it("a notes-only trip renders exactly as before — no stray headings, no empty sections", () => {
+    const html = renderPage({ notes: "Bring the puffer." });
+    expect(html).toContain("Bring the puffer.");
+    expect(html).not.toContain("Driving times");
+    expect(html).not.toMatch(/Money &(amp;)? tipping/);
+  });
+
+  it("blocks sit between the checklist and the contacts", () => {
+    const html = renderPage({
+      blocks,
+      contacts: [{ label: "Lodge", value: "+1 555 0100" }],
+    });
+    const positions = ["Book the ferry", "Driving times", "Lodge"].map((s) => html.indexOf(s));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+});

@@ -55,7 +55,7 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `PUT` | `/api/trips/{trip_id}/containers/{container_id}/block-order` | Reorder a whole container |
 | `PUT` / `PATCH` | `/api/trips/{trip_id}/locations` | Replace / patch the location registry |
 | `PUT` / `PATCH` | `/api/trips/{trip_id}/features` | Overview cards |
-| `PUT` | `/api/trips/{trip_id}/practical` | Practicals (checklist metadata, contacts, notes) |
+| `PUT` | `/api/trips/{trip_id}/practical` | Practicals (checklist, links, contacts, notes, titled blocks) |
 | `POST` | `/api/trips/{trip_id}/practical/todos` | Add a checklist item |
 | `POST` | `/api/trips/{trip_id}/practical/todos/{index}/toggle` | Toggle a checklist item |
 
