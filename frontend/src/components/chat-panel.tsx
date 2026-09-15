@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+import { FileText, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { Markdown } from "../lib/markdown";
@@ -9,6 +9,7 @@ import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
   chatContextKey,
+  composeUserMessage,
   findTripIds,
   loadThreadId,
   messageActivities,
@@ -273,21 +274,10 @@ function ChatThread({
 
   const send = async () => {
     if (!canSend) return;
-    const images: FileUIPart[] = [];
-    const docLinks: string[] = [];
-    for (const a of readyFiles) {
-      if (a.file.isImage) {
-        images.push({
-          type: "file",
-          mediaType: a.file.mediaType,
-          url: a.file.url,
-          filename: a.file.name,
-        });
-      } else {
-        docLinks.push(`[${a.file.name}](${a.file.url})`);
-      }
-    }
-    const text = [draft.trim(), ...docLinks].filter(Boolean).join("\n\n");
+    // Attachments travel as PARTS, never as URLs pasted into the prose: the
+    // bubble chips them and the agent gets its handle line separately (issue
+    // #252). The visible message text is the user's own words.
+    const message = composeUserMessage(draft, readyFiles.map((a) => a.file));
     if (isPostHogConfigured) {
       posthog.capture("chat_message_sent", {
         conversation_scope: tripId ? "trip" : "general",
@@ -299,7 +289,9 @@ function ChatThread({
     setAttachments([]);
     setUploadError(null);
     await chat.sendMessage(
-      images.length > 0 ? { text, files: images } : { text },
+      message.files.length > 0
+        ? { text: message.text, files: message.files }
+        : { text: message.text },
     );
   };
 
@@ -538,31 +530,96 @@ function ChatThread({
   );
 }
 
+/** Human-readable byte size for an attachment chip ("1.2 MB", "840 kB"). */
+function formatBytes(bytes: number | undefined): string | null {
+  if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
+    return null;
+  }
+  const units = ["kB", "MB", "GB"];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+function isImageFile(part: FileUIPart): boolean {
+  return part.mediaType === "image" || part.mediaType.startsWith("image/");
+}
+
+/**
+ * Attachments read as chips, never as URLs pasted into the prose (issue
+ * #252): a document is a name + size pill that opens the file, a photo batch
+ * is a count pill carrying one thumbnail (the composer already showed the
+ * pictures one by one), a single photo stays a thumbnail. The row wraps and
+ * every label truncates, so no attachment can widen the bubble.
+ */
+function AttachmentRow({ files }: { files: FileUIPart[] }) {
+  const images = files.filter(isImageFile);
+  const docs = files.filter((part) => !isImageFile(part));
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {images.length === 1 ? (
+        <img
+          src={images[0].url}
+          alt={images[0].filename ?? "Attached image"}
+          loading="lazy"
+          className="aspect-[4/3] w-28 rounded-lg border border-border object-cover"
+        />
+      ) : images.length > 1 ? (
+        <span
+          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-xs text-foreground"
+          title={images.map((part) => part.filename ?? "photo").join(", ")}
+        >
+          <img
+            src={images[0].url}
+            alt=""
+            className="h-5 w-5 shrink-0 rounded-full object-cover"
+          />
+          {`${images.length} photos`}
+        </span>
+      ) : null}
+      {docs.map((part, i) => {
+        const size = formatBytes((part as { size?: number }).size);
+        return (
+          <a
+            key={i}
+            href={part.url}
+            target="_blank"
+            rel="noreferrer"
+            title={part.filename ?? part.url}
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-border bg-muted px-2 py-1 text-xs text-foreground hover:bg-muted/70"
+          >
+            <FileText
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <span className="truncate">{part.filename ?? "Attachment"}</span>
+            {size && (
+              <span className="shrink-0 text-muted-foreground">
+                {`· ${size}`}
+              </span>
+            )}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function UserBubble({ message }: { message: UIMessage }) {
   const text = messageToText(message);
-  const files = message.parts.filter((part) => part.type === "file");
+  const files = message.parts.filter(
+    (part): part is FileUIPart => part.type === "file",
+  );
   return (
-    <div className="ml-auto flex max-w-[85%] flex-col items-end gap-1.5">
-      {files.length > 0 && (
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {files.map((part, i) =>
-            part.type === "file" &&
-            (part.mediaType === "image" ||
-              part.mediaType.startsWith("image/")) ? (
-              <img
-                key={i}
-                src={part.url}
-                alt={part.filename ?? "Attached image"}
-                loading="lazy"
-                className="aspect-[4/3] w-28 rounded-lg border border-border object-cover"
-              />
-            ) : null,
-          )}
-        </div>
-      )}
+    <div className="ml-auto flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
+      {files.length > 0 && <AttachmentRow files={files} />}
       {text && (
-        <div className="rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm leading-relaxed text-primary-foreground">
-          <p className="whitespace-pre-wrap">{text}</p>
+        <div className="min-w-0 rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-sm leading-relaxed text-primary-foreground">
+          <p className="whitespace-pre-wrap wrap-anywhere">{text}</p>
         </div>
       )}
     </div>

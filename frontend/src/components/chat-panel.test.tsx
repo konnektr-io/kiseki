@@ -42,6 +42,30 @@ function userText(text: string): UIMessage {
   return { id: "u1", role: "user", parts: [{ type: "text", text }] };
 }
 
+/** A user message carrying attachments — SDK file parts plus the `size` the
+ *  bubble's chip reads (issue #252; the SDK type has no room for it). */
+function userFiles(
+  text: string,
+  files: Array<Record<string, unknown>>,
+): UIMessage {
+  return {
+    id: "u-files",
+    role: "user",
+    parts: [{ type: "text", text }, ...files],
+  } as unknown as UIMessage;
+}
+
+/** `n` photo parts, as a batch upload produces them. */
+function photos(n: number): Array<Record<string, unknown>> {
+  return Array.from({ length: n }, (_, i) => ({
+    type: "file",
+    mediaType: "image/jpeg",
+    filename: `p${i + 1}.jpg`,
+    url: `/media/t1/p${i + 1}.jpg`,
+    size: 900_000,
+  }));
+}
+
 /** An assistant message shaped like a REAL tool-using turn (issue #179):
  *  narration text parts, `data-kiseki-activity` parts, then the answer. */
 function toolTurn(
@@ -332,6 +356,54 @@ describe("ChatPanel messages", () => {
     const html = renderPanel("trip-1");
     expect(html).toContain('src="/media/t1/abc123.jpg"');
     expect(html).toContain("What is this?");
+  });
+
+  it("chips a document — filename + size, the URL only as an href (issue #252)", () => {
+    stubChat({
+      messages: [
+        userFiles("See attached roadbook.", [
+          {
+            type: "file",
+            mediaType: "application/pdf",
+            filename: "Roadbook II- RAES.pdf",
+            url: "/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf",
+            size: 2_411_724,
+          },
+        ]),
+      ],
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("See attached roadbook.");
+    expect(html).toContain("Roadbook II- RAES.pdf");
+    expect(html).toContain("2.3 MB");
+    expect(html).toContain(
+      'href="/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf"',
+    );
+    // The internal path is a link target, never text the bubble has to wrap.
+    expect(html).not.toContain("](/inbox/");
+  });
+
+  it("collapses a photo batch into one count chip (issue #252)", () => {
+    stubChat({ messages: [userFiles("Ten photos.", photos(10))] });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Ten photos.");
+    expect(html).toContain("10 photos");
+    // One thumbnail carries the batch — not ten images stacked in the bubble.
+    expect((html.match(/<img/g) ?? []).length).toBe(1);
+  });
+
+  it("can never be widened by a long unbreakable token (issue #252)", () => {
+    // Even a URL the user types by hand wraps instead of stretching the card.
+    stubChat({
+      messages: [userText("/inbox/f00c480ad41b70bd53b14d6644bf5300.pdf")],
+    });
+    const html = renderPanel("trip-1");
+    // `wrap-anywhere` (overflow-wrap: anywhere) is the safety net: unlike
+    // break-word it also shrinks the bubble's min-content width, so a pasted
+    // token can't push the bubble past its `max-w-[85%]` cap the way the
+    // roadbook URL did (#252).
+    expect(html).toContain("wrap-anywhere");
+    expect(html).toContain("min-w-0");
   });
 });
 
