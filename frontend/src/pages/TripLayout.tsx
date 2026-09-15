@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
-import { fetchTrip, refetchTrip, downloadBooklet, fetchJoinLink, fetchFollowLink, createFollowLink, disableCrewInvite, clearTripCache, TripAccessError } from "../lib/api";
-import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
+import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib/api";
+import { isAuthConfigured } from "../lib/auth";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
@@ -84,13 +84,9 @@ const PDF_RENDER = typeof window !== "undefined" && window.__KISEKI_PDF_RENDER__
 export function TripLayout() {
   const { tripId = "" } = useParams();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
   const { isAuthenticated, isLoading: authLoading, getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
-  const [joinCopied, setJoinCopied] = useState(false);
-  const [followCopied, setFollowCopied] = useState(false);
-  const [inviteOff, setInviteOff] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
   // surface stays mounted underneath so edits land visibly live.
@@ -319,7 +315,6 @@ export function TripLayout() {
   // routes both render TripMapSurface (#92/#90); /map is a redirect (#93).
   const onMapSurface =
     pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
-  const isOwner = trip.myRole === "owner";
 
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
@@ -359,56 +354,11 @@ export function TripLayout() {
     }
   };
 
-  const copyJoinLink = async () => {
-    try {
-      const at = await getAccessTokenSilently();
-      const joinUrl = await fetchJoinLink(trip.id, at);
-      await navigator.clipboard.writeText(window.location.origin + joinUrl);
-      setJoinCopied(true);
-      setTimeout(() => setJoinCopied(false), 2000);
-    } catch (e) {
-      // Owner-only action: a session that can no longer be renewed must not
-      // fail silently — the button is the only way to reach the join link.
-      if (isSessionExpiredError(e)) {
-        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
-        return;
-      }
-      if (e instanceof TripAccessError && e.status === 403) setJoinCopied(false);
-    }
-  };
-
-  const copyFollowLink = async () => {
-    try {
-      const at = await getAccessTokenSilently();
-      // Mint on first use, reuse after that: the link stays stable for the
-      // people already holding it. Rotating is a deliberate act (#197), never
-      // a side effect of copying.
-      const existing = await fetchFollowLink(trip.id, at);
-      const followUrl = existing ?? (await createFollowLink(trip.id, at));
-      await navigator.clipboard.writeText(window.location.origin + followUrl);
-      setFollowCopied(true);
-      setTimeout(() => setFollowCopied(false), 2000);
-    } catch (e) {
-      if (isSessionExpiredError(e)) {
-        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
-        return;
-      }
-      setFollowCopied(false);
-    }
-  };
-
-  const handleDisableCrewInvite = async () => {
-    try {
-      const at = await getAccessTokenSilently();
-      await disableCrewInvite(trip.id, at);
-      setInviteOff(true);
-    } catch (e) {
-      // Owner-only action: a dead session must not fail silently.
-      if (isSessionExpiredError(e)) {
-        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
-      }
-    }
-  };
+  // The owner-only link/invite actions and the terminal delete moved to the
+  // trip settings page (#248, `/t/<id>/settings`): they are trip-level
+  // settings, not per-visit header actions, and the header menu that used to
+  // hold them now points there. What stays here is the booklet PDF — the one
+  // item every role may want on any visit.
 
   return (
     <TripProvider trip={trip} apply={setTrip}>
@@ -457,28 +407,14 @@ export function TripLayout() {
               <MessageCircle className="h-4 w-4" aria-hidden="true" />
             </button>
           )}
-            {/* One overflow menu holds every trip action (PDF for everyone,
-                join link for the owner, stage + sharing for editor+/owner) so
-                the header stays a single row. `onDeleted` is the terminal
-                exit (#163): the trip is gone — clear the session cache the
-                layout fetched into and navigate back to the landing. */}
+            {/* One overflow menu keeps the header to a single row (#239): the
+                booklet PDF for everyone, and — since #248 — a link to the trip
+                settings page for editor+. The trip-level actions it used to
+                carry (stage, theme, sharing, the invite links, TriCount,
+                delete) live on that page now. */}
             <TripActionsMenu
               pdfBusy={pdfBusy}
               onDownloadPdf={handleDownloadPdf}
-              joinCopied={joinCopied}
-              onCopyJoinLink={isOwner ? copyJoinLink : undefined}
-              followCopied={followCopied}
-              onCopyFollowLink={isOwner ? copyFollowLink : undefined}
-              crewInviteDisabled={inviteOff}
-              onDisableCrewInvite={isOwner ? handleDisableCrewInvite : undefined}
-              onDeleted={
-                isOwner
-                  ? () => {
-                      clearTripCache();
-                      navigate("/");
-                    }
-                  : undefined
-              }
             />
             </>
           }

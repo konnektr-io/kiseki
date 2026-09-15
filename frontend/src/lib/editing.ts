@@ -55,6 +55,12 @@ export function withTripVisibility(trip: Trip, visibility: "public" | "private")
   return { ...trip, visibility };
 }
 
+/** #196: being LISTED is a separate decision from being readable — the flag
+ *  only has an effect on a public trip, and the server accepts it either way. */
+export function withTripDiscoverable(trip: Trip, discoverable: boolean): Trip {
+  return { ...trip, discoverable };
+}
+
 export function withTripTheme(trip: Trip, preset: string): Trip {
   return { ...trip, theme: { preset } };
 }

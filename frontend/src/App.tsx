@@ -8,6 +8,7 @@ import { TodayPage } from "./pages/TodayPage";
 import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { BookletPage } from "./pages/BookletPage";
 import { FeedPage } from "./pages/FeedPage";
 import { useTrip } from "./components/theme";
@@ -58,6 +59,11 @@ export default function App() {
         <Route path="s/:n" element={<SectionRedirect />} />
         <Route path="practical" element={<PracticalsPage />} />
         <Route path="crew" element={<CrewPage />} />
+        {/* Trip settings (#248) — the trip-level actions re-homed out of the
+            header's overflow menu. A child of /t/:tripId, so the shared
+            AppHeader + bottom nav stay, and the history-mode whitelist in
+            the backend already covers it (`is_spa_route` matches `t/`). */}
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="booklet" element={<BookletPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
