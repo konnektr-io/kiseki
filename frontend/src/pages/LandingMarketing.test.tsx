@@ -85,7 +85,7 @@ describe("the claim", () => {
     const out = ssr(<MarketingLanding />);
     expect(out).toContain("Plan it together. Live it for real.");
     expect(out).toContain("A trip moves through three stages.");
-    expect(out).toContain("One day of an example trip.");
+    expect(out).toContain("Nine days in Tokyo.");
     expect(out).toContain("Something you can hold.");
     expect(out).toContain("Every trip carries the same parts.");
     expect(out).toContain("Private until you say otherwise.");
@@ -103,9 +103,19 @@ describe("the claim", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("says out loud that the example is fiction", () => {
-    // Honesty in the one place a reader could otherwise assume these are real trips.
-    expect(ssr(<MarketingLanding />)).toContain("invented");
+  it("does not explain itself to the visitor", () => {
+    // Niko's call, and right: nobody cares whether the trip is an example. A note
+    // about fiction is a note to the reviewer, not copy for a stranger — the band is
+    // a view of the product, and the page claims nothing about it that would need
+    // correcting. Where the honesty belongs is `lib/marketing.ts` and CREDITS.md.
+    const out = ssr(<MarketingLanding />);
+    for (const explaining of ["invented", "fictional", "fiction", "example trip"]) {
+      expect(out).not.toContain(explaining);
+    }
+  });
+
+  it("carries the drawn route, so the band shows a map before the map loads", () => {
+    expect(ssr(<MarketingLanding />)).toContain("A route drawn as a dashed line");
   });
 
   it("carries no trip link, media URL or trip id", () => {

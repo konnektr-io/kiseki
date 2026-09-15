@@ -4,19 +4,23 @@ import type { ShowcaseTrip, Stage } from "./types";
  * Copy and content for the signed-out landing page (#249).
  *
  * WHAT IS DELIBERATELY NOT HERE: real trips. This repo is public (`AGENTS.md`),
- * and the first version of this page proved why the rule matters: it linked to
- * the owner's real trips, and a stranger following a link landed on booking codes,
+ * and the first version of this page proved why the rule matters: it linked to the
+ * owner's real trips, and a stranger following a link landed on booking codes,
  * costs and a checklist naming balances. A landing page is the worst place for
  * anybody's paperwork.
  *
- * So the page shows a FICTIONAL example instead — invented trip, invented day,
- * invented crew initials — built from copy in this file plus photographs the owner
- * has declared rights-free (`frontend/public/marketing/CREDITS.md`). Three
- * consequences, all wanted:
+ * So the page shows an example trip — invented, with nobody's content in it, built
+ * from copy in this file plus photographs the owner has declared rights-free
+ * (`frontend/public/marketing/CREDITS.md`). Three consequences, all wanted:
  *
- * - the page renders with NO network call at all (so a prerender carries all of it),
+ * - the page renders with NO network call of its own (so a prerender carries all of it),
  * - there is no `discoverable` trip, no real URL and no crew name anywhere in it,
  * - and it cannot degrade: nothing is fetched, so nothing can be missing.
+ *
+ * The example is NOT captioned as an example. A note explaining that the trip is
+ * fiction is a note to the reviewer, not copy for a stranger — the band is a view of
+ * the product, the way a screenshot is, and the page claims nothing about it that
+ * would need correcting. Where the honesty belongs is here and in CREDITS.md.
  *
  * `GET /api/showcase` still exists and still serves the real graph — the signed-in
  * discovery home reads it next. This page just stops advertising people's trips.
@@ -41,7 +45,7 @@ export const MARKETING_HERO = {
    * It survives as one stage, one band and one line in "what is inside".
    */
   headline: "Plan it together. Live it for real.",
-  lede: "The route, the days, the places and the people in one document that stays true while you are away — and prints as a booklet when the trip is over.",
+  lede: "The route, the days, the places and the people in one document — kept up to date while you travel, and printed as a booklet when you are home.",
   secondaryCta: "See what a trip looks like",
   /** For the visitor who arrived on a link someone sent them. Reading needs no account. */
   guestNote: "Sent a trip link? Open it — reading a trip needs no account.",
@@ -56,7 +60,7 @@ export const MARKETING_HERO = {
  */
 export const MARKETING_TRUST = [
   "No ads",
-  "Analytics only if you allow them",
+  "Opt-in analytics",
   "Booking codes stay with the crew",
 ] as const;
 
@@ -89,31 +93,33 @@ export interface DemoRow {
   chip?: string;
 }
 
+/** A stop the example map draws a pin for. Real coordinates, invented itinerary. */
+export interface DemoStop {
+  name: string;
+  lng: number;
+  lat: number;
+}
+
 /**
- * The example trip.
+ * The example trip, as the app would render it.
  *
- * Fictional on purpose and labelled as such on the page: the trip, the crew and
- * the booking are invented, so no real trip's content can leak through the front
- * door by being "just an example". The photographs are the owner's rights-free
- * ones (see CREDITS.md), and the map is drawn in the component — a screenshot of a
- * real route map would have been neither ours to license nor fictional.
+ * The photographs are the owner's rights-free ones (see CREDITS.md) and the stops
+ * are real Tokyo places — geocoded, so the map's pins land where their labels say.
+ * The itinerary joining them is invented, and `frontend/src/components/LandingMap.tsx`
+ * draws it straight from stop to stop rather than spending a routing call on it.
  */
 export interface MarketingDemo {
   kicker: string;
   title: string;
-  caption: string;
   trip: { title: string; meta: string; stage: Stage };
   day: { label: string; title: string; rows: DemoRow[] };
   crew: { label: string; initials: string[]; note: string };
-  route: { label: string; title: string; body: string; stops: string[] };
-  note: { src: string; alt: string; text: string };
+  route: { label: string; title: string; body: string; stops: DemoStop[] };
 }
 
 export const MARKETING_DEMO: MarketingDemo = {
-  kicker: "What a trip looks like",
-  title: "One day of an example trip.",
-  caption:
-    "The trip below is invented — the crew, the plan and the booking are fiction, so nothing here is anyone's. A real trip reads exactly like this, with its own colour.",
+  kicker: "In the app",
+  title: "Nine days in Tokyo.",
   trip: {
     title: "Nine days in Tokyo",
     meta: "Planned · 9 days · Mar 2027",
@@ -155,18 +161,19 @@ export const MARKETING_DEMO: MarketingDemo = {
   crew: {
     label: "Crew",
     initials: ["A", "M", "R"],
-    note: "Everyone on the trip opens the same link. Reading it needs no account, and the crew's own notes stay with the crew.",
+    note: "Everyone on the trip opens the same link — reading needs no account.",
   },
   route: {
     label: "The map",
     title: "The whole route on one map",
-    body: "Legs, stays and day trips on a single surface, so the shape of the trip is visible before anything is booked. This one is drawn for the example.",
-    stops: ["Shinjuku", "Yanaka", "Kōenji", "Shibuya", "Golden Gai"],
-  },
-  note: {
-    src: "/marketing/day-rain.jpg",
-    alt: "A rainy Tokyo street crossing under umbrellas at dusk",
-    text: "Photos land on the block they happened in — by capture time, not upload order.",
+    body: "Legs, stays and day trips on one map, so the shape of the trip is visible before anything is booked.",
+    stops: [
+      { name: "Shinjuku Gyoen", lng: 139.70955, lat: 35.68507 },
+      { name: "Yanaka", lng: 139.76856, lat: 35.72479 },
+      { name: "Kōenji", lng: 139.64991, lat: 35.70494 },
+      { name: "Shibuya", lng: 139.7005, lat: 35.6595 },
+      { name: "Golden Gai", lng: 139.7047, lat: 35.69399 },
+    ],
   },
 };
 
@@ -230,7 +237,7 @@ export const MARKETING_PRIVACY = {
     {
       key: "default",
       title: "Private by default",
-      body: "A new trip is visible to you and the crew you invite. Putting a trip on this front door is a deliberate opt-in, per trip.",
+      body: "A new trip is visible to you and the crew you invite. Publishing one is a deliberate choice, made per trip.",
     },
     {
       key: "paperwork",
@@ -264,8 +271,8 @@ export const MARKETING_FOOTER = {
  * The stage ladder, furthest-along first — the display rule for a list of
  * discoverable trips.
  *
- * NOT used by this page any more (it shows an invented example, not the graph).
- * It stays because it is the ordering the signed-in discovery home reads off
+ * NOT used by this page any more (it shows an example, not the graph). It stays
+ * because it is the ordering the signed-in discovery home reads off
  * `GET /api/showcase`, and because the rule is worth having in one exported place
  * rather than re-derived: `live` leads, a finished trip trails, and an unknown
  * stage from the graph sorts last instead of crashing the page.

@@ -221,11 +221,16 @@ export function locationStage(trip: Trip, loc: TripLocation): Trip["stage"] {
  * booklet prints through MapView (#37), so print follows for free. Colours
  * stay utilities off tokens — no colour is written in JS. Booked/live keep
  * the long-standing filled pin byte-identical, so staged trips do not shift.
+ *
+ * Split out of `markerPinClass` so a caller with no trip can use the same
+ * vocabulary: the signed-out landing page (#249) draws an example route and has
+ * no document to derive a stage from, and a second copy of these classes is how
+ * the landing's pin would quietly stop matching the app's.
  */
-export function markerPinClass(trip: Trip, loc: TripLocation): string {
+export function pinClassForStage(stage: Trip["stage"]): string {
   const base =
     "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card";
-  switch (locationStage(trip, loc)) {
+  switch (stage) {
     case "idea":
     case "options":
     case "shortlist":
@@ -238,6 +243,12 @@ export function markerPinClass(trip: Trip, loc: TripLocation): string {
     case "archive":
       return `${base} border border-border bg-muted text-muted-foreground`;
   }
+}
+
+/** The pin a location gets: its stage (derived from the blocks that name it) fed
+ *  through the one class map above. */
+export function markerPinClass(trip: Trip, loc: TripLocation): string {
+  return pinClassForStage(locationStage(trip, loc));
 }
 
 /**

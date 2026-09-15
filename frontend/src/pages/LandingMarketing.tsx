@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
+import { LandingMap } from "../components/LandingMap";
 import { StageBadge } from "../components/ui";
 import {
   MARKETING_BOOKLET,
@@ -26,17 +27,23 @@ import {
  * booking codes, costs and the crew's checklist. Public is not the same as "fine to
  * advertise from a landing page".
  *
- * So the page now shows an invented example, and therefore:
+ * So the page shows an example trip instead — invented, carrying nobody's content —
+ * and therefore:
  *
- * - **It makes no network call at all.** No showcase read, no trip read, no trip
+ * - **It makes no network call of its own.** No showcase read, no trip read, no trip
  *   link, no trip id — which also means it cannot degrade: there is no empty state,
  *   no failure state and nothing to be missing. The prerender (`scripts/prerender.mjs`)
- *   therefore carries the whole page, not just the copy.
+ *   therefore carries the whole page, not just the copy. The one thing that does
+ *   reach out is the example's map, which loads MapLibre and tiles as it scrolls into
+ *   view, exactly as the app's maps do (`components/LandingMap.tsx`).
  * - **The crew's paperwork cannot leak through it**, because no real trip's content
  *   is in it. The example's booking chip says "confirmation on file" and carries no
  *   code: the feature, without anyone's reference.
  * - **Print is demoted.** The booklet is one stage, one band and one entry in
  *   "what is inside" — the headline is about planning and living the trip.
+ *
+ * The band's copy is deliberately not captioned as an example: explaining that the
+ * trip is fiction is a note to the reviewer, not copy for a stranger.
  *
  * The sign-in CTA still arrives as a node from the page that owns the auth SDK, so
  * this file renders with no Auth0 context (and the prerender passes `null`).
@@ -146,7 +153,6 @@ export function MarketingLanding({
             >
               {MARKETING_DEMO.title}
             </h2>
-            <p className="mt-4 max-w-2xl text-muted-foreground">{MARKETING_DEMO.caption}</p>
 
             <div className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
               {/* the day */}
@@ -216,14 +222,16 @@ export function MarketingLanding({
                   <p className="mt-2 font-heading text-lg leading-tight">
                     {MARKETING_DEMO.route.title}
                   </p>
-                  <ExampleRouteMap />
+                  {/* The real map — MapLibre over OpenFreeMap, attribution and all —
+                      with the drawn route standing in underneath until it loads. */}
+                  <LandingMap stops={MARKETING_DEMO.route.stops} />
                   <ul className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
                     {MARKETING_DEMO.route.stops.map((stop, index) => (
-                      <li key={stop} className="inline-flex items-center gap-1.5">
+                      <li key={stop.name} className="inline-flex items-center gap-1.5">
                         <span className="inline-grid h-5 w-5 place-items-center rounded-full bg-primary/10 text-[11px] font-semibold tabular-nums text-primary">
                           {index + 1}
                         </span>
-                        {stop}
+                        {stop.name}
                       </li>
                     ))}
                   </ul>
@@ -250,19 +258,6 @@ export function MarketingLanding({
                   </p>
                 </div>
 
-                <div className="overflow-hidden rounded-xl border border-border bg-card">
-                  <div className="relative aspect-[16/10] bg-muted">
-                    <img
-                      src={MARKETING_DEMO.note.src}
-                      alt={MARKETING_DEMO.note.alt}
-                      loading="lazy"
-                      className="h-full w-full object-cover"
-                    />
-                  </div>
-                  <p className="p-5 text-sm leading-relaxed text-muted-foreground">
-                    {MARKETING_DEMO.note.text}
-                  </p>
-                </div>
               </div>
             </div>
           </div>
@@ -404,56 +399,3 @@ export function MarketingLanding({
 /** The hero's one action, and the closing band's, in the `ui.Button` vocabulary. */
 const CTA_PRIMARY =
   "inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 focus-visible:focus-ring";
-
-/**
- * The example's map, drawn rather than photographed.
- *
- * Deliberately not a real route-map image: the one a real trip carries is built on
- * Google Maps tiles, so it is neither ours to license for a public page nor
- * fictional — and a "fake trip" illustrated with somebody's actual route would be
- * the same mistake this revision is fixing, one level down. A drawn line is
- * honest, carries no data, and is on-brand for a cartographic product.
- */
-function ExampleRouteMap() {
-  return (
-    <div className="mt-4 overflow-hidden rounded-lg border border-border bg-muted">
-      <svg
-        viewBox="0 0 360 200"
-        role="img"
-        aria-label="An example route drawn as a dashed line through five numbered stops"
-        className="h-auto w-full"
-      >
-        {/* land shapes — a schematic hint, not a map of anywhere */}
-        <path d="M0 150 L70 120 L140 138 L210 104 L280 126 L360 96 L360 200 L0 200 Z" className="fill-border" />
-        <path d="M0 60 L60 40 L130 66 L190 34 L250 58 L320 30 L360 44 L360 0 L0 0 Z" className="fill-border/60" />
-        {/* the route */}
-        <path
-          d="M48 150 C96 118, 120 92, 168 96 S244 130, 292 74"
-          fill="none"
-          strokeWidth="2.5"
-          strokeDasharray="7 5"
-          className="stroke-primary"
-        />
-        {[
-          { x: 48, y: 150, n: 1 },
-          { x: 112, y: 104, n: 2 },
-          { x: 186, y: 96, n: 3 },
-          { x: 248, y: 118, n: 4 },
-          { x: 292, y: 74, n: 5 },
-        ].map((pin) => (
-          <g key={pin.n}>
-            <circle cx={pin.x} cy={pin.y} r="9" className="fill-card stroke-primary" strokeWidth="2" />
-            <text
-              x={pin.x}
-              y={pin.y + 3.5}
-              textAnchor="middle"
-              className="fill-primary text-[9px] font-semibold tabular-nums"
-            >
-              {pin.n}
-            </text>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
-}
