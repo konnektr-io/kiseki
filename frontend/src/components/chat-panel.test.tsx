@@ -32,7 +32,7 @@ vi.mock("@ai-sdk/react", () => ({
 }));
 
 import { ChatAuthError } from "../lib/chat";
-import { ChatPanel, shouldOfferReconnect } from "./chat-panel";
+import { ChatPanel, shouldOfferReconnect, summarizeAttachments } from "./chat-panel";
 
 function assistantText(text: string): UIMessage {
   return { id: "a1", role: "assistant", parts: [{ type: "text", text }] };
@@ -493,5 +493,75 @@ describe("ChatPanel close button", () => {
   it("is absent in the inline (non-popup) form", () => {
     stubChat();
     expect(renderPanel("trip-1")).not.toContain('aria-label="Close chat"');
+  });
+});
+
+/* The composer's accounting of an attachment batch (#251). The reporter could
+ * not tell 8 attached photos from 10, so the count is pinned here: what is
+ * ready, what the server transcoded on the way in, and what failed (with the
+ * reason — that is what makes it actionable). */
+describe("summarizeAttachments (#251)", () => {
+  const ready = (
+    name: string,
+    { image = true, converted = false }: { image?: boolean; converted?: boolean } = {},
+  ) => ({
+    id: name,
+    state: "ready" as const,
+    file: {
+      url: `/media/trip-1/${name}`,
+      name,
+      mediaType: image ? "image/jpeg" : "application/pdf",
+      isImage: image,
+      converted,
+    },
+  });
+  const uploading = (name: string) => ({
+    id: name,
+    state: "uploading" as const,
+    name,
+  });
+  const failed = (name: string, error: string) => ({
+    id: name,
+    state: "failed" as const,
+    name,
+    error,
+  });
+
+  it("counts the batch by kind", () => {
+    expect(
+      summarizeAttachments([ready("a.jpg"), ready("b.jpg"), ready("menu.pdf", { image: false })]),
+    ).toBe("2 photos · 1 document attached");
+  });
+
+  it("says how many were converted on upload", () => {
+    expect(
+      summarizeAttachments([
+        ready("IMG_0001.heic", { converted: true }),
+        ready("IMG_0002.heic", { converted: true }),
+        ready("IMG_0003.jpg"),
+      ]),
+    ).toBe("3 photos attached · 2 converted");
+  });
+
+  it("never hides a failure: how many of the picked files attached, and why not", () => {
+    const batch = [
+      ...Array.from({ length: 20 }, (_, i) => ready(`IMG_${i}.jpg`)),
+      failed("IMG_0001.heic", "Upload failed (422): this build has no HEIC decoder"),
+      failed("IMG_0002.heic", "Upload failed (422): this build has no HEIC decoder"),
+    ];
+
+    expect(summarizeAttachments(batch)).toBe(
+      "20 of 22 attached · 2 failed: this build has no HEIC decoder",
+    );
+  });
+
+  it("shows uploads still in flight", () => {
+    expect(
+      summarizeAttachments([ready("a.jpg"), uploading("b.jpg"), uploading("c.jpg")]),
+    ).toBe("1 photo attached · 2 uploading…");
+  });
+
+  it("is empty when nothing is attached", () => {
+    expect(summarizeAttachments([])).toBe("");
   });
 });

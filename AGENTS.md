@@ -73,7 +73,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | GET | `/api/users/{sub}/followers` · `/following` | drill-in people lists (#196) — capped at 200 entries with the true-total `count`; no email, ever |
 | POST / DELETE | `/api/users/{sub}/follow` | follow / unfollow a person (#196) — one-directional, grants NO trip access; user-token-only (M2M refused 403); 400 self, 404 unknown |
 | DELETE | `/api/trips/{trip_id}` | owner-only; deletes the trip twin + everything scoped to it (days/sections/blocks/features/crew edges + placeholder Persons; claimed User twins survive). Edges-first cascade (#89 rule); `204` on success, `404` when gone (re-DELETE to confirm) — the terminal affordance for a botched half-create (#163) |
-| POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4) |
+| POST | `/api/files` | multipart upload (chat) — with `tripId`: editor+ trip media; WITHOUT: user inbox → `/inbox/<sha256[:32]><ext>` (content-addressed capability, M4). HEIC/HEIF (iPhone photos) is transcoded to JPEG at ingest — by extension *or* by content, EXIF kept for the photo-placement path — and anything that cannot be decoded is a per-file `422` naming the file, never an accept-and-store-forever (#251). The response carries the STORED form: `url`, `name`, `contentType`, `sha256` (of the stored bytes), `exif`, `converted` |
 | POST | `/api/files/promote` | move an inbox file into a trip's media namespace — `{"trip_id", "file_name"}`, editor+; a move, not a copy (inbox copy deleted) |
 | PUT | `/api/trips/{trip_id}/practical` | whole practical object |
 | POST | `/api/trips/{trip_id}/practical/todos` | append todo |

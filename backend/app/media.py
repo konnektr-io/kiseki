@@ -30,6 +30,7 @@ idempotent: re-running the upload for the same bytes writes the same key.
 
 from __future__ import annotations
 
+import io
 import re
 from pathlib import Path
 from typing import Iterable, Optional, Protocol
@@ -80,6 +81,131 @@ _CHUNK = 64 * 1024
 def media_content_type(file_name: str) -> str:
     """Content type for a media file, from its extension."""
     return MEDIA_TYPES.get(Path(file_name).suffix.lower(), "application/octet-stream")
+
+
+# --------------------------------------------------------------------------
+# Upload normalization (#251)
+#
+# iPhone photos arrive as HEIC/HEIF. Nothing in the stack can display them:
+# browsers do not decode HEIC, so a stored ``.heic`` was served as
+# ``application/octet-stream``, matched by no media extension, survived
+# ``canonicalize_media`` as a bare name — and a whole camera roll therefore
+# "uploaded" into a trip and was never visible. We transcode HEIC to JPEG at
+# ingest instead, so every stored object is something the SPA, the booklet
+# renderer and the model can actually read. AVIF (also a HEIF container) IS
+# renderable and passes through untouched.
+HEIC_EXTS = (".heic", ".heif")
+
+# ISO-BMFF major/compatible brands. The HEIC family is Apple's grid-encoded
+# HEIF plus the generic ``mif1``/``msf1`` brands; ``avif``/``avis`` are the one
+# HEIF flavour every current browser renders, so those are NOT touched.
+_HEIC_BRANDS = frozenset(b"heic heix hevc hevx heim heis hevm hevs mif1 msf1".split())
+_RENDERABLE_HEIF_BRANDS = frozenset(b"avif avis".split())
+
+# JPEG quality for the transcode. Source is a phone photo already compressed
+# at a comparable quality, so this is visually lossless in practice and keeps
+# the stored object inside the same size envelope as a native JPEG upload.
+_HEIC_JPEG_QUALITY = 88
+
+
+class UnsupportedUpload(ValueError):
+    """An upload this build refuses to store (``POST /api/files`` → 422).
+
+    Only raised for a file that genuinely cannot be stored in a renderable
+    form — the client shows the message per file, which is the point: the
+    alternative used to be accepting the bytes and dropping them from every
+    surface that renders media (#251).
+    """
+
+
+def _ftyp_brands(raw: bytes) -> list[bytes]:
+    """ISO-BMFF brands declared in a leading ``ftyp`` box ([] when absent)."""
+    if len(raw) < 12 or raw[4:8] != b"ftyp":
+        return []
+    size = int.from_bytes(raw[0:4], "big")
+    end = size if 8 <= size <= len(raw) else len(raw)
+    # major_brand, minor_version, then 4-byte compatible brands.
+    brands = [raw[8:12]]
+    brands.extend(raw[i : i + 4] for i in range(16, end - 3, 4))
+    return brands
+
+
+def is_unrenderable_heif(raw: bytes) -> bool:
+    """True for a HEIF file no browser can render (HEIC — but never AVIF).
+
+    Decided on the bytes, not the name: a photo exported as ``IMG_1.jpg``
+    whose content is HEIC is the same unrenderable file.
+    """
+    brands = _ftyp_brands(raw)
+    if not brands:
+        return False
+    if any(brand in _RENDERABLE_HEIF_BRANDS for brand in brands):
+        return False
+    return any(brand in _HEIC_BRANDS for brand in brands)
+
+
+_HEIF_DECODER: Optional[bool] = None
+
+
+def _register_heif_decoder() -> bool:
+    """Teach Pillow to open HEIC, once. False when the decoder is unavailable.
+
+    ``pillow-heif`` is a declared dependency and bundles libheif, so this is
+    True in the image and in CI. The guard exists so a stripped environment
+    answers with a clear per-file error rather than storing an unreadable
+    object.
+    """
+    global _HEIF_DECODER
+    if _HEIF_DECODER is None:
+        try:
+            from pillow_heif import register_heif_opener
+
+            register_heif_opener()
+            _HEIF_DECODER = True
+        except Exception:  # pragma: no cover - import/ABI failure
+            _HEIF_DECODER = False
+    return _HEIF_DECODER
+
+
+def normalize_upload(raw: bytes, file_name: str) -> tuple[bytes, str, bool]:
+    """Storage form for an upload: ``(bytes, extension, converted)``.
+
+    HEIC/HEIF — recognised by extension or by content — becomes a JPEG so the
+    stored object is renderable everywhere. Everything else is returned
+    untouched (the common path allocates nothing).
+
+    EXIF is carried across the transcode: the capture timestamp + GPS are what
+    the photo ingest path (#190) places a batch by, so dropping them here would
+    just be a different silent loss.
+
+    Raises ``UnsupportedUpload`` when the bytes are HEIC and no decoder is
+    available, or the image cannot be decoded at all.
+    """
+    ext = Path(file_name or "").suffix.lower()
+    if ext not in HEIC_EXTS and not is_unrenderable_heif(raw):
+        return raw, ext, False
+    label = file_name or "photo"
+    if not _register_heif_decoder():
+        raise UnsupportedUpload(
+            f"{label}: HEIC/HEIF needs a decoder this build does not have — "
+            "export the photo as JPEG and attach it again"
+        )
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(raw)) as image:
+            exif = image.info.get("exif")
+            rgb = image.convert("RGB")
+            out = io.BytesIO()
+            rgb.save(
+                out,
+                format="JPEG",
+                quality=_HEIC_JPEG_QUALITY,
+                **({"exif": exif} if exif else {}),
+            )
+    except Exception as exc:
+        raise UnsupportedUpload(f"{label}: could not be decoded as an image ({exc})") from exc
+    return out.getvalue(), ".jpg", True
 
 
 def is_valid_media_path(trip: str, file_name: str) -> bool:

@@ -88,11 +88,22 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `POST` | `/api/chat` | user | Send a turn to the agent; server-sent events in the Vercel-AI UI-message-stream shape |
 | `GET` | `/api/chat/turn` | user | Attach to a run in progress at a cursor (survives reloads) |
 | `POST` | `/api/chat/stop` | user | Stop the running turn — the only thing that does |
-| `POST` | `/api/files` | user | Upload files for the agent (inbox) |
+| `POST` | `/api/files` | user | Upload files for the agent (inbox). HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |
 | `POST` | `/api/files/promote` | user | Promote an inbox file into trip media / the right attachment point |
 
 The agent's own trip writes use the same endpoints above, carrying the acting user's identity and
 therefore the acting user's role.
+
+**Chat attachments (#251).** An upload is never silently dropped or silently unusable:
+
+- The composer counts the batch (`N photos attached · M converted · K failed: <reason>`) and that
+  same line is sent as the first line of the message, so a turn that carried 8 files and one that
+  carried 10 are no longer indistinguishable in the transcript.
+- Two files with the same name are two attachments — uploads are reconciled by identity, never by
+  filename.
+- HEIC/HEIF (iPhone photos) is transcoded to JPEG on ingest, EXIF (capture time + GPS) intact;
+  a file the server cannot decode comes back as a per-file `422` whose message the composer shows on
+  the file's chip.
 
 ## Photos and expenses
 
