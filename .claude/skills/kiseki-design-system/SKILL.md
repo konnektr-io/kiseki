@@ -8,9 +8,10 @@ description: Kiseki's UI law — design tokens, component rules, responsive layo
 Full rationale lives in [`DESIGN.md`](../../../DESIGN.md). This skill is the operational
 part: what to do, in what order, and what will bite you.
 
-**The tiebreaker for every visual decision:** Kiseki is *a printed travel booklet that
-happens to be alive.* Editorial, cartographic, calm. If a change makes the app feel more
-like a SaaS dashboard, it's wrong.
+**The tiebreaker for every visual decision:** Kiseki is *one document for the whole life of a
+trip — planned with the people coming, kept honest while it happens, printed at the end.*
+Editorial, cartographic, calm. If a change makes the app feel more like a SaaS dashboard,
+it's wrong.
 
 ## Before you write any UI code
 

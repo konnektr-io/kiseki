@@ -7,7 +7,7 @@
 
 <h1 align="center">Kiseki 軌跡</h1>
 
-<p align="center"><strong>The trip as a living document.</strong></p>
+<p align="center"><strong>Every trip, from first idea to printed book.</strong></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>

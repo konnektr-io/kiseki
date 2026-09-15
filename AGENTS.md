@@ -1,6 +1,7 @@
 # Kiseki — Agent Context
 
-Kiseki (軌跡) — **the trip as a living, agent-maintained document.**
+Kiseki (軌跡) — **one document for the whole life of a trip: planned with the crew that is coming,
+kept honest while it happens, printed at the end.**
 
 Product spec: [`docs/spec.md`](docs/spec.md) — **read it before large changes.**
 Design system & UX direction: [`DESIGN.md`](DESIGN.md) — **read it before any user-visible change.**
