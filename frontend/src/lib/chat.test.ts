@@ -103,6 +103,7 @@ describe("composeUserMessage (issue #252: attachments are parts, not prose)", ()
     name: "Roadbook II- RAES.pdf",
     mediaType: "application/pdf",
     isImage: false,
+    converted: false,
     size: 2_411_724,
   };
   const photo: UploadedChatFile = {
@@ -110,6 +111,7 @@ describe("composeUserMessage (issue #252: attachments are parts, not prose)", ()
     name: "IMG_2812.jpg",
     mediaType: "image/jpeg",
     isImage: true,
+    converted: false,
     size: 1_048_576,
   };
 
