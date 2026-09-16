@@ -10,16 +10,22 @@
  * - the four bands render in the documented order (Up next → Your trips →
  *   Following → Discover), and Up next does not duplicate into the grid;
  * - an empty band collapses to one line of copy, never an empty frame;
- * - search + stage chips filter the trip bands;
+ * - the search box filters the trip bands by name, note and place;
+ * - the facets (stage, season/month, Mine⇄Following provenance, visibility)
+ *   live behind the Filters door and filter the trip bands when opened; feed
+ *   rows take the text only, never the facets;
  * - Discover never shows your own trips;
- * - a trips failure errors the page, but a feed/showcase failure only
+ * - the map canvas renders beside the bands when geo arrives, and collapses
+ *   (bands as-is, no error) when geo is empty or fails; hovering a card
+ *   raises its row for the pin;
+ * - a trips failure errors the page, but a feed/showcase/geo failure only
  *   collapses its band — a home with your trips is still a home.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FeedEntry, ShowcaseTrip, TripSummary } from "../lib/types";
+import type { FeedEntry, ShowcaseTrip, TripGeo, TripSummary } from "../lib/types";
 
 const authState = vi.hoisted(() => {
   // Stable identities for the SDK callbacks: the load effect depends on
@@ -43,10 +49,35 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
+// The ratio ladder reads matchMedia, which jsdom does not have (see
+// TripMapSurface.test.tsx for the same trap) — the stub renders the rail/sheet
+// furniture (header + bands) and the map, without the ladder.
+vi.mock("../components/SplitView", () => ({
+  SplitView: ({
+    header,
+    content,
+    map,
+    detent,
+  }: {
+    header: React.ReactNode;
+    content: React.ReactNode;
+    map: (padding: { top: number; right: number; bottom: number; left: number }) => React.ReactNode;
+    /** Exposed so the page-level test can pin which detent the page asks for. */
+    detent?: string;
+  }) => (
+    <main data-detent={detent}>
+      <div data-testid="sheet-header">{header}</div>
+      {content}
+      {map({ top: 0, right: 0, bottom: 0, left: 0 })}
+    </main>
+  ),
+}));
+
 const net = vi.hoisted(() => ({
   trips: "ok" as "ok" | "fail",
   feed: "ok" as "ok" | "fail" | "empty",
   showcase: "ok" as "ok" | "fail" | "empty" | "mine-only",
+  geo: "empty" as "ok" | "empty" | "fail",
   fetched: [] as string[],
 }));
 
@@ -85,10 +116,29 @@ const SHOWCASE: ShowcaseTrip[] = [
   { dtId: "booked-1", title: "Canada Heliski", subtitle: "Powder", stage: "booked", cover: null },
 ];
 
+const GEO: TripGeo[] = [
+  {
+    dtId: "live-1", title: "Ski Week", stage: "live",
+    anchor: { lat: 50.9981, lng: -118.1957, name: "Revelstoke" }, origin: "mine",
+  },
+  {
+    dtId: "booked-1", title: "Canada Heliski", stage: "booked",
+    anchor: { lat: 51.0, lng: -118.0, name: "Selkirks" }, origin: "mine",
+  },
+  {
+    dtId: "ext-1", title: "Dolomites", stage: "planned",
+    anchor: { lat: 46.4102, lng: 11.844, name: "Val Gardena" }, origin: "discover",
+  },
+];
+
 vi.stubGlobal(
   "fetch",
   vi.fn(async (url: string) => {
     net.fetched.push(url);
+    if (url === "/api/trips/geo") {
+      if (net.geo === "fail") throw new Error("geo down");
+      return { ok: true, json: async () => ({ trips: net.geo === "ok" ? GEO : [] }) };
+    }
     if (url.startsWith("/api/trips")) {
       if (net.trips === "fail") throw new Error("graph down");
       return { ok: true, json: async () => ({ trips: TRIPS }) };
@@ -120,6 +170,7 @@ beforeEach(() => {
   net.trips = "ok";
   net.feed = "ok";
   net.showcase = "ok";
+  net.geo = "empty";
   net.fetched = [];
   authState.isAuthenticated = true;
   authState.isLoading = false;
@@ -198,6 +249,41 @@ describe("empty bands collapse", () => {
   });
 });
 
+/**
+ * The three interactions the search row and the Filters door are driven with.
+ * Module scope, so both the search test and the facets block reach the same
+ * helpers — a local copy in one `describe` is how the two drift apart.
+ */
+async function openFilters(el: HTMLElement): Promise<void> {
+  const door = [...el.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Filters"))!;
+  await act(async () => {
+    door.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+async function setSearch(el: HTMLElement, value: string): Promise<void> {
+  const input = el.querySelector('input[type="search"]') as HTMLInputElement;
+  await act(async () => {
+    input.focus();
+    // React 19: native setter + input event drives the controlled input.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** Click a facet chip, opening the door first when it is not on screen yet. */
+async function clickChip(el: HTMLElement, text: string): Promise<void> {
+  let chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text);
+  if (!chip) {
+    await openFilters(el);
+    chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text);
+  }
+  await act(async () => {
+    chip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
 describe("search and stage filters", () => {
   it("filters the trip bands by text", async () => {
     const el = await mount();
@@ -216,6 +302,7 @@ describe("search and stage filters", () => {
 
   it("filters by stage chip, and Up next steps aside while filtering", async () => {
     const el = await mount();
+    await openFilters(el);
     const chip = [...el.querySelectorAll("button")].find((b) => b.textContent === "idea")!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -242,6 +329,218 @@ describe("failure isolation", () => {
     // no page-level error — your trips still render
     expect(el.querySelector('[role="alert"]')).toBeNull();
     expect(el.textContent).toContain("Canada Heliski");
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+  });
+});
+
+describe("the map canvas", () => {
+  it("collapses the map when there is no geo, keeping the bands", async () => {
+    net.geo = "empty";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeNull();
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(el.textContent).toContain("Canada Heliski");
+  });
+
+  it("collapses the map when the geo read fails, without erroring", async () => {
+    net.geo = "fail";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeNull();
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+    expect(el.textContent).toContain("Canada Heliski");
+  });
+
+  it("puts the bands beside the map when geo arrives", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeTruthy();
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(el.textContent).toContain("Ski Week");
+  });
+
+  it("shows the what's-next line in the sheet header", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector('[data-testid="sheet-header"]')!.textContent).toContain("Ski Week");
+  });
+
+  it("raises the row a hovered card belongs to, for its pin", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    const card = el.querySelector('a[href="/t/booked-1"]')!;
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(el.querySelector('[data-dtid="booked-1"]')!.className).toContain("outline-accent");
+  });
+});
+
+describe("the global trip map layer", () => {
+  it("toggles the discoverable pins, default on", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    const toggle = el.querySelector('button[aria-label^="Discoverable trips"]')!;
+    const mapLabel = () => el.querySelector('[role="img"]')?.getAttribute("aria-label");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.textContent).toContain("Discover · 1");
+    expect(mapLabel()).toBe("Map of 3 trip locations");
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(mapLabel()).toBe("Map of 2 trip locations");
+  });
+
+  it("opens the trip card for the raised row, and closes it", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+    const card = el.querySelector('a[href="/t/booked-1"]')!;
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    const preview = el.querySelector('[role="dialog"]')!;
+    expect(preview.textContent).toContain("Canada Heliski");
+    expect(preview.querySelector('a[href="/t/booked-1"]')).toBeTruthy();
+    const close = preview.querySelector(
+      'button[aria-label="Close trip preview"]',
+    ) as HTMLElement;
+    await act(async () => {
+      close.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("hides the toggle when there is nothing to toggle", async () => {
+    net.geo = "empty";
+    const el = await mount();
+    expect(el.querySelector('button[aria-label^="Discoverable trips"]')).toBeNull();
+  });
+});
+
+describe("search and the Filters door", () => {
+  const door = (el: HTMLElement) =>
+    [...el.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Filters"))!;
+
+  it("hides every facet behind the door, and shows none of them by default", async () => {
+    const el = await mount();
+    // The door is the only facet control on screen: no season/stage/whichever
+    // pills, and no second text box for the place.
+    expect(door(el)).toBeTruthy();
+    expect(door(el).getAttribute("aria-expanded")).toBe("false");
+    expect(el.querySelector("[data-home-filters]")).toBeNull();
+    expect(el.querySelector('input[placeholder="Place or region"]')).toBeNull();
+    expect(el.querySelectorAll('input[type="search"]')).toHaveLength(1);
+    for (const label of ["winter", "public", "Mine", "idea"]) {
+      expect([...el.querySelectorAll("button")].some((b) => b.textContent === label)).toBe(false);
+    }
+    await openFilters(el);
+    expect(door(el).getAttribute("aria-expanded")).toBe("true");
+    expect(el.querySelector("[data-home-filters]")).toBeTruthy();
+    // …and the panel renders in the page flow, not as a floating popover.
+    expect(el.querySelector("[data-home-filters]")!.className).not.toContain("absolute");
+  });
+
+  it("badges the door with the facet count, and clears them all", async () => {
+    const el = await mount();
+    expect(door(el).textContent).not.toMatch(/\d/);
+    await clickChip(el, "Mine");
+    expect(door(el).textContent).toContain("1");
+    await clickChip(el, "public");
+    expect(door(el).textContent).toContain("2");
+    const clear = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Clear all filters"),
+    )!;
+    await act(async () => {
+      clear.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(door(el).textContent).not.toMatch(/\d/);
+    // Clearing facets leaves the search text alone — it is visible, so wiping
+    // it would be a surprise.
+    await setSearch(el, "heliski");
+    expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe("heliski");
+    await clickChip(el, "Mine");
+    await act(async () => {
+      [...el.querySelectorAll("button")]
+        .find((b) => b.textContent?.includes("Clear all filters"))!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe("heliski");
+  });
+
+  it("filters by season, from the start date", async () => {
+    const el = await mount();
+    await clickChip(el, "winter");
+    // February starts stay; September and the dateless go. Up next steps aside.
+    expect(bandOrder(el)).toEqual(["Your trips", "Following", "Discover"]);
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("searches the place as well as the words, off the geo anchors", async () => {
+    net.geo = "ok"; // anchors come from the geo read
+    const el = await mount();
+    await setSearch(el, "selk");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("filters by provenance: Mine hides the discover shelf", async () => {
+    const el = await mount();
+    await clickChip(el, "Mine");
+    const discover = el.querySelector('section[aria-label="Discover"]')!;
+    expect(discover.querySelector("a[href^='/t/']")).toBeNull();
+    expect(discover.textContent).toContain("No public trips match this search.");
+    // Your own trips are untouched by the same facet.
+    expect(el.querySelector('section[aria-label="Your trips"]')!.textContent).toContain(
+      "Canada Heliski",
+    );
+  });
+
+  it("filters by visibility", async () => {
+    const el = await mount();
+    await clickChip(el, "public");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("applies the search text to the Following band, and skips the facets there", async () => {
+    const el = await mount();
+    await setSearch(el, "rifugio");
+    const following = el.querySelector('section[aria-label="Following"]')!;
+    expect(following.textContent).toContain("Rifugio lunch");
+    await setSearch(el, "nowhere-near-anything");
+    expect(el.querySelector('section[aria-label="Following"]')!.querySelector("ul")).toBeNull();
+  });
+
+  it("closes the door on Escape", async () => {
+    const el = await mount();
+    await openFilters(el);
+    expect(el.querySelector("[data-home-filters]")).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(el.querySelector("[data-home-filters]")).toBeNull();
+  });
+});
+
+describe("the phone's first impression", () => {
+  it("opens the sheet at `peek` — the map first, bands one swipe away", async () => {
+    net.geo = "ok"; // the canvas branch is the one with a detent
+    const el = await mount();
+    const sheet = el.querySelector("[data-detent]")!;
+    // The home is the §2.2 map canvas: it opens showing the map and the
+    // "what's next" line. `half` (the trip surface's default) hides the
+    // southernmost pin behind the sheet on a phone — see the note on the
+    // detent state in LandingPage.
+    expect(sheet.getAttribute("data-detent")).toBe("peek");
+  });
+
+  it("still renders every band under the collapsed sheet", async () => {
+    const el = await mount();
     expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
   });
 });

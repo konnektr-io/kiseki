@@ -131,6 +131,7 @@ from .tricount import TriCountError, fetch_snapshot
 from .store import get_trip_by_id as get_trip_by_id_store
 from .store import get_graph_client
 from .store import list_showcase_trips
+from .store import list_geo_trips
 from .store import list_trips_for_user
 
 app = FastAPI(title="Kiseki", version="0.1.0")
@@ -537,6 +538,28 @@ def showcase(
         if row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
     return {"trips": trips}
+
+
+@app.get("/api/trips/geo")
+def trips_geo(response: Response, user: dict = Depends(get_current_user)) -> dict:
+    """Anchor points for the signed-in home's map canvas (#249 E2).
+
+    Authenticated, same actor resolution as ``GET /api/trips``. Returns one
+    row per LISTABLE trip — ``discoverable`` OR the viewer already has a role
+    on it (the ``_profile_trips`` rule) — each with ``dtId, title, stage`` and
+    an ``anchor`` ``{lat, lng, name}``: the first located registry entry.
+    Trips with no located place are omitted, never pinned at 0,0.
+
+    Cards, not documents: no crew, no claim/follow token, no ``practical``, no
+    booking/cost fields. ``private, max-age=60``: the body differs per viewer,
+    so no shared proxy may keep it. Graph disabled → ``[]`` (the home
+    collapses the map, same soft-load discipline as the showcase).
+
+    Registered before ``/api/trips/{trip_id}`` so the bare path is never
+    captured by it.
+    """
+    response.headers["Cache-Control"] = "private, max-age=60"
+    return {"trips": list_geo_trips(resolve_actor_sub(user))}
 
 
 @app.get("/api/feed")

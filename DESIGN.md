@@ -88,6 +88,42 @@ you drill in — **the map stays alive between levels** (#92/#90). The scan leve
 whole-route view; there is no separate expandable. The remaining true viewport-shaped
 surfaces (discovery, follow feeds) still use this section verbatim.
 
+#### A map container must carry its own height (measured, 2026-09-16 — #249 review)
+
+`maplibre-gl.css` ships **unlayered**, so `.maplibregl-map { position: relative }` — applied
+by MapLibre to whatever element it is handed — **beats every Tailwind `@layer utilities`
+rule**. A map box written as `absolute inset-0` is therefore really `position: relative`;
+with no in-flow children (the canvas is absolutely positioned) it collapses to **height 0**,
+MapLibre measures 0, keeps its default 300px canvas, and a `fitBounds` into a 0-height box is
+a silent no-op (camera parked at zoom 0 / null island, every pin off-screen).
+
+Rule: **a map container states its own box** (`h-full w-full`, or an explicit height class as
+`MapView` does) and never relies on `absolute`. Then watch for changes no `resize` event
+covers — a rail drag, a sheet detent, a phone's chrome collapsing, and MapLibre's own class
+landing — with a `ResizeObserver` that calls `map.resize()` and re-frames while the camera is
+still the app's to move.
+
+Two further gotchas behind the same review, both measured on a 390×844 phone:
+
+- **Zoom has a floor the transform enforces**: the world may never be shorter than the
+  container is tall, so a full-height phone map cannot zoom below `log2(h/512)` (≈0.61 at
+  783px). A pin set spanning three continents cannot be shown above a `half` sheet at *any*
+  permitted zoom — that is physics, not a bug. Frame it, then let the *sheet detent* decide
+  what is visible (the home opens at `peek` for this reason).
+- **Measure a pin set by its SHORTEST arc.** A naive `[min(lng), max(lng)]` box is the long
+  way round: Canada/Chile/Japan reads as 255° centred on Africa (unshowable) instead of 148°
+  across the Pacific (showable). `unfoldLngs` in `lib/home-geo.ts` does that, and the camera
+  is computed with `cameraForBounds` + an explicit `jumpTo`/`easeTo` — MapLibre 6 routes
+  `fitBounds` through `flyTo`, whose arc was measured applying only the new centre (zoom and
+  latitude left behind) whenever the fit zooms out.
+
+
+**2026-09-16 — the signed-in home is built on this section (#249, slices 3/5).**
+`/` signed in is a map surface on the `SplitView`/`Sheet` ladder: one pin per
+listable trip (`GET /api/trips/geo`), stage-coloured, beside the four bands in
+the rail/sheet furniture — plus the discoverable layer and the pin cards on the
+same canvas. No new route, no second sheet, no second card language.
+
 ### 2.3 Chrome — *shared*
 
 Header, nav, sheets, map controls, toasts, the auth button.
@@ -415,8 +451,11 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 /t/<id>/crew          Crew
 /t/<id>/settings      Settings    trip-level settings — stage, theme, sharing, the invite
                                   links, integrations and delete (editor+; reached from the
-                                  header's overflow menu, not the nav — #248)
+                                                                     header's overflow menu, not the nav — #248)
 ```
+
+`/` signed in is a map surface too (§2.2, #249): the discovery home's bands ride
+the rail/sheet beside the trip pins. It needs no nav slot — it is the root.
 
 Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Practical* (with *Today*
 swapping in while `live` — that is the four). Crew folds into Overview — it's a low-frequency
@@ -885,4 +924,9 @@ Don't do this as one redesign. Suggested order, each independently shippable:
     fixed band order, one shared trip comparator and client-side search/stage filters. The bands
     are built to move as-is into the rail/sheet furniture when slice 3 puts this home on the
     §2.2 map canvas; until then §2.2 still describes the map surfaces, not this page.
+    **2026-09-16 — CLOSED (#249, this branch):** slice 3 (the home on the canvas —
+    `GET /api/trips/geo` pins, band↔pin linkage, bands as rail/sheet furniture), slice 4's
+    remaining facets (month/season, place/region, mine⇄following, visibility) and slice 5
+    (the discoverable layer + pin cards on the same canvas) are built. §2.2 now describes
+    this page too.
 11. **Album output** as a second print variant. *(§12.1)*
