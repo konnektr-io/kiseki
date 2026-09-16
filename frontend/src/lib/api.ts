@@ -1,4 +1,4 @@
-import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripSummary, TricountSnapshot, UserProfile } from "./types";
+import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripGeo, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -130,6 +130,56 @@ export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> 
   }
   const body = (await res.json()) as { trips: TripSummary[] };
   return body.trips;
+}
+
+/**
+ * Anchor points for the signed-in home's map canvas (#249 E2).
+ *
+ * Authenticated (same actor as `fetchMyTrips`): one row per LISTABLE trip,
+ * each with the first located registry entry as its anchor. It NEVER throws —
+ * the home treats geo as an enhancement band (like feed/showcase): a failure
+ * collapses the map instead of erroring the page. Rows that fail validation
+ * are dropped, never invented: a pin the server did not list must never render.
+ */
+export async function fetchTripGeo(accessToken: string): Promise<TripGeo[]> {
+  try {
+    const res = await fetch("/api/trips/geo", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { trips?: unknown };
+    if (!body || !Array.isArray(body.trips)) return [];
+    const out: TripGeo[] = [];
+    for (const row of body.trips) {
+      const geo = asTripGeo(row);
+      if (geo) out.push(geo);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/** One geo row, validated — null when the row cannot honestly become a pin. */
+function asTripGeo(row: unknown): TripGeo | null {
+  if (typeof row !== "object" || row === null) return null;
+  const r = row as Record<string, unknown>;
+  if (typeof r.dtId !== "string" || !r.dtId) return null;
+  const anchor = r.anchor as Record<string, unknown> | null;
+  if (typeof anchor !== "object" || anchor === null) return null;
+  const { lat, lng, name } = anchor;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (typeof name !== "string") return null;
+  if (r.origin !== "mine" && r.origin !== "discover") return null;
+  if (typeof r.stage !== "string" || !r.stage) return null;
+  return {
+    dtId: r.dtId,
+    title: typeof r.title === "string" ? r.title : "",
+    stage: r.stage as TripGeo["stage"],
+    anchor: { lat, lng, name },
+    origin: r.origin,
+  };
 }
 
 /** Download the trip PDF booklet (#13): visibility-gated — public trips allow

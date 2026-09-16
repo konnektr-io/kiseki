@@ -213,6 +213,30 @@ export interface TripSummary {
   role?: Role;
 }
 
+/* ---------------- #249 E2 trip geo ----------------
+ * One anchor point per LISTABLE trip (`GET /api/trips/geo`), for the
+ * signed-in home's map canvas. Cards, not documents: the pin is the whole
+ * row — the trip itself (cover, crew, blocks) still comes from the band
+ * lists. `origin` is who the pin belongs to: "mine" (the viewer has a crew
+ * role) or "discover" (discoverable only). */
+
+/** Where a geo pin comes from: the viewer's own crew role, or listing only. */
+export type GeoOrigin = "mine" | "discover";
+
+export interface TripGeoAnchor {
+  lat: number;
+  lng: number;
+  name: string;
+}
+
+export interface TripGeo {
+  dtId: string;
+  title: string;
+  stage: Stage;
+  anchor: TripGeoAnchor;
+  origin: GeoOrigin;
+}
+
 /* ---------------- #196d user profiles ----------------
  * Shapes of GET /api/users/{sub} (+ followers/following drill-ins).
  * The server omits `email` for anyone but the profile owner — the type

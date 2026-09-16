@@ -19,7 +19,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FeedEntry, ShowcaseTrip, TripSummary } from "../lib/types";
+import type { FeedEntry, ShowcaseTrip, TripGeo, TripSummary } from "../lib/types";
 
 const authState = vi.hoisted(() => {
   // Stable identities for the SDK callbacks: the load effect depends on
@@ -43,10 +43,32 @@ vi.mock("@auth0/auth0-react", () => ({
   }),
 }));
 
+// The ratio ladder reads matchMedia, which jsdom does not have (see
+// TripMapSurface.test.tsx for the same trap) — the stub renders the rail/sheet
+// furniture (header + bands) and the map, without the ladder.
+vi.mock("../components/SplitView", () => ({
+  SplitView: ({
+    header,
+    content,
+    map,
+  }: {
+    header: React.ReactNode;
+    content: React.ReactNode;
+    map: (padding: { top: number; right: number; bottom: number; left: number }) => React.ReactNode;
+  }) => (
+    <main>
+      <div data-testid="sheet-header">{header}</div>
+      {content}
+      {map({ top: 0, right: 0, bottom: 0, left: 0 })}
+    </main>
+  ),
+}));
+
 const net = vi.hoisted(() => ({
   trips: "ok" as "ok" | "fail",
   feed: "ok" as "ok" | "fail" | "empty",
   showcase: "ok" as "ok" | "fail" | "empty" | "mine-only",
+  geo: "empty" as "ok" | "empty" | "fail",
   fetched: [] as string[],
 }));
 
@@ -85,10 +107,25 @@ const SHOWCASE: ShowcaseTrip[] = [
   { dtId: "booked-1", title: "Canada Heliski", subtitle: "Powder", stage: "booked", cover: null },
 ];
 
+const GEO: TripGeo[] = [
+  {
+    dtId: "live-1", title: "Ski Week", stage: "live",
+    anchor: { lat: 50.9981, lng: -118.1957, name: "Revelstoke" }, origin: "mine",
+  },
+  {
+    dtId: "ext-1", title: "Dolomites", stage: "planned",
+    anchor: { lat: 46.4102, lng: 11.844, name: "Val Gardena" }, origin: "discover",
+  },
+];
+
 vi.stubGlobal(
   "fetch",
   vi.fn(async (url: string) => {
     net.fetched.push(url);
+    if (url === "/api/trips/geo") {
+      if (net.geo === "fail") throw new Error("geo down");
+      return { ok: true, json: async () => ({ trips: net.geo === "ok" ? GEO : [] }) };
+    }
     if (url.startsWith("/api/trips")) {
       if (net.trips === "fail") throw new Error("graph down");
       return { ok: true, json: async () => ({ trips: TRIPS }) };
@@ -120,6 +157,7 @@ beforeEach(() => {
   net.trips = "ok";
   net.feed = "ok";
   net.showcase = "ok";
+  net.geo = "empty";
   net.fetched = [];
   authState.isAuthenticated = true;
   authState.isLoading = false;
@@ -243,5 +281,47 @@ describe("failure isolation", () => {
     expect(el.querySelector('[role="alert"]')).toBeNull();
     expect(el.textContent).toContain("Canada Heliski");
     expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+  });
+});
+
+describe("the map canvas", () => {
+  it("collapses the map when there is no geo, keeping the bands", async () => {
+    net.geo = "empty";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeNull();
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(el.textContent).toContain("Canada Heliski");
+  });
+
+  it("collapses the map when the geo read fails, without erroring", async () => {
+    net.geo = "fail";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeNull();
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+    expect(el.textContent).toContain("Canada Heliski");
+  });
+
+  it("puts the bands beside the map when geo arrives", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeTruthy();
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(el.textContent).toContain("Ski Week");
+  });
+
+  it("shows the what's-next line in the sheet header", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector('[data-testid="sheet-header"]')!.textContent).toContain("Ski Week");
+  });
+
+  it("raises the row a hovered card belongs to, for its pin", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    const card = el.querySelector('a[href="/t/booked-1"]')!;
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    expect(el.querySelector('[data-dtid="booked-1"]')!.className).toContain("outline-accent");
   });
 });
