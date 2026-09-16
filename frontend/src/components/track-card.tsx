@@ -6,24 +6,23 @@ import {
   formatTrackDistance,
   formatTrackDuration,
   trackDataUrl,
-  trackLegPaths,
   trackRideSplit,
   type TrackFeature,
 } from "../lib/tracks";
 
 /**
- * A recorded track's own card (#193): the shape of the day as distance /
- * time / ascent plus a static SVG trace — NOT a letter-chip stop, so it
- * carries `data-track-card` and never `data-place-pill` (#90).
+ * A recorded track's stats strip (#193, #290, #305): distance, duration,
+ * ascent and lift splits beside the download link.
  *
- * #290: the trace is drawn leg by leg — ridden runs solid, lift rides dashed
- * and lighter (the Slopes/Strava convention) — and the stats show the
- * riding-only distance beside the full trace distance instead of picking one,
- * because a tracked day legitimately reads two different numbers.
+ * NOT a letter-chip stop, so it carries `data-track-card` and never
+ * `data-place-pill` (#90).
  *
- * The trace is DATA (the parsed polyline), not a screenshot: it prints in
- * the booklet through this same component. A fetch failure degrades to the
- * download link — never an empty card, never a silent drop (#251).
+ * Minimap behaviour (#305): in regular app mode the minimap is hidden
+ * because the persistent map surface right beside the rail already frames
+ * the track. In the booklet (print mode), the track is overlaid on a real
+ * map with basemap tiles, terrain hillshade, and location pin via the
+ * block's `CardMedia` minimap (`MapView` compact) — so `TrackCard` stays
+ * focused on the stats and the file link across all surfaces.
  */
 export function TrackCard({ track }: { track: string }) {
   const dataUrl = trackDataUrl(track);
@@ -55,14 +54,13 @@ export function TrackCard({ track }: { track: string }) {
 
   const props = feature?.properties;
   const duration = formatTrackDuration(props?.durationS);
-  const legs = feature ? trackLegPaths(feature, 320, 96, 6) : [];
   const split = trackRideSplit(props);
   const liftCount = props?.legs?.filter((l) => l.type === "lift").length ?? 0;
 
   return (
     <div
       data-track-card={track}
-      role="img"
+      role="group"
       aria-label={
         props
           ? split
@@ -72,49 +70,6 @@ export function TrackCard({ track }: { track: string }) {
       }
       className="mt-2.5 overflow-hidden rounded-lg border border-border bg-muted/40"
     >
-      {legs.length ? (
-        <svg
-          viewBox="0 0 320 96"
-          className="block h-24 w-full text-primary"
-          aria-hidden="true"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          {/* Wide casing under a narrower body — the §8.4 grammar, in SVG.
-              Colours ride CSS vars (tokens), never hex literals: presentation
-              attributes cannot carry var(), so the stroke lives in style.
-              Every casing draws FIRST so no body is buried under a neighbour's
-              casing; lift legs then draw dashed and lighter (#290) — the same
-              distinction Slopes and Strava make on their own maps. */}
-          {legs.map((leg, i) => (
-            <path
-              key={`casing-${i}`}
-              d={leg.d}
-              fill="none"
-              style={{ stroke: "var(--color-route-casing)" }}
-              strokeWidth={7}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity={leg.type === "lift" ? 0.6 : 0.9}
-              strokeDasharray={leg.type === "lift" ? "2 2.2" : undefined}
-            />
-          ))}
-          {legs.map((leg, i) => (
-            <path
-              key={`body-${i}`}
-              d={leg.d}
-              fill="none"
-              style={{ stroke: "var(--color-route)" }}
-              strokeWidth={4}
-              strokeLinecap={leg.type === "lift" ? "butt" : "round"}
-              strokeLinejoin="round"
-              opacity={leg.type === "lift" ? 0.75 : 1}
-              strokeDasharray={leg.type === "lift" ? "2 2.2" : undefined}
-            />
-          ))}
-        </svg>
-      ) : !failed ? (
-        <div className="h-24 w-full animate-pulse bg-muted" aria-hidden="true" />
-      ) : null}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
           <Route className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
@@ -144,7 +99,7 @@ export function TrackCard({ track }: { track: string }) {
             {split && liftCount > 0 && (
               <span
                 className="inline-flex items-center gap-1 text-xs tabular-nums text-muted-foreground"
-                title={`${liftCount} lift ${liftCount === 1 ? "ride" : "rides"} — dashed on the trace`}
+                title={`${liftCount} lift ${liftCount === 1 ? "ride" : "rides"}`}
               >
                 <span
                   aria-hidden="true"
