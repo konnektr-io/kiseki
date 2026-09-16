@@ -476,7 +476,9 @@ function ActivityBlock({
             {b.cost != null && <Cost cost={b.cost} currency={b.currency} />}
             <StatusChip status={b.status} />
           </div>
-          {place && placeHasFacts(place) && <PlaceFacts place={place} blockLinks={shown} />}
+          {place && placeHasFacts(place) && (
+            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          )}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               <Markdown>{b.description}</Markdown>
@@ -515,7 +517,9 @@ function LodgingBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
           </div>
-          {place && placeHasFacts(place) && <PlaceFacts place={place} blockLinks={shown} />}
+          {place && placeHasFacts(place) && (
+            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          )}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
               <Markdown>{b.description}</Markdown>
@@ -560,7 +564,9 @@ function MealBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
           </div>
-          {place && placeHasFacts(place) && <PlaceFacts place={place} blockLinks={shown} />}
+          {place && placeHasFacts(place) && (
+            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          )}
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
           <Links links={shown} />
         </div>

@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /* The prod bug this pins (#104): DayBlocks routes signed-in editors to
  * EditableBlockList, which used to DROP `letters` and `cardProps` — so on the
@@ -24,6 +24,17 @@ vi.mock("@auth0/auth0-react", () => ({
 // maplibre-contour, which don't resolve under node-env vitest. The map
 // thumbnails are irrelevant to the letter/card wiring under test.
 vi.mock("./MapView", () => ({ MapView: () => null, TripMap: () => null }));
+
+/* #286 wiring: `DayBlocks` → `BlockView` → `ActivityBlock` must pass the
+ * block's STATUS down to PlaceFacts as `reviewsQuiet`. The live overlay is
+ * mocked OFF for the whole file (every other assertion here is about static
+ * facts + links — before this hook resolves the real one renders exactly the
+ * same null) and switched ON per test in the done-collapse block below. */
+const liveState: { current: unknown } = { current: null };
+vi.mock("../lib/place-live", () => ({
+  placePhotoUrl: (ref: string) => `/api/places/photo?ref=${encodeURIComponent(ref)}`,
+  usePlaceLive: () => liveState.current,
+}));
 
 import { DayBlocks, resolveBlockPlace } from "./blocks";
 import { GALLERY_PRINT_COUNT, PhotoLightbox, STRIP_PRINT_COUNT } from "./photos";
@@ -406,5 +417,58 @@ describe("photos: block strip (A) + day gallery (B) (#190/#191)", () => {
   it("cards keep break-inside avoid so a photo never splits a page", () => {
     const html = renderWithPlaces([activity, gallery]);
     expect(html).toContain("booklet-keep");
+  });
+});
+
+/* #286: the status is what decides the review treatment — a `done` activity
+ * (this day already happened) collapses the Google snippet set behind one line,
+ * while a `planned`/`booked`/unset block keeps the inline clamped snippet that
+ * helps choose what to do. Wired by `reviewsQuiet={b.status === "done"}` in
+ * blocks.tsx. */
+describe("a DONE block quiets the Google review set (#286)", () => {
+  const LIVE = {
+    available: true,
+    placeId: "REGISTRY-PLACE-ID",
+    rating: 4.4,
+    userRatingCount: 1092,
+    googleMapsUri: "https://maps.google.com/?cid=42",
+    reviews: [
+      { text: "Best powder in Hokkaido.", authorName: "Snow Fan" },
+      { text: "Second.", authorName: "B" },
+    ],
+    photos: [],
+  };
+  const activityWith = (status?: Block["status"]): Block =>
+    ({ id: "b20", kind: "activity", title: "Ski day", location: "Banff", status, order: 0 }) as unknown as Block;
+
+  beforeEach(() => {
+    liveState.current = LIVE;
+  });
+  afterEach(() => {
+    liveState.current = null;
+  });
+
+  it("collapses the snippets when the block is done", () => {
+    const html = renderWithPlaces([activityWith("done")]);
+    // One line instead of a quote + author + disclosure…
+    expect(html).toContain("Show 2 reviews from Google");
+    expect(html).not.toContain("line-clamp-2");
+    const disclosure = html.indexOf("<details");
+    expect(disclosure).toBeGreaterThan(-1);
+    expect(html.slice(0, disclosure)).not.toContain("Best powder in Hokkaido");
+    // …while the rating row keeps the route out to Google (one line, and
+    // "Open in Google Maps" above it stays the place deep link).
+    expect(html).toContain("reviews on Google");
+    expect(html).toContain("1,092");
+    expect(html).toContain("Rated 4.4 out of 5");
+  });
+
+  it("keeps the planning treatment for planned, booked and unset", () => {
+    for (const status of ["planned", "booked", undefined] as const) {
+      const html = renderWithPlaces([activityWith(status)]);
+      expect(html).toContain("line-clamp-2");
+      expect(html).toContain("Best powder in Hokkaido.");
+      expect(html).not.toContain("Show 2 reviews from Google");
+    }
   });
 });
