@@ -18,6 +18,9 @@ vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({ isAuthenticated: authState.isAuthenticated }),
 }));
 
+const intentMock = vi.hoisted(() => vi.fn());
+vi.mock("../lib/edit-intent", () => ({ logEditIntent: intentMock }));
+
 vi.mock("./MapView", () => ({ MapView: () => null, TripMap: () => null }));
 
 const { AskAgentButton } = await import("./ask-agent");
@@ -68,6 +71,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   authState.isAuthenticated = true;
+  intentMock.mockClear();
 });
 
 describe("AskAgentButton gating", () => {
@@ -106,8 +110,20 @@ describe("AskAgentButton gating", () => {
         await Promise.resolve();
       });
       expect(seen).toEqual([CONTEXT]);
+      // Phase-3 intent: entity + field names only — the draft values (which
+      // the drawer needs) never reach the log.
+      expect(intentMock).toHaveBeenCalledTimes(1);
+      expect(intentMock).toHaveBeenCalledWith("day", ["title", "notes"]);
+      const serialized = JSON.stringify(intentMock.mock.calls);
+      expect(serialized).not.toContain("day_id=d1");
     } finally {
       window.removeEventListener(ASK_AGENT_EVENT, onAsk);
     }
+  });
+
+  it("gated trees log nothing (no button, no intent)", () => {
+    authState.isAuthenticated = false;
+    mount("editor");
+    expect(intentMock).not.toHaveBeenCalled();
   });
 });

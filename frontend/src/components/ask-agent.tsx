@@ -3,6 +3,7 @@ import { MessageCircle } from "lucide-react";
 import { useTripState } from "./theme";
 import { roleAtLeast } from "../lib/editing";
 import { requestAskAgent, type AskAgentContext } from "../lib/ask-agent";
+import { logEditIntent } from "../lib/edit-intent";
 
 /**
  * "Ask the agent about this" (#296, phase 2) — the bridge from any
@@ -34,7 +35,13 @@ export function AskAgentButton({
   if (!isAuthenticated || !roleAtLeast(trip.myRole, "editor")) return null;
 
   const label = `Ask the agent about ${context.label}`;
-  const onClick = () => requestAskAgent(context);
+  const onClick = () => {
+    // Phase-3 intent signal FIRST (entity + field names only — never the
+    // draft values), then the bridge itself. `capture` is consent-gated and a
+    // no-op without PostHog, so this never blocks the drawer.
+    logEditIntent(context.entity, context.fields);
+    requestAskAgent(context);
+  };
 
   if (variant === "full") {
     return (
