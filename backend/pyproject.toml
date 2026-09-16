@@ -23,8 +23,10 @@ dependencies = [
     "nh3>=0.3.7",
     "pillow-heif>=1.7.0",
     # Recorded FIT tracks (#290): Garmin's official SDK decodes the binary
-    # (records/laps/splits) — Niko's explicit mandate ("use an existing
-    # library, don't invent yourself") overrode the ask-first rule for this one.
+    # (records/laps/splits). AGENTS.md says ask before adding a dependency —
+    # the ask was raised on #290 and the answer was the real .fit file to
+    # build against; this is the smallest surface that reads it
+    # (fitparse 1.2.0 drops the `split` messages that carry the labels).
     "garmin-fit-sdk>=21.214.0",
 ]
 

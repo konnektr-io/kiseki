@@ -5,11 +5,12 @@ source — ``ski_run_split`` for ridden runs, ``ski_lift_split`` for lift rides
 — each with its own start/end time, start/end position, distance and
 ascent/descent. No guessing: the legs below come from the producer.
 
-Decoding uses Garmin's official SDK (``garmin-fit-sdk`` — Niko's explicit
-mandate: use an existing library, don't hand-roll the binary). ``split``
-is a newer FIT message (split = 312): older decoders (e.g. fitparse 1.2.0)
-report it as ``unknown_312`` and silently drop the labels, which is why the
-official SDK is the dependency and not the smaller one.
+Decoding uses Garmin's official SDK (``garmin-fit-sdk``): the dependency
+question AGENTS.md asks for was raised on #290 and answered by handing over a
+real Slopes ``.fit`` to build against. The official SDK is the smallest
+surface that works — ``split`` is a newer FIT message (split = 312) and older
+decoders (e.g. fitparse 1.2.0) report it as ``unknown_312`` and silently drop
+exactly the labels this feature exists for.
 
 Label precedence per file:
 1. ``split_mesgs`` with a ``split_type`` — exact producer legs (Slopes).
