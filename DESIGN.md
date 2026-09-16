@@ -88,6 +88,12 @@ you drill in — **the map stays alive between levels** (#92/#90). The scan leve
 whole-route view; there is no separate expandable. The remaining true viewport-shaped
 surfaces (discovery, follow feeds) still use this section verbatim.
 
+**2026-09-16 — the signed-in home is built on this section (#249, slices 3/5).**
+`/` signed in is a map surface on the `SplitView`/`Sheet` ladder: one pin per
+listable trip (`GET /api/trips/geo`), stage-coloured, beside the four bands in
+the rail/sheet furniture — plus the discoverable layer and the pin cards on the
+same canvas. No new route, no second sheet, no second card language.
+
 ### 2.3 Chrome — *shared*
 
 Header, nav, sheets, map controls, toasts, the auth button.
@@ -415,8 +421,11 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 /t/<id>/crew          Crew
 /t/<id>/settings      Settings    trip-level settings — stage, theme, sharing, the invite
                                   links, integrations and delete (editor+; reached from the
-                                  header's overflow menu, not the nav — #248)
+                                                                     header's overflow menu, not the nav — #248)
 ```
+
+`/` signed in is a map surface too (§2.2, #249): the discovery home's bands ride
+the rail/sheet beside the trip pins. It needs no nav slot — it is the root.
 
 Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Practical* (with *Today*
 swapping in while `live` — that is the four). Crew folds into Overview — it's a low-frequency
@@ -885,4 +894,9 @@ Don't do this as one redesign. Suggested order, each independently shippable:
     fixed band order, one shared trip comparator and client-side search/stage filters. The bands
     are built to move as-is into the rail/sheet furniture when slice 3 puts this home on the
     §2.2 map canvas; until then §2.2 still describes the map surfaces, not this page.
+    **2026-09-16 — CLOSED (#249, this branch):** slice 3 (the home on the canvas —
+    `GET /api/trips/geo` pins, band↔pin linkage, bands as rail/sheet furniture), slice 4's
+    remaining facets (month/season, place/region, mine⇄following, visibility) and slice 5
+    (the discoverable layer + pin cards on the same canvas) are built. §2.2 now describes
+    this page too.
 11. **Album output** as a second print variant. *(§12.1)*
