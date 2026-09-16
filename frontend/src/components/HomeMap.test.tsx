@@ -40,6 +40,7 @@ const calls = vi.hoisted(() => ({
   elements: [] as HTMLElement[],
   fit: null as Record<string, unknown> | null,
   jumps: [] as Record<string, unknown>[],
+  zooms: [] as string[],
   handlers: {} as Record<string, (() => void)[]>,
   /** Screen projection — per test: spread (no clustering) or collide. */
   project: "spread" as "spread" | "collide",
@@ -98,6 +99,12 @@ vi.mock("../lib/maplibre", () => ({
       getZoom() {
         return 5;
       }
+      zoomIn() {
+        calls.zooms.push("in");
+      }
+      zoomOut() {
+        calls.zooms.push("out");
+      }
       remove() {}
     },
     Marker: class {
@@ -140,6 +147,7 @@ beforeEach(() => {
   calls.elements = [];
   calls.fit = null;
   calls.jumps = [];
+  calls.zooms = [];
   calls.handlers = {};
   calls.project = "spread";
   webgl.ok = true;
@@ -282,6 +290,26 @@ describe("clustering", () => {
       fire("moveend");
     });
     expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(1);
+  });
+});
+
+describe("zoom controls", () => {
+  it("zooms on the labelled buttons, once the map is ready", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const zoomIn = el.querySelector('button[aria-label="Zoom in"]') as HTMLElement;
+    const zoomOut = el.querySelector('button[aria-label="Zoom out"]') as HTMLElement;
+    await act(async () => {
+      zoomIn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      zoomOut.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(calls.zooms).toEqual(["in", "out"]);
+  });
+
+  it("renders no zoom without pins", () => {
+    const html = renderToString(
+      <HomeMap pins={[]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />,
+    );
+    expect(html).not.toContain("Zoom in");
   });
 });
 

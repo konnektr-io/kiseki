@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, MapPin, MessageCircle, Search, Ticket } from "lucide-react";
+import { ArrowRight, Layers, MapPin, MessageCircle, Search, Ticket } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
 import { FeedRow } from "../components/FeedRow";
 import { HomeMap } from "../components/HomeMap";
 import { SplitView } from "../components/SplitView";
+import { TripPinCard, type PinCardTrip } from "../components/TripPinCard";
 import type { Detent } from "../components/Sheet";
 import { Button, Card, StageBadge } from "../components/ui";
 import { fetchFeed, fetchMyTrips, fetchShowcase, fetchTripGeo } from "../lib/api";
@@ -42,6 +43,11 @@ import type { FeedEntry, ShowcaseTrip, Stage, TripGeo, TripSummary, Visibility }
  * focusing a band row raises its pin, tapping a pin scrolls its row into view
  * with the shared `place-pill-flash`. With no geo the map collapses and the
  * bands render as-is — a home with trips is still a home.
+ *
+ * The global trip map (slice 5) is a layer on the SAME canvas, not a page: a
+ * floating toggle (default ON with the bands) shows one pin per discoverable
+ * trip at its anchor, and a pin tap opens the trip card — never the trip, and
+ * never a pin the geo read did not list.
  *
  * One comparator inside the trip bands (`sortShowcaseTrips`), one filter
  * (`filterTrips`: free text + stage chips), both pure and tested. An empty band
@@ -610,6 +616,9 @@ function AuthenticatedLanding() {
   const [flashDtId, setFlashDtId] = useState<string | null>(null);
   // Phone sheet detent (`SplitView` owns the ladder; desktop ignores this).
   const [detent, setDetent] = useState<Detent>("half");
+  // Global trip map (slice 5): the discoverable layer, default ON with the
+  // bands. Mine always shows — another person's trips are what toggles.
+  const [showDiscoverPins, setShowDiscoverPins] = useState(true);
   const [error, setError] = useState<TripsError | null>(null);
   // Bumped by the Retry button — the fetch effect depends on it, so a retry
   // genuinely re-runs the load (previously Retry only cleared the error and
@@ -780,6 +789,41 @@ function AuthenticatedLanding() {
   // pin, and an unlisted pin must never render (the read is the list).
   const pins = useMemo(() => homePinsFromGeo(geo ?? []), [geo]);
   const hasMap = pins.length > 0;
+  // The discover layer filters the CANVAS only — the bands keep every trip.
+  const mapPins = useMemo(
+    () => (showDiscoverPins ? pins : pins.filter((p) => p.origin === "mine")),
+    [pins, showDiscoverPins],
+  );
+  const discoverCount = useMemo(() => pins.filter((p) => p.origin === "discover").length, [pins]);
+  const mineCount = pins.length - discoverCount;
+
+  // The selected trip's card: band data when the bands carry it (cover
+  // included), the geo row otherwise — pins beyond the showcase cap still
+  // open an honest card.
+  const selectedTrip: PinCardTrip | null = useMemo(() => {
+    if (!selectedDtId) return null;
+    const mine = trips?.find((t) => t.dtId === selectedDtId);
+    if (mine)
+      return {
+        dtId: mine.dtId,
+        title: mine.title,
+        stage: mine.stage,
+        cover: mine.cover,
+        anchorName: anchorByTrip.get(mine.dtId) ?? null,
+      };
+    const disc = discover?.find((t) => t.dtId === selectedDtId);
+    if (disc)
+      return {
+        dtId: disc.dtId,
+        title: disc.title,
+        stage: disc.stage,
+        cover: disc.cover,
+        anchorName: anchorByTrip.get(disc.dtId) ?? null,
+      };
+    const pin = pins.find((p) => p.dtId === selectedDtId);
+    if (pin) return { dtId: pin.dtId, title: pin.title, stage: pin.stage, anchorName: pin.name };
+    return null;
+  }, [selectedDtId, trips, discover, pins, anchorByTrip]);
 
   // A pin tap raises its band row: highlight + scroll into view with the
   // shared pill flash (#104). The camera stays put — selection is a focus
@@ -946,12 +990,50 @@ function AuthenticatedLanding() {
             detent={detent}
             onDetentChange={setDetent}
             map={(padding) => (
-              <HomeMap
-                pins={pins}
-                selectedDtId={selectedDtId}
-                onSelect={selectPin}
-                padding={padding}
-              />
+              <div className="relative h-full w-full">
+                <HomeMap
+                  pins={mapPins}
+                  selectedDtId={selectedDtId}
+                  onSelect={selectPin}
+                  padding={padding}
+                />
+                {/* Global trip map (slice 5): one pin per discoverable trip, on
+                    the SAME canvas — a layer, not a page, so no route changes.
+                    Default ON with the bands. Only rendered when both layers
+                    are non-empty, so the toggle can never strand the map. */}
+                {mineCount > 0 && discoverCount > 0 && (
+                  <div className="absolute right-3 top-3 z-10">
+                    <button
+                      type="button"
+                      onClick={() => setShowDiscoverPins((v) => !v)}
+                      aria-pressed={showDiscoverPins}
+                      aria-label={`Discoverable trips on the map (${discoverCount})`}
+                      className="floating flex h-11 items-center gap-2 rounded-full px-4 text-xs font-medium text-foreground transition-colors focus-visible:focus-ring"
+                    >
+                      <Layers className="h-4 w-4" aria-hidden="true" />
+                      Discover · {discoverCount}
+                      <span
+                        aria-hidden="true"
+                        className={`relative h-4 w-7 shrink-0 rounded-full transition-colors ${
+                          showDiscoverPins ? "bg-primary" : "bg-muted-foreground/40"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                            showDiscoverPins ? "left-3.5" : "left-0.5"
+                          }`}
+                        />
+                      </span>
+                    </button>
+                  </div>
+                )}
+                {/* A pin tap opens the trip card — the preview, never the trip. */}
+                {selectedTrip && (
+                  <div className="absolute left-1/2 top-3 z-10 w-[min(20rem,calc(100%-1.5rem))] -translate-x-1/2">
+                    <TripPinCard trip={selectedTrip} onClose={() => setSelectedDtId(null)} />
+                  </div>
+                )}
+              </div>
             )}
           />
         </div>

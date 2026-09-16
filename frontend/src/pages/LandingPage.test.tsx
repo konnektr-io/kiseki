@@ -336,6 +336,49 @@ describe("the map canvas", () => {
   });
 });
 
+describe("the global trip map layer", () => {
+  it("toggles the discoverable pins, default on", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    const toggle = el.querySelector('button[aria-label^="Discoverable trips"]')!;
+    const mapLabel = () => el.querySelector('[role="img"]')?.getAttribute("aria-label");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.textContent).toContain("Discover · 1");
+    expect(mapLabel()).toBe("Map of 3 trip locations");
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(mapLabel()).toBe("Map of 2 trip locations");
+  });
+
+  it("opens the trip card for the raised row, and closes it", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+    const card = el.querySelector('a[href="/t/booked-1"]')!;
+    await act(async () => {
+      card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    });
+    const preview = el.querySelector('[role="dialog"]')!;
+    expect(preview.textContent).toContain("Canada Heliski");
+    expect(preview.querySelector('a[href="/t/booked-1"]')).toBeTruthy();
+    const close = preview.querySelector(
+      'button[aria-label="Close trip preview"]',
+    ) as HTMLElement;
+    await act(async () => {
+      close.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("hides the toggle when there is nothing to toggle", async () => {
+    net.geo = "empty";
+    const el = await mount();
+    expect(el.querySelector('button[aria-label^="Discoverable trips"]')).toBeNull();
+  });
+});
+
 describe("rich facets", () => {
   async function setPlace(el: HTMLElement, value: string): Promise<void> {
     const input = el.querySelector('input[placeholder="Place or region"]') as HTMLInputElement;
