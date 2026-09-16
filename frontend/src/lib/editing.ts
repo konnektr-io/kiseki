@@ -65,6 +65,66 @@ export function withTripTheme(trip: Trip, preset: string): Trip {
   return { ...trip, theme: { preset } };
 }
 
+/** Patch trip-level title/subtitle (#296 ubiquitous edit). Exact payloads
+ *  only — the caller sends just the changed field via `putTrip`. */
+export function withTripFields(
+  trip: Trip,
+  fields: { title?: string; subtitle?: string },
+): Trip {
+  const title = fields.title ?? trip.title;
+  const subtitle = fields.subtitle ?? trip.subtitle;
+  if (title === trip.title && subtitle === trip.subtitle) return trip;
+  return { ...trip, title, subtitle };
+}
+
+/** Patch one day's title/notes (#296). Never the date (calendar truth). */
+export function withDayFields(
+  trip: Trip,
+  dayId: string,
+  fields: { title?: string; notes?: string },
+): Trip {
+  const days = trip.days.map((d) => {
+    if (d.id !== dayId) return d;
+    const title = fields.title ?? d.title;
+    const notes = fields.notes ?? d.notes;
+    if (title === d.title && notes === d.notes) return d; // no-op → same ref
+    return { ...d, title, notes };
+  });
+  if (days.every((d, i) => d === trip.days[i])) return trip;
+  return { ...trip, days };
+}
+
+/** Rename one section (#296). */
+export function withSectionTitle(trip: Trip, sectionId: string, title: string): Trip {
+  const sections = (trip.sections ?? []).map((s) =>
+    s.id === sectionId && s.title !== title ? { ...s, title } : s,
+  );
+  if (sections.every((s, i) => s === (trip.sections ?? [])[i])) return trip;
+  return { ...trip, sections };
+}
+
+/** Patch one practical block by LIST POSITION (#296 — blocks are value
+ *  objects with no ids; position is the render order, #254/#273). */
+export function withPracticalBlock(
+  trip: Trip,
+  index: number,
+  fields: { title?: string; body?: string },
+): Trip {
+  const blocks = trip.practical.blocks ?? [];
+  const target = blocks[index];
+  if (!target) return trip;
+  const title = fields.title ?? target.title;
+  const body = fields.body ?? target.body;
+  if (title === target.title && body === target.body) return trip;
+  return {
+    ...trip,
+    practical: {
+      ...trip.practical,
+      blocks: blocks.map((b, i) => (i === index ? { ...b, title, body } : b)),
+    },
+  };
+}
+
 export function withTodoDone(trip: Trip, index: number, done: boolean): Trip {
   const todos = trip.practical.todos ?? [];
   const target = todos[index];

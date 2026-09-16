@@ -4,13 +4,19 @@ import { ArrowLeft, ArrowRight, CalendarDays, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
 import { ItineraryList } from "../components/ItineraryList";
+import { InlineField } from "../components/inline-edit";
+import { AskAgentButton } from "../components/ask-agent";
 import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
+import { dayAskContext } from "../lib/ask-agent";
 import { sectionIndexForDay } from "../lib/sections";
-import { roleAtLeast } from "../lib/editing";
+import { roleAtLeast, withDayFields } from "../lib/editing";
+import { putTripDay } from "../lib/api";
+import { useTripWrite } from "../lib/useTripWrite";
+import { capture } from "../lib/posthog";
 import { markerNumber, findLocation, prefersReducedMotion } from "../lib/maps";
 import { tripJourney } from "../lib/route-surface";
 import { daySurface, type DaySurface } from "../lib/day-surface";
@@ -280,6 +286,18 @@ function DayRail({
   const { tripId = "" } = useParams();
   const day = trip.days[dayIdx];
   const letters = surface.letters;
+  const { run, error } = useTripWrite();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+
+  const saveDayField = (field: "title" | "notes") => async (next: string) => {
+    capture("trip_day_updated", { field });
+    return (
+      (await run(
+        (token) => putTripDay(trip.id, day.id, { [field]: next }, token),
+        (t) => withDayFields(t, day.id, { [field]: next }),
+      )) !== null
+    );
+  };
 
   /** Card → map: tapping the card body (not its links/buttons) toggles the
    *  letter-chip focus on the map. The active card pulses. */
@@ -299,22 +317,51 @@ function DayRail({
           <p className="kicker tabular-nums">
             Day {dayIdx + 1} of {trip.days.length} · {formatDay(day.date)}
           </p>
-          <h2 className="mt-1 font-display text-4xl uppercase leading-none text-foreground">
-            {day.title || formatDay(day.date)}
-          </h2>
+          {/* #296 — the day title fixes inline, where the day is read. An
+              untitled day shows its date until an editor names it. */}
+          <InlineField
+            value={day.title}
+            label="Day title"
+            canEdit={canEdit}
+            error={error}
+            placeholder={formatDay(day.date)}
+            onSave={saveDayField("title")}
+            renderDisplay={(v) => (
+              <h2 className="mt-1 font-display text-4xl uppercase leading-none text-foreground">
+                {v || formatDay(day.date)}
+              </h2>
+            )}
+          />
           <div className="mt-3">
             <MetaChips meta={day.meta} />
           </div>
+          {/* #296 — ask the agent about THIS day: opens the trip drawer with
+              the day's ids + current values pre-filled, no hand-copying. */}
+          <div className="mt-3">
+            <AskAgentButton context={dayAskContext(trip, dayIdx)} variant="full" />
+          </div>
         </div>
 
-        {day.notes && (
-          <div className="rounded-xl border border-border bg-muted/40 p-4">
-            <p className="kicker mb-1.5">Notes</p>
-            <div className="text-sm leading-relaxed text-muted-foreground">
-              <Markdown>{day.notes}</Markdown>
+        {/* #296 — day notes fix inline too (markdown, like everywhere else).
+            Editors on a noteless day get an "Add notes" ghost, not nothing. */}
+        <InlineField
+          value={day.notes ?? ""}
+          label="Day notes"
+          canEdit={canEdit}
+          error={error}
+          multiline
+          placeholder="Notes for this day (markdown)"
+          emptyLabel="Add notes"
+          onSave={saveDayField("notes")}
+          renderDisplay={(v) => (
+            <div className="rounded-xl border border-border bg-muted/40 p-4">
+              <p className="kicker mb-1.5">Notes</p>
+              <div className="text-sm leading-relaxed text-muted-foreground">
+                <Markdown>{v}</Markdown>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        />
 
         <DayBlocks
           blocks={day.blocks}

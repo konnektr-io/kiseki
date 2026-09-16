@@ -482,6 +482,61 @@ export async function putContainerOrder(
   return doc;
 }
 
+/* ---------------- #296 ubiquitous title/notes edits ----------------
+ * Exact payloads only (the server's write models are `extra="forbid"` —
+ * never round-trip the whole trip object). Each returns the canonical doc. */
+
+/** Patch one day's title/notes (date is calendar truth — never sent). */
+export async function putTripDay(
+  tripId: string,
+  dayId: string,
+  patch: { title?: string; notes?: string },
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PUT",
+    `/api/trips/${encodeURIComponent(tripId)}/days/${encodeURIComponent(dayId)}`,
+    accessToken,
+    patch,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+/** Rename one section chapter. */
+export async function putTripSection(
+  tripId: string,
+  sectionId: string,
+  patch: { title: string },
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PUT",
+    `/api/trips/${encodeURIComponent(tripId)}/sections/${encodeURIComponent(sectionId)}`,
+    accessToken,
+    patch,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
+/** Patch one practical block by list position (value object, no id — #273). */
+export async function putPracticalBlock(
+  tripId: string,
+  index: number,
+  patch: { title?: string; body?: string },
+  accessToken: string,
+): Promise<Trip> {
+  const doc = await tripWrite(
+    "PUT",
+    `/api/trips/${encodeURIComponent(tripId)}/practical/blocks/${index}`,
+    accessToken,
+    patch,
+  );
+  cacheTrip(tripId, doc);
+  return doc;
+}
+
 /* ---------------- #196d user profiles ----------------
  * Read: GET /api/users/{sub} (any valid token; 404 when that sub has no
  * User twin) + the followers/following drill-ins (true-total `count`,

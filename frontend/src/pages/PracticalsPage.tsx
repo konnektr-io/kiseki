@@ -2,15 +2,17 @@ import { ExternalLink, ListChecks, Phone, Users, ArrowRight } from "lucide-react
 import { Link, useParams } from "react-router-dom";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
+import { InlineField } from "../components/inline-edit";
 import { TricountPanel } from "../components/TricountPanel";
 import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
-import { toggleTodoItem } from "../lib/api";
-import { roleAtLeast, withTodoDone } from "../lib/editing";
+import { putPracticalBlock, toggleTodoItem } from "../lib/api";
+import { roleAtLeast, withPracticalBlock, withTodoDone } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
+import { capture } from "../lib/posthog";
+import type { PracticalBlock } from "../lib/types";
 
-export function PracticalsPage() {
-  const trip = useTrip();
+export function PracticalsPage() {  const trip = useTrip();
   const { tripId } = useParams();
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const { busy, error, run } = useTripWrite();
@@ -109,14 +111,11 @@ export function PracticalsPage() {
           ("Driving times", "Money & tipping", "Water & health"). This is a
           document surface, so these render as heading + prose, deliberately
           WITHOUT card chrome: a wall of text becomes a readable, printable
-          set of sections, and the page stays booklet-faithful (DESIGN §2.1). */}
+          set of sections, and the page stays booklet-faithful (DESIGN §2.1).
+          #296 — and the heading + body fix inline (the first inline UI this
+          section ever had), addressed by list position (#273). */}
       {blocks.map((b, i) => (
-        <section key={`${b.title}-${i}`} className="space-y-1.5">
-          <h2 className="font-heading text-lg font-semibold tracking-wide">{b.title}</h2>
-          <div className="text-sm leading-relaxed text-muted-foreground">
-            <Markdown>{b.body}</Markdown>
-          </div>
-        </section>
+        <PracticalBlockSection key={`${b.title}-${i}`} block={b} index={i} />
       ))}
 
       {contacts.length > 0 && (
@@ -206,5 +205,53 @@ export function PracticalsPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/** One titled practicalities section with inline title/body edit (#296).
+ *  Addressed by list position — blocks are value objects with no ids (#273)
+ *  — with exact payloads (only the changed field goes out). */
+function PracticalBlockSection({ block, index }: { block: PracticalBlock; index: number }) {
+  const trip = useTrip();
+  const { run, error } = useTripWrite();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+
+  const save = (field: "title" | "body") => async (next: string) => {
+    capture("trip_practical_block_updated", { field });
+    return (
+      (await run(
+        (token) => putPracticalBlock(trip.id, index, { [field]: next }, token),
+        (t) => withPracticalBlock(t, index, { [field]: next }),
+      )) !== null
+    );
+  };
+
+  return (
+    <section className="space-y-1.5">
+      <InlineField
+        value={block.title}
+        label="Practical section title"
+        canEdit={canEdit}
+        error={error}
+        onSave={save("title")}
+        renderDisplay={(v) => (
+          <h2 className="font-heading text-lg font-semibold tracking-wide">{v}</h2>
+        )}
+      />
+      <InlineField
+        value={block.body}
+        label="Practical section body"
+        canEdit={canEdit}
+        error={error}
+        multiline
+        placeholder="Details (markdown)"
+        onSave={save("body")}
+        renderDisplay={(v) => (
+          <div className="text-sm leading-relaxed text-muted-foreground">
+            <Markdown>{v}</Markdown>
+          </div>
+        )}
+      />
+    </section>
   );
 }

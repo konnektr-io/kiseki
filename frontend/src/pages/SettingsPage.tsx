@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useTripState } from "../components/theme";
 import { Card, STAGE_LABELS } from "../components/ui";
+import { InlineField } from "../components/inline-edit";
 import {
   clearTripCache,
   connectTricount,
@@ -27,12 +28,13 @@ import {
   TripAccessError,
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
-import { isPostHogConfigured, posthog } from "../lib/posthog";
+import { isPostHogConfigured, posthog, capture } from "../lib/posthog";
 import {
   roleAtLeast,
   stageOptions,
   STAGES,
   withTripDiscoverable,
+  withTripFields,
   withTripStage,
   withTripTheme,
   withTripVisibility,
@@ -268,6 +270,43 @@ export function SettingsPage() {
         title="Trip identity"
         hint="Stage drives the app's own view of the trip (the header badge, the live-day surface, the itinerary's emphasis)."
       >
+        {/* #296 — the title/subtitle live here too, not just on the cover:
+            settings is where a trip-level control belongs, and the overview
+            hero edits the same fields through the same component. */}
+        <InlineField
+          value={trip.title}
+          label="Trip title"
+          canEdit
+          error={error}
+          onSave={async (next) => {
+            capture("trip_title_updated", { field: "title" });
+            return (
+              (await run(
+                (token) => putTrip(trip.id, { title: next }, token),
+                (t) => withTripFields(t, { title: next }),
+              )) !== null
+            );
+          }}
+          renderDisplay={(v) => <p className="text-sm font-medium text-foreground">{v}</p>}
+        />
+        <InlineField
+          value={trip.subtitle ?? ""}
+          label="Trip subtitle"
+          canEdit
+          error={error}
+          placeholder="Add a subtitle"
+          emptyLabel="Add a subtitle"
+          onSave={async (next) => {
+            capture("trip_title_updated", { field: "subtitle" });
+            return (
+              (await run(
+                (token) => putTrip(trip.id, { subtitle: next }, token),
+                (t) => withTripFields(t, { subtitle: next }),
+              )) !== null
+            );
+          }}
+          renderDisplay={(v) => <p className="text-sm text-muted-foreground">{v}</p>}
+        />
         {options.length > 0 && (
           <div>
             <label className={labelCls} htmlFor="settings-stage">

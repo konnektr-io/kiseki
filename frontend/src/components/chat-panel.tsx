@@ -119,6 +119,11 @@ interface ChatPanelProps {
   onTurnComplete?: () => void;
   onClose?: () => void;
   className?: string;
+  /** #296 ask-agent prefill: entity context (ids + current values) placed in
+   *  the composer. `prefillKey` bumps per ask so a second ask while the
+   *  drawer is open re-scopes the draft instead of going stale. */
+  initialDraft?: string | null;
+  prefillKey?: number;
 }
 
 export function ChatPanel({
@@ -127,6 +132,8 @@ export function ChatPanel({
   onTurnComplete,
   onClose,
   className,
+  initialDraft,
+  prefillKey,
 }: ChatPanelProps) {
   const {
     isAuthenticated,
@@ -181,6 +188,8 @@ export function ChatPanel({
       onTurnComplete={onTurnComplete}
       onClose={onClose}
       className={className}
+      initialDraft={initialDraft}
+      prefillKey={prefillKey}
     />
   );
 }
@@ -260,6 +269,8 @@ function ChatThread({
   onTurnComplete,
   onClose,
   className,
+  initialDraft,
+  prefillKey,
 }: {
   tripId?: string;
   threadId: string;
@@ -268,6 +279,8 @@ function ChatThread({
   onTurnComplete?: () => void;
   onClose?: () => void;
   className?: string;
+  initialDraft?: string | null;
+  prefillKey?: number;
 }) {
   const { getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const chat = useTripChat({
@@ -340,7 +353,21 @@ function ChatThread({
     await chat.resumeTurn();
   };
 
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft ?? "");
+  // #296 ask-agent re-scope: the drawer stays mounted while the user asks
+  // about a second entity, so a bumped `prefillKey` re-scopes the composer.
+  // The context lands FIRST (it is what the request is about); anything the
+  // user already typed is kept below it. The includes-guard covers the mount
+  // case too (useState already applied the same draft) and makes a repeated
+  // ask idempotent instead of stacking the context twice.
+  const lastPrefillKey = useRef(prefillKey);
+  useEffect(() => {
+    if (!initialDraft || prefillKey === lastPrefillKey.current) return;
+    lastPrefillKey.current = prefillKey;
+    setDraft((prev) =>
+      prev.includes(initialDraft) ? prev : `${initialDraft}${prev ? `\n\n${prev}` : ""}`,
+    );
+  }, [initialDraft, prefillKey]);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -1119,6 +1146,8 @@ export function ChatPopup({
   onTurnComplete,
   label,
   banner,
+  initialDraft,
+  prefillKey,
 }: {
   tripId?: string;
   onClose: () => void;
@@ -1126,6 +1155,8 @@ export function ChatPopup({
   onTurnComplete?: () => void;
   label: string;
   banner?: ReactNode;
+  initialDraft?: string | null;
+  prefillKey?: number;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1154,6 +1185,8 @@ export function ChatPopup({
           onTripCreated={onTripCreated}
           onTurnComplete={onTurnComplete}
           className="h-[60dvh] border-0 md:h-full"
+          initialDraft={initialDraft}
+          prefillKey={prefillKey}
         />
       </div>
     </div>

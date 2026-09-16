@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { createElement } from "react";
+import { act, createElement, useState } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 /* The #231 contract on the page that owns the grey area: the practical page
  * renders the TriCount card ONLY for a trip that actually has a connection.
@@ -30,6 +31,7 @@ vi.mock("../lib/api", async () => {
 
 import { PracticalsPage } from "./PracticalsPage";
 import { TripProvider } from "../components/theme";
+import * as api from "../lib/api";
 import type { Trip } from "../lib/types";
 
 function tripWith(practical: Trip["practical"], role = "owner"): Trip {
@@ -161,6 +163,119 @@ describe("practicals page — titled practicalities blocks (#254)", () => {
   });
 });
 
+/* #296 — practical blocks fix inline (title/body), addressed by list
+ * position with exact payloads. Mounted for real (jsdom): the pencil →
+ * field → save loop and the role gates on BOTH sides (editor saves with an
+ * exact payload; viewer sees no chrome and fires no request). */
+describe("practicals page — inline block edit (#296)", () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  const blocks: NonNullable<Trip["practical"]["blocks"]> = [
+    { title: "Money & tipping", body: "Cash at the gates" },
+  ];
+
+  function Harness({ role }: { role: string }) {
+    const [trip, setTrip] = useState(tripWith({ blocks }, role));
+    return createElement(TripProvider, {
+      trip,
+      apply: setTrip,
+      children: createElement(
+        MemoryRouter,
+        { initialEntries: ["/t/t-231/practical"] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, {
+            path: "/t/:tripId/practical",
+            element: createElement(PracticalsPage),
+          }),
+        ),
+      ),
+    });
+  }
+
+  async function mountInteractive(role: string) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(createElement(Harness, { role }));
+    });
+  }
+
+  async function flush() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root!.unmount();
+      });
+      root = null;
+    }
+    container?.remove();
+    container = null;
+    vi.restoreAllMocks();
+  });
+
+  async function click(el: Element) {
+    await act(async () => {
+      (el as HTMLElement).click();
+      await Promise.resolve();
+    });
+  }
+
+  it("editor: saving a body sends the exact payload (index + changed field only)", async () => {
+    // Echoes the patch back like the server's canonical document would.
+    const putSpy = vi
+      .spyOn(api, "putPracticalBlock")
+      .mockImplementation(
+        async (_tripId: string, index: number, patch: { title?: string; body?: string }) => ({
+          ...tripWith({ blocks }, "editor"),
+          practical: {
+            todos: [{ label: "Book the ferry", done: false }],
+            blocks: blocks.map((b, i) => (i === index ? { ...b, ...patch } : b)),
+          },
+        }) as unknown as Trip,
+      );
+    await mountInteractive("editor");
+    const pencil = container!.querySelector(
+      'button[aria-label="Edit Practical section body"]',
+    ) as HTMLButtonElement;
+    expect(pencil).not.toBeNull();
+    await click(pencil);
+    const area = container!.querySelector("textarea") as HTMLTextAreaElement;
+    expect(area).not.toBeNull();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(area, "Cards everywhere now");
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const save = Array.from(container!.querySelectorAll("button")).find(
+      (b) => b.textContent === "Save",
+    ) as HTMLButtonElement;
+    await click(save);
+    await flush();
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy).toHaveBeenCalledWith("t-231", 0, { body: "Cards everywhere now" }, "test-token");
+    // The canonical doc landed: the new body reads back on the page.
+    expect(container!.textContent).toContain("Cards everywhere now");
+  });
+
+  it("viewer: block content renders with no edit chrome and no request", async () => {
+    const putSpy = vi.spyOn(api, "putPracticalBlock");
+    await mountInteractive("viewer");
+    await flush();
+    expect(container!.textContent).toMatch(/Money &(amp;)? tipping/);
+    expect(container!.textContent).toContain("Cash at the gates");
+    expect(container!.querySelectorAll("button").length).toBe(0);
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+});
 /* #301 — `practical.links` and a todo's own links are content-supplied targets
  * too, and both rendered `<a target="_blank">`: an in-app target (the trip's own
  * day route) opened a second tab, an off-app one should. */

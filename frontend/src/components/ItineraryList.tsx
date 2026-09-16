@@ -1,14 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useTrip } from "./theme";
+import { InlineField } from "./inline-edit";
+import { AskAgentButton } from "./ask-agent";
 import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "./DaySummaryRow";
 import { findLocation, markerNumber } from "../lib/maps";
 import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
 import { itineraryItems, sectionAnchorElement, sectionRange } from "../lib/sections";
-import { roleAtLeast } from "../lib/editing";
+import { roleAtLeast, withSectionTitle } from "../lib/editing";
+import { sectionAskContext } from "../lib/ask-agent";
 import { useTripWrite } from "../lib/useTripWrite";
-import { moveTripBlock } from "../lib/api";
-import { isPostHogConfigured, posthog } from "../lib/posthog";
+import { moveTripBlock, putTripSection } from "../lib/api";
+import { isPostHogConfigured, posthog, capture } from "../lib/posthog";
 import type { Day, TripSection } from "../lib/types";
 
 const scrollKey = (tripId: string) => `kiseki:itinerary-scroll:${tripId}`;
@@ -29,6 +32,9 @@ function SectionHeader({
   top?: string;
   inset?: string;
 }) {
+  const trip = useTrip();
+  const { run, error } = useTripWrite();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
   const range = sectionRange(section.days);
   return (
     <div
@@ -36,12 +42,34 @@ function SectionHeader({
       style={{ top }}
     >
       <span className="h-[3px] w-8 shrink-0 rounded-full bg-primary" aria-hidden />
-      <h3 className="min-w-0 flex-1 truncate font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
-        {section.title}
-      </h3>
+      <div className="min-w-0 flex-1">
+        {/* #296 — chapter titles fix inline, where the chapter is read. */}
+        <InlineField
+          value={section.title}
+          label="Section title"
+          canEdit={canEdit}
+          error={error}
+          onSave={async (next) => {
+            capture("trip_section_updated", { field: "title" });
+            return (
+              (await run(
+                (token) => putTripSection(trip.id, section.id, { title: next }, token),
+                (t) => withSectionTitle(t, section.id, next),
+              )) !== null
+            );
+          }}
+          renderDisplay={(v) => (
+            <h3 className="truncate font-heading text-lg font-semibold uppercase leading-tight tracking-wide text-foreground md:text-xl">
+              {v}
+            </h3>
+          )}
+        />
+      </div>
       {range && (
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{range}</span>
       )}
+      {/* #296 — the chapter's ask-agent shortcut, beside the rename pencil. */}
+      <AskAgentButton context={sectionAskContext(section)} />
     </div>
   );
 }
