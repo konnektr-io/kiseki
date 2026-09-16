@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib/api";
 import { isAuthConfigured } from "../lib/auth";
+import { ASK_AGENT_EVENT, type AskAgentContext } from "../lib/ask-agent";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
@@ -91,6 +92,11 @@ export function TripLayout() {
   // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
   // surface stays mounted underneath so edits land visibly live.
   const [chatOpen, setChatOpen] = useState(false);
+  // #296 "ask the agent about this": a day/block/section button dispatches
+  // `ASK_AGENT_EVENT` with the entity context; the drawer opens with that
+  // context pre-filled in the composer. `key` remounts the prefill per ask so
+  // asking about a second entity while the drawer is open re-scopes it.
+  const [chatPrefill, setChatPrefill] = useState<{ draft: string; label: string; key: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -240,6 +246,24 @@ export function TripLayout() {
       // Keep what is on screen; the agent's answer is still in the drawer.
     }
   }, [tripId, isAuthenticated]);
+
+  // #296 ask-agent bridge — kept ABOVE the early returns with the other
+  // hooks (#310). Opens the drawer pre-scoped; a second ask while the drawer
+  // is open bumps the key so the composer re-scopes instead of going stale.
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const detail = (e as CustomEvent<AskAgentContext>).detail;
+      if (!detail?.draft) return;
+      setChatPrefill((prev) => ({
+        draft: detail.draft,
+        label: detail.label,
+        key: (prev?.key ?? 0) + 1,
+      }));
+      setChatOpen(true);
+    };
+    window.addEventListener(ASK_AGENT_EVENT, onAsk);
+    return () => window.removeEventListener(ASK_AGENT_EVENT, onAsk);
+  }, []);
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
@@ -451,6 +475,16 @@ export function TripLayout() {
               void reloadTrip();
             }}
             label="Trip chat"
+            initialDraft={chatPrefill?.draft}
+            prefillKey={chatPrefill?.key}
+            banner={
+              chatPrefill && (
+                <p className="text-xs text-muted-foreground">
+                  Asking about <span className="font-medium text-foreground">{chatPrefill.label}</span>{" "}
+                  — check the draft below, then send.
+                </p>
+              )
+            }
           />
         )}
 

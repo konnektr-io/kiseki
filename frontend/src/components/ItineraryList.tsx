@@ -2,11 +2,13 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { useTrip } from "./theme";
 import { InlineField } from "./inline-edit";
+import { AskAgentButton } from "./ask-agent";
 import { BlockSummaryRow, DaySummaryRow, FoldedDayCard } from "./DaySummaryRow";
 import { findLocation, markerNumber } from "../lib/maps";
 import { tripTodayIso, isTodayInRange, formatDay } from "../lib/dates";
 import { itineraryItems, sectionAnchorElement, sectionRange } from "../lib/sections";
 import { roleAtLeast, withSectionTitle } from "../lib/editing";
+import { sectionAskContext } from "../lib/ask-agent";
 import { useTripWrite } from "../lib/useTripWrite";
 import { moveTripBlock, putTripSection } from "../lib/api";
 import { isPostHogConfigured, posthog, capture } from "../lib/posthog";
@@ -66,6 +68,8 @@ function SectionHeader({
       {range && (
         <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">{range}</span>
       )}
+      {/* #296 — the chapter's ask-agent shortcut, beside the rename pencil. */}
+      <AskAgentButton context={sectionAskContext(section)} />
     </div>
   );
 }

@@ -44,8 +44,20 @@ vi.mock("../lib/auth", () => ({
   isSessionExpiredError: () => false,
 }));
 
-// Heavy peripheral chrome: not the subject of these tests.
-vi.mock("../components/chat-panel", () => ({ ChatPopup: () => null }));
+// Heavy peripheral chrome: not the subject of these tests — except the drawer
+// ITSELF, which the #296 ask-agent bridge has to open pre-scoped. The probe
+// renders nothing until the layout actually opens it, so every existing
+// assertion (none of which open chat) is unaffected.
+vi.mock("../components/chat-panel", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    ChatPopup: (props: { initialDraft?: string | null }) =>
+      React.createElement("div", {
+        "data-testid": "chat-drawer",
+        "data-draft": props.initialDraft ?? "",
+      }),
+  };
+});
 
 // Keep the REAL TripAccessError (TripLayout discriminates on it) and stub
 // only the network functions.
@@ -242,5 +254,29 @@ describe("TripLayout", () => {
     // …and the settings groups render inside its Outlet.
     expect(text()).toContain("Trip identity");
     expect(text()).toContain("Danger zone");
+  });
+
+  it("an ask-agent event opens the drawer pre-scoped with the entity context (#296)", async () => {
+    const { ASK_AGENT_EVENT } = await import("../lib/ask-agent");
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount();
+    await flush();
+    // Drawer closed: the probe is absent.
+    expect(container.querySelector('[data-testid="chat-drawer"]')).toBeNull();
+
+    const draft = "About Day 1 — “Arrival” (day_id=day-1):\n\n";
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent(ASK_AGENT_EVENT, {
+          detail: { entity: "day", id: "day-1", label: "Day 1 — Arrival", fields: ["title"], draft },
+        }),
+      );
+    });
+    await flush();
+
+    const drawer = container.querySelector('[data-testid="chat-drawer"]');
+    expect(drawer, "the drawer opened").not.toBeNull();
+    expect(drawer!.getAttribute("data-draft")).toBe(draft);
+    expect(uncaught).toEqual([]);
   });
 });
