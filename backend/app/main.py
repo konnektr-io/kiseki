@@ -122,6 +122,7 @@ from .media import (
     upload_kind,
     upload_limit,
 )
+from .gpx import GpxError, parse_gpx
 from .models import Trip
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
@@ -2057,6 +2058,41 @@ def inbox_file(file_name: str, request: Request) -> Response:
     return _serve_stored_media(request, f"inbox/{file_name}", file_name)
 
 
+@app.get("/api/tracks/{trip_id}/{file_name}")
+def track_geojson(trip_id: str, file_name: str) -> dict:
+    """Parsed recorded track for an activity block (#279, slice of #193).
+
+    The block stores the BARE ``.gpx`` filename (``track``); the day map and
+    the track card fetch this route for the polyline + summary (distance /
+    time / ascent) instead of parsing XML in the browser. Same posture as the
+    ``/media`` proxy: the trip id is the unguessable ``$dtId`` and the file a
+    content-addressed name, so no auth — a leaked id exposes the trip anyway.
+
+    A stored file that no longer parses (hand-edited key, half-upload) is a
+    422 naming the file, never an empty line on the map; a missing file is a
+    404. Only ``.gpx`` is served here — anything else is a 404, not a parse
+    attempt.
+    """
+    if not is_valid_media_path(trip_id, file_name):
+        raise HTTPException(404, "Not Found")
+    if Path(file_name).suffix.lower() != ".gpx":
+        raise HTTPException(404, "Not Found")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(404, "Not Found")
+    chunks = store.get(object_key_for(trip_id, file_name))
+    if chunks is None:
+        raise HTTPException(404, "Not Found")
+    raw = b"".join(chunks)
+    try:
+        track = parse_gpx(raw, file_name)
+    except GpxError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    feature = track.to_feature()
+    feature["properties"]["url"] = f"/media/{trip_id}/{file_name}"
+    return feature
+
+
 # ------------------------------------------------------------- chat relay (#9 / M3)
 # The SPA's chat panel talks to the kiseki content agent through these routes.
 # Identity is bearer-first (Niko's rule): a real end-user token IS the actor
@@ -2337,6 +2373,14 @@ async def post_files(
             try:
                 raw, ext, converted = normalize_upload(raw, file_name)
             except UnsupportedUpload as exc:
+                raise HTTPException(422, str(exc)) from exc
+        # A recorded track must BE a track at ingest (#279): malformed GPX is
+        # refused here, per file, naming it — never stored and then invisible
+        # on the day map (the #251 accept-and-drop shape).
+        if ext == ".gpx":
+            try:
+                parse_gpx(raw, file_name)
+            except GpxError as exc:
                 raise HTTPException(422, str(exc)) from exc
         name = key_from_digest(digest, ext) if by_reference else content_addressed_key(raw, ext)
         content_type = media_content_type(name)
