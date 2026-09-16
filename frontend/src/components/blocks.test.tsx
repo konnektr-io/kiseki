@@ -26,6 +26,12 @@ vi.mock("@auth0/auth0-react", () => ({
 // thumbnails are irrelevant to the letter/card wiring under test.
 vi.mock("./MapView", () => ({ MapView: () => null, TripMap: () => null }));
 
+// DOMPurify needs a DOM and node-env SSR has none (`default.sanitize is not a
+// function`), so the custom-block case in the #303 suite stubs it. Sanitizing
+// itself is not what these tests are about — the server does it once at write
+// (`app/sanitize.py`) and the browser probe exercises the real renderer.
+vi.mock("dompurify", () => ({ default: { sanitize: (html: string) => html } }));
+
 /* #286 wiring: `DayBlocks` → `BlockView` → `ActivityBlock` must pass the
  * block's STATUS down to PlaceFacts as `reviewsQuiet`. The live overlay is
  * mocked OFF for the whole file (every other assertion here is about static
@@ -40,7 +46,7 @@ vi.mock("../lib/place-live", () => ({
 import { DayBlocks, resolveBlockPlace } from "./blocks";
 import { GALLERY_PRINT_COUNT, PhotoLightbox, STRIP_PRINT_COUNT } from "./photos";
 import { TripProvider } from "./theme";
-import type { Block, Trip } from "../lib/types";
+import type { Block, BlockKind, Trip } from "../lib/types";
 
 const trip = {
   id: "t1",
@@ -540,5 +546,142 @@ describe("a block's content links follow their target (#301)", () => {
     const html = renderWithPlaces([{ id: "b33", kind: "link", order: 0, links: [DAY, STRAVA] } as unknown as Block]);
     expect(anchorFor(html, DAY.url)).not.toContain('target="_blank"');
     expect(anchorFor(html, STRAVA.url)).toContain('target="_blank"');
+  });
+});
+
+/* #303 — the itinerary and the day view must AGREE about which photos a day
+ * has. The day-row collector (`dayThumbnails`) reads `block.images` on EVERY
+ * kind, so a photo attached to a `note`/`transport` block becomes the day's
+ * thumbnail in the list — while the day view rendered the shared media strip
+ * on exactly three kinds (activity/lodging/meal) and silently dropped the rest.
+ * The strip now renders ONCE, in the shared `BlockCard` wrapper, plus on the
+ * two cards that are not `BlockCard`s (the dark transport card, the raw-HTML
+ * custom block) — one decision, every kind.
+ *
+ * Negative control: against the ORIGINAL per-kind renderer every `toContain(src)`
+ * below fails for the seven non-activity kinds. */
+describe("the shared media strip renders on every block kind (#303)", () => {
+  const IMG = (kind: string) => `/media/t/${kind}.jpg`;
+  const cases: { kind: BlockKind; block: Partial<Block> }[] = [
+    {
+      kind: "transport",
+      block: { mode: "drive", title: "Drive back to Annupuri", from: "Banff", to: "Lake Louise" },
+    },
+    { kind: "transport", block: { mode: "flight", title: "BRU → NRT" } },
+    { kind: "todo", block: { title: "Pack", items: [{ label: "Skis", done: false }] } },
+    { kind: "note", block: { title: "Out along the ridge", description: "Two shots from the ridge." } },
+    { kind: "link", block: { links: [{ label: "Strava", url: "https://www.strava.com/activities/9001" }] } },
+    { kind: "booking", block: { title: "Rental car", bookingCode: "ABC123" } },
+    { kind: "gallery", block: { title: "Photos", items: ["/media/t/gal-item.jpg"] } },
+    { kind: "custom", block: { html: "<p>Hand-written card.</p>" } },
+  ];
+
+  it.each(cases)("renders the block's photo on a $kind card", ({ kind, block }) => {
+    const src = IMG(kind);
+    const html = renderWithPlaces([
+      { id: `k-${kind}`, kind, order: 0, images: [src], ...block } as unknown as Block,
+    ]);
+    // The same photo, in the same treatment as the three kinds that already
+    // had it (shared strip: fixed 4:3 box, cover, lazy — DESIGN.md §9) …
+    expect(html).toContain(src);
+    expect(html).toContain("aspect-[4/3]");
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it("renders a gallery block's `images` alongside its `items`", () => {
+    const html = renderWithPlaces([
+      {
+        id: "g1",
+        kind: "gallery",
+        title: "Photos",
+        order: 0,
+        images: ["/media/t/gal-strip.jpg"],
+        items: ["/media/t/gal-item.jpg"],
+      } as unknown as Block,
+    ]);
+    expect(html).toContain("/media/t/gal-strip.jpg");
+    expect(html).toContain("/media/t/gal-item.jpg");
+  });
+
+  it("carries the location/track minimap fallback on the other kinds too", () => {
+    // A `note` with a registry place — the minimap the day view never showed.
+    const located = renderWithPlaces([
+      { id: "n1", kind: "note", title: "Out along the ridge", location: "Banff", order: 0 } as unknown as Block,
+    ]);
+    expect(located).toContain("minimap");
+    // A bare recorded track still earns its minimap (no registry place).
+    const tracked = renderWithPlaces([
+      { id: "td1", kind: "todo", title: "Pack", track: "ridge.gpx", order: 0 } as unknown as Block,
+    ]);
+    expect(tracked).toContain("minimap");
+    // Photos win over the fallback — one strip, never two.
+    const both = renderWithPlaces([
+      {
+        id: "n2",
+        kind: "note",
+        title: "Out along the ridge",
+        location: "Banff",
+        order: 0,
+        images: ["/media/t/n2.jpg"],
+      } as unknown as Block,
+    ]);
+    expect(both).toContain("/media/t/n2.jpg");
+    expect(both).not.toContain("minimap");
+  });
+
+  it("renders the strip above the card's own body", () => {
+    const html = renderWithPlaces([
+      {
+        id: "n3",
+        kind: "note",
+        title: "Out along the ridge",
+        description: "Ridge line.",
+        order: 0,
+        images: ["/media/t/n3.jpg"],
+      } as unknown as Block,
+    ]);
+    expect(html.indexOf("/media/t/n3.jpg")).toBeLessThan(html.indexOf("Out along the ridge"));
+  });
+
+  it("leaves a photo-less transport card's padding exactly as it was", () => {
+    const html = renderWithPlaces([
+      {
+        id: "d1",
+        kind: "transport",
+        mode: "drive",
+        title: "Drive",
+        from: "Banff",
+        to: "Lake Louise",
+        order: 0,
+      } as unknown as Block,
+    ]);
+    expect(html).toContain("flex items-start gap-3 p-4");
+    expect(html).not.toContain("px-4 pt-4");
+  });
+
+  it("reserves the strip's padding on a transport card only when it has media", () => {
+    const html = renderWithPlaces([
+      {
+        id: "d2",
+        kind: "transport",
+        mode: "drive",
+        title: "Drive back to Annupuri",
+        from: "Banff",
+        to: "Lake Louise",
+        order: 0,
+        images: ["/media/t/d2.jpg"],
+      } as unknown as Block,
+    ]);
+    expect(html).toContain("/media/t/d2.jpg");
+    expect(html).toContain("px-4 pt-4");
+    expect(html).not.toContain("flex items-start gap-3 p-4");
+  });
+
+  it("renders the strip on an EDITOR's card too (EditableBlockList drops nothing)", () => {
+    const html = renderWithPlaces(
+      [{ id: "n4", kind: "note", title: "Moment", order: 0, images: ["/media/t/n4.jpg"] } as unknown as Block],
+      { editable: true, containerId: "day-1" },
+    );
+    expect(html).toContain("/media/t/n4.jpg");
   });
 });

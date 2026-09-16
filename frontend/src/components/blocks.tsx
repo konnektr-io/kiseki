@@ -153,9 +153,18 @@ export function resolveBlockPlace(trip: Trip, b: Block): TripLocation | undefine
  *  screen-capped with a +N lightbox affordance, print-capped per DESIGN §12).
  *  The MAP branch is the "minimap": on the trip map surface (#92) it is hidden
  *  — the surface map right beside the card is the spatial context — while the
- *  booklet keeps it (one component, a print-scope CSS rule serves both). */
-function CardMedia({ b }: { b: Block }) {
-  const trip = useTrip();
+ *  booklet keeps it (one component, a print-scope CSS rule serves both).
+ *
+ *  KIND-AGNOSTIC (#303): `images` is a shared field on all ten block kinds and
+ *  the itinerary day rows (`dayThumbnails`) already read it from every kind —
+ *  so the day view must render this strip for every kind too, or a photo that
+ *  the itinerary advertises as the day's thumbnail is invisible where the
+ *  reader is reading. The decision lives here, once; `BlockCard` applies it.
+ *
+ *  Returns null when the block carries no media at all — split out of
+ *  `CardMedia` so a card with its own layout (the dark transport card) can ask
+ *  BEFORE reserving padding for a strip that may not exist. */
+function cardMediaNode(trip: Trip, b: Block): ReactNode {
   if (b.images?.length) {
     return <PhotoStrip images={b.images} alt={b.title ?? ""} />;
   }
@@ -182,6 +191,12 @@ function CardMedia({ b }: { b: Block }) {
   return null;
 }
 
+/** `cardMediaNode` as a component, for the cards that always render their
+ *  strip (via `BlockCard b={…}`, the single call site for all ten kinds). */
+function CardMedia({ b }: { b: Block }) {
+  return <>{cardMediaNode(useTrip(), b)}</>;
+}
+
 /** The day level's letter badge (§8.3, #90/#104) — the same square chip glyph
  *  the map draws, INLINE next to the card's title (the floating corner badge
  *  was easy to miss — "I can not see that the hotel is A"). Static: the card
@@ -202,10 +217,16 @@ function LetterBadge({ letter }: { letter: string }) {
 export type BlockCardProps = HTMLAttributes<HTMLDivElement> & Record<string, unknown>;
 
 function BlockCard({
+  b,
   children,
   className = "",
   cardProps,
 }: {
+  /** The block this card renders. Given by every kind, the shared media strip
+   *  (`cardMediaNode`) renders ONCE here, above the card body — one call site
+   *  for all ten kinds instead of three (#303). Omitted only by a card that
+   *  is not a `BlockCard` at all (the dark transport card). */
+  b?: Block;
   children: ReactNode;
   className?: string;
   cardProps?: BlockCardProps;
@@ -215,6 +236,7 @@ function BlockCard({
       {...cardProps}
       className={`booklet-keep relative rounded-xl border border-border bg-card p-4 shadow-card ${className}`}
     >
+      {b ? <CardMedia b={b} /> : null}
       {children}
     </div>
   );
@@ -282,6 +304,12 @@ function TransportBlock({
   const isFlight = classifyTransportMode(b) === "flight";
   const title = b.title ?? "Transfer";
   const desc = b.description;
+  // The shared media strip (#303) — a photo attached to the transfer renders
+  // where the reader is reading, exactly as the itinerary already advertises
+  // it. Computed once, and the card only reserves the wrapper's padding when
+  // there IS something to show, so a photo-less transfer card is unchanged.
+  const media = cardMediaNode(trip, b);
+  const rowCls = `flex items-start gap-3 ${media ? "px-4 pb-4" : "p-4"}`;
 
   if (isFlight) {
     // flight card — dark, like the booklet's flight treatment
@@ -290,7 +318,8 @@ function TransportBlock({
         {...cardProps}
         className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-card"
       >
-        <div className="flex items-start gap-3 p-4">
+        {media ? <div className="px-4 pt-4">{media}</div> : null}
+        <div className={rowCls}>
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
             <Plane className="h-4 w-4" />
           </span>
@@ -371,7 +400,8 @@ function TransportBlock({
       {...cardProps}
       className="booklet-keep relative overflow-hidden rounded-xl border border-foreground/10 bg-foreground text-background shadow-sm"
     >
-      <div className="flex items-start gap-3 p-4">
+      {media ? <div className="px-4 pt-4">{media}</div> : null}
+      <div className={rowCls}>
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15">
           <Car className="h-4 w-4" />
         </span>
@@ -487,8 +517,7 @@ function ActivityBlock({
   const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard cardProps={cardProps}>
-      <CardMedia b={b} />
+    <BlockCard b={b} cardProps={cardProps}>
       <div className="flex items-start gap-3">
         <IconBadge icon={<MapPin className="h-4 w-4" />} tone="primary" />
         <div className="min-w-0 flex-1">
@@ -531,8 +560,7 @@ function LodgingBlock({
   const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [...(b.links ?? []), gm] : b.links ?? []; // booking CTAs first
   return (
-    <BlockCard cardProps={cardProps}>
-      <CardMedia b={b} />
+    <BlockCard b={b} cardProps={cardProps}>
       <div className="flex items-start gap-3">
         <IconBadge icon={<BedDouble className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
@@ -578,8 +606,7 @@ function MealBlock({
   const gm = place ? null : mapsLink(b, place);
   const shown = gm ? [gm, ...(b.links ?? [])] : b.links ?? [];
   return (
-    <BlockCard cardProps={cardProps}>
-      <CardMedia b={b} />
+    <BlockCard b={b} cardProps={cardProps}>
       <div className="flex items-start gap-3">
         <IconBadge icon={<UtensilsCrossed className="h-4 w-4" />} tone="muted" />
         <div className="min-w-0 flex-1">
@@ -615,7 +642,7 @@ function TodoBlock({
       done ? "bg-accent text-accent-foreground" : "border border-border"
     } ${interactive ? "cursor-pointer transition-colors hover:border-accent" : ""}`;
   return (
-    <BlockCard>
+    <BlockCard b={b}>
       <div className="flex items-start gap-3">
         <IconBadge icon={<ListChecks className="h-4 w-4" />} tone="accent" />
         <div className="min-w-0 flex-1">
@@ -654,7 +681,7 @@ function TodoBlock({
 
 function NoteBlock({ b }: { b: Block }) {
   return (
-    <BlockCard className="border-l-4 border-l-primary/40 bg-muted/40">
+    <BlockCard b={b} className="border-l-4 border-l-primary/40 bg-muted/40">
       <div className="flex items-start gap-3">
         <StickyNote className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
@@ -676,9 +703,11 @@ function GalleryBlock({ b }: { b: Block }) {
   // Shapes may still carry bare strings — unwrap both.
   const imgs = (b.items ?? []) as (string | { url?: string })[];
   const files = imgs.map((it) => (typeof it === "string" ? it : it?.url ?? "")).filter(Boolean);
-  if (!files.length && !extractYouTubeId(b.links?.[0]?.url)) return null;
+  // `images` counts as content too (#303): a gallery block that carries the
+  // shared field renders its strip above the grid instead of vanishing.
+  if (!files.length && !extractYouTubeId(b.links?.[0]?.url) && !b.images?.length) return null;
   return (
-    <BlockCard className="p-3">
+    <BlockCard b={b} className="p-3">
       {files.length > 0 && <PhotoGallery items={files} title={b.title ?? undefined} />}
       <YouTubeEmbeds links={b.links} />
     </BlockCard>
@@ -686,11 +715,14 @@ function GalleryBlock({ b }: { b: Block }) {
 }
 
 function LinkBlock({ b }: { b: Block }) {
-  if (!b.links?.length) return null;
-  const rest = b.links.filter((l) => !extractYouTubeId(l.url));
+  const links = b.links ?? [];
+  // Nothing to render without links — unless the block carries the shared
+  // `images` field (#303), in which case its strip is the content.
+  if (!links.length && !b.images?.length) return null;
+  const rest = links.filter((l) => !extractYouTubeId(l.url));
   return (
-    <BlockCard>
-      <YouTubeEmbeds links={b.links} />
+    <BlockCard b={b}>
+      <YouTubeEmbeds links={links} />
       {rest.length > 0 && (
         <div className="flex items-start gap-3">
           <IconBadge icon={<Link2 className="h-4 w-4" />} tone="muted" />
@@ -718,7 +750,7 @@ function LinkBlock({ b }: { b: Block }) {
 
 function BookingBlock({ b }: { b: Block }) {
   return (
-    <BlockCard className="border-accent/40 bg-accent/5">
+    <BlockCard b={b} className="border-accent/40 bg-accent/5">
       <div className="flex items-start gap-3">
         <IconBadge icon={<CreditCard className="h-4 w-4" />} tone="accent" />
         <div className="min-w-0 flex-1">
@@ -745,9 +777,20 @@ function BookingBlock({ b }: { b: Block }) {
   );
 }
 
+/** The raw-HTML escape hatch — deliberately NOT a `BlockCard` (the author's own
+ *  markup is the surface), so it renders the shared media strip itself when the
+ *  block carries `images` (#303) — `images` is a field of every kind. */
 function CustomBlock({ b }: { b: Block }) {
-  if (!b.html) return null;
-  return <div className="md" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(b.html) }} />;
+  const media = cardMediaNode(useTrip(), b);
+  if (!b.html && !media) return null;
+  return (
+    <>
+      {media}
+      {b.html ? (
+        <div className="md" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(b.html) }} />
+      ) : null}
+    </>
+  );
 }
 
 /* ---------- dispatcher ---------- */
