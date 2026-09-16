@@ -119,12 +119,14 @@ describe("PlaceFacts live Google overlay (#95)", () => {
   });
 });
 
-/* #286: on a DONE block the snippet set is a *choosing* aid, not a record — the
- * caller (`blocks.tsx`, `reviewsQuiet={b.status === "done"}`) collapses it into
- * one line while the rating row (and its route out to Google) stays. The last
- * case is the negative control for the first: a planning render MUST still put
- * the first snippet inline, or the quiet assertion would prove nothing. */
-describe("PlaceFacts — review snippets on a DONE block (#286)", () => {
+/* #286/#289: on a DONE block the live Google overlay is a *choosing* aid, not a
+ * record — the caller (`blocks.tsx`, `reviewsQuiet={b.status === "done"}`)
+ * collapses the snippets into one line (#286) and drops the star icons and the
+ * Google photo entirely (#289), keeping the rating as quiet text with its route
+ * out to Google. The last case is the negative control for the first two: a
+ * planning render MUST still show stars, the inline snippet and the live photo,
+ * or the quiet assertions would prove nothing. */
+describe("PlaceFacts — live overlay on a DONE block (#286/#289)", () => {
   it("collapses every snippet behind one line, keeping the route out", () => {
     const html = renderFacts(base, { reviewsQuiet: true });
     const disclosure = html.indexOf("<details");
@@ -143,6 +145,18 @@ describe("PlaceFacts — review snippets on a DONE block (#286)", () => {
     expect(html).toContain("1,092");
   });
 
+  it("renders no star icons and no Google photo — the rating is quiet text", () => {
+    const html = renderFacts(base, { reviewsQuiet: true });
+    // No star row: the accessible rating label is the stars' fingerprint.
+    expect(html).not.toContain("Rated 4.4 out of 5");
+    // No Google photo served through the keyless proxy…
+    expect(html).not.toContain("/api/places/photo?ref=");
+    // …while the rating value and its route out survive as one text line.
+    expect(html).toContain(">4.4<");
+    expect(html).toContain('href="https://maps.google.com/?cid=42"');
+    expect(html).toContain("reviews on Google");
+  });
+
   it("labels a single-review set in the singular", () => {
     liveState.current = { ...live, reviews: [live.reviews[0]] };
     const html = renderFacts(base, { reviewsQuiet: true });
@@ -150,11 +164,13 @@ describe("PlaceFacts — review snippets on a DONE block (#286)", () => {
     expect(html).not.toContain("Show 1 reviews");
   });
 
-  it("leaves a planning block unchanged (inline first snippet)", () => {
+  it("leaves a planning block unchanged (stars, inline snippet, photo)", () => {
     const html = renderFacts(base);
     expect(html.slice(0, html.indexOf("<details"))).toContain("Best powder in Hokkaido");
     expect(html).toContain("line-clamp-2");
     expect(html).toContain("more review");
     expect(html).not.toContain("Show 3 reviews from Google");
+    expect(html).toContain("Rated 4.4 out of 5");
+    expect(html).toContain("/api/places/photo?ref=");
   });
 });
