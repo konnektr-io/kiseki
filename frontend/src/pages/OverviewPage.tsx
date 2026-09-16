@@ -9,6 +9,7 @@ import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
+import { tripTracks } from "../lib/tracks";
 import type { Feature } from "../lib/types";
 
 function FeatureCard({ feature: f }: { feature: Feature }) {
@@ -24,7 +25,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 
       {f.map && all.length >= 2 ? (
         <div className="mt-3 print:hidden">
-          <TripMap places={all.map((l) => l.name)} loop />
+          <TripMap places={all.map((l) => l.name)} loop tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

@@ -14,6 +14,7 @@ import {
   resolveMapStyle,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
+import { fetchTrack, trackDataUrl } from "../lib/tracks";
 import { legModes } from "../lib/route-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -26,6 +27,10 @@ interface MapViewProps {
   showLiveTime?: boolean;
   /** Compact thumbnail (h-24) for block card media — single pin, minimal chrome. */
   compact?: boolean;
+  /** Recorded GPX tracks (#193) — canonical /media URLs (or bare names that
+   *  resolve through the same mapping). Drawn as cased lines in the trip
+   *  route colour and included in the framed extent. */
+  tracks?: string[];
 }
 
 /**
@@ -42,7 +47,7 @@ interface MapViewProps {
  * around this component. The booklet PDF renders the SAME map live via
  * Playwright+SwiftShader, so screen and paper share basemap/markers/routes.
  */
-export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false }: MapViewProps) {
+export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false, tracks = [] }: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
@@ -66,9 +71,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
   const [onScreen, setOnScreen] = useState(
     isPdfRender || typeof IntersectionObserver === "undefined"
   );
-  // `places` is built inline by callers, so its identity changes every render —
-  // key the effect on the contents instead of the array.
+  // `places`/`tracks` are built inline by callers, so their identity changes
+  // every render — key the effect on the contents instead of the arrays.
   const placesKey = places.join("|");
+  const tracksKey = tracks.join("|");
 
   useEffect(() => {
     if (onScreen || isPdfRender || typeof IntersectionObserver === "undefined") return;
@@ -97,8 +103,8 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
     const located = places
       .map((p) => findLocation(trip, p))
       .filter((l): l is NonNullable<typeof l> => !!l && l.lat != null && l.lng != null);
-    if (located.length < 1) {
-      // No resolvable place — mark as failed so the PDF does not wait forever
+    if (located.length < 1 && tracks.length < 1) {
+      // No resolvable place and no track — mark as failed so the PDF does not wait forever
       if (ref.current) ref.current.dataset.mapFailed = "true";
       return;
     }
@@ -119,6 +125,8 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
         // Single-pin thumbnail (hotel/restaurant card) — centered, zoom 13 like
         // the old Static Maps single-place proxy; multi-pin uses fitBounds.
+        // A track-only map (no pins at all) starts on the whole world and the
+        // track fit below takes over once its geometry lands.
         const single = located.length === 1;
         const bounds = new lib.LngLatBounds();
         located.forEach((l) => bounds.extend([l.lng!, l.lat!]));
@@ -131,9 +139,12 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         if (single) {
           (mapOpts as Record<string, unknown>).center = [located[0].lng!, located[0].lat!];
           (mapOpts as Record<string, unknown>).zoom = 13;
-        } else {
+        } else if (located.length > 1) {
           (mapOpts as Record<string, unknown>).bounds = bounds;
           (mapOpts as Record<string, unknown>).fitBoundsOptions = { padding: CHROME_PADDING, maxZoom: 12 };
+        } else {
+          (mapOpts as Record<string, unknown>).center = [0, 0];
+          (mapOpts as Record<string, unknown>).zoom = 1;
         }
 
         map = new lib.Map(mapOpts);
@@ -205,9 +216,24 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         void addTerrain(map, lib, mapStyle.terrain);
 
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
+        // and every recorded track in parallel — a failed track fetch degrades
+        // to no line (the card's download link stays), never a broken map.
         let legs: Awaited<ReturnType<typeof fetchRouteLegs>> = null;
-        if (!single) {
-          legs = await fetchRouteLegs(trip, places, loop, abort.signal, legModes(trip, places, loop));
+        let trackLines: [number, number][][] = [];
+        {
+          const trackUrls = tracks
+            .map((t) => trackDataUrl(t))
+            .filter((u): u is string => u != null);
+          const [fetchedLegs, ...fetchedTracks] = await Promise.all([
+            !single && located.length > 1
+              ? fetchRouteLegs(trip, places, loop, abort.signal, legModes(trip, places, loop))
+              : Promise.resolve(null),
+            ...trackUrls.map((u) => fetchTrack(u, abort.signal).catch(() => null)),
+          ]);
+          legs = fetchedLegs;
+          trackLines = fetchedTracks
+            .filter((f): f is NonNullable<typeof f> => f != null)
+            .map((f) => f.geometry.coordinates);
         }
         if (cancelled || !map) return;
 
@@ -223,6 +249,13 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           if (includeRoute && legs) {
             legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
           }
+          // The day's extent INCLUDES the track (#193) — a traverse swings
+          // well outside its pins, exactly like a road route does.
+          trackLines.forEach((line) => line.forEach((c) => full.extend(c)));
+          // Every geometry source missed (failed fetches, unresolvable pins):
+          // nothing to frame — leave the construction camera alone rather
+          // than fitting an empty bounds (which throws).
+          if (full.isEmpty()) return;
           const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
           // PDF (#37): never animate the camera — the renderer snapshots on
           // `idle` shortly after, and a mid-flight fitBounds parks edge markers
@@ -310,6 +343,47 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           refit(false);
         }
 
+        if (trackLines.length) {
+          map.addSource("tracks", {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: trackLines.map((coordinates) => ({
+                type: "Feature" as const,
+                properties: {},
+                geometry: { type: "LineString" as const, coordinates },
+              })),
+            },
+          });
+          // A recorded track is the shape of the day, not a proposal: solid,
+          // full-strength, cased exactly like the route (§8.4) — under the
+          // basemap's labels with everything else the trip draws.
+          const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+          map.addLayer(
+            {
+              id: "track-casing",
+              type: "line",
+              source: "tracks",
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+            },
+            firstSymbol,
+          );
+          map.addLayer(
+            {
+              id: "track-body",
+              type: "line",
+              source: "tracks",
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: { "line-color": colors.route, "line-width": 4 },
+            },
+            firstSymbol,
+          );
+          // Frame the track even when no other geometry reframed above
+          // (single-pin card, or a track-only map with no pins at all).
+          refit(true);
+        }
+
         // Signal ready/idle for the PDF renderer (#37): the booklet waits for
         // every [data-maplibre] element to be ready or failed before printing.
         // `load` is not enough — tiles are still in flight — so wait for `idle`.
@@ -350,7 +424,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
       abort.abort();
       map?.remove();
     };
-  }, [trip, placesKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
+  }, [trip, placesKey, tracksKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
 
   // No WebGL2 or tile/style load failure: placeholder so the page never has an
   // empty grey box and the PDF waiter can resolve via data-map-failed.
@@ -407,12 +481,12 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
  * This component is intentionally thin — it just validates there is something
  * to show and forwards to MapView.
  */
-export function TripMap({ places, loop = false }: { places: string[]; loop?: boolean }) {
+export function TripMap({ places, loop = false, tracks }: { places: string[]; loop?: boolean; tracks?: string[] }) {
   const trip = useTrip();
   const all = locatedPlaces(trip);
   if (all.length < 1) return null;
   // Route maps need at least one resolvable place in `places`; TripMap callers
   // already pass the relevant subset (e.g. [from,to] for a leg, all for overview).
   // We don't second-guess that here — MapView itself handles 1 vs 2+ places.
-  return <MapView places={places} loop={loop} />;
+  return <MapView places={places} loop={loop} tracks={tracks} />;
 }

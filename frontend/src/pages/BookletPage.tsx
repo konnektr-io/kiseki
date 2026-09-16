@@ -3,6 +3,7 @@ import { DayBlocks, BlockGlyph } from "../components/blocks";
 import { TripMedia } from "../components/photos";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces, markerNumber, findLocation } from "../lib/maps";
+import { tripTracks } from "../lib/tracks";
 import { classifyTransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
@@ -31,7 +32,7 @@ function FeatureBlock({ f }: { f: Feature }) {
 
       {f.map && all.length >= 2 ? (
         <div className="mt-3">
-          <TripMap places={all.map((l) => l.name)} loop />
+          <TripMap places={all.map((l) => l.name)} loop tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

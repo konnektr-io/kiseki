@@ -66,6 +66,13 @@ export interface DayLeg {
   mode?: TransportMode;
 }
 
+/** A recorded track on the day (#193) — the block that carries it and the
+ *  canonical /media URL the parse route derives from. */
+export interface DayTrack {
+  blockId: string;
+  url: string;
+}
+
 export interface DaySurface {
   /** Numbered pins + letter chips, in day order (pins appear where first touched). */
   markers: DayMarker[];
@@ -77,6 +84,9 @@ export interface DaySurface {
   endpoints: TripLocation[];
   /** blockId → letter, for stamping the cards. */
   letters: Map<string, string>;
+  /** Recorded tracks (#193): an explicit `track` field on the block, in day
+   *  order. Derivation reads the field only — it never invents a line. */
+  tracks: DayTrack[];
 }
 
 /** A transport block's leg state — the block speaks for itself, with the same
@@ -128,6 +138,7 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
   const legs: DayLeg[] = [];
   const endpoints: TripLocation[] = [];
   const letters = new Map<string, string>();
+  const tracks: DayTrack[] = [];
   /** Place identity → its activity marker (to share the letter). */
   const chipByPlace = new Map<TripLocation, Extract<DayMarker, { role: "activity" }>>();
   let chipCount = 0;
@@ -139,6 +150,9 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
   };
 
   for (const b of ordered) {
+    // A recorded track rides its activity block (#193) — collected for the
+    // day map's line layers and its fit, whatever else the block resolves to.
+    if (b.track && b.id) tracks.push({ blockId: b.id, url: b.track });
     if (b.kind === "transport") {
       const { from, to } = blockEndpoints(trip, b);
       const resolved = [from, to].filter(
@@ -208,7 +222,7 @@ export function daySurface(trip: Trip, dayIdx: number): DaySurface | null {
     letters.set(b.id, letter);
   }
 
-  return { markers, legs, endpoints, letters };
+  return { markers, legs, endpoints, letters, tracks };
 }
 
 /** Block id → letter for a day (the card-stamping map, straight from `daySurface`). */

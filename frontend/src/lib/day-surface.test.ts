@@ -169,4 +169,26 @@ describe("daySurface", () => {
     const t = trip({ days: [day([])] });
     expect(daySurface(t, 1)).toBeNull();
   });
+
+  it("collects recorded tracks from the explicit track field, in day order", () => {
+    const t = trip({
+      days: [
+        day([
+          block({ id: "b1", kind: "activity", title: "Morning skin track", order: 0, track: "/media/t1/aaa.gpx" }),
+          block({ id: "b2", kind: "activity", title: "Lunch", order: 1 }),
+          block({ id: "b3", kind: "activity", title: "Afternoon traverse", order: 2, track: "/media/t1/bbb.gpx" }),
+        ]),
+      ],
+    });
+    const s = daySurface(t, 0)!;
+    expect(s.tracks).toEqual([
+      { blockId: "b1", url: "/media/t1/aaa.gpx" },
+      { blockId: "b3", url: "/media/t1/bbb.gpx" },
+    ]);
+  });
+
+  it("a day without tracks reports an empty list, never undefined", () => {
+    const t = trip({ days: [day([block({ id: "b1", kind: "note", title: "Rest", order: 0 })])] });
+    expect(daySurface(t, 0)!.tracks).toEqual([]);
+  });
 });

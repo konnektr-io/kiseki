@@ -63,6 +63,10 @@ export interface Block {
    *  `location`/title as plain text. */
   placeId?: string;
   images?: string[];
+  /** Recorded GPS track (#193) — a bare .gpx filename, canonicalized to
+   *  /media/<trip_id>/<file> on read and parsed at
+   *  /api/tracks/<trip_id>/<file>. Activity blocks only. */
+  track?: string;
 }
 
 export interface TodoItem {
