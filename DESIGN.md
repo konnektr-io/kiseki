@@ -880,5 +880,9 @@ Don't do this as one redesign. Suggested order, each independently shippable:
    *(§6)*
 9. **Dark mode.** *(§3.3)*
 10. **Discovery surfaces** (public trips, follows, "things to do") — only once 3–5 exist, because they
-    are all map surfaces. *(§2.2)*
+    are all map surfaces. *(§2.2)* **2026-09 update (#249, slice 2):** the signed-in home ships
+    *bands-first* — Up next, Your trips, Following, Discover as editorial bands on `/`, with the
+    fixed band order, one shared trip comparator and client-side search/stage filters. The bands
+    are built to move as-is into the rail/sheet furniture when slice 3 puts this home on the
+    §2.2 map canvas; until then §2.2 still describes the map surfaces, not this page.
 11. **Album output** as a second print variant. *(§12.1)*
