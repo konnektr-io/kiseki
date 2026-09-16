@@ -124,6 +124,17 @@ listable trip (`GET /api/trips/geo`), stage-coloured, beside the four bands in
 the rail/sheet furniture — plus the discoverable layer and the pin cards on the
 same canvas. No new route, no second sheet, no second card language.
 
+**The home's two doors (2026-09-16 review).** The sheet opens at `half` — the
+bands are the context a visitor came for, and the map is one swipe down — while
+the sheet's own header line is a *door*, not a label: the trip's title opens the
+trip, and a `live` trip also carries a **Today** link, because the day it is on
+right now is the surface you want (§7.5's live swap). And an account with no
+trips yet is never a dead end: the discovery shelf renders under the "No trips
+yet" card — the same `DiscoverBand` as the populated home, with **Follow** on
+every card, which is the first and only UI for `followPublicTrip` (#197's
+endpoint had no caller until now). `visibility: public` is the invitation, so a
+stranger can put a trip in their feed without an invite link.
+
 ### 2.3 Chrome — *shared*
 
 Header, nav, sheets, map controls, toasts, the auth button.
@@ -131,6 +142,7 @@ Header, nav, sheets, map controls, toasts, the auth button.
 - Must be legible over **both** a white page and a photograph. Assume the worst background.
 - Always `no-print`.
 - Touch targets ≥ 44×44 CSS px, always.
+- **Chrome stacks above content.** The header is `z-30` and the sheet is `z-20`, and that gap is load-bearing: both used to be `z-20`, so they shared a stacking context and the sheet — later in the DOM — won on document order, which covered an open account menu with the sheet's top edge on a phone (2026-09-16 review). Every header affordance (the account menu, a trip's actions menu) opens *downward*, straight into the sheet's territory, so the header must own the higher value. A surface that needs to float over the map's own chips (also `z-10`, inside the map) still works, because the sheet sits above the map subtree entirely.
 
 ### 2.4 The floating elevation recipe
 

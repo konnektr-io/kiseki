@@ -171,7 +171,14 @@ export function AppHeader({
   return (
     <header
       ref={ref}
-      className="no-print sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur"
+      /* z-30, one step ABOVE the sheet (`Sheet` is z-20). The header is chrome
+         and the sheet is content (§2.3), so every header affordance — the
+         account menu, a trip's actions — has to paint over it. At z-20 both sat
+         in the root stacking context and the sheet, being later in the DOM, won:
+         on a phone an open menu was covered by the sheet's top edge. The map's
+         own chips stay inside the map (z-10) and the sheet still floats over
+         them, which is the order those two want. */
+      className="no-print sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur"
     >
       <div className={HEADER_ROW}>
         {home && <HeaderIconLink to={home.to} label={home.label} />}
