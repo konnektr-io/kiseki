@@ -99,6 +99,13 @@ Spec for the marker component (one component, every surface, plus print):
   hillshade → landcover/water**. Insert by layer *type*, not id (`find(l => l.type === "line")`
   for elevation, `find(l => l.type === "symbol")` for the route) — hardcoded ids do not
   survive the style swap #40 will make.
+- **A recorded track draws per leg (#290).** `/api/tracks/<trip>/<file>` returns a
+  `legs[]` classification (ride vs. lift) with inclusive `startIndex`/`endIndex` into the
+  line; rides draw SOLID, lifts DASHED and lighter — the convention Slopes and Strava use,
+  and the reason a ski day no longer reads as one 33 km run. Add every casing layer before
+  any body layer, or one lift's casing buries a neighbouring ride's body. Build the leg
+  features in the client from the parse route (`trackSegments` in `lib/tracks.ts`), never
+  from the block's raw file.
 
 ## Layout: the map/content ratio ladder
 
