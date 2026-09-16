@@ -1,5 +1,6 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /* The prod bug this pins (#104): DayBlocks routes signed-in editors to
@@ -64,7 +65,9 @@ function renderDayBlocks(props: Record<string, unknown>): string {
     createElement(TripProvider, {
       trip,
       apply: () => {},
-      children,
+      // A block card can carry an in-app content link (#301) — a router Link
+      // needs a Router in the tree, exactly like the real app's.
+      children: createElement(MemoryRouter, null, children),
     }),
   );
 }
@@ -137,7 +140,7 @@ function renderWithPlaces(blocks: Block[], extra: Record<string, unknown> = {}):
     createElement(TripProvider, {
       trip: tripWithPlaces,
       apply: () => {},
-      children,
+      children: createElement(MemoryRouter, null, children),
     }),
   );
 }
@@ -475,5 +478,67 @@ describe("a DONE block quiets the whole live Google overlay (#286/#289)", () => 
       expect(html).toContain("Rated 4.4 out of 5");
       expect(html).toContain("/api/places/photo?ref=");
     }
+  });
+});
+
+/* #301 — a content-supplied link that points back INTO the app must navigate
+ * in-app. Every block link pill was a hardcoded
+ * `<a target="_blank" rel="noreferrer">`, so the kiseki content-agent's
+ * `/t/<trip_id>/day/<idx>` riding-log cards (and any other in-app target)
+ * opened a second tab — Niko, verbatim: "the links open in a new tab, which is
+ * not what we want." The rule is per TARGET, not per surface: an app route
+ * renders as a router Link (same tab, client-side nav) and everything off-app
+ * keeps the new-tab contract, which is right for Strava/YouTube/Maps.
+ *
+ * Negative control: against the ORIGINAL renderer (hardcoded `target="_blank"`)
+ * every internal-target assertion below fails. */
+const ANCHORS = /<a\b[^>]*>/g;
+
+function anchorFor(html: string, href: string): string {
+  const anchors = html.match(ANCHORS) ?? [];
+  const hit = anchors.find((a) => a.includes(`href="${href}"`));
+  expect(hit, `no anchor for ${href} — rendered: ${anchors.join(" ")}`).toBeTruthy();
+  return hit as string;
+}
+
+describe("a block's content links follow their target (#301)", () => {
+  const DAY = { label: "Open the day", url: "/t/t1/day/3" };
+  const STRAVA = { label: "Strava", url: "https://www.strava.com/activities/9001" };
+
+  it("keeps a card's in-app day link in the app, and external pills new-tab", () => {
+    const html = renderWithPlaces([
+      { id: "b30", kind: "activity", title: "Riding", order: 0, links: [DAY, STRAVA] } as unknown as Block,
+    ]);
+    expect(anchorFor(html, DAY.url)).not.toContain('target="_blank"');
+    expect(anchorFor(html, STRAVA.url)).toContain('target="_blank"');
+  });
+
+  it("does it on the flight card too", () => {
+    const html = renderWithPlaces([
+      { id: "b31", kind: "transport", mode: "flight", title: "BRU → NRT", order: 0, links: [DAY] } as unknown as Block,
+    ]);
+    expect(anchorFor(html, DAY.url)).not.toContain('target="_blank"');
+  });
+
+  it("does it on the drive card too", () => {
+    const html = renderWithPlaces([
+      {
+        id: "b32",
+        kind: "transport",
+        mode: "drive",
+        title: "Drive to the trailhead",
+        from: "Banff",
+        to: "Lake Louise",
+        order: 0,
+        links: [DAY],
+      } as unknown as Block,
+    ]);
+    expect(anchorFor(html, DAY.url)).not.toContain('target="_blank"');
+  });
+
+  it("does it in the links block too, keeping its off-app entries new-tab", () => {
+    const html = renderWithPlaces([{ id: "b33", kind: "link", order: 0, links: [DAY, STRAVA] } as unknown as Block]);
+    expect(anchorFor(html, DAY.url)).not.toContain('target="_blank"');
+    expect(anchorFor(html, STRAVA.url)).toContain('target="_blank"');
   });
 });
