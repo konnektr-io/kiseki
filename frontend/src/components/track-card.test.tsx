@@ -24,4 +24,11 @@ describe("TrackCard", () => {
     expect(html).toContain("Loading track");
     expect(html).toContain("Recorded track");
   });
+  it("labels a .fit download as FIT (#290 — both formats ride the same card)", () => {
+    const fit = TRACK.replace(/\.gpx$/, ".fit");
+    const html = renderToString(createElement(TrackCard, { track: fit }));
+    expect(html).toContain(`data-track-card="${fit}"`);
+    expect(html).toContain(">FIT<");
+    expect(html).not.toContain(">GPX<");
+  });
 });

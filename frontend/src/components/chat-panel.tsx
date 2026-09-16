@@ -741,7 +741,7 @@ function ChatThread({
           variant="ghost"
           size="icon"
           aria-label="Attach a file"
-          title="Attach a photo, video, document or GPX track (Slopes/Strava/Garmin: export GPX, then attach the .gpx file)"
+          title="Attach a photo, video, document or recorded track (Slopes/Strava/Garmin: export GPX or FIT, then attach that file — FIT keeps the producer's run/lift legs)"
           onClick={() => fileInputRef.current?.click()}
           disabled={busy}
           className="h-11 w-11 shrink-0"

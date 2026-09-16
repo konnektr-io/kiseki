@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
 from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
+from .fit import FitError, parse_fit
 from .gpx import GpxError, parse_gpx
 from .media import get_media_store, is_valid_media_name, object_key_for
 from .sanitize import sanitize_custom_html
@@ -502,13 +503,12 @@ def _validate_items(kind: str, items: list[Any]) -> list[Any]:
 
 
 def _validate_track(trip_dtid: str, track: Any) -> None:
-    """A block `track` must name its uploaded .gpx — at attach time (#279).
+    """A block `track` must name its uploaded .gpx/.fit — at attach time (#279, #290).
 
     The value stored is the BARE filename (the read path canonicalizes it to
     ``/media/<trip_id>/<file>`` like every other media field). A web URL is
     rejected by ``_reject_media_urls`` alongside images; here the extension is
-    checked (``.fit`` gets the export-GPX guidance, anything else the bare-name
-    rule) and — when a store is configured — the file must EXIST and parse,
+    checked and — when a store is configured — the file must EXIST and parse,
     so a typo cannot leave a track card pointing at nothing. Without a store
     (unit tests that never configured one) only the shape is checked.
     """
@@ -517,16 +517,12 @@ def _validate_track(trip_dtid: str, track: Any) -> None:
     if track is None:
         return
     if not isinstance(track, str) or not track:
-        raise WriteError(422, "track stores a bare .gpx filename — upload the file first (POST /api/files with tripId)")
+        raise WriteError(422, "track stores a bare .gpx/.fit filename — upload the file first (POST /api/files with tripId)")
     ext = Path(track).suffix.lower()
-    if ext == ".fit":
-        from .media import FIT_EXPORT_GUIDANCE
-
-        raise WriteError(422, f"track: .fit files are not parsed — {FIT_EXPORT_GUIDANCE}")
-    if ext != ".gpx" or not is_valid_media_name(track):
+    if ext not in (".gpx", ".fit") or not is_valid_media_name(track):
         raise WriteError(
             422,
-            f"track stores a bare .gpx filename, not {track[:60]!r} — upload the file first "
+            f"track stores a bare .gpx/.fit filename, not {track[:60]!r} — upload the file first "
             "(POST /api/files with tripId) and write the name it returns",
         )
     store = get_media_store()
@@ -536,12 +532,15 @@ def _validate_track(trip_dtid: str, track: Any) -> None:
     if chunks is None:
         raise WriteError(
             422,
-            f"track {track!r} is not uploaded to this trip — upload the .gpx first "
+            f"track {track!r} is not uploaded to this trip — upload the track first "
             "(POST /api/files with tripId) and write the name it returns",
         )
     try:
-        parse_gpx(b"".join(chunks), track)
-    except GpxError as exc:
+        if ext == ".fit":
+            parse_fit(b"".join(chunks), track)
+        else:
+            parse_gpx(b"".join(chunks), track)
+    except (GpxError, FitError) as exc:
         raise WriteError(422, str(exc)) from exc
 
 

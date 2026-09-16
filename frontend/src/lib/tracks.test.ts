@@ -4,6 +4,9 @@ import {
   formatTrackDistance,
   formatTrackDuration,
   trackDataUrl,
+  trackLegPaths,
+  trackRideSplit,
+  trackSegments,
   trackTracePath,
   tripTracks,
   type TrackFeature,
@@ -95,5 +98,109 @@ describe("trackTracePath", () => {
   it("returns null for fewer than two points", () => {
     expect(trackTracePath([], 200, 60, 4)).toBeNull();
     expect(trackTracePath([[-122.95, 50.1]], 200, 60, 4)).toBeNull();
+  });
+});
+
+// ------------------------------------------------------- lift legs (#290)
+
+const SPLIT_FEATURE = {
+  type: "Feature",
+  geometry: {
+    type: "LineString",
+    coordinates: [
+      [-122.95, 50.1],
+      [-122.951, 50.11],
+      [-122.952, 50.12],
+      [-122.9525, 50.121],
+      [-122.953, 50.122],
+    ],
+  },
+  properties: {
+    distanceM: 3000,
+    ascentM: 120,
+    pointCount: 5,
+    rideDistanceM: 800,
+    liftDistanceM: 2200,
+    liftVerticalM: 600,
+    legs: [
+      { type: "lift", startIndex: 0, endIndex: 2, distanceM: 2200, ascentM: 600 },
+      { type: "ride", startIndex: 2, endIndex: 4, distanceM: 800, ascentM: 0 },
+    ],
+  },
+} as TrackFeature;
+
+describe("trackDataUrl with FIT (#290)", () => {
+  it("maps a .fit track to the same parse route", () => {
+    expect(trackDataUrl(`/media/${TRIP}/abcdef0123456789.fit`)).toBe(
+      `/api/tracks/${TRIP}/abcdef0123456789.fit`,
+    );
+  });
+  it("still refuses anything that is not a track file", () => {
+    expect(trackDataUrl(`/media/${TRIP}/notes.txt`)).toBeNull();
+    expect(trackDataUrl(`/media/${TRIP}/photo.jpeg`)).toBeNull();
+  });
+});
+
+describe("trackSegments (#290)", () => {
+  it("slices the line per classified leg, indices inclusive", () => {
+    const segments = trackSegments(SPLIT_FEATURE);
+    expect(segments.map((s) => s.type)).toEqual(["lift", "ride"]);
+    expect(segments[0].coordinates).toEqual([
+      [-122.95, 50.1],
+      [-122.951, 50.11],
+      [-122.952, 50.12],
+    ]);
+    // The joint coordinate belongs to BOTH legs — no gap in the drawn line.
+    expect(segments[1].coordinates[0]).toEqual(segments[0].coordinates[2]);
+    expect(segments[1].coordinates).toHaveLength(3);
+  });
+  it("degrades to one ride segment without legs (pre-#290 payloads)", () => {
+    const legacy = { ...SPLIT_FEATURE, properties: { distanceM: 100, ascentM: 0, pointCount: 5 } } as TrackFeature;
+    const segments = trackSegments(legacy);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type).toBe("ride");
+    expect(segments[0].coordinates).toHaveLength(5);
+  });
+  it("never emits a zero-length segment", () => {
+    const degenerate = {
+      ...SPLIT_FEATURE,
+      properties: {
+        ...SPLIT_FEATURE.properties,
+        legs: [{ type: "lift", startIndex: 2, endIndex: 2, distanceM: 0, ascentM: 0 }],
+      },
+    } as TrackFeature;
+    // A single-point leg is dropped, but the track still draws as one ride.
+    const segments = trackSegments(degenerate);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].type).toBe("ride");
+  });
+});
+
+describe("trackLegPaths (#290)", () => {
+  it("draws one path per leg on a SINGLE shared projection", () => {
+    const paths = trackLegPaths(SPLIT_FEATURE, 320, 96, 6);
+    expect(paths.map((p) => p.type)).toEqual(["lift", "ride"]);
+    for (const p of paths) expect(p.d.startsWith("M")).toBe(true);
+    // The joint point projects identically in both legs — one fit, not two.
+    const endOfLift = paths[0].d.split("L").pop();
+    const startOfRide = paths[1].d.replace(/^M/, "").split("L")[0];
+    expect(startOfRide).toBe(endOfLift);
+  });
+});
+
+describe("trackRideSplit (#290)", () => {
+  it("reports the riding figure beside the full trace total", () => {
+    expect(trackRideSplit(SPLIT_FEATURE.properties)).toEqual({
+      rideM: 800,
+      totalM: 3000,
+      liftM: 2200,
+      liftVerticalM: 600,
+    });
+  });
+  it("is null when the payload has no legs to compare", () => {
+    expect(trackRideSplit(undefined)).toBeNull();
+    expect(
+      trackRideSplit({ distanceM: 100, ascentM: 0, pointCount: 4 }),
+    ).toBeNull();
   });
 });

@@ -59,9 +59,13 @@ MEDIA_TYPES = {
     ".m4v": "video/x-m4v",
     ".mov": "video/quicktime",
     ".webm": "video/webm",
-    # Recorded GPS tracks (#279): plain XML data, never executable — safe to
-    # serve with its honest type. The SPA fetches it to draw the day's line.
+    # Recorded GPS tracks (#279, #290): plain XML data, never executable —
+    # safe to serve with its honest type. The SPA fetches it to draw the
+    # day's line.
     ".gpx": "application/gpx+xml",
+    # Recorded FIT tracks (#290): Garmin's binary activity format, decoded
+    # server-side (app/fit.py). Served with the vendor type — never executed.
+    ".fit": "application/vnd.ant.fit",
 }
 
 # The ONE place that decides what a video IS: media content type, the upload
@@ -89,7 +93,7 @@ _FILE_MAX_LEN = 255
 # `images` (or a gallery item) has to canonicalize into its /media URL — as a
 # bare name it was silently invisible on every surface.
 _BARE_FILE_RE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp|gif|avif|svg|mp4|m4v|mov|webm|gpx)$",
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:jpe?g|png|webp|gif|avif|svg|mp4|m4v|mov|webm|gpx|fit)$",
     re.IGNORECASE,
 )
 
@@ -218,10 +222,12 @@ UPLOAD_KINDS: dict[str, str] = {
     ".m4v": "video",
     ".mov": "video",
     ".webm": "video",
-    # Recorded GPS tracks (#279): small XML, stored like any other media under
-    # the trip's namespace and parsed server-side (app/gpx.py). The document
-    # cap fits — a recorded day is kilobytes, not megabytes.
+    # Recorded GPS tracks (#279, #290): small data files, stored like any
+    # other media under the trip's namespace and parsed server-side (app/gpx.py
+    # for GPX, app/fit.py for FIT via Garmin's official SDK). The document cap
+    # fits — a recorded day is kilobytes, not megabytes.
     ".gpx": "document",
+    ".fit": "document",
     # Documents the picker offers: the AGENT reads these; nothing renders them.
     ".pdf": "document",
     ".doc": "document",
@@ -270,15 +276,6 @@ def poster_name_for(video_name: str) -> str:
     return f"{Path(video_name).stem}{POSTER_SUFFIX}"
 
 
-# `.fit` is OUT of scope (#279): parsing the Garmin binary format needs a new
-# runtime dependency and AGENTS.md says ask before adding one. Slopes, Garmin
-# and Strava all export GPX too, so the refusal points at the supported path.
-FIT_EXPORT_GUIDANCE = (
-    "export GPX from Slopes/Garmin/Strava instead "
-    "(Activity → Share → Export GPX) and attach the .gpx file"
-)
-
-
 def require_upload_kind(file_name: str, label: str) -> str:
     """The kind of an upload, or ``UnsupportedUpload`` naming the file.
 
@@ -288,11 +285,9 @@ def require_upload_kind(file_name: str, label: str) -> str:
     kind = upload_kind(file_name)
     if kind is None:
         ext = Path(file_name or "").suffix.lower()
-        if ext == ".fit":
-            raise UnsupportedUpload(f"{label}: .fit files are not parsed — {FIT_EXPORT_GUIDANCE}")
         raise UnsupportedUpload(
             f"{label}: {ext or 'this file'} is not a file type this build "
-            "stores — attach a photo, a video (mp4/mov/webm), a GPX track or a document"
+            "stores — attach a photo, a video (mp4/mov/webm), a GPX/FIT track or a document"
         )
     return kind
 
