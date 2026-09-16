@@ -1,7 +1,7 @@
 import { ChevronDown, ExternalLink, Star, StarHalf } from "lucide-react";
 import { gmapsSearchUrl } from "../lib/gmaps";
 import { Markdown } from "../lib/markdown";
-import { placePhotoUrl, usePlaceLive, type PlaceLiveDetails } from "../lib/place-live";
+import { placePhotoUrl, usePlaceLive, type PlaceLiveDetails, type PlaceLiveReview } from "../lib/place-live";
 import type { TripLocation } from "../lib/types";
 
 /** Whether a registry place carries any metadata worth rendering — the
@@ -126,6 +126,47 @@ function LivePhoto({ place, live }: { place: TripLocation; live: PlaceLiveDetail
   );
 }
 
+/** Disclosure label for the collapsed snippet set ("Show 3 reviews from
+ *  Google") — ONE string, so the count and its plural never render as two
+ *  separate text nodes (#286). */
+function reviewsSummaryLabel(count: number): string {
+  const n = Math.min(count, 3);
+  return `Show ${n} review${n > 1 ? "s" : ""} from Google`;
+}
+
+/** One review snippet — the inline, collapsed and expanded variants share this
+ *  so the wording/attribution can't drift between them. Renders nothing for a
+ *  review that carries neither text nor an author. */
+function ReviewSnippet({ review, clamp = false }: { review: PlaceLiveReview; clamp?: boolean }) {
+  const r = review;
+  if (!r.text && !r.authorName) return null;
+  return (
+    <li className="text-sm leading-relaxed text-muted-foreground">
+      {r.text && (
+        <span className={clamp ? "italic line-clamp-2" : "italic"}>“{r.text}”</span>
+      )}
+      {r.authorName && (
+        <>
+          {r.text ? " — " : ""}
+          {r.googleMapsUri || r.authorUri ? (
+            <a
+              href={r.googleMapsUri || r.authorUri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground hover:underline focus-visible:focus-ring"
+            >
+              {r.authorName}
+            </a>
+          ) : (
+            <span>{r.authorName}</span>
+          )}
+        </>
+      )}
+      {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
+    </li>
+  );
+}
+
 /**
  * Place-metadata facts for a registry place — registry-shared location
  * content renders first (above the block's own user-editable prose, which
@@ -142,13 +183,23 @@ function LivePhoto({ place, live }: { place: TripLocation; live: PlaceLiveDetail
  * summary) sits inside the no-print region — the booklet keeps its own prose
  * and ONLY gains the stored rights-clean photo (deliberate #95 decision).
  * The tree stays auth-agnostic (no role branching — pitfall 16).
+ *
+ * `reviewsQuiet` (#286): the caller's block is DONE, i.e. this day already
+ * happened. Review snippets read as a *choosing* aid (what should we do here?),
+ * so on a finished activity they are noise that outweighs the traveller's own
+ * words — the whole snippet set collapses behind ONE line while the rating row
+ * (and its "N reviews on Google" route out) stays. Planning blocks (`planned` /
+ * `booked` / no status) render exactly as before.
  */
 export function PlaceFacts({
   place,
   blockLinks,
+  reviewsQuiet = false,
 }: {
   place: TripLocation;
   blockLinks?: { label: string; url: string }[];
+  /** Collapse the review snippets — set for a `done` block. */
+  reviewsQuiet?: boolean;
 }) {
   const live = usePlaceLive(place.placeId);
   const hasLive = !!live && (live.rating != null || (live.reviews?.length ?? 0) > 0 || !!live.photos?.some((p) => p.name));
@@ -227,36 +278,29 @@ export function PlaceFacts({
             ) : null}
           </div>
         )}
-        {!!live?.reviews?.length && (
+        {!!live?.reviews?.length && reviewsQuiet && (
+          /* DONE block (#286): a snippet set is a *choosing* aid, not a record —
+             a finished day collapses it behind one line. The rating row above
+             keeps the "N reviews on Google" route out for anyone who wants them. */
+          <details className="group">
+            <summary className="cursor-pointer list-none text-[12px] text-muted-foreground hover:text-foreground focus-visible:focus-ring [&::marker]:hidden">
+              {reviewsSummaryLabel(live.reviews.length)}
+              <ChevronDown className="ml-1 inline h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+            <ul aria-label="Review snippets" className="mt-1 space-y-1">
+              {live.reviews.slice(0, 3).map((r, i) => (
+                <ReviewSnippet key={i} review={r} />
+              ))}
+            </ul>
+          </details>
+        )}
+        {!!live?.reviews?.length && !reviewsQuiet && (
           <div>
             {/* First snippet inline, clamped — long reviews stay 2 lines. */}
             <ul aria-label="Review snippets">
-              {live.reviews.slice(0, 1).map(
-                (r, i) =>
-                  (r.text || r.authorName) && (
-                    <li key={i} className="text-sm leading-relaxed text-muted-foreground">
-                      {r.text && <span className="italic line-clamp-2">“{r.text}”</span>}
-                      {r.authorName && (
-                        <>
-                          {r.text ? " — " : ""}
-                          {r.googleMapsUri || r.authorUri ? (
-                            <a
-                              href={r.googleMapsUri || r.authorUri}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:text-foreground hover:underline focus-visible:focus-ring"
-                            >
-                              {r.authorName}
-                            </a>
-                          ) : (
-                            <span>{r.authorName}</span>
-                          )}
-                        </>
-                      )}
-                      {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
-                    </li>
-                  ),
-              )}
+              {live.reviews.slice(0, 1).map((r, i) => (
+                <ReviewSnippet key={i} review={r} clamp />
+              ))}
             </ul>
             {live.reviews.length > 1 && (
               <details className="group">
@@ -266,32 +310,9 @@ export function PlaceFacts({
                   <ChevronDown className="ml-1 inline h-3 w-3 transition-transform group-open:rotate-180" aria-hidden="true" />
                 </summary>
                 <ul className="mt-1 space-y-1">
-                  {live.reviews.slice(1, 3).map(
-                    (r, i) =>
-                      (r.text || r.authorName) && (
-                        <li key={i} className="text-sm leading-relaxed text-muted-foreground">
-                          {r.text && <span className="italic">“{r.text}”</span>}
-                          {r.authorName && (
-                            <>
-                              {r.text ? " — " : ""}
-                              {r.googleMapsUri || r.authorUri ? (
-                                <a
-                                  href={r.googleMapsUri || r.authorUri}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="hover:text-foreground hover:underline focus-visible:focus-ring"
-                                >
-                                  {r.authorName}
-                                </a>
-                              ) : (
-                                <span>{r.authorName}</span>
-                              )}
-                            </>
-                          )}
-                          {r.relativePublishTimeDescription ? ` · ${r.relativePublishTimeDescription}` : ""}
-                        </li>
-                      ),
-                  )}
+                  {live.reviews.slice(1, 3).map((r, i) => (
+                    <ReviewSnippet key={i} review={r} />
+                  ))}
                 </ul>
               </details>
             )}

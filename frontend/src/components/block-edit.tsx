@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Check, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Pencil, Trash2 } from "lucide-react";
 import { BlockView } from "./blocks";
 import type { BlockCardProps } from "./blocks";
 import { Button } from "./ui";
@@ -44,6 +44,29 @@ const CODE_KINDS: BlockKind[] = ["booking", "transport", "activity", "lodging", 
 
 const iconBtn =
   "inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring disabled:opacity-40 disabled:hover:bg-card disabled:hover:text-muted-foreground";
+
+/** The ARMED delete control (#286) — a labelled destructive pill, and its OWN
+ *  class set rather than `iconBtn` + destructive overrides. Appending
+ *  `bg-destructive text-destructive-foreground` to the icon button loses the
+ *  precedence fight: the base `bg-card`/`text-muted-foreground` sit at the same
+ *  specificity and Tailwind emits them later, and while the pointer is still on
+ *  the button (i.e. right after the click) `hover:bg-muted` — a higher
+ *  specificity hover rule — wins outright. Measured on production: armed+hover
+ *  rendered `rgb(245,245,244)` (muted, i.e. identical to a hovered unarmed
+ *  button) with a muted-grey glyph, so the first click looked like a no-op and
+ *  Niko reported the button as dead. Keeping one utility per property here is
+ *  what makes the armed state unambiguous. */
+const deleteArmedBtn =
+  "inline-flex h-7 items-center justify-center gap-1 rounded-md border border-destructive bg-destructive px-2 text-xs font-semibold text-destructive-foreground transition-colors hover:bg-destructive/90 focus-visible:focus-ring disabled:opacity-40";
+
+/** How long the block-delete confirm stays armed (#286). The settings page's
+ *  trip-delete arms for 3 s, but it renders its own Cancel button; this row has
+ *  none, so the auto-revert is the only way out of the armed state — and 3 s
+ *  proved too short for a real second click. A probe that armed, paused 3.5 s,
+ *  then clicked, hit the reverted trash icon and re-armed instead of deleting:
+ *  no request, no error, nothing on screen — Niko's "the delete button doesn't
+ *  do anything", to the letter. */
+const DELETE_ARM_MS = 8000;
 
 export function EditableBlockList({
   blocks,
@@ -200,25 +223,39 @@ export function EditableBlockList({
                     <Pencil className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 )}
-                <button
-                  type="button"
-                  className={`${iconBtn} ${isArmed ? "border-destructive bg-destructive text-destructive-foreground hover:bg-destructive" : ""}`}
-                  disabled={busy}
-                  onClick={() => {
-                    if (isArmed) {
-                      void remove(b);
-                    } else {
+                {isArmed ? (
+                  /* Two-step destructive control (same arm→confirm pattern as
+                     the trip delete): the arm must be VISIBLE or the first
+                     click reads as a no-op — hence a labelled destructive pill
+                     instead of a recoloured icon button (#286). */
+                  <button
+                    type="button"
+                    className={deleteArmedBtn}
+                    disabled={busy}
+                    onClick={() => void remove(b)}
+                    aria-label="Confirm delete"
+                    title="Confirm delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    Confirm
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={iconBtn}
+                    disabled={busy}
+                    onClick={() => {
                       setDeleteArmId(b.id);
                       window.setTimeout(() => {
                         setDeleteArmId((cur) => (cur === b.id ? null : cur));
-                      }, 3000);
-                    }
-                  }}
-                  aria-label={isArmed ? "Confirm delete" : "Delete block"}
-                  title={isArmed ? "Confirm delete" : "Delete"}
-                >
-                  {isArmed ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Trash2 className="h-3.5 w-3.5" aria-hidden />}
-                </button>
+                      }, DELETE_ARM_MS);
+                    }}
+                    aria-label="Delete block"
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                )}
               </div>
             )}
           </div>

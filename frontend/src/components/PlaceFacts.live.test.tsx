@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /* Live Google overlay branch of PlaceFacts (#95) — rating stars, review-count
  * link, review snippets, live photo. The hook is mocked (SSR never runs
@@ -36,19 +36,31 @@ const live = {
   ],
 };
 
+/** Mutable so a test can pin a single-review payload (the plural edge). Read
+ *  lazily inside the mocked hook — the factory runs before this is assigned. */
+const liveState: { current: typeof live | null } = { current: live };
+
 vi.mock("../lib/place-live", () => ({
   placePhotoUrl: (ref: string) => `/api/places/photo?ref=${encodeURIComponent(ref)}`,
-  usePlaceLive: () => live,
+  usePlaceLive: () => liveState.current,
 }));
 
 import { PlaceFacts, placeHasFacts } from "./PlaceFacts";
 import type { TripLocation } from "../lib/types";
 
-function renderFacts(place: TripLocation): string {
-  return renderToString(createElement(PlaceFacts, { place }));
+function renderFacts(place: TripLocation, extra: Record<string, unknown> = {}): string {
+  return renderToString(createElement(PlaceFacts, { place, ...extra } as never));
 }
 
 const base: TripLocation = { name: "Rusutsu", lat: 42.75, lng: 140.86, placeId: "ChIJLIVE" };
+
+beforeEach(() => {
+  liveState.current = live;
+});
+
+afterEach(() => {
+  liveState.current = live;
+});
 
 describe("PlaceFacts live Google overlay (#95)", () => {
   it("renders stars, rating value, and the review-count attribution link", () => {
@@ -104,5 +116,45 @@ describe("PlaceFacts live Google overlay (#95)", () => {
   it("keeps the whole overlay web-only (no-print region)", () => {
     const html = renderFacts(base);
     expect(html).toContain("no-print");
+  });
+});
+
+/* #286: on a DONE block the snippet set is a *choosing* aid, not a record — the
+ * caller (`blocks.tsx`, `reviewsQuiet={b.status === "done"}`) collapses it into
+ * one line while the rating row (and its route out to Google) stays. The last
+ * case is the negative control for the first: a planning render MUST still put
+ * the first snippet inline, or the quiet assertion would prove nothing. */
+describe("PlaceFacts — review snippets on a DONE block (#286)", () => {
+  it("collapses every snippet behind one line, keeping the route out", () => {
+    const html = renderFacts(base, { reviewsQuiet: true });
+    const disclosure = html.indexOf("<details");
+    expect(disclosure).toBeGreaterThan(-1);
+    // Nothing above the disclosure: the inline clamped snippet is gone, so the
+    // card loses its tallest planning-time row.
+    expect(html.slice(0, disclosure)).not.toContain("Best powder in Hokkaido");
+    expect(html).not.toContain("line-clamp-2");
+    expect(html).toContain("Show 3 reviews from Google");
+    // Still reachable behind the disclosure (capped at 3, same as before)…
+    expect(html.slice(disclosure)).toContain("Second.");
+    expect(html).toContain("Third.");
+    expect(html).not.toContain("Fourth");
+    // …and the rating row keeps the "N reviews on Google" link.
+    expect(html).toContain("reviews on Google");
+    expect(html).toContain("1,092");
+  });
+
+  it("labels a single-review set in the singular", () => {
+    liveState.current = { ...live, reviews: [live.reviews[0]] };
+    const html = renderFacts(base, { reviewsQuiet: true });
+    expect(html).toContain("Show 1 review from Google");
+    expect(html).not.toContain("Show 1 reviews");
+  });
+
+  it("leaves a planning block unchanged (inline first snippet)", () => {
+    const html = renderFacts(base);
+    expect(html.slice(0, html.indexOf("<details"))).toContain("Best powder in Hokkaido");
+    expect(html).toContain("line-clamp-2");
+    expect(html).toContain("more review");
+    expect(html).not.toContain("Show 3 reviews from Google");
   });
 });
