@@ -36,6 +36,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .graph.client import TRIP_MODEL, GraphWriteError, _invalidate_graph_cache
 from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
+from .gpx import GpxError, parse_gpx
+from .media import get_media_store, is_valid_media_name, object_key_for
 from .sanitize import sanitize_custom_html
 from .models import (
     BlockKind,
@@ -226,6 +228,7 @@ class BlockFields(_Strict):
     location: Optional[str] = None
     placeId: Optional[str] = None
     images: Optional[list[str]] = None
+    track: Optional[str] = None
 
 
 class BlockCreate(BlockFields):
@@ -471,6 +474,8 @@ def _validate_block_kind_fields(kind: str, fields: set[str]) -> None:
         raise WriteError(422, "Field 'html' is only valid on custom blocks")
     if "items" in fields and kind not in ("todo", "gallery"):
         raise WriteError(422, "Field 'items' is only valid on todo/gallery blocks")
+    if "track" in fields and kind != "activity":
+        raise WriteError(422, "Field 'track' is only valid on activity blocks")
 
 
 def _validate_items(kind: str, items: list[Any]) -> list[Any]:
@@ -494,6 +499,50 @@ def _validate_items(kind: str, items: list[Any]) -> list[Any]:
         it if isinstance(it, dict) else {"url": it}
         for it in items
     ]
+
+
+def _validate_track(trip_dtid: str, track: Any) -> None:
+    """A block `track` must name its uploaded .gpx — at attach time (#279).
+
+    The value stored is the BARE filename (the read path canonicalizes it to
+    ``/media/<trip_id>/<file>`` like every other media field). A web URL is
+    rejected by ``_reject_media_urls`` alongside images; here the extension is
+    checked (``.fit`` gets the export-GPX guidance, anything else the bare-name
+    rule) and — when a store is configured — the file must EXIST and parse,
+    so a typo cannot leave a track card pointing at nothing. Without a store
+    (unit tests that never configured one) only the shape is checked.
+    """
+    from pathlib import Path
+
+    if track is None:
+        return
+    if not isinstance(track, str) or not track:
+        raise WriteError(422, "track stores a bare .gpx filename — upload the file first (POST /api/files with tripId)")
+    ext = Path(track).suffix.lower()
+    if ext == ".fit":
+        from .media import FIT_EXPORT_GUIDANCE
+
+        raise WriteError(422, f"track: .fit files are not parsed — {FIT_EXPORT_GUIDANCE}")
+    if ext != ".gpx" or not is_valid_media_name(track):
+        raise WriteError(
+            422,
+            f"track stores a bare .gpx filename, not {track[:60]!r} — upload the file first "
+            "(POST /api/files with tripId) and write the name it returns",
+        )
+    store = get_media_store()
+    if store is None:
+        return
+    chunks = store.get(object_key_for(trip_dtid, track))
+    if chunks is None:
+        raise WriteError(
+            422,
+            f"track {track!r} is not uploaded to this trip — upload the .gpx first "
+            "(POST /api/files with tripId) and write the name it returns",
+        )
+    try:
+        parse_gpx(b"".join(chunks), track)
+    except GpxError as exc:
+        raise WriteError(422, str(exc)) from exc
 
 
 def _validate_iso_date(value: Optional[str], what: str) -> None:
@@ -1866,7 +1915,9 @@ def _container_twin(graph: dict, ref: ContainerRef, trip_dtid: str) -> dict:
 
 
 def create_block(trip_dtid: str, actor: dict, payload: BlockCreate) -> Trip:
-    _reject_media_urls(images=payload.images, items=payload.items)
+    _reject_media_urls(images=payload.images, items=payload.items, track=payload.track)
+    if payload.track is not None:
+        _validate_track(trip_dtid, payload.track)
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -1928,7 +1979,9 @@ def create_block(trip_dtid: str, actor: dict, payload: BlockCreate) -> Trip:
 
 
 def update_block(trip_dtid: str, actor: dict, block_id: str, payload: BlockFields) -> Trip:
-    _reject_media_urls(images=payload.images, items=payload.items)
+    _reject_media_urls(images=payload.images, items=payload.items, track=payload.track)
+    if "track" in payload.model_fields_set and payload.track is not None:
+        _validate_track(trip_dtid, payload.track)
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
