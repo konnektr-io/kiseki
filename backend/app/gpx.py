@@ -30,6 +30,8 @@ from .tracklegs import (
     build_feature,
     cadence_is_ride,
     haversine_m,
+    profile_gain,
+    smoothed_profile,
 )
 
 # Namespaces GPX 1.0 / 1.1 use. A track file without any namespace (hand-rolled
@@ -69,7 +71,9 @@ class GpxTrack:
 
     points: list[GpxPoint] = field(default_factory=list)
     distance_m: float = 0.0
-    ascent_m: float = 0.0
+    ascent_m: float = 0.0  # whole-trace gain, smoothed + thresholded (#298);
+    #                        the served ``properties.ascentM`` is the same rule
+    #                        applied per leg, summed by the shared leg builder
     start_time: Optional[str] = None
     end_time: Optional[str] = None
 
@@ -115,9 +119,11 @@ class GpxTrack:
         feature = build_feature(leg_points, pair_is_ride)
         # Back-compat: the pre-#290 summary fields stay byte-identical so old
         # surfaces keep reading them while new ones use the legs + ride/lift
-        # split beside them.
+        # split beside them. Ascent is the exception since #298: the served
+        # figure is the shared leg builder's (smoothed profile + gain
+        # threshold), so a barometric trace's jitter is not summed — the
+        # whole-trace ``self.ascent_m`` above is the same rule over one span.
         feature["properties"]["distanceM"] = round(self.distance_m, 1)
-        feature["properties"]["ascentM"] = round(self.ascent_m, 1)
         feature["properties"]["startTime"] = self.start_time
         feature["properties"]["endTime"] = self.end_time
         feature["properties"]["durationS"] = self.duration_s
@@ -204,10 +210,15 @@ def parse_gpx(raw: bytes, label: str) -> GpxTrack:
         raise GpxError(f"{label}: no track points found (no trkpt/rtept/wpt with coordinates)")
 
     distance = sum(_haversine_m(a, b) for a, b in zip(points, points[1:]))
-    ascent = 0.0
-    for a, b in zip(points, points[1:]):
-        if a.ele is not None and b.ele is not None and b.ele > a.ele:
-            ascent += b.ele - a.ele
+    # Ascent over the whole trace (#298): a smoothed profile with a gain
+    # threshold, never a raw sample-to-sample sum — barometric jitter made the
+    # old figure scale with the recording rate (FIT read +84 % over the same
+    # day's sparser GPX, both above the producer's own total).
+    ascent = profile_gain(
+        smoothed_profile(
+            [LegPoint(lat=p.lat, lng=p.lng, ele=p.ele, time=p.time) for p in points]
+        )
+    )
     times = [p.time for p in points if p.time]
     return GpxTrack(
         points=points,
