@@ -2314,6 +2314,12 @@ async def post_files(
     their family's cap enforced on the way (#250: ``await file.read()`` put a
     whole clip in the API process, and the container is sized for the app).
 
+    ``.gpx`` (#279) rides the document family: a recorded track (Slopes /
+    Strava / Garmin export) is validated as parseable GPX at ingest and stored
+    under the trip's media key, and an activity block attaches it as ``track``.
+    ``.fit`` is refused with guidance to export GPX instead (no binary parser
+    in the stack).
+
     ``poster_of`` (#250) makes this request the SECOND half of a video attach:
     the SPA sends the frame it grabbed from the clip and names the video it
     belongs to, and the bytes are stored as that video's poster

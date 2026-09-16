@@ -212,6 +212,7 @@ POST /sections body (issue #89): a brand-new chapter over trip days.
 | `location` | str | NoneType | no | `null` |
 | `placeId` | str | NoneType | no | `null` |
 | `images` | array[str] | NoneType | no | `null` |
+| `track` | str | NoneType | no | `null` |
 | `kind` | "activity" | "transport" | "lodging" | "meal" | "todo" | "note" | "gallery" | "link" | "booking" | "custom" | yes | — |
 | `container` | ContainerRef | yes | — |
 | `index` | int | NoneType | no | `null` |
@@ -244,6 +245,7 @@ Editable block fields shared across kinds (id/kind/order excluded).
 | `location` | str | NoneType | no | `null` |
 | `placeId` | str | NoneType | no | `null` |
 | `images` | array[str] | NoneType | no | `null` |
+| `track` | str | NoneType | no | `null` |
 
 ### `BlockMove`
 
