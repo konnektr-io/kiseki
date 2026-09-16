@@ -425,7 +425,7 @@ describe("photos: block strip (A) + day gallery (B) (#190/#191)", () => {
  * while a `planned`/`booked`/unset block keeps the inline clamped snippet that
  * helps choose what to do. Wired by `reviewsQuiet={b.status === "done"}` in
  * blocks.tsx. */
-describe("a DONE block quiets the Google review set (#286)", () => {
+describe("a DONE block quiets the whole live Google overlay (#286/#289)", () => {
   const LIVE = {
     available: true,
     placeId: "REGISTRY-PLACE-ID",
@@ -436,7 +436,7 @@ describe("a DONE block quiets the Google review set (#286)", () => {
       { text: "Best powder in Hokkaido.", authorName: "Snow Fan" },
       { text: "Second.", authorName: "B" },
     ],
-    photos: [],
+    photos: [{ name: "places/REGISTRY-PLACE-ID/photos/a", authorAttributions: [{ displayName: "Snow Fan" }] }],
   };
   const activityWith = (status?: Block["status"]): Block =>
     ({ id: "b20", kind: "activity", title: "Ski day", location: "Banff", status, order: 0 }) as unknown as Block;
@@ -456,11 +456,14 @@ describe("a DONE block quiets the Google review set (#286)", () => {
     const disclosure = html.indexOf("<details");
     expect(disclosure).toBeGreaterThan(-1);
     expect(html.slice(0, disclosure)).not.toContain("Best powder in Hokkaido");
-    // …while the rating row keeps the route out to Google (one line, and
-    // "Open in Google Maps" above it stays the place deep link).
+    // …while the rating survives as quiet text with the route out to Google
+    // (one line, and "Open in Google Maps" above it stays the place deep link)…
     expect(html).toContain("reviews on Google");
     expect(html).toContain("1,092");
-    expect(html).toContain("Rated 4.4 out of 5");
+    expect(html).toContain(">4.4<");
+    // …but the star icons (#289) and the Google photo are gone entirely.
+    expect(html).not.toContain("Rated 4.4 out of 5");
+    expect(html).not.toContain("/api/places/photo?ref=");
   });
 
   it("keeps the planning treatment for planned, booked and unset", () => {
@@ -469,6 +472,8 @@ describe("a DONE block quiets the Google review set (#286)", () => {
       expect(html).toContain("line-clamp-2");
       expect(html).toContain("Best powder in Hokkaido.");
       expect(html).not.toContain("Show 2 reviews from Google");
+      expect(html).toContain("Rated 4.4 out of 5");
+      expect(html).toContain("/api/places/photo?ref=");
     }
   });
 });

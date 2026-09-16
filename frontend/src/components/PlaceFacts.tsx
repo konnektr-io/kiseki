@@ -184,12 +184,14 @@ function ReviewSnippet({ review, clamp = false }: { review: PlaceLiveReview; cla
  * and ONLY gains the stored rights-clean photo (deliberate #95 decision).
  * The tree stays auth-agnostic (no role branching — pitfall 16).
  *
- * `reviewsQuiet` (#286): the caller's block is DONE, i.e. this day already
- * happened. Review snippets read as a *choosing* aid (what should we do here?),
- * so on a finished activity they are noise that outweighs the traveller's own
- * words — the whole snippet set collapses behind ONE line while the rating row
- * (and its "N reviews on Google" route out) stays. Planning blocks (`planned` /
- * `booked` / no status) render exactly as before.
+ * `reviewsQuiet` (#286/#289): the caller's block is DONE, i.e. this day already
+ * happened. The live Google overlay reads as a *choosing* aid (what should we
+ * do here?), so on a finished activity it is noise next to the traveller's own
+ * words and photos: the star icons go entirely, the rating survives as one
+ * quiet text line (its "N reviews on Google" link keeps the route out), the
+ * whole snippet set collapses behind one disclosure line, and the Google photo
+ * stays unrendered. Planning blocks (`planned` / `booked` / no status) render
+ * exactly as before.
  */
 export function PlaceFacts({
   place,
@@ -249,7 +251,7 @@ export function PlaceFacts({
             ))}
           </ul>
         )}
-        {live?.rating != null && (
+        {live?.rating != null && !reviewsQuiet && (
           <div className="flex flex-wrap items-center gap-1.5 text-sm">
             <Stars rating={live.rating} />
             <span className="font-medium tabular-nums text-foreground">{live.rating.toFixed(1)}</span>
@@ -278,10 +280,46 @@ export function PlaceFacts({
             ) : null}
           </div>
         )}
+        {live?.rating != null && reviewsQuiet && (
+          /* DONE block (#289): the star icons read as chrome next to the
+             traveller's own words and photos — the rating survives as one
+             quiet text line, and the link keeps the route out to Google. */
+          <div className="text-[12px] text-muted-foreground">
+            <span className="font-medium tabular-nums">{live.rating.toFixed(1)}</span>
+            {live.userRatingCount != null && live.googleMapsUri ? (
+              <>
+                {" · "}
+                <a
+                  href={live.googleMapsUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-foreground hover:underline focus-visible:focus-ring"
+                >
+                  View {live.userRatingCount.toLocaleString("en-US")} reviews on Google
+                </a>
+              </>
+            ) : live.userRatingCount != null ? (
+              <span> · {live.userRatingCount.toLocaleString("en-US")} reviews</span>
+            ) : live.googleMapsUri ? (
+              <>
+                {" · "}
+                <a
+                  href={live.googleMapsUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-foreground hover:underline focus-visible:focus-ring"
+                >
+                  View on Google
+                </a>
+              </>
+            ) : null}
+          </div>
+        )}
         {!!live?.reviews?.length && reviewsQuiet && (
-          /* DONE block (#286): a snippet set is a *choosing* aid, not a record —
-             a finished day collapses it behind one line. The rating row above
-             keeps the "N reviews on Google" route out for anyone who wants them. */
+          /* DONE block (#286/#289): a snippet set is a *choosing* aid, not a
+             record — a finished day collapses it behind one line. The quiet
+             rating line above keeps the "N reviews on Google" route out for
+             anyone who wants them. */
           <details className="group">
             <summary className="cursor-pointer list-none text-[12px] text-muted-foreground hover:text-foreground focus-visible:focus-ring [&::marker]:hidden">
               {reviewsSummaryLabel(live.reviews.length)}
@@ -318,7 +356,7 @@ export function PlaceFacts({
             )}
           </div>
         )}
-        {live && !place.photo && <LivePhoto place={place} live={live} />}
+        {live && !place.photo && !reviewsQuiet && <LivePhoto place={place} live={live} />}
         {place.summary && (
           <div className="text-sm leading-relaxed text-muted-foreground">
             <Markdown>{place.summary}</Markdown>
