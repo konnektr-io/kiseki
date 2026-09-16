@@ -30,6 +30,7 @@ import { classifyTransportMode, type TransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
 import { PhotoGallery, PhotoStrip } from "./photos";
+import { TrackCard } from "./track-card";
 
 /* ---------- shared bits ---------- */
 
@@ -151,15 +152,25 @@ function CardMedia({ b }: { b: Block }) {
   if (b.images?.length) {
     return <PhotoStrip images={b.images} alt={b.title ?? ""} />;
   }
+  const tracks = b.track ? [b.track] : undefined;
   if (b.location) {
     const loc = findLocation(trip, b.location);
     if (loc?.lat != null && loc.lng != null) {
       return (
         <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
-          <MapView places={[b.location]} compact className="h-full w-full rounded-none border-0" />
+          <MapView places={[b.location]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
         </div>
       );
     }
+  }
+  // A recorded track with no registry place still earns its minimap — the
+  // line IS the spatial context (MapView frames it when no pins resolve).
+  if (b.track) {
+    return (
+      <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
+        <MapView places={[]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
+      </div>
+    );
   }
   return null;
 }
@@ -484,6 +495,7 @@ function ActivityBlock({
               <Markdown>{b.description}</Markdown>
             </div>
           )}
+          {b.track && <TrackCard track={b.track} />}
           <Links links={shown} />
         </div>
       </div>

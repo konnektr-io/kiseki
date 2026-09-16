@@ -282,7 +282,7 @@ BLOCK_FIELDS = {
     "kind", "title", "time", "description", "links", "cost", "currency",
     "status", "bookingCode", "items", "html", "distance", "duration", "route",
     "via", "from", "to", "mode", "location", "placeId",
-    "images",
+    "images", "track",
 }
 #: Fields the server accepts on ONE block kind only (mirror of
 #: `_validate_block_kind_fields` in app/write.py). PRESENCE is what 422s, not
@@ -300,6 +300,7 @@ KIND_ONLY_FIELDS: dict[str, set[str]] = {
     "mode": {"transport"},
     "html": {"custom"},
     "items": {"todo", "gallery"},
+    "track": {"activity"},
 }
 #: DayCreate (POST /days) is extra=forbid and takes these ONLY — `notes`, `map`
 #: and `meta` are DayPatch. A plan day carrying them on a NEW day 422s the very

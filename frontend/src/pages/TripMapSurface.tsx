@@ -645,7 +645,7 @@ export function TripMapSurface() {
     <DayRail
       key={dayIdx ?? 0}
       dayIdx={dayIdx ?? 0}
-      surface={day ?? { markers: [], legs: [], endpoints: [], letters: new Map() }}
+      surface={day ?? { markers: [], legs: [], endpoints: [], letters: new Map(), tracks: [] }}
       activeBlock={activeBlock}
       onCardTap={tapCard}
       scrollRootRef={listRef}

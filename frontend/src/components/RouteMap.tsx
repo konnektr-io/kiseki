@@ -15,6 +15,7 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
+import { fetchTrack, trackDataUrl } from "../lib/tracks";
 import { greatCircle, legModes, placeRole, type Journey } from "../lib/route-surface";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
@@ -147,6 +148,10 @@ export function RouteMap({
    *  refetches only when the pairs actually differ. */
   const [dayLegsData, setDayLegsData] = useState<Map<string, LegFeature> | null | undefined>(undefined);
   const dayLegKey = day?.legs.map((l) => `${l.from.name}>${l.to.name}`).join("|") ?? "";
+  /** Recorded track geometry (#193), blockId → polyline. Empty = none on the
+   *  day (or every fetch missed — the card's download link stays). */
+  const [dayTracksData, setDayTracksData] = useState<Map<string, [number, number][]>>(new Map());
+  const dayTracksKey = (day?.tracks ?? []).map((t) => t.url).join("|");
 
   useEffect(() => {
     // Only the day level fetches here; the scan fetch is the mount effect's.
@@ -216,6 +221,45 @@ export function RouteMap({
     // `trip` is stable across a level change; the day's pair list is the key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDay, ready, webgl2, dayLegKey]);
+
+  useEffect(() => {
+    // Recorded tracks ride the same readiness gate as the day legs: the map
+    // exists, the level is the day, and the track list is the key — a failed
+    // fetch is an empty line set, never a broken level.
+    if (!isDay || !webgl2 || !ready) return;
+    const list = dayRef.current?.tracks ?? [];
+    if (!list.length) {
+      setDayTracksData(new Map());
+      return;
+    }
+    let cancelled = false;
+    const abort = new AbortController();
+    (async () => {
+      try {
+        const fetched = await Promise.all(
+          list.map(async (t) => {
+            const url = trackDataUrl(t.url);
+            if (!url) return null;
+            try {
+              const feature = await fetchTrack(url, abort.signal);
+              return [t.blockId, feature.geometry.coordinates] as const;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        if (!cancelled) setDayTracksData(new Map(fetched.filter((f): f is NonNullable<typeof f> => f != null)));
+      } catch {
+        if (!cancelled) setDayTracksData(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+    // The track URL list is the key; the surface object itself is rebuilt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDay, ready, webgl2, dayTracksKey]);
 
   const journeyKey =
     journey.legs.map((l) => `${l.from.name}>${l.to.name}:${l.stage}`).join("|") +
@@ -365,7 +409,7 @@ export function RouteMap({
 
     const markers: MapLibreMarker[] = [];
     const addedLayers: string[] = [];
-    let addedSource: string | null = null;
+    const addedSources: string[] = [];
 
     /** A numbered place pin — the same registry ordinal on every surface. */
     const addPin = (loc: TripLocation, excursion: boolean) => {
@@ -434,7 +478,7 @@ export function RouteMap({
           })),
         },
       });
-      addedSource = source;
+      addedSources.push(source);
       // Under the basemap's labels so place names stay readable across the
       // route (§8.5). Found by layer TYPE, not id — hardcoded ids do not
       // survive the per-trip style swap #40 will make.
@@ -583,7 +627,45 @@ export function RouteMap({
           }),
         );
       }
+      // Recorded tracks (#193): the shape of the day as cased lines in the
+      // trip route colour (§8.4 — wide casing under a narrower body, solid
+      // and full-strength: a completed activity is not provisional), drawn
+      // under the basemap's labels with the legs.
+      const trackLines = [...dayTracksData.values()];
+      if (trackLines.length) {
+        map.addSource("day-tracks", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: trackLines.map((coordinates) => ({
+              type: "Feature" as const,
+              properties: {},
+              geometry: { type: "LineString" as const, coordinates },
+            })),
+          },
+        });
+        addedSources.push("day-tracks");
+        const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+        for (const [id, body] of [["day-tracks-casing", false], ["day-tracks-body", true]] as const) {
+          map.addLayer(
+            {
+              id,
+              type: "line",
+              source: "day-tracks",
+              layout: { "line-cap": "round", "line-join": "round" },
+              paint: body
+                ? { "line-color": colors.route, "line-width": 4 }
+                : { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+            } as Parameters<MapLibreMap["addLayer"]>[0],
+            firstSymbol,
+          );
+          addedLayers.push(id);
+        }
+      }
       surface.markers.forEach((m) => extend(m.place));
+      // The day's extent INCLUDES the track — a traverse swings outside its
+      // pins, and a track-only day (no markers at all) still frames.
+      for (const line of trackLines) for (const c of line) bounds.extend(c);
       // #104: the fit must include the ROAD, not just the endpoints — a real
       // route swings well outside the straight line (Rogers Pass rides north
       // of the ②→③ pair), and endpoint-only bounds clip the pin it exists to
@@ -594,8 +676,11 @@ export function RouteMap({
         }
       }
       fitDayRef.current = () => {
-        if (!mapRef.current || surface.markers.length === 0) return;
-        if (surface.markers.length === 1) {
+        // A track-only day (no markers, a recorded line) still frames — the
+        // track IS the day's extent there.
+        if (!mapRef.current || (surface.markers.length === 0 && trackLines.length === 0)) return;
+        if (bounds.isEmpty()) return;
+        if (surface.markers.length === 1 && trackLines.length === 0) {
           const p = surface.markers[0].place;
           const opts = {
             center: [p.lng!, p.lat!] as [number, number],
@@ -618,17 +703,19 @@ export function RouteMap({
 
     return () => {
       // Tear down THIS build's content: the markers it added and the layers
-      // on its own source. Runs before the next build and on unmount.
+      // on its own sources. Runs before the next build and on unmount.
       markers.forEach((m) => m.remove());
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
-      if (addedSource && map.getSource(addedSource)) map.removeSource(addedSource);
+      for (const source of addedSources) {
+        if (map.getSource(source)) map.removeSource(source);
+      }
     };
     // `trip` is read for marker numbers/roles and IS a dep: a content write
     // that changes the registry must restyle the pins.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trip, ready, legsData, dayLegsData, isDay, dayIdx]);
+  }, [trip, ready, legsData, dayLegsData, dayTracksData, isDay, dayIdx]);
 
   /* Selection visuals + the camera that follows it. Level-aware: the scan
      selection moves to a place; the day selection moves to a letter chip. */

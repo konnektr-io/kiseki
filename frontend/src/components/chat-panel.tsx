@@ -642,7 +642,7 @@ function ChatThread({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md"
+          accept="image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md,.gpx"
           className="sr-only"
           aria-label="Attach a file"
           onChange={(e) => void attach(e.target.files)}
@@ -651,7 +651,7 @@ function ChatThread({
           variant="ghost"
           size="icon"
           aria-label="Attach a file"
-          title="Attach a photo or document"
+          title="Attach a photo, video, document or GPX track (Slopes/Strava/Garmin: export GPX, then attach the .gpx file)"
           onClick={() => fileInputRef.current?.click()}
           disabled={busy}
           className="h-11 w-11 shrink-0"
