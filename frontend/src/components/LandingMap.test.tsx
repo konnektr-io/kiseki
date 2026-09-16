@@ -13,6 +13,9 @@
  *   the credit is why a public page may use them at all, so `attributionControl` is
  *   asserted on the constructor rather than trusted.
  * - **It never hijacks the page's scroll**, and it draws one numbered pin per stop.
+ * - **The roads come from one fixed endpoint, and the credit follows the data.**
+ *   `GET /api/landing-route` is the only URL the map ever fetches; the "© HERE"
+ *   caption renders only when that fetch answered road geometry.
  */
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -33,7 +36,19 @@ const calls = vi.hoisted(() => ({
   markers: [] as [number, number][],
   layers: [] as string[],
   markersBuilt: 0,
+  sources: {} as Record<string, unknown>,
+  fetched: [] as string[],
 }));
+
+/** The road-geometry fetch. Per test: "roads" (real geometry), "straight"
+ *  (`road: false`), "garbage" (a malformed answer), or "down" (throws). */
+const net = vi.hoisted(() => ({ mode: "straight" as "roads" | "straight" | "garbage" | "down" }));
+
+const ROAD_COORDS: [number, number][] = [
+  [139.70955, 35.68507],
+  [139.71, 35.686],
+  [139.7047, 35.69399],
+];
 
 vi.mock("../lib/maps", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/maps")>()),
@@ -58,7 +73,9 @@ vi.mock("../lib/maplibre", () => ({
       getCanvas() {
         return { setAttribute: () => undefined };
       }
-      addSource() {}
+      addSource(id: string, source: unknown) {
+        calls.sources[id] = source;
+      }
       addLayer(layer: { id: string }) {
         calls.layers.push(layer.id);
       }
@@ -85,6 +102,23 @@ vi.mock("../lib/maplibre", () => ({
 const { LandingMap } = await import("./LandingMap");
 const { MAP_STYLE_URL } = await import("../lib/maps");
 
+vi.stubGlobal(
+  "fetch",
+  vi.fn(async (url: string) => {
+    calls.fetched.push(url);
+    if (net.mode === "down") throw new Error("no backend");
+    return {
+      ok: true,
+      json: async () =>
+        net.mode === "roads"
+          ? { road: true, coordinates: ROAD_COORDS }
+          : net.mode === "garbage"
+            ? { road: true, coordinates: [["a", "b"]] }
+            : { road: false, coordinates: [[139.70955, 35.68507]] },
+    };
+  }),
+);
+
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
 
@@ -93,6 +127,9 @@ beforeEach(() => {
   calls.markers = [];
   calls.layers = [];
   calls.markersBuilt = 0;
+  calls.sources = {};
+  calls.fetched = [];
+  net.mode = "straight";
   webgl.ok = true;
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -162,6 +199,53 @@ describe("the real map, once it can load", () => {
     // `once("load")` fires immediately in the fake, so the map is ready by now.
     expect(drawn.className).toContain("opacity-0");
     expect(el.querySelector("[data-landing-map]")!.getAttribute("data-landing-map")).toBe("ready");
+  });
+});
+
+describe("the road geometry", () => {
+  function drawnLine(): unknown {
+    const source = calls.sources["landing-route"] as {
+      data: { geometry: { coordinates: unknown } };
+    };
+    return source.data.geometry.coordinates;
+  }
+
+  const STRAIGHT = [
+    [139.70955, 35.68507],
+    [139.7047, 35.69399],
+  ];
+
+  it("fetches exactly one fixed URL — never a trip, showcase or media read", async () => {
+    await mount(<LandingMap stops={STOPS} />);
+    expect(calls.fetched).toEqual(["/api/landing-route"]);
+  });
+
+  it("draws the returned roads and credits HERE", async () => {
+    net.mode = "roads";
+    const el = await mount(<LandingMap stops={STOPS} />);
+    expect(drawnLine()).toEqual(ROAD_COORDS);
+    expect(el.textContent).toContain("Road route © HERE");
+  });
+
+  it("keeps the straight stop-to-stop line when the backend answers road:false", async () => {
+    const el = await mount(<LandingMap stops={STOPS} />);
+    expect(drawnLine()).toEqual(STRAIGHT);
+    expect(el.textContent).not.toContain("© HERE");
+  });
+
+  it("keeps the straight line when the fetch fails outright", async () => {
+    net.mode = "down";
+    const el = await mount(<LandingMap stops={STOPS} />);
+    expect(drawnLine()).toEqual(STRAIGHT);
+    expect(el.textContent).not.toContain("© HERE");
+    expect(el.querySelector("[data-landing-map]")!.getAttribute("data-landing-map")).toBe("ready");
+  });
+
+  it("ignores a malformed answer instead of crashing the source", async () => {
+    net.mode = "garbage";
+    const el = await mount(<LandingMap stops={STOPS} />);
+    expect(drawnLine()).toEqual(STRAIGHT);
+    expect(el.textContent).not.toContain("© HERE");
   });
 });
 

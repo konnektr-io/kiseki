@@ -1828,6 +1828,61 @@ def maps_directions(
     return {"available": False}
 
 
+# The landing page's example route — fixed Tokyo stops, anonymous (#249).
+#
+# Why an endpoint instead of hardcoded geometry: HERE's terms allow routing
+# results to live outside the platform for 30 days at most (Japan: 24 h), so
+# committing the polyline to git is not an option. This serves it live from
+# HERE with the same 5-minute in-process cache as /api/maps/route. The browser
+# never sees a credential and the coordinates are fixed server-side — this is
+# NOT a general routing proxy, and arbitrary origin/destination pairs are not
+# accepted. Any failure answers straight `road: false` geometry (HTTP 200) so
+# the landing page keeps its stop-to-stop lines instead of breaking.
+_LANDING_ROUTE_STOPS: tuple[tuple[str, float, float], ...] = (
+    ("Shinjuku Gyoen", 35.68507, 139.70955),
+    ("Yanaka", 35.72479, 139.76856),
+    ("Kōenji", 35.70494, 139.64991),
+    ("Shibuya", 35.65950, 139.70050),
+    ("Golden Gai", 35.69399, 139.70470),
+)
+_landing_route_cache: tuple[float, dict] | None = None
+_LANDING_ROUTE_TTL = 300.0
+
+
+@app.get("/api/landing-route")
+def landing_route(request: Request) -> dict:
+    """Road geometry for the landing page's example trip (#249).
+
+    Anonymous and fixed: the five stops above in pin order, one HERE leg per
+    consecutive pair, concatenated with the joints deduped. `road` is true only
+    when EVERY leg came back as road geometry — a partial answer would mix real
+    roads with straight segments without saying so, so anything short of whole
+    degrades to the straight stop-to-stop line the map draws anyway.
+    """
+    _rate_limit(request, "landing-route", 60)
+    global _landing_route_cache
+    now = time.monotonic()
+    if _landing_route_cache and _landing_route_cache[0] > now:
+        return _landing_route_cache[1]
+    straight = [[lng, lat] for _, lat, lng in _LANDING_ROUTE_STOPS]
+    body: dict = {"road": False, "coordinates": straight}
+    token = here_bearer_token()
+    if token:
+        try:
+            legs = route_legs([(n, la, ln) for n, la, ln in _LANDING_ROUTE_STOPS], token)
+        except Exception:
+            legs = []
+        if legs and all(leg.get("road") for leg in legs):
+            coords: list[list[float]] = []
+            for leg in legs:
+                pts = leg["geometry"]["coordinates"]
+                coords.extend(pts if not coords else pts[1:])
+            if len(coords) >= 2:
+                body = {"road": True, "coordinates": coords}
+    _landing_route_cache = (now + _LANDING_ROUTE_TTL, body)
+    return body
+
+
 # Live place overlay (rating / review snippets / photos, issue #95) —
 # Google Places API (New) behind server-side proxies, same trust pattern as
 # the HERE routes above: the key never leaves the backend, results are
