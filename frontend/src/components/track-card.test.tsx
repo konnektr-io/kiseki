@@ -31,4 +31,13 @@ describe("TrackCard", () => {
     expect(html).toContain(">FIT<");
     expect(html).not.toContain(">GPX<");
   });
+  it("hides the minimap in the card strip (#305 — minimap belongs on a real map in print via CardMedia)", () => {
+    const html = renderToString(createElement(TrackCard, { track: TRACK }));
+    expect(html).not.toContain('viewBox="0 0 320 96"');
+    expect(html).not.toContain("animate-pulse");
+    expect(html).not.toContain("minimap");
+    // Stats strip and download CTA are kept
+    expect(html).toContain("Recorded track");
+    expect(html).toContain(`href="${TRACK}"`);
+  });
 });

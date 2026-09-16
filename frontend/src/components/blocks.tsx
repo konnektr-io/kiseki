@@ -169,15 +169,13 @@ function cardMediaNode(trip: Trip, b: Block): ReactNode {
     return <PhotoStrip images={b.images} alt={b.title ?? ""} />;
   }
   const tracks = b.track ? [b.track] : undefined;
-  if (b.location) {
-    const loc = findLocation(trip, b.location);
-    if (loc?.lat != null && loc.lng != null) {
-      return (
-        <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
-          <MapView places={[b.location]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
-        </div>
-      );
-    }
+  const place = b.location ? findLocation(trip, b.location) : resolveBlockPlace(trip, b);
+  if (place?.lat != null && place.lng != null) {
+    return (
+      <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
+        <MapView places={[place.name]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
+      </div>
+    );
   }
   // A recorded track with no registry place still earns its minimap — the
   // line IS the spatial context (MapView frames it when no pins resolve).
