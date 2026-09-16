@@ -11,8 +11,14 @@
  *   Following → Discover), and Up next does not duplicate into the grid;
  * - an empty band collapses to one line of copy, never an empty frame;
  * - search + stage chips filter the trip bands;
+ * - rich facets (season/month, place over the geo anchors, Mine⇄Following
+ *   provenance, visibility) filter the trip bands; feed rows take the text
+ *   only, never the chips;
  * - Discover never shows your own trips;
- * - a trips failure errors the page, but a feed/showcase failure only
+ * - the map canvas renders beside the bands when geo arrives, and collapses
+ *   (bands as-is, no error) when geo is empty or fails; hovering a card
+ *   raises its row for the pin;
+ * - a trips failure errors the page, but a feed/showcase/geo failure only
  *   collapses its band — a home with your trips is still a home.
  */
 import { act } from "react";
@@ -111,6 +117,10 @@ const GEO: TripGeo[] = [
   {
     dtId: "live-1", title: "Ski Week", stage: "live",
     anchor: { lat: 50.9981, lng: -118.1957, name: "Revelstoke" }, origin: "mine",
+  },
+  {
+    dtId: "booked-1", title: "Canada Heliski", stage: "booked",
+    anchor: { lat: 51.0, lng: -118.0, name: "Selkirks" }, origin: "mine",
   },
   {
     dtId: "ext-1", title: "Dolomites", stage: "planned",
@@ -323,5 +333,72 @@ describe("the map canvas", () => {
       card.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
     });
     expect(el.querySelector('[data-dtid="booked-1"]')!.className).toContain("outline-accent");
+  });
+});
+
+describe("rich facets", () => {
+  async function setPlace(el: HTMLElement, value: string): Promise<void> {
+    const input = el.querySelector('input[placeholder="Place or region"]') as HTMLInputElement;
+    await act(async () => {
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  async function clickChip(el: HTMLElement, text: string): Promise<void> {
+    const chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text)!;
+    await act(async () => {
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("filters by season, from the start date", async () => {
+    const el = await mount();
+    await clickChip(el, "winter");
+    // February starts stay; September and the dateless go. Up next steps aside.
+    expect(bandOrder(el)).toEqual(["Your trips", "Following", "Discover"]);
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("filters by place, over anchors, titles and subtitles", async () => {
+    net.geo = "ok"; // anchors come from the geo read
+    const el = await mount();
+    await setPlace(el, "selk");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("filters by provenance: Mine hides the discover shelf", async () => {
+    const el = await mount();
+    await clickChip(el, "Mine");
+    const discover = el.querySelector('section[aria-label="Discover"]')!;
+    expect(discover.querySelector("a[href^='/t/']")).toBeNull();
+    expect(discover.textContent).toContain("No public trips match this search.");
+    // Your own trips are untouched by the same facet.
+    expect(el.querySelector('section[aria-label="Your trips"]')!.textContent).toContain(
+      "Canada Heliski",
+    );
+  });
+
+  it("filters by visibility", async () => {
+    const el = await mount();
+    await clickChip(el, "public");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Canada Heliski");
+    expect(yours.textContent).not.toContain("Japan Campervan");
+  });
+
+  it("applies the place text to the Following band, and skips the chips there", async () => {
+    const el = await mount();
+    await setPlace(el, "rifugio");
+    const following = el.querySelector('section[aria-label="Following"]')!;
+    expect(following.textContent).toContain("Rifugio lunch");
+    await setPlace(el, "nowhere-near-anything");
+    expect(el.querySelector('section[aria-label="Following"]')!.querySelector("ul")).toBeNull();
   });
 });

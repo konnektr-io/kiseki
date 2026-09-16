@@ -13,13 +13,13 @@ import { Button, Card, StageBadge } from "../components/ui";
 import { fetchFeed, fetchMyTrips, fetchShowcase, fetchTripGeo } from "../lib/api";
 import { formatDate, tripTodayIso } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
-import { filterTrips, nextUpTrip, presentStages, upNextLabel, type TripFilter } from "../lib/home";
+import { filterTrips, nextUpTrip, presentStages, upNextLabel, SEASON_MONTHS, type Season, type TripFilter, type TripOrigin } from "../lib/home";
 import { homePinsFromGeo, homeRowId } from "../lib/home-geo";
 import { sortShowcaseTrips } from "../lib/marketing";
 import { prefersReducedMotion } from "../lib/maps";
 import { usePageTitle } from "../lib/seo";
 import { MarketingLanding } from "./LandingMarketing";
-import type { FeedEntry, ShowcaseTrip, Stage, TripGeo, TripSummary } from "../lib/types";
+import type { FeedEntry, ShowcaseTrip, Stage, TripGeo, TripSummary, Visibility } from "../lib/types";
 
 /**
  * Landing page (issue #7; discovery home #249 slice 2, map canvas slice 3).
@@ -250,6 +250,15 @@ function HomeBands({
   onQueryChange,
   stages,
   onToggleStage,
+  place,
+  onPlaceChange,
+  months,
+  onToggleSeason,
+  originSel,
+  onOriginSel,
+  vis,
+  onToggleVisibility,
+  filtering,
   selectedDtId,
   flashDtId,
   chatOpen,
@@ -269,6 +278,15 @@ function HomeBands({
   onQueryChange: (q: string) => void;
   stages: readonly Stage[];
   onToggleStage: (stage: Stage) => void;
+  place: string;
+  onPlaceChange: (q: string) => void;
+  months: readonly number[];
+  onToggleSeason: (season: Season) => void;
+  originSel: "all" | "mine" | "following";
+  onOriginSel: (sel: "all" | "mine" | "following") => void;
+  vis: readonly Visibility[];
+  onToggleVisibility: (v: Visibility) => void;
+  filtering: boolean;
   selectedDtId: string | null;
   flashDtId: string | null;
   chatOpen: boolean;
@@ -304,8 +322,9 @@ function HomeBands({
         )}
       </div>
 
-      {/* Search + stage filters sit above the bands and filter the trip bands
-          (feed rows carry no stage, so the chips skip them — the text applies). */}
+      {/* Search + facets sit above the bands and filter the trip bands (feed
+          rows carry no stage, month, origin or visibility, so the chips skip
+          them — the text applies). Stage chips stay as-is. */}
       {trips && trips.length > 0 && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <label className="relative min-w-52 flex-1 sm:max-w-xs">
@@ -319,6 +338,20 @@ function HomeBands({
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search trips"
+              className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:focus-ring"
+            />
+          </label>
+          <label className="relative min-w-40 flex-1 sm:max-w-[12rem]">
+            <span className="sr-only">Place or region</span>
+            <MapPin
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={place}
+              onChange={(e) => onPlaceChange(e.target.value)}
+              placeholder="Place or region"
               className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:focus-ring"
             />
           </label>
@@ -337,6 +370,64 @@ function HomeBands({
                 }`}
               >
                 {stage}
+              </button>
+            );
+          })}
+          {(["spring", "summer", "autumn", "winter"] as const).map((season) => {
+            const want = SEASON_MONTHS[season];
+            const active = want.every((m) => months.includes(m));
+            return (
+              <button
+                key={season}
+                type="button"
+                onClick={() => onToggleSeason(season)}
+                aria-pressed={active}
+                title="Trips starting in this season"
+                className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {season}
+              </button>
+            );
+          })}
+          <span role="group" aria-label="Whose trips" className="inline-flex overflow-hidden rounded-full border border-border">
+            {(["all", "mine", "following"] as const).map((sel) => {
+              const active = originSel === sel;
+              return (
+                <button
+                  key={sel}
+                  type="button"
+                  onClick={() => onOriginSel(sel)}
+                  aria-pressed={active}
+                  className={`h-9 px-3 text-xs font-medium capitalize transition-colors ${
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {sel === "all" ? "All" : sel === "mine" ? "Mine" : "Following"}
+                </button>
+              );
+            })}
+          </span>
+          {(["public", "private"] as const).map((v) => {
+            const active = vis.includes(v);
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => onToggleVisibility(v)}
+                aria-pressed={active}
+                className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {v}
               </button>
             );
           })}
@@ -391,7 +482,7 @@ function HomeBands({
         </div>
       ) : (
         <>
-          {nextUp && !query && stages.length === 0 && (
+          {nextUp && !filtering && (
             <Band title="Up next" blurb={upNextLabel(nextUp, todayIso)}>
               <div className="max-w-xl">
                 <BandRow
@@ -428,7 +519,7 @@ function HomeBands({
               </div>
             ) : (
               <Collapsed>
-                {query || stages.length > 0
+                {filtering
                   ? "No trips match this search."
                   : "Every journey you're part of will land here."}
               </Collapsed>
@@ -487,7 +578,7 @@ function HomeBands({
               </div>
             ) : (
               <Collapsed>
-                {query || stages.length > 0
+                {filtering
                   ? "No public trips match this search."
                   : "No public trips to discover right now."}
               </Collapsed>
@@ -535,6 +626,13 @@ function AuthenticatedLanding() {
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [stages, setStages] = useState<readonly Stage[]>([]);
+  // Rich facets (#249 slice 4): month/season from startDate, place/region over
+  // the E2 anchors, mine⇄following provenance, visibility. All optional, all
+  // empty by default — the bands answer the unfiltered home first.
+  const [place, setPlace] = useState("");
+  const [months, setMonths] = useState<readonly number[]>([]);
+  const [originSel, setOriginSel] = useState<"all" | "mine" | "following">("all");
+  const [vis, setVis] = useState<readonly Visibility[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -595,11 +693,39 @@ function AuthenticatedLanding() {
     };
   }, [isAuthenticated, getAccessTokenSilently, attempt]);
 
-  const filter: TripFilter = useMemo(() => ({ q: query, stages }), [query, stages]);
+  const filter: TripFilter = useMemo(
+    () => ({
+      q: query,
+      stages,
+      months,
+      place,
+      origins:
+        originSel === "all" ? [] : originSel === "mine" ? ["mine"] : (["following", "discover"] as TripOrigin[]),
+      visibility: vis,
+    }),
+    [query, stages, months, place, originSel, vis],
+  );
+
+  // Anchor names by trip, from the E2 read — the place/region facet's index.
+  const anchorByTrip = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of geo ?? []) map.set(row.dtId, row.anchor.name);
+    return map;
+  }, [geo]);
 
   const orderedTrips = useMemo(
-    () => (trips ? filterTrips(sortShowcaseTrips(trips), filter) : null),
-    [trips, filter],
+    () =>
+      trips
+        ? filterTrips(
+            sortShowcaseTrips(trips).map((t) => ({
+              ...t,
+              origin: "mine" as const,
+              anchorName: anchorByTrip.get(t.dtId) ?? null,
+            })),
+            filter,
+          )
+        : null,
+    [trips, filter, anchorByTrip],
   );
   const nextUp = useMemo(() => (trips ? nextUpTrip(trips) : null), [trips]);
   const gridTrips = useMemo(
@@ -608,7 +734,9 @@ function AuthenticatedLanding() {
   );
   const followed = useMemo(() => {
     if (!feed) return null;
-    const q = query.trim().toLowerCase();
+    // Feed rows carry no stage, month, origin or visibility — the chips skip
+    // them; the text (search or place) applies, over the same fields as today.
+    const q = `${query} ${place}`.trim().toLowerCase();
     return feed
       .filter((e) => e.source === "followed-user")
       .filter(
@@ -619,18 +747,33 @@ function AuthenticatedLanding() {
           (e.label ?? "").toLowerCase().includes(q),
       )
       .slice(0, 6);
-  }, [feed, query]);
+  }, [feed, query, place]);
   const discoverTrips = useMemo(() => {
     if (!discover) return null;
     const mine = new Set((trips ?? []).map((t) => t.dtId));
     return filterTrips(
-      sortShowcaseTrips(discover.filter((t) => !mine.has(t.dtId))),
+      sortShowcaseTrips(discover.filter((t) => !mine.has(t.dtId))).map((t) => ({
+        ...t,
+        origin: "discover" as const,
+        anchorName: anchorByTrip.get(t.dtId) ?? null,
+      })),
       filter,
     );
-  }, [discover, trips, filter]);
+  }, [discover, trips, filter, anchorByTrip]);
   const stageChips = useMemo(
     () => presentStages([...(trips ?? []), ...(discover ?? [])]),
     [trips, discover],
+  );
+  // Any active facet steps Up next aside and rewords the empty bands.
+  const filtering = useMemo(
+    () =>
+      query.trim() !== "" ||
+      place.trim() !== "" ||
+      stages.length > 0 ||
+      months.length > 0 ||
+      originSel !== "all" ||
+      vis.length > 0,
+    [query, place, stages, months, originSel, vis],
   );
   const todayIso = useMemo(() => tripTodayIso({}), []);
   // Pins from the E2 read, verbatim — a trip the read did not list gets no
@@ -691,6 +834,19 @@ function AuthenticatedLanding() {
   const toggleStage = (stage: Stage) =>
     setStages((prev) => (prev.includes(stage) ? prev.filter((s) => s !== stage) : [...prev, stage]));
 
+  // A season chip toggles its three months as a set.
+  const toggleSeason = (season: Season) =>
+    setMonths((prev) => {
+      const want = SEASON_MONTHS[season];
+      const hasAll = want.every((m) => prev.includes(m));
+      return hasAll
+        ? prev.filter((m) => !want.includes(m))
+        : [...new Set([...prev, ...want])].sort((a, b) => a - b);
+    });
+
+  const toggleVis = (v: Visibility) =>
+    setVis((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+
   const bands = (
     <HomeBands
       trips={trips}
@@ -705,6 +861,15 @@ function AuthenticatedLanding() {
       onQueryChange={setQuery}
       stages={stages}
       onToggleStage={toggleStage}
+      place={place}
+      onPlaceChange={setPlace}
+      months={months}
+      onToggleSeason={toggleSeason}
+      originSel={originSel}
+      onOriginSel={setOriginSel}
+      vis={vis}
+      onToggleVisibility={toggleVis}
+      filtering={filtering}
       selectedDtId={selectedDtId}
       flashDtId={flashDtId}
       chatOpen={chatOpen}
@@ -747,7 +912,7 @@ function AuthenticatedLanding() {
 
   // Peek line for the phone sheet: one line of "what's next".
   const peek =
-    nextUp && !query && stages.length === 0 ? (
+    nextUp && !filtering ? (
       <>
         Up next: <span className="font-medium text-foreground">{nextUp.title}</span>
         {" — "}
