@@ -63,6 +63,16 @@ const SHARED_CONFIG = {
   // We send pageviews ourselves (`capturePageview`) so the URL always passes
   // through the scrubber and can carry the trip id.
   capture_pageview: false,
+  // ...and we send the matching `$pageleave` ourselves too (`capturePageleave`).
+  // Both stay off together, never one: posthog-js only emits its own pageleave
+  // while its own pageview capture is on — its guard is
+  //   capture_pageleave === true
+  //   || (capture_pageleave === "if_capture_pageview" && !!capture_pageview)
+  // so turning `capture_pageview` off silently takes pageleave with it. That is
+  // how #295 shipped 818 `$pageview` and zero `$pageleave`: the health check
+  // fired and bounce rate, session duration and scroll depth were empty. Keeping
+  // this false also leaves exactly ONE source of pageleave, so the SDK can never
+  // double-emit alongside our own.
   capture_pageleave: false,
   // Autocapture ships element text/attributes — trip *content* must never
   // reach the vendor (#21: navigation events only).
@@ -132,6 +142,15 @@ export function initAnalytics(): void {
 }
 
 /**
+ * True while a `$pageview` has shipped and no `$pageleave` has closed it yet.
+ * This is the pairing guard: a `$pageleave` with no open pageview pairs with
+ * nothing (it arrives as a stray event with no `$pageview_id`), so the first
+ * navigation of a page load — and any navigation racing consent — never emits
+ * one.
+ */
+let pageviewOpen = false;
+
+/**
  * `$pageview` with a scrubbed URL. Per-trip metrics are keyed on the trip's
  * opaque id (`$dtId`) passed as a property — never on anything derived from a
  * claim token.
@@ -144,6 +163,45 @@ export function capturePageview(opts?: { tripId?: string }): void {
   const tripId = opts?.tripId ?? analyticsTripId;
   if (tripId) props.trip_id = tripId;
   posthog.capture("$pageview", props);
+  pageviewOpen = true;
+}
+
+/**
+ * `$pageleave` — the other half of the pair, which the project was missing
+ * entirely (#295: 818 `$pageview`, zero `$pageleave` in 30 days, so bounce rate,
+ * session duration and scroll depth were empty).
+ *
+ * The SDK cannot supply it: its unload path is gated on `capture_pageleave`
+ * (which we deliberately keep off so there is one source of this event — see
+ * `SHARED_CONFIG`). Because we capture pageviews by hand, we pair them by hand,
+ * at the two moments PostHog documents for a manual setup — an in-app route
+ * change, and leaving the page.
+ *
+ * No pairing properties are hand-rolled. A manual `$pageview` still runs the
+ * SDK's own `PageViewManager.doPageView`, so the manager already holds the open
+ * pageview; this capture therefore comes back carrying `$pageview_id`,
+ * `$prev_pageview_id`, `$prev_pageview_pathname` and `$prev_pageview_duration`
+ * (seconds) — exactly what the duration metrics read. `$prev_pageview_pathname`
+ * is the RAW `window.location.pathname`, so it is a secret path like any other
+ * and `before_send` → `scrubSecretTokens` rewrites it (`$pathname`'s rule, which
+ * walks every string rather than a key list, is what makes that automatic).
+ *
+ * `transport: "sendBeacon"` is load-bearing: `request_batching` defaults to true,
+ * so a plain capture would sit in the SDK's queue — and on the unload path there
+ * is no flush we can rely on, because the SDK's own unload flush is gated on the
+ * same `capture_pageleave` we have off. A beacon leaves in the same tick, and the
+ * SDK takes this branch immediately whenever `transport` is set.
+ */
+export function capturePageleave(opts?: { tripId?: string }): void {
+  if (!isPostHogConfigured || !posthog.__loaded) return;
+  if (!pageviewOpen) return;
+  const props: Record<string, unknown> = {
+    $current_url: normalizeSecretPath(window.location.href),
+  };
+  const tripId = opts?.tripId ?? analyticsTripId;
+  if (tripId) props.trip_id = tripId;
+  posthog.capture("$pageleave", props, { transport: "sendBeacon" });
+  pageviewOpen = false;
 }
 
 /** A custom event; a no-op when PostHog is unconfigured or unconsented. An

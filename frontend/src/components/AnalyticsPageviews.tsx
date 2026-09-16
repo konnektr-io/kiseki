@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { capturePageview, setAnalyticsTrip } from "../lib/posthog";
+import { capturePageleave, capturePageview, setAnalyticsTrip } from "../lib/posthog";
 
 /**
- * Route-level pageview capture for the SPA (issue #21).
+ * Route-level pageview capture for the SPA (issue #21), and the matching
+ * `$pageleave` that PostHog's web analytics pairs it with (#295).
  *
  * The SDK's built-in `$pageview` is disabled (`capture_pageview: false`) so this
  * component owns what ships: the URL goes through `before_send` →
@@ -13,7 +14,11 @@ import { capturePageview, setAnalyticsTrip } from "../lib/posthog";
  * What we want to learn (#21): does "≤2 taps to today's plan" hold, how deep do
  * share links get opened, mobile vs desktop, booklet downloads, and which pages
  * people actually use. All page-level facts, so one pageview per navigation is
- * the entire instrument for them.
+ * the entire instrument for them — but only half of it works without the leave:
+ * bounce rate, session duration and scroll depth are all computed from the pair.
+ * `capture_pageleave` is off in the SDK for the same reason as `capture_pageview`
+ * (see `lib/posthog.ts`), so we emit both, at the two moments PostHog documents
+ * for a hand-rolled setup — a route change here, and leaving the page below.
  */
 export function AnalyticsPageviews() {
   const { pathname } = useLocation();
@@ -28,14 +33,32 @@ export function AnalyticsPageviews() {
   // effects in dev, which would otherwise double-count every pageview).
   const lastPath = useRef<string | null>(null);
   useEffect(() => {
+    const first = lastPath.current === null;
+    const moved = lastPath.current !== pathname;
+    // Close the page we are leaving BEFORE the next one opens, so its
+    // `$pageleave` carries the trip that page belonged to — `setAnalyticsTrip`
+    // below has not run yet, so the ambient trip is still the old one. No-op on
+    // the first render (nothing is open yet); `capturePageleave` owns the rest of
+    // the pairing rule.
+    if (!first && moved) capturePageleave();
     // Keep the ambient trip context in sync even when the path did not change
     // (e.g. a redirect that lands on the same URL), so custom events raised
     // elsewhere always carry the right trip.
     setAnalyticsTrip(tripId);
-    if (lastPath.current === pathname) return;
+    if (!moved) return;
     lastPath.current = pathname;
     capturePageview(tripId ? { tripId } : undefined);
   }, [pathname, tripId]);
+
+  // The other half of a manual setup: leaving the page. `pagehide` is what the
+  // SDK itself listens on (not `beforeunload`, which mobile Safari may skip), and
+  // this component lives for the whole app, so the listener is registered once
+  // and survives every route change.
+  useEffect(() => {
+    const onPageHide = () => capturePageleave();
+    window.addEventListener("pagehide", onPageHide);
+    return () => window.removeEventListener("pagehide", onPageHide);
+  }, []);
 
   return null;
 }

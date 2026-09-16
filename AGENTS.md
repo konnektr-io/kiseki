@@ -394,6 +394,29 @@ enforced in `frontend/src/lib/`:
 - **`$referrer` gets the same treatment**: a referral from a trip page otherwise carries
   the secret to the next origin's analytics.
 - **Per-trip metrics key on the trip `$dtId`** (a property, `trip_id`), never on the URL.
+- **`$pageview` and `$pageleave` are BOTH hand-rolled, and have to stay in step (#295).**
+  `capture_pageview` and `capture_pageleave` are both off: posthog-js only emits its own
+  pageleave while its own pageview capture is on (`capture_pageleave === true ||
+  (capture_pageleave === "if_capture_pageview" && capture_pageview)`), so turning pageview
+  autocapture off silently takes pageleave with it — the project shipped **818 `$pageview`
+  and zero `$pageleave`** over 30 days, which is PostHog's *missing pageleave events*
+  health check, and it leaves bounce rate, session duration and scroll depth empty while
+  every pageview metric still looks healthy. So `components/AnalyticsPageviews.tsx` +
+  `lib/posthog.ts` send the pair: a pageview per navigation, and a pageleave for the page
+  being left — fired on a route change *before* the next pageview (the ambient trip is
+  still the old one, so the leave is tagged with the page it belongs to) and on `pagehide`
+  (what the SDK itself listens on, not `beforeunload`). `lib/posthog.test.ts` pins one
+  leave per pageview and refuses a stray leave, and `AnalyticsPageviews.test.tsx` pins the
+  route/`pagehide` wiring in a mounted tree.
+- **The pageleave must go out as a `sendBeacon`, and the SDK cannot be the one to send it.**
+  `request_batching` defaults to true, so a plain capture sits in the queue — and the
+  SDK's own unload flush is gated on the very `capture_pageleave` we keep off, so a queued
+  leave never arrives. `capturePageleave` passes `{ transport: "sendBeacon" }` explicitly.
+  The pairing properties (`$prev_pageview_id`, `$prev_pageview_pathname`,
+  `$prev_pageview_duration`) are NOT hand-rolled: a manual `$pageview` still runs the SDK's
+  `PageViewManager.doPageView`, so the manager already holds the open pageview and stamps
+  them on the leave. `$prev_pageview_pathname` is the RAW `window.location.pathname`, which
+  is why the scrubber walks every string instead of trusting a key list.
 - **Session replay and heatmaps are globally OFF.** Replay records the URL bar and the
   DOM — private travel plans, crew names, booking codes. A global switch cannot be
   defeated by a routing mistake in the way a per-route gate can.
@@ -425,23 +448,32 @@ enforced in `frontend/src/lib/`:
 - The automated guard is `frontend/src/lib/analytics-privacy.test.ts`, which asserts a
   raw token cannot survive into an outbound payload.
 
-Pageviews are sent by `components/AnalyticsPageviews.tsx` (the SDK's built-in
-`capture_pageview` is disabled so every URL goes through the scrubber). The project
+Pageviews and pageleaves are both sent by `components/AnalyticsPageviews.tsx` (the SDK's
+built-in `capture_pageview`/`capture_pageleave` are disabled so every URL goes through the
+scrubber and every event can carry the trip). The project
 token is a public ingest key baked into `lib/posthog.ts` as a default (same posture as
 the Auth0 domain/client id), overridable with `VITE_POSTHOG_*`. Analytics is a no-op
 when the token is empty, so local dev and forks ship nothing.
 
 **Verifying a change here needs the rendered-browser probe, not just unit tests** —
 `frontend/scripts/probe-analytics-privacy.py` (run `pnpm build` first) drives real trip
-and join pages, decodes the gzip bodies the SDK actually POSTs, and fails if a secret
-survives in any location field or if no events are delivered at all. Two traps it
-encodes, both of which cost real time to find: (a) posthog-js **drops events from
+and join pages, decodes the bodies the SDK actually POSTs, and fails if a secret
+survives in any location field, if no events are delivered at all, or if no `$pageleave`
+arrives paired with a pageview. Three traps it encodes, all of which cost real time to
+find: (a) posthog-js **drops events from
 detected bots**, and its matcher treats Playwright's Chromium as one (it substring-matches
 "headlesschrome" against `navigator.userAgentData.brands` and flags
 `navigator.webdriver`), so a plain headless probe reports "nothing sent" for every config
-— the script spoofs a normal Chrome identity first; (b) the SDK flushes `$pageview` on
-pagehide via `sendBeacon`, for which Playwright's `post_data` is empty — the bodies must
-be read over CDP, and they are raw gzip.
+— the script spoofs a normal Chrome identity first; (b) the SDK flushes on pagehide via
+`sendBeacon`, for which Playwright's `post_data` is empty — the bodies must be read over
+CDP; (c) **the bodies come in three encodings and beacons use the one nobody expects.**
+Batched `fetch` sends raw gzip, but a beacon sends a form body `data=<urlencoded base64>`
+— base64 of a URL-ENCODED JSON string. A decoder that only knows gzip therefore drops
+EVERY beacon, and a beacon is exactly how `$pageleave` (and anything else sent during
+teardown) always arrives: that blind spot is what let #295 ship a release with zero
+pageleaves while this probe reported PASS. The decoder now tries every shape and accepts a
+candidate only if it parses as JSON, so a bogus `base64.b64decode` of gzip bytes can no
+longer win over the real path.
 
 **PostHog project settings (checked over the MCP, 2026-09-10):** `cookieless_server_hash_mode`
 stays `0` — it is only required when the SDK sends *cookieless* events. With `on_reject`
