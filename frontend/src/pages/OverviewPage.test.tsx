@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 /* Stray-`0` on the trip overview (reported 2026-09-10 on
@@ -197,5 +197,71 @@ describe("OverviewPage content links follow their target (#301)", () => {
     const external = (html.match(ANCHORS) ?? []).filter((a) => a.includes(`href="${STRAVA.url}"`));
     expect(external.length).toBeGreaterThanOrEqual(1);
     for (const a of external) expect(a).toContain('target="_blank"');
+  });
+});
+
+/* #315 — the trip's own surfaces show the crew as people and followers only as
+ * a count: an individual follower is never listed here, they live on the crew
+ * page's own section. */
+describe("OverviewPage crew vs followers (#315)", () => {
+  function renderCrew(crew: Trip["crew"]): string {
+    const trip = {
+      id: "t1",
+      slug: "test",
+      title: "Japow 2026",
+      stage: "planned",
+      crew,
+      days: [],
+      sections: [],
+      locations: [],
+      practical: {},
+    } as unknown as Trip;
+    return renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(
+          MemoryRouter,
+          { initialEntries: ["/t/t1"] },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, { path: "/t/:tripId", element: createElement(OverviewPage) }),
+          ),
+        ),
+      }),
+    );
+  }
+
+  it("lists the crew as people, the followers as a count linking to the crew page", () => {
+    const html = renderCrew([
+      { id: "u1", name: "Niko Raes", role: "owner", claimed: true },
+      { id: "u2", name: "Sam Follower", role: "follower", claimed: true },
+      { id: "u3", name: "Kim Watcher", role: "follower", claimed: true },
+    ] as Trip["crew"]);
+    expect(html).toContain("Niko Raes");
+    expect(html).not.toContain("Sam Follower");
+    expect(html).not.toContain("Kim Watcher");
+    // SSR inserts comment nodes between interpolations: match the count loosely
+    expect(html).toMatch(/2(?:<!-- -->)?\s*(?:<!-- -->)?followers/);
+    expect(html).toContain('href="/t/t1/crew#followers"');
+    expect(html).toContain("See who");
+  });
+
+  it("counts a single follower in the singular", () => {
+    const html = renderCrew([
+      { id: "u1", name: "Niko Raes", role: "owner", claimed: true },
+      { id: "u2", name: "Sam Follower", role: "follower", claimed: true },
+    ] as Trip["crew"]);
+    expect(html).toMatch(/1(?:<!-- -->)?\s*(?:<!-- -->)?follower(?:s)?/);
+    expect(html).not.toMatch(/1(?:<!-- -->)?\s*(?:<!-- -->)?followers/);
+  });
+
+  it("a crew of members only renders no follower line at all", () => {
+    const html = renderCrew([
+      { id: "u1", name: "Niko Raes", role: "owner", claimed: true },
+    ] as Trip["crew"]);
+    expect(html).not.toContain("#followers");
+    expect(html).not.toContain("follower");
   });
 });

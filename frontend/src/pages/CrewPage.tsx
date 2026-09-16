@@ -13,6 +13,7 @@ import {
   type AddCrewMemberBody,
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
+import { splitCrew } from "../lib/crew";
 import { roleAtLeast, withAddedCrew, withCrewMember, withRemovedCrew } from "../lib/editing";
 import { useFollowing } from "../lib/following";
 import { useTripWrite } from "../lib/useTripWrite";
@@ -388,6 +389,10 @@ export function CrewPage() {
   const canEdit = roleAtLeast(trip.myRole, "editor");
   const isOwner = trip.myRole === "owner";
   const hasPlaceholders = trip.crew.some((p) => !p.claimed);
+  // A follower watches the trip; the crew is who is coming. Two sections —
+  // and every other trip surface (overview, practicalities, booklet) renders
+  // the crew only, with followers behind a count (#315).
+  const { members, followers } = splitCrew(trip.crew);
   // Only an owner who opened the panel triggers the follow-list read.
   const { people, loading } = useFollowing(user?.sub, isOwner && adding);
 
@@ -461,7 +466,13 @@ export function CrewPage() {
    *  (a form squeezed next to the title next to "Copy invite link" read as
    *  chrome, not as part of the page). */
   const addButton = canEdit && !adding && (
-    <Button variant="outline" size="sm" onClick={() => setAdding(true)} disabled={busy}>
+    <Button
+      variant="outline"
+      size="sm"
+      className="whitespace-nowrap"
+      onClick={() => setAdding(true)}
+      disabled={busy}
+    >
       <UserPlus className="h-3.5 w-3.5" /> Add crew member
     </Button>
   );
@@ -477,33 +488,139 @@ export function CrewPage() {
     />
   );
 
-  if (!trip.crew.length) {
+  /** One member card. The follower rows are the SAME card with the role badge
+   *  suppressed — the section heading already says what they are. */
+  const personRow = (p: Person, opts?: { showRole?: boolean }) => {
+    const showRole = opts?.showRole ?? true;
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Crew</h1>
-          {addButton}
+      <Card key={p.id} className="p-4">
+        <div className="flex items-center gap-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+            {initials(p.name)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              {p.claimed ? (
+                <Link
+                  to={`/u/${encodeURIComponent(p.id)}`}
+                  className="font-semibold text-primary underline underline-offset-2 focus-visible:focus-ring"
+                >
+                  {p.name}
+                </Link>
+              ) : (
+                <p className="font-semibold">{p.name}</p>
+              )}
+              {showRole && (
+                <Badge variant={p.role === "owner" ? "default" : "outline"}>
+                  {ROLE_LABELS[p.role]}
+                </Badge>
+              )}
+              {!p.claimed && (
+                <Badge variant="outline" className="border-dashed text-muted-foreground">
+                  <UserPlus className="h-3 w-3" /> Not joined yet
+                </Badge>
+              )}
+            </div>
+            {p.note ? (
+              <p className="mt-0.5 text-sm text-muted-foreground">{p.note}</p>
+            ) : (
+              <p className="mt-0.5 text-sm italic text-muted-foreground/60">No note</p>
+            )}
+            {p.role === "follower" && isOwner && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Promote to Viewer or Editor to grant crew access — no need to claim anything.
+              </p>
+            )}
+            {p.role === "follower" && !canRemove(p) && isOwner && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                This trip is public, so it stays readable by anyone holding the link —
+                removing this follower is not offered.
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            {canEdit && (
+              <button
+                type="button"
+                className="no-print inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring disabled:opacity-40"
+                disabled={busy || editingId !== null}
+                onClick={() => setEditingId(editingId === p.id ? null : p.id)}
+                aria-label={`Edit ${p.name}`}
+                title="Edit note & role"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {canRemove(p) && (
+              <button
+                type="button"
+                className="no-print inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-destructive focus-visible:focus-ring disabled:opacity-40"
+                disabled={busy}
+                onClick={() => setConfirmRemoveId(confirmRemoveId === p.id ? null : p.id)}
+                aria-label={`Remove ${p.name} from the crew`}
+                title="Remove from crew"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-        {addPanel}
-        <p className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground">
-          Crew not announced yet.
-        </p>
-        {error && (
-          <p role="alert" className="text-xs font-medium text-destructive">
-            {error}
-          </p>
+        {editingId === p.id && (
+          <div className="mt-3">
+            <MemberEditor
+              person={p}
+              busy={busy}
+              isOwner={isOwner}
+              onCancel={() => setEditingId(null)}
+              onSave={(patch) => void saveMember(p, patch)}
+            />
+          </div>
         )}
-      </div>
+        {confirmRemoveId === p.id && (
+          <div className="mt-3 rounded-xl border border-border bg-muted/40 p-3">
+            <p className="text-sm">
+              Remove {p.name} from this trip's crew?{" "}
+              {p.claimed === true
+                ? "They keep their account — only this trip's crew entry goes."
+                : "Their placeholder entry is deleted."}{" "}
+              This can't be undone.
+            </p>
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveId(null)} disabled={busy}>
+                <X className="h-3.5 w-3.5" /> Cancel
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => void removeMember(p)}
+                disabled={busy}
+                aria-label={`Confirm removing ${p.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Remove
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
     );
-  }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
+      {/* The title row wraps as ONE unit: on a phone the actions drop to their
+       *  own line instead of breaking their labels mid-word. */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold">Crew</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {addButton}
           {isOwner && hasPlaceholders && (
-            <Button variant="outline" size="sm" onClick={() => void copyInviteLink()} disabled={busy}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="whitespace-nowrap"
+              onClick={() => void copyInviteLink()}
+              disabled={busy}
+            >
               {inviteCopied ? (
                 <>
                   <Check className="h-3.5 w-3.5" /> Copied!
@@ -518,115 +635,26 @@ export function CrewPage() {
         </div>
       </div>
       {addPanel}
-      {trip.crew.map((p) => (
-        <Card key={p.id} className="p-4">
-          <div className="flex items-center gap-4">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
-              {initials(p.name)}
+      {members.length ? (
+        members.map((p) => personRow(p))
+      ) : (
+        <p className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground">
+          Crew not announced yet.
+        </p>
+      )}
+      {/* Followers are a section of their own — they watch the trip, they are
+          not on the crew. The anchor is what the trip surfaces link to. */}
+      {followers.length > 0 && (
+        <section id="followers" className="space-y-3">
+          <div className="flex items-baseline gap-2">
+            <h2 className="kicker">Followers</h2>
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {followers.length}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {p.claimed ? (
-                  <Link
-                    to={`/u/${encodeURIComponent(p.id)}`}
-                    className="font-semibold text-primary underline underline-offset-2 focus-visible:focus-ring"
-                  >
-                    {p.name}
-                  </Link>
-                ) : (
-                  <p className="font-semibold">{p.name}</p>
-                )}
-                <Badge variant={p.role === "owner" ? "default" : "outline"}>
-                  {ROLE_LABELS[p.role]}
-                </Badge>
-                {!p.claimed && (
-                  <Badge variant="outline" className="border-dashed text-muted-foreground">
-                    <UserPlus className="h-3 w-3" /> Not joined yet
-                  </Badge>
-                )}
-              </div>
-              {p.note ? (
-                <p className="mt-0.5 text-sm text-muted-foreground">{p.note}</p>
-              ) : (
-                <p className="mt-0.5 text-sm italic text-muted-foreground/60">No note</p>
-              )}
-              {p.role === "follower" && isOwner && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Promote to Viewer or Editor to grant crew access — no need to claim anything.
-                </p>
-              )}
-              {p.role === "follower" && !canRemove(p) && isOwner && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  This trip is public, so it stays readable by anyone holding the link —
-                  removing this follower is not offered.
-                </p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {canEdit && (
-                <button
-                  type="button"
-                  className="no-print inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring disabled:opacity-40"
-                  disabled={busy || editingId !== null}
-                  onClick={() => setEditingId(editingId === p.id ? null : p.id)}
-                  aria-label={`Edit ${p.name}`}
-                  title="Edit note & role"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-              )}
-              {canRemove(p) && (
-                <button
-                  type="button"
-                  className="no-print inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-destructive focus-visible:focus-ring disabled:opacity-40"
-                  disabled={busy}
-                  onClick={() => setConfirmRemoveId(confirmRemoveId === p.id ? null : p.id)}
-                  aria-label={`Remove ${p.name} from the crew`}
-                  title="Remove from crew"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
           </div>
-          {editingId === p.id && (
-            <div className="mt-3">
-              <MemberEditor
-                person={p}
-                busy={busy}
-                isOwner={isOwner}
-                onCancel={() => setEditingId(null)}
-                onSave={(patch) => void saveMember(p, patch)}
-              />
-            </div>
-          )}
-          {confirmRemoveId === p.id && (
-            <div className="mt-3 rounded-xl border border-border bg-muted/40 p-3">
-              <p className="text-sm">
-                Remove {p.name} from this trip's crew?{" "}
-                {p.claimed === true
-                  ? "They keep their account — only this trip's crew entry goes."
-                  : "Their placeholder entry is deleted."}{" "}
-                This can't be undone.
-              </p>
-              <div className="mt-3 flex items-center justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setConfirmRemoveId(null)} disabled={busy}>
-                  <X className="h-3.5 w-3.5" /> Cancel
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => void removeMember(p)}
-                  disabled={busy}
-                  aria-label={`Confirm removing ${p.name}`}
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Remove
-                </Button>
-              </div>
-            </div>
-          )}
-        </Card>
-      ))}
+          {followers.map((p) => personRow(p, { showRole: false }))}
+        </section>
+      )}
       {error && (
         <p role="alert" className="text-xs font-medium text-destructive">
           {error}

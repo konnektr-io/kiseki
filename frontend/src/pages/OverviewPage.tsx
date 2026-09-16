@@ -9,6 +9,7 @@ import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
+import { splitCrew } from "../lib/crew";
 import { roleAtLeast, withTripFields } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { putTrip } from "../lib/api";
@@ -220,6 +221,10 @@ export function OverviewPage() {
   const { tripId } = useParams();
   const doneTodos = (trip.practical.todos ?? []).filter((t) => t.done).length;
   const totalTodos = (trip.practical.todos ?? []).length;
+  // Followers watch the trip; the crew is who is coming (#315). The overview
+  // shows the crew as people and followers as a COUNT — the individual
+  // followers live on the crew page, behind the link.
+  const { members, followers } = splitCrew(trip.crew);
 
   return (
     <div className="space-y-6">
@@ -309,8 +314,10 @@ export function OverviewPage() {
         </Card>
       ) : null}
 
-      {/* crew */}
-      {trip.crew.length > 0 && (
+      {/* crew — the people coming. Followers are reduced to a count that links
+          to the crew page's followers section (#315); no individual follower is
+          listed on the trip's own surfaces. */}
+      {(members.length > 0 || followers.length > 0) && (
         <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="kicker">The crew</p>
@@ -321,22 +328,40 @@ export function OverviewPage() {
               View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          <ul className="space-y-2.5">
-            {trip.crew.map((p) => (
-              <li key={p.name} className="flex items-center gap-3">
-                <span className="inline-flex aspect-square h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
-                  {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                </span>
-                <div className="min-w-0">
-                  <p className="font-heading text-sm font-semibold">{p.name}</p>
-                  {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
-                </div>
-                <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Users className="h-3 w-3" /> {p.role}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {members.length > 0 && (
+            <ul className="space-y-2.5">
+              {members.map((p) => (
+                <li key={p.name} className="flex items-center gap-3">
+                  <span className="inline-flex aspect-square h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-sm font-semibold text-primary">
+                    {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-heading text-sm font-semibold">{p.name}</p>
+                    {p.note && <p className="truncate text-xs text-muted-foreground">{p.note}</p>}
+                  </div>
+                  <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Users className="h-3 w-3" /> {p.role}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {followers.length > 0 && (
+            <Link
+              to={`/t/${tripId}/crew#followers`}
+              className={`no-print flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground ${
+                members.length > 0 ? "mt-3 border-t border-border pt-3" : ""
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span className="tabular-nums">
+                {followers.length} {followers.length === 1 ? "follower" : "followers"}
+              </span>
+              <span className="ml-auto inline-flex items-center gap-1 font-medium text-accent">
+                See who <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </Link>
+          )}
         </Card>
       )}
 

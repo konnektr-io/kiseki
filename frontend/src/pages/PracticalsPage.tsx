@@ -7,6 +7,7 @@ import { TricountPanel } from "../components/TricountPanel";
 import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { putPracticalBlock, toggleTodoItem } from "../lib/api";
+import { splitCrew } from "../lib/crew";
 import { roleAtLeast, withPracticalBlock, withTodoDone } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { capture } from "../lib/posthog";
@@ -20,6 +21,9 @@ export function PracticalsPage() {  const trip = useTrip();
   const links = trip.practical.links ?? [];
   const blocks = trip.practical.blocks ?? [];
   const contacts = trip.practical.contacts ?? [];
+  // The Group card is who is coming (#315): followers are a count that links
+  // to the crew page, never a list of individuals on the trip's own surfaces.
+  const { members, followers } = splitCrew(trip.crew);
   const done = todos.filter((t) => t.done).length;
   // #231: the TriCount card is only worth a slot here once the trip is
   // actually connected to one — an unlinked trip has nothing to show, and the
@@ -142,7 +146,7 @@ export function PracticalsPage() {  const trip = useTrip();
         </Card>
       )}
 
-      {trip.crew.length > 0 && (
+      {(members.length > 0 || followers.length > 0) && (
         <Card className="p-5">
           <div className="mb-3 flex items-center justify-between">
             <p className="kicker">Group</p>
@@ -153,27 +157,45 @@ export function PracticalsPage() {  const trip = useTrip();
               View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          <ul className="space-y-3">
-            {trip.crew.map((p) => (
-              <li key={p.name} className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex aspect-square h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-xs font-semibold text-primary">
-                  {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
-                </span>
-                <div className="min-w-0">
-                  <p className="font-heading text-sm font-semibold">{p.name}</p>
-                  {p.note && <p className="text-xs text-muted-foreground">{p.note}</p>}
-                  {p.contact && (
-                    <a href={`tel:${p.contact.replace(/\s/g, "")}`} className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
-                      <Phone className="h-3 w-3" /> {p.contact}
-                    </a>
-                  )}
-                </div>
-                <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Users className="h-3 w-3" /> {p.role}
-                </span>
-              </li>
-            ))}
-          </ul>
+          {members.length > 0 && (
+            <ul className="space-y-3">
+              {members.map((p) => (
+                <li key={p.name} className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex aspect-square h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-heading text-xs font-semibold text-primary">
+                    {p.name.split(" ").map((w) => w[0]).slice(0, 2).join("")}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-heading text-sm font-semibold">{p.name}</p>
+                    {p.note && <p className="text-xs text-muted-foreground">{p.note}</p>}
+                    {p.contact && (
+                      <a href={`tel:${p.contact.replace(/\s/g, "")}`} className="mt-0.5 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline">
+                        <Phone className="h-3 w-3" /> {p.contact}
+                      </a>
+                    )}
+                  </div>
+                  <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    <Users className="h-3 w-3" /> {p.role}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {followers.length > 0 && (
+            <Link
+              to={`/t/${tripId}/crew#followers`}
+              className={`no-print flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground ${
+                members.length > 0 ? "mt-3 border-t border-border pt-3" : ""
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span className="tabular-nums">
+                {followers.length} {followers.length === 1 ? "follower" : "followers"}
+              </span>
+              <span className="ml-auto inline-flex items-center gap-1 font-medium text-accent">
+                See who <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </Link>
+          )}
         </Card>
       )}
 
