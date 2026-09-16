@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { FileText, Film, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { TripVideo } from "./photos";
+import {
+  CHAT_FILE_ACCEPT,
+  acceptSummary,
+  dropCarriesFiles,
+} from "../lib/chat-drop";
 import { Markdown } from "../lib/markdown";
 import { capturePosterFrame, formatBytes } from "../lib/media";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
@@ -338,9 +343,15 @@ function ChatThread({
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
+  // Drag-enter/leave fire per ELEMENT as the pointer crosses the panel's own
+  // children, so a boolean flips off the moment the pointer moves from a chip
+  // onto the textarea. Counting entries and leaving only at zero is what makes
+  // the zone stable while the drag is anywhere inside (#291).
+  const dragDepth = useRef(0);
 
   useEffect(() => {
     const list = listRef.current;
@@ -477,10 +488,89 @@ function ChatThread({
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  /* Drag-and-drop onto the composer (#291) — the picker's equal.
+   *
+   * The same `attach()` call the picker makes, fed from `DataTransfer.files`
+   * instead of `input.files`: one `POST /api/files` per file, per-file
+   * progress and per-file errors already handled by the loop above, so a drop
+   * of a malformed GPX plus seven good ones lands seven and names the one.
+   *
+   * Two rules this must respect:
+   *
+   * - **The picker stays the primary path.** Drag-and-drop is meaningless on
+   *   touch, so nothing here gates or replaces the picker; the drop zone is an
+   *   extra affordance over the same button.
+   * - **A file drag must never reach the browser's default action.** Dropping
+   *   a file on a page with no drop handler makes the browser navigate to it —
+   *   i.e. lose the open chat and the unsent draft. So every file drag over
+   *   the panel is preventDefault-ed, whether or not it ends in an attach
+   *   (a `dragover` without preventDefault means `drop` never fires and the
+   *   default wins).
+   *
+   * While a turn is running the picker's button is disabled, and the drop
+   * follows it: a drag during a turn shows no zone and is swallowed (no
+   * navigation, no attach) rather than queuing files behind a disabled
+   * control. Non-file drags (selected text being moved within the draft) are
+   * left entirely alone — `dropCarriesFiles` is what decides. */
+  const dragAcceptsFiles = (dataTransfer: DataTransfer | null) =>
+    dropCarriesFiles(dataTransfer?.types);
+
+  const onDragEnter = (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!dragAcceptsFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    if (!busy) setDragging(true);
+  };
+
+  const onDragOver = (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!dragAcceptsFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    if (!busy) setDragging(true);
+  };
+
+  const onDragLeave = (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!dragAcceptsFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+
+  const onDrop = (e: ReactDragEvent<HTMLDivElement>) => {
+    if (!dragAcceptsFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    if (busy) return;
+    void attach(e.dataTransfer?.files ?? null);
+  };
+
   return (
     <div
-      className={`no-print flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card ${className ?? ""}`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className={`no-print relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card ${className ?? ""}`}
     >
+      {/* The drop zone (#291): shown while a file drag is over the panel and
+          gone the moment it leaves. It states what it takes from the same
+          accept list the picker uses, and it is `pointer-events-none` so it
+          can never swallow the drop it announces. `no-print` rides the panel
+          (chrome, DESIGN.md §12). */}
+      {dragging && (
+        <div
+          data-testid="chat-drop-zone"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary/60 bg-background/90 px-6 text-center backdrop-blur-sm"
+        >
+          <p className="text-sm font-medium">Drop to attach</p>
+          <p className="text-xs text-muted-foreground">
+            Takes {acceptSummary()} — the same upload as the picker.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
         <p className="kicker">Kiseki assistant</p>
         <div className="flex items-center gap-1">
@@ -642,7 +732,7 @@ function ChatThread({
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md,.gpx"
+          accept={CHAT_FILE_ACCEPT}
           className="sr-only"
           aria-label="Attach a file"
           onChange={(e) => void attach(e.target.files)}
