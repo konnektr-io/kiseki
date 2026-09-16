@@ -62,6 +62,12 @@ GOOGLE_PLACES_URL = os.environ.get(
 # Service named "kiseki", which collides with a plain-number env var.
 LISTEN_PORT = int(os.environ.get("KISEKI_LISTEN_PORT", "8000"))
 
+# Canonical public origin (link previews, issue #313) — the absolute base
+# that Open Graph tags are built on. Crawlers never send a useful Host for
+# this (and behind Envoy the Host header is internal), so it is configured,
+# not derived per request.
+PUBLIC_BASE_URL = os.environ.get("KISEKI_PUBLIC_BASE_URL", "https://kiseki.konnektr.io").rstrip("/")
+
 # Auth0 — SPA access-token validation for /api/auth/me + ACLs (#5).
 # Domain + client id are public (the SPA ships them); bake defaults like the
 # frontend, override via env.

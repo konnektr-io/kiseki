@@ -11,13 +11,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import html
+import io
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
+from PIL import Image, ImageOps
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
@@ -65,6 +69,7 @@ from .config import (
     HERE_ACCESS_KEY_SECRET,
     HERE_TOKEN_ENDPOINT_URL,
     LISTEN_PORT,
+    PUBLIC_BASE_URL,
     STATIC_DIR,
 )
 from . import write as write_svc
@@ -2062,6 +2067,279 @@ def media_file(trip_id: str, file_name: str, request: Request) -> Response:
     return _serve_stored_media(request, object_key_for(trip_id, file_name), file_name)
 
 
+# --- Link previews (Open Graph, #313) --------------------------------------
+#
+# Messengers (WhatsApp / Telegram / Signal / Slack) never run JavaScript: the
+# card they render comes from the <meta> tags in the HTML shell the spa()
+# fallback serves. That shell carried one generic set of tags for every URL —
+# and its og:image was relative (unresolvable for a crawler) — so a shared
+# trip link, join link or follow link all rendered the same imageless card.
+#
+# The shell is therefore rewritten per route before it is served:
+#   /t/<id>       → a PUBLIC trip gets its title / subtitle-or-summary /
+#                    resized cover. A private (or unknown) trip keeps the
+#                    generic card — a private title never leaks into a tag.
+#   /join/<token> → the token holder is invited by definition (possession of
+#                    the secret IS the authorization), so the card names the
+#                    trip: a "join" card for a claim token, a "follow" card
+#                    for a follow token. Unknown tokens stay generic.
+# Anything else (landing, /me, /u/…) keeps the generic card, now with an
+# absolute fallback image.
+#
+# Covers are full-size photos (~640KB live) — bigger than WhatsApp reliably
+# previews — so og:image points at /api/og-image/…, which serves a 1200×630
+# JPEG rendered with Pillow (already a runtime dep via media.py). Any lookup
+# or render failure degrades to the generic shell, never a 500: a preview
+# must never break a page load. /t/ keeps its noindex (it does not affect
+# previews) and robots.txt is untouched — scrapers fetch regardless.
+_OG_IMAGE_W = 1200
+_OG_IMAGE_H = 630
+_OG_DESC_LIMIT = 200
+
+_OG_FALLBACK_TITLE = "Kiseki — plan it together. Live it for real."
+_OG_FALLBACK_DESC = (
+    "One document per trip, planned with the people who are coming: "
+    "route, days, places and photos — private until you publish it."
+)
+_OG_FALLBACK_ALT = "Kiseki — living trip documents"
+
+# Rendered cover bytes, keyed (trip_id, cover_ref). Scrapers fetch the page
+# and the image separately and retry aggressively; rendering once an hour per
+# cover is plenty — and a cover change is a new content-addressed filename,
+# so the key rotates with the bytes. Bounded so one unbounded dict cannot
+# grow with the trip count.
+_OG_IMAGE_CACHE: dict[tuple[str, str], tuple[float, bytes]] = {}
+_OG_IMAGE_CACHE_TTL = 3600
+_OG_IMAGE_CACHE_MAX = 50
+
+_MD_LINK_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)|\[([^\]]*)\]\([^)]*\)")
+
+
+def _reset_og_image_cache() -> None:
+    _OG_IMAGE_CACHE.clear()
+
+
+def _og_plain_text(value: str | None, limit: int = _OG_DESC_LIMIT) -> str:
+    """Markdown-ish trip text → one plain line for og:description."""
+    text = _MD_LINK_RE.sub(lambda m: m.group(1) or m.group(2) or "", value or "")
+    text = re.sub(r"[*_~`#>]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return cut.rstrip() + "…"
+
+
+def _og_cover_ref(cover: str | None) -> str | None:
+    """A stored cover value → the bare media filename, or None."""
+    if not cover or not isinstance(cover, str) or "://" in cover:
+        return None
+    name = cover.rsplit("/", 1)[-1].strip()
+    return name if is_valid_media_name(name) else None
+
+
+def _og_trip_card(trip: Trip, kind: str, credential: str) -> dict:
+    """Preview card for a resolved trip. ``kind`` is trip/join/follow."""
+    title = (trip.title or "").strip() or "Kiseki trip"
+    blurb = (trip.subtitle or "").strip() or _og_plain_text(trip.summary)
+    if kind == "join":
+        description = "You've been invited to join this trip on Kiseki."
+    elif kind == "follow":
+        description = "You've been invited to follow this trip on Kiseki."
+    else:
+        description = ""
+    if blurb:
+        description = f"{description} {blurb}".strip() if description else blurb
+    if not description:
+        description = _OG_FALLBACK_DESC
+    cover_ref = _og_cover_ref(trip.cover)
+    if cover_ref:
+        v = re.sub(r"\W", "", Path(cover_ref).stem)[:12] or "img"
+        image = f"{PUBLIC_BASE_URL}/api/og-image/{credential}?v={v}"
+        large, size = True, (_OG_IMAGE_W, _OG_IMAGE_H)
+    else:
+        image = f"{PUBLIC_BASE_URL}/logo-mark.png"
+        large, size = False, (512, 512)
+    return {
+        "title": title,
+        "description": description,
+        "image": image,
+        "alt": title,
+        "size": size,
+        "large": large,
+    }
+
+
+def _og_card_for_path(full_path: str) -> dict | None:
+    """Per-route preview card, or None for the generic fallback shell.
+
+    Never raises and never authenticates: /t/ cards require a PUBLIC trip
+    (the visibility read off the twin, not a caller token), /join/ cards
+    require a resolving claim/follow token. Everything else is None.
+    """
+    try:
+        seg = (full_path or "").strip("/").split("/")
+        if seg[0] == "t" and len(seg) >= 2 and seg[1]:
+            trip = get_trip_by_id_store(seg[1].lower())
+            if trip is None or trip.visibility != "public":
+                return None
+            return _og_trip_card(trip, "trip", f"t/{trip.id}")
+        if seg[0] == "join" and len(seg) >= 2 and seg[1]:
+            trip = trip_by_claim_token(seg[1])
+            kind = "join"
+            if trip is None:
+                trip = trip_by_follow_token(seg[1])
+                kind = "follow"
+            if trip is None:
+                return None
+            return _og_trip_card(trip, kind, f"join/{seg[1]}")
+        return None
+    except Exception:
+        return None
+
+
+def _inject_og_tags(
+    html_text: str,
+    *,
+    title: str,
+    description: str,
+    image: str,
+    alt: str,
+    size: tuple[int, int],
+    large: bool,
+    url: str,
+) -> str:
+    """Rewrite the shell's OG tags with per-route values (all escaped).
+
+    Tags present in the shell are replaced in place; tags the shell lacks
+    (og:url is never static) are inserted before </head>. Unknown shells
+    pass through unchanged rather than half-rewritten.
+    """
+    esc = html.escape
+    replacements = [
+        (r'<meta property="og:title" content="[^"]*" ?/>', f'<meta property="og:title" content="{esc(title)}" />'),
+        (r'<meta[^>]*property="og:description"[^>]*>', f'<meta property="og:description" content="{esc(description)}" />'),
+        (r'<meta property="og:image" content="[^"]*" ?/>', f'<meta property="og:image" content="{esc(image)}" />'),
+        (r'<meta property="og:image:alt" content="[^"]*" ?/>', f'<meta property="og:image:alt" content="{esc(alt)}" />'),
+        (r'<meta property="og:image:width" content="[^"]*" ?/>', f'<meta property="og:image:width" content="{size[0]}" />'),
+        (r'<meta property="og:image:height" content="[^"]*" ?/>', f'<meta property="og:image:height" content="{size[1]}" />'),
+        (r'<meta name="twitter:card" content="[^"]*" ?/>', f'<meta name="twitter:card" content="{"summary_large_image" if large else "summary"}" />'),
+    ]
+    missing: list[str] = []
+    for pattern, replacement in replacements:
+        html_text, n = re.subn(pattern, replacement, html_text, count=1)
+        if n == 0:
+            missing.append(replacement)
+    missing.append(f'<meta property="og:url" content="{esc(url)}" />')
+    if "</head>" in html_text:
+        html_text = html_text.replace("</head>", "\n".join(["    " + m for m in missing]) + "\n  </head>", 1)
+    return html_text
+
+
+def _og_shell(html_text: str, full_path: str) -> str:
+    """The served shell with its preview tags rewritten for this route."""
+    path = (full_path or "").strip("/")
+    url = f"{PUBLIC_BASE_URL}/{path}" if path else f"{PUBLIC_BASE_URL}/"
+    card = _og_card_for_path(full_path)
+    if card is None:
+        return _inject_og_tags(
+            html_text,
+            title=_OG_FALLBACK_TITLE,
+            description=_OG_FALLBACK_DESC,
+            image=f"{PUBLIC_BASE_URL}/logo-mark.png",
+            alt=_OG_FALLBACK_ALT,
+            size=(512, 512),
+            large=False,
+            url=url,
+        )
+    return _inject_og_tags(
+        html_text,
+        title=card["title"],
+        description=card["description"],
+        image=card["image"],
+        alt=card["alt"],
+        size=card["size"],
+        large=card["large"],
+        url=url,
+    )
+
+
+def _render_og_cover(trip_id: str, cover_ref: str) -> bytes | None:
+    """The trip cover rendered as a 1200×630 preview JPEG, or None."""
+    try:
+        store = get_media_store()
+        if store is None:
+            return None
+        chunks = store.get(object_key_for(trip_id, cover_ref))
+        if chunks is None:
+            return None
+        raw = b"".join(chunks)
+        with Image.open(io.BytesIO(raw)) as im:
+            frame = ImageOps.fit(im.convert("RGB"), (_OG_IMAGE_W, _OG_IMAGE_H), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            frame.save(buf, "JPEG", quality=82, progressive=True)
+            return buf.getvalue()
+    except Exception:
+        return None
+
+
+def _og_image_response(trip_id: str, cover: str | None) -> Response:
+    """Shared body of the og-image routes: cached render or 404."""
+    cover_ref = _og_cover_ref(cover)
+    if cover_ref is None or not is_valid_media_path(trip_id, cover_ref):
+        raise HTTPException(404, "Not Found")
+    key = (trip_id, cover_ref)
+    now = time.time()
+    hit = _OG_IMAGE_CACHE.get(key)
+    if hit is not None and now - hit[0] < _OG_IMAGE_CACHE_TTL:
+        body = hit[1]
+    else:
+        body = _render_og_cover(trip_id, cover_ref)
+        if body is None:
+            raise HTTPException(404, "Not Found")
+        if len(_OG_IMAGE_CACHE) >= _OG_IMAGE_CACHE_MAX:
+            _OG_IMAGE_CACHE.pop(next(iter(_OG_IMAGE_CACHE)))
+        _OG_IMAGE_CACHE[key] = (now, body)
+    return Response(
+        content=body,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/api/og-image/t/{trip_id}", include_in_schema=False)
+def og_image_for_trip(trip_id: str) -> Response:
+    """Resized cover for a PUBLIC trip's link preview (#313).
+
+    Same visibility as the trip itself: a private trip's cover is a 404
+    here, exactly as its document is unreadable anonymously. No auth — the
+    scrapers that fetch og:image send none.
+    """
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None or trip.visibility != "public":
+        raise HTTPException(404, "Not Found")
+    return _og_image_response(trip.id, trip.cover)
+
+
+@app.get("/api/og-image/join/{token}", include_in_schema=False)
+def og_image_for_token(token: str) -> Response:
+    """Resized cover for a join/follow link's preview (#313).
+
+    Possession of the claim/follow secret is the authorization (same trust
+    model as the join page itself); unknown tokens are a 404. The URL that
+    lands in the og:image tag carries that same secret, so the image is no
+    more exposed than the link already shared.
+    """
+    trip = None
+    try:
+        trip = trip_by_claim_token(token) or trip_by_follow_token(token)
+    except Exception:
+        trip = None
+    if trip is None:
+        raise HTTPException(404, "Not Found")
+    return _og_image_response(trip.id, trip.cover)
+
+
 @app.get("/inbox/{file_name}", include_in_schema=False)
 def inbox_file(file_name: str, request: Request) -> Response:
     """Stream a staged inbox file (landing-chat upload, #9 / M4).
@@ -2695,6 +2973,9 @@ if STATIC_DIR.is_dir() and (STATIC_DIR / "index.html").is_file():
         # JS), trips get the noindex shell, everything else the plain one.
         is_landing = full_path in ("", "/")
         html = _TRIP_HTML if is_trip else (_LANDING_HTML if is_landing else _index_html)
+        # Link preview tags (#313) — crawlers read only the shell, so rewrite
+        # its OG tags for this route (per-trip card or generic fallback).
+        html = _og_shell(html, full_path)
         auth = request.headers.get("Authorization", "")
         if is_trip and auth.lower().startswith("bearer "):
             token = auth.split(" ", 1)[1].strip()
