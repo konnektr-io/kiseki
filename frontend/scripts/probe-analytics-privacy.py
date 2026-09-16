@@ -18,7 +18,11 @@ pages, decodes the gzip bodies the SDK actually POSTs to PostHog EU, and asserts
   4. no raw trip id / claim token appears in any URL, path or referrer field,
   5. per-trip metrics DO arrive as a `trip_id` PROPERTY (the $dtId) — that is the
      sanctioned way to segment by trip (#21), so it must survive scrubbing,
-  6. the consent cookie is written, and a reload does NOT re-show the banner.
+  6. the consent cookie is written, and a reload does NOT re-show the banner,
+  7. `$pageleave` actually ships and PAIRS with a pageview (`$prev_pageview_id` /
+     `$prev_pageview_duration` present), which is the #295 regression — pageviews
+     alone leave bounce rate, session duration and scroll depth empty, and it is
+     invisible to every other check here (the pageview metrics stay healthy),
 
 WHY THE UA SPOOFING — a test-harness requirement, not an app change.
 posthog-js drops events from detected bots (`opt_out_useragent_filter`). Its bot
@@ -29,9 +33,23 @@ three, so without the init script below EVERY config variant reports "nothing
 sent" — which looks exactly like a broken integration and sends you hunting
 through app code for a bug that is not there.
 
-WHY CDP: the SDK delivers `$pageview` on pagehide via `sendBeacon`, and
-Playwright's `request.post_data` is empty for beacon requests. CDP's
-`Network.requestWillBeSent` still carries `postData`. Bodies are raw gzip.
+WHY CDP: the SDK sends on pagehide via `sendBeacon`, and Playwright's
+`request.post_data` is empty (and RAISES `UnicodeDecodeError` — 0x8b — on a gzip body)
+for beacon requests. CDP's `Network.requestWillBeSent` still carries `postData`. Bodies
+arrive in three encodings — gzip for a batched `fetch`, `data=<urlencoded base64>` for a
+beacon — so the decoder tries every shape and only accepts a candidate that parses as
+JSON.
+
+WHAT CDP CANNOT SEE, and how the pair is checked instead: a beacon fired while the
+document is being torn down never appears in `Network.requestWillBeSent` at all. Measured
+directly — the app was rebuilt with `VITE_POSTHOG_HOST` pointing at a collector on the
+probe's own server, and one run delivered four `$pageleave` beacons to that collector
+while CDP reported none of them. So phase 4 dispatches `pagehide` on a LIVE page (the
+listeners are the same ones a real navigation runs) and asserts the `$pageleave` there.
+To verify wire-level delivery of a teardown beacon, rebuild with
+`VITE_POSTHOG_HOST=http://127.0.0.1:<port>` and log the POSTs server-side; do NOT use
+`page.route` for this — routed beacons are dropped in most runs, which reads as an app bug
+and is not one.
 """
 import base64
 import gzip
@@ -70,6 +88,34 @@ Object.defineProperty(navigator, 'userAgentData', {
 });
 """
 
+BEACON_RECORDER = """
+/* Record every sendBeacon payload from inside the page, then call through
+   unchanged. CDP reports the request for a beacon but not its body, so this is
+   the only way to read one — and a $pageleave is always a beacon. */
+window.__beaconLog = [];
+(function () {
+  const original = navigator.sendBeacon.bind(navigator);
+  const toBase64 = (buf) => {
+    const bytes = new Uint8Array(buf);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  };
+  navigator.sendBeacon = function (url, data) {
+    try {
+      if (data && typeof data.arrayBuffer === 'function') {
+        data.arrayBuffer()
+          .then((buf) => { window.__beaconLog.push({ url: String(url), b64: toBase64(buf) }); })
+          .catch(() => {});
+      } else if (typeof data === 'string') {
+        window.__beaconLog.push({ url: String(url), text: data });
+      }
+    } catch (e) { /* recording must never break delivery */ }
+    return original(url, data);
+  };
+})();
+"""
+
 TRIP_ID = "bf29a027-1f6c-4a3b-9d21-7c0e5a4b8f13"
 CLAIM_TOKEN = "c66b1f42f0e94d5c8a7b3e2d1c0f9a8b7e6d5c4b3a291807f6e5d4c3b2a1908"
 PORT = 8821
@@ -87,9 +133,16 @@ TRIP = {
 }
 
 # Properties that carry a location and therefore must never contain a raw secret.
+# `$prev_pageview_pathname` is the one posthog-js derives for us: a manual
+# `$pageview` still runs the SDK's PageViewManager, which records the RAW
+# `window.location.pathname` and stamps it on the next event — so this list must
+# grow whenever the SDK learns a new URL-bearing property (the scrubber itself
+# walks every string, which is what makes that safe; this list is the gate that
+# proves it stays safe).
 URL_LIKE_KEYS = (
     "$current_url",
     "$pathname",
+    "$prev_pageview_pathname",
     "$referrer",
     "$entry_url",
     "$exit_url",
@@ -114,36 +167,80 @@ class SPAHandler(SimpleHTTPRequestHandler):
         return super().send_head()
 
 
+def _json_text(out: bytes) -> str | None:
+    """Accept a candidate decode ONLY if it is really JSON.
+
+    Without this check `base64.b64decode(gzip_bytes, validate=False)` "succeeds"
+    on any byte string (it just skips what it cannot use) and can return junk that
+    happens to contain `{` — which then wins over the correct gzip path and the
+    event reads as undecodable. The parse is what makes the probe honest.
+    """
+    try:
+        text = out.decode("utf-8")
+    except Exception:
+        return None
+    try:
+        json.loads(text)
+    except Exception:
+        return None
+    return text
+
+
 def decode_event_body(url: str, post_data: str) -> str | None:
-    """Decode a PostHog /e/ body: `data=` param or the raw gzip body itself."""
-    candidates = []
+    """Decode a PostHog /e/ body.
+
+    posthog-js uses THREE shapes, and missing one silently reports "no event":
+      * `?data=` in the query string — a tiny event sent as a query param;
+      * the raw gzip body — how the BATCHED `fetch` sends a pageview;
+      * `data=<urlencoded base64>` as the form body — how it sends a BEACON
+        (`compression=base64`). That payload is base64 of a URL-ENCODED JSON
+        string, so a bare base64decode yields `%7B%22event%22…` and never matches
+        `{`. Getting only that case wrong made every beacon invisible — and a
+        beacon is exactly how the SDK delivers events during teardown, which is
+        the blind spot that let #295's missing `$pageleave` pass this probe.
+    """
+    candidates: list[str] = []
     q = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
     if "data" in q:
         candidates.append(q["data"][0])
     if post_data:
+        # A form-encoded `data=` wrapper: offer it unwrapped AND raw.
+        m = re.search(r"(?:^|&)data=([^&]+)", post_data)
+        if m:
+            candidates.append(urllib.parse.unquote(m.group(1)))
         candidates.append(post_data)
+
+    b64 = base64.b64decode
+    unq = urllib.parse.unquote_to_bytes
+    transforms = (
+        lambda d: d,                              # already plain JSON
+        lambda d: b64(d, validate=False),         # base64(JSON)
+        unq,                                      # urlencoded(JSON)
+        lambda d: unq(b64(d, validate=False)),    # base64 → urlencoded(JSON)  [beacon]
+        gzip.decompress,                          # gzip(JSON)
+        zlib.decompress,                          # deflate(JSON)
+        lambda d: gzip.decompress(b64(d, validate=False)),   # base64(gzip(JSON))
+        lambda d: zlib.decompress(b64(d, validate=False)),   # base64(deflate(JSON))
+    )
+
     for cand in candidates:
         if not cand:
             continue
-        if cand.lstrip().startswith("{"):
-            return cand
-        for encoding in ("latin-1", "utf-8"):
+        for encoding in ("utf-8", "latin-1"):
             try:
                 raw = cand.encode(encoding)
             except Exception:
                 continue
-            for decompress in (
-                gzip.decompress,
-                zlib.decompress,
-                lambda d: gzip.decompress(base64.b64decode(d)),
-                base64.b64decode,
-            ):
+            for transform in transforms:
                 try:
-                    out = decompress(raw)
+                    out = transform(raw)
                 except Exception:
                     continue
-                if b"{" in out[:400]:
-                    return out.decode("utf-8", "replace")
+                if not out:
+                    continue
+                text = _json_text(out)
+                if text:
+                    return text
     return None
 
 
@@ -175,6 +272,11 @@ def main() -> int:
         browser = p.chromium.launch(executable_path=CHROME, args=["--no-sandbox"])
         ctx = browser.new_context(user_agent=REAL_UA, viewport={"width": 1440, "height": 900})
         ctx.add_init_script(NOT_A_BOT)
+        # Beacons are recorded from inside the page: CDP reports the request but NOT
+        # its body, and Playwright's `post_data` is empty for them, so the payload of
+        # the one event that matters most here ($pageleave, always a beacon) is
+        # otherwise unreadable. Read-and-passthrough — delivery is untouched.
+        ctx.add_init_script(BEACON_RECORDER)
         page = ctx.new_page()
         cdp = ctx.new_cdp_session(page)
         cdp.send("Network.enable")
@@ -249,6 +351,23 @@ def main() -> int:
         re_shown = page.locator('[role="dialog"][aria-label="Anonymous analytics"]').is_visible()
         print(f"  banner re-shown on reload: {re_shown} (expect False)")
 
+        # --- Phase 4: the $pageleave pair (#295) ---------------------------------
+        # Deliberately on a LIVE page. CDP's request watcher does NOT report the
+        # beacons a browser fires while a document is being torn down — measured:
+        # the same run delivered them to a collector the app posted to, while CDP
+        # saw none of them. Dispatching `pagehide` runs the exact listeners a real
+        # navigation runs (ours and the SDK's) while the page can still be observed.
+        # Wire-level delivery is a separate check — see the note at the top.
+        print("phase 4 — leaving a page must emit a paired $pageleave")
+        visit(f"/t/{TRIP_ID}/itinerary")
+        before_leave = len(posts)
+        page.evaluate("window.dispatchEvent(new Event('pagehide'))")
+        page.wait_for_timeout(2000)
+        observed = len(posts) - before_leave
+        beacon_log = page.evaluate("window.__beaconLog || []")
+        print(f"  posthog requests observed after the leave: {observed}")
+        print(f"  beacons recorded from inside the page: {len(beacon_log)}")
+
         browser.close()
     httpd.shutdown()
 
@@ -263,6 +382,28 @@ def main() -> int:
             continue
         for ev in body.get("batch", [body]) if isinstance(body, dict) else [body]:
             events.append(ev)
+
+    # Beacon payloads, read from inside the page (see BEACON_RECORDER): a $pageleave
+    # is always a beacon, and neither CDP nor Playwright hands us its body.
+    beacon_decoded = 0
+    for entry in beacon_log:
+        raw = entry.get("text")
+        if raw is None and entry.get("b64"):
+            try:
+                raw = base64.b64decode(entry["b64"]).decode("latin-1")
+            except Exception:
+                raw = None
+        decoded = decode_event_body(entry.get("url", ""), raw or "")
+        if not decoded:
+            continue
+        try:
+            body = json.loads(decoded)
+        except Exception:
+            continue
+        for ev in body.get("batch", [body]) if isinstance(body, dict) else [body]:
+            events.append(ev)
+            beacon_decoded += 1
+    print(f"decoded from beacons: {beacon_decoded}")
 
     failures = []
     print(f"\ndecoded analytics events: {len(events)}")
@@ -304,6 +445,14 @@ def main() -> int:
     if raw_in_url_field:
         failures.append("raw secret in a URL/path field: " + "; ".join(raw_in_url_field[:4]))
 
+    # `tripped` is the list of every field whose VALUE holds the trip id or the
+    # claim token. The only one allowed to is `trip_id` itself (#21 sanctions the
+    # trip `$dtId` as a property) — everything else means a secret rode along in a
+    # field nobody thought to list, which is exactly how the `$pathname` leak hid.
+    off_list = sorted({t for t in tripped if t != "properties.trip_id"})
+    if off_list:
+        failures.append("trip id/claim token survived outside trip_id: " + ", ".join(off_list[:4]))
+
     # Sanity: the scrubbing must be OBSERVABLE, otherwise the checks above pass
     # vacuously (e.g. if every body failed to decode).
     blob = json.dumps(events)
@@ -315,6 +464,30 @@ def main() -> int:
         failures.append("trip_id property missing — per-trip metrics would be impossible")
     if events and TRIP_ID not in blob:
         failures.append("trip_id value missing")
+
+    # --- the pageleave half (#295) -------------------------------------------
+    # Pageviews alone leave bounce rate, session duration and scroll depth empty
+    # while every pageview metric still looks healthy — so nothing above catches
+    # this. A leave must EXIST *and* pair, otherwise it is a stray event that
+    # satisfies PostHog's health check without feeding the metrics it exists for.
+    pageleaves = [ev for ev in events if ev.get("event") == "$pageleave"]
+    if events and not pageleaves:
+        failures.append(
+            "no $pageleave delivered — the pageview half ships alone "
+            "(bounce rate, session duration and scroll depth stay empty, #295)"
+        )
+    paired = [
+        ev
+        for ev in pageleaves
+        if isinstance(ev.get("properties"), dict)
+        and ev["properties"].get("$prev_pageview_duration") is not None
+        and ev["properties"].get("$prev_pageview_id") is not None
+    ]
+    if pageleaves and not paired:
+        failures.append(
+            f"{len(pageleaves)} $pageleave event(s) but none paired with a pageview "
+            "($prev_pageview_id/$prev_pageview_duration absent) — no duration can be derived"
+        )
     if replay_hits:
         failures.append("session-replay traffic observed: " + ", ".join(replay_hits[:2]))
 
@@ -326,6 +499,23 @@ def main() -> int:
                 if key in props:
                     print(f"    {key:16s} = {props[key]}")
             break
+
+    print(f"\n--- $pageview / $pageleave delivered: "
+          f"{sum(1 for e in events if e.get('event') == '$pageview')} / {len(pageleaves)} ---")
+    if pageleaves:
+        print("--- sample of a paired $pageleave ---")
+        sample = (paired or pageleaves)[0].get("properties", {})
+        for key in (
+            "$current_url",
+            "$pathname",
+            "$prev_pageview_pathname",
+            "$prev_pageview_id",
+            "$prev_pageview_duration",
+            "trip_id",
+        ):
+            if key in sample:
+                print(f"    {key:26s} = {sample[key]}")
+        print(f"    {'leaves / paired':26s} = {len(pageleaves)} / {len(paired)}")
 
     print("\n--- secret-bearing fields found (must be empty) ---")
     print("   ", raw_in_url_field or "none")
@@ -340,7 +530,8 @@ def main() -> int:
     print("  PASS — banner shown to undecided visitors; ZERO events before consent;")
     print("         events delivered after consent; every URL/path/referrer field")
     print("         normalized to :token; trip_id delivered as a property; no raw trip")
-    print("         id, no claim token, no replay traffic; banner suppressed on reload.")
+    print("         id, no claim token, no replay traffic; banner suppressed on reload;")
+    print("         $pageleave delivered and paired with its pageview (#295).")
     return 0
 
 
