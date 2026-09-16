@@ -119,7 +119,13 @@ def _semi(deg: float) -> int:
 
 def _synthetic_fit(*, splits: bool = True, laps: bool = True) -> bytes:
     """One tiny ski day: lift → run → lift. Times/positions line up so the
-    producer labels (when present) and the cadence rule agree."""
+    producer labels (when present) and the cadence rule agree.
+
+    The fix times are scaled like a real day (a chair ride and a run are
+    MINUTES long): the #298 elevation smoothing averages over a two-minute
+    window, so 30-second stub legs would measure the window rather than the
+    mountain.
+    """
     from garmin_fit_sdk import Encoder
 
     enc = Encoder()
@@ -131,17 +137,18 @@ def _synthetic_fit(*, splits: bool = True, laps: bool = True) -> bytes:
             "time_created": _T0,
         }
     )
-    # (offset_s, lat, lng, alt): lift sparse (150 s), run dense (3 s), lift sparse.
+    # (offset_s, lat, lng, alt): lift sparse (150 s) climbing 800 → 1000,
+    # run dense (10 s) descending back to 800 over 200 s, lift sparse again.
     fixes: list[tuple[int, float, float, float]] = [
         (0, 50.0000, -122.9500, 800.0),
         (150, 50.0010, -122.9510, 900.0),
         (300, 50.0020, -122.9520, 1000.0),
     ]
-    for i in range(1, 11):
+    for i in range(1, 21):
         fixes.append(
-            (300 + i * 3, 50.0020 - i * 0.0001, -122.9520 - i * 0.0001, 1000.0 - i * 20.0)
+            (300 + i * 10, 50.0020 - i * 0.0001, -122.9520 - i * 0.0001, 1000.0 - i * 10.0)
         )
-    run_end = 300 + 10 * 3
+    run_end = 300 + 20 * 10
     fixes += [
         (run_end + 150, 50.0015, -122.9515, 900.0),
         (run_end + 300, 50.0025, -122.9525, 1000.0),
@@ -252,8 +259,8 @@ def test_fit_splits_become_alternating_legs() -> None:
     assert _leg_types(feature) == ["lift", "ride", "lift"]
     _assert_cover(feature)
     props = feature["properties"]
-    # The dense run (~10 × ~13 m pairs) is the riding distance.
-    assert 100 < props["rideDistanceM"] < 180
+    # The dense run (20 × ~13 m pairs over 200 s) is the riding distance.
+    assert 200 < props["rideDistanceM"] < 320
     assert props["liftDistanceM"] > 0
     assert props["liftVerticalM"] > 300  # both lifts climb 800 → 1000
     ride = [leg for leg in props["legs"] if leg["type"] == "ride"][0]
@@ -338,7 +345,12 @@ def test_gpx_cadence_splits_lift_from_ride() -> None:
     # Dense pairs (~2 × ~13 m) are the riding figure; the lift is the rest.
     assert props["rideDistanceM"] < 60
     assert props["liftDistanceM"] > 200
-    assert props["liftVerticalM"] == pytest.approx(200.0, abs=1.0)
+    # The 800 → 1000 climb lands on the lift leg. Tolerance, not exactness: the
+    # lift's top fix shares its #298 smoothing window (2 min) with this
+    # fixture's opening descent fixes, so the figure reads a few percent under
+    # the raw sum. On a real day (minutes-long legs) it lands within ~1 % of
+    # the producer's own total.
+    assert props["liftVerticalM"] == pytest.approx(200.0, abs=25.0)
 
 
 def test_gpx_without_times_is_one_ride_leg() -> None:
@@ -449,10 +461,31 @@ _needs_real_files = pytest.mark.skipif(
 )
 
 
+def _producer_ascent(path: str) -> tuple[float, float]:
+    """The FIT's own session ascent + the sum of its lift splits' ascent.
+
+    The producer is the oracle for #298: these are the figures the rider sees in
+    Slopes, and the raw up-tick sum ran +6..+36 % above them.
+    """
+    from garmin_fit_sdk import Decoder, Stream
+
+    with open(path, "rb") as fh:
+        messages, errors = Decoder(Stream.from_byte_array(bytearray(fh.read()))).read()
+    assert not errors, errors[:1]
+    session = (messages.get("session_mesgs") or [{}])[0]
+    lift = sum(
+        s.get("total_ascent") or 0
+        for s in messages.get("split_mesgs", [])
+        if str(s.get("split_type")) == "ski_lift_split"
+    )
+    return float(session.get("total_ascent") or 0), float(lift)
+
+
 @_needs_real_files
 def test_real_slopes_day_fit_labels_all_legs() -> None:
     """11 runs + 12 lifts, alternating from the morning lift; the ride sum
-    lands within metres of the session's own 18775.5 m total."""
+    lands within metres of the session's own 18775.5 m total, and the card's
+    ascent within a few percent of the producer's own (#298)."""
     with open(_REAL_FIT, "rb") as fh:
         feature = parse_fit(fh.read(), "real.fit")
     types = _leg_types(feature)
@@ -462,6 +495,11 @@ def test_real_slopes_day_fit_labels_all_legs() -> None:
     assert all(a != b for a, b in zip(types, types[1:]))  # strict alternation
     props = feature["properties"]
     assert props["rideDistanceM"] == pytest.approx(18775.5, abs=50)
+    # The elevation figures hold up the same way the split does: this day's raw
+    # up-tick sum was 4 836.6 m against the producer's own 4 222 m (#298).
+    producer_ascent, producer_lift = _producer_ascent(_REAL_FIT)
+    assert props["ascentM"] == pytest.approx(producer_ascent, rel=0.05)
+    assert props["liftVerticalM"] == pytest.approx(producer_lift, rel=0.05)
     _assert_cover(feature)
 
 
@@ -472,7 +510,11 @@ def test_real_slopes_day_gpx_cadence_agrees() -> None:
     with open(_REAL_GPX, "rb") as fh:
         feature = parse_gpx(fh.read(), "real.gpx").to_feature()
     props = feature["properties"]
-    assert props["rideDistanceM"] == pytest.approx(18775.5, abs=1000)
+    # The cross-format oracle: the FIT is the authoritative figure (its own
+    # session total), the re-export is a thinned recording whose paused sections
+    # the recorder resumed across — hence the wider tolerance (#298 raised the
+    # GPX figure by folding its no-climb "lift" artefact into the ride).
+    assert props["rideDistanceM"] == pytest.approx(18775.5, rel=0.1)
     for leg in props["legs"]:
         if leg["type"] == "lift" and leg["distanceM"] > 100:
             assert leg["ascentM"] > 50

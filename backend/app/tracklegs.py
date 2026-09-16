@@ -18,6 +18,20 @@ distanceM, ascentM, durationS }] }``
 a surface draws each leg in its own style without re-deriving anything.
 ``distanceM``/``ascentM`` stay the FULL-fidelity totals (the card's numbers
 never depend on how hard the line was decimated for the map).
+
+Elevation gains (#298) are summed from a SMOOTHED profile, not from the raw
+sample-to-sample deltas: a barometric trace oscillates around the true profile,
+and adding up every up-tick accumulates that oscillation — the denser the
+recording, the larger the total (the same day read 5 947.8 m from its FIT and
+3 236.5 m from the 1.8x-sparser GPX of the SAME riding, against the producer's
+own 4 105 m). Each leg's profile is therefore averaged over a short window and
+its gain counted only once it clears ``ELE_GAIN_THRESHOLD_M``, so the figure
+tracks the mountain instead of the sample rate. Distances are NOT smoothed —
+they are geometry.
+
+A "lift" leg also has to look like one before it is served as a leg
+(``LIFT_MIN_DISTANCE_M`` / ``LIFT_MIN_CLIMB_M``): the cadence rule catches
+pauses and flat traverses, and a 1 m dashed stub on the day map is not a leg.
 """
 
 from __future__ import annotations
@@ -39,6 +53,37 @@ LIFT_GAP_S = 120.0
 # keeps its endpoints), so a leg boundary never dissolves into a neighbour —
 # the dashed/solid split the client draws is the one the parser classified.
 RESPONSE_MAX_POINTS = 2000
+
+# --- elevation gain (#298) ---------------------------------------------------
+# A barometric trace never sits still: it oscillates around the true profile,
+# and summing every positive sample-to-sample delta accumulates that
+# oscillation, so the same day read +6 % to +36 % above the producer's own
+# session total and +84 % above the same day's sparser GPX. Two rules fix it:
+#
+# * a centred moving average over roughly this much TIME (a time window, not a
+#   sample count — a sample count is itself density-dependent, which is the
+#   bug) with a sample-count fallback for undated fixes, and
+# * a gain threshold: a rise counts only once it clears this many metres above
+#   the last counted reference, so residual jitter is not summed.
+#
+# Measured against the seven real Slopes days (FIT producer's own
+# ``session_mesgs.total_ascent`` as the oracle): worst day 4.0 %, five of the
+# seven within 2 % — where the raw sum was +6..+36 % high.
+ELE_SMOOTH_S = 120.0  # time window for the moving average, when fixes are dated
+ELE_SMOOTH_POINTS = 9  # sample-count window for fixes without timestamps
+ELE_GAIN_THRESHOLD_M = 1.0  # a counted rise must clear this
+
+# A "lift" leg shorter than this is not a lift ride (#298): a trailhead stub,
+# a paused fix, or an artefact of the cadence rule (Slopes days start with a
+# 1.4-11.6 m "lift" leg). Such a leg is demoted to a ridden leg and merged into
+# its neighbour, so no dashed 1 m stub is drawn and no leg count is inflated.
+LIFT_MIN_DISTANCE_M = 50.0
+
+# …and a lift ride CLIMBS. A "lift" leg with no vertical of its own is another
+# artefact — a paused recording, or a flat traverse the cadence rule caught
+# (real exports carry 200-500 m "lifts" climbing 0 m) — and is demoted the same
+# way. Every real lift in the seven Slopes days climbs far more than this.
+LIFT_MIN_CLIMB_M = 20.0
 
 
 @dataclass
@@ -146,27 +191,157 @@ class _FullLeg:
     ascent_m: float = 0.0
 
 
-def _full_legs(points: list[LegPoint], pair_is_ride: list[bool]) -> list[_FullLeg]:
-    """Merge consecutive same-type pairs into legs with full-fidelity stats."""
-    legs: list[_FullLeg] = []
-    for i, ride in enumerate(pair_is_ride):
-        a, b = points[i], points[i + 1]
-        dist = haversine_m(a.lat, a.lng, b.lat, b.lng)
-        ascent = (
-            b.ele - a.ele
-            if a.ele is not None and b.ele is not None and b.ele > a.ele
-            else 0.0
-        )
-        want = "ride" if ride else "lift"
-        if legs and legs[-1].type == want:
-            leg = legs[-1]
-            leg.end = i + 1
-            leg.distance_m += dist
-            leg.ascent_m += ascent
+def smoothed_profile(points: list[LegPoint]) -> list[Optional[float]]:
+    """Centred moving average of the elevation trace (#298).
+
+    The window is a TIME window (``ELE_SMOOTH_S``) whenever the fixes are
+    dated, so the amount of smoothing does not depend on the recording rate —
+    that rate-dependence IS the defect (a denser file accumulated more jitter:
+    the same day read 5 947.8 m from its FIT and 3 236.5 m from the 1.8x
+    sparser GPX of the same riding). Undated fixes fall back to a plain
+    sample-count window (``ELE_SMOOTH_POINTS``); a fix without an elevation
+    stays ``None`` and simply drops out of the window.
+    """
+    values = [p.ele for p in points]
+    if not any(v is not None for v in values):
+        return list(values)
+
+    times = [parse_time(p.time) for p in points]
+    half_s = ELE_SMOOTH_S / 2.0
+    half_n = ELE_SMOOTH_POINTS // 2
+    out: list[Optional[float]] = []
+    lo = 0
+    hi = 0
+    for i, moment in enumerate(times):
+        if moment is None:
+            window = [
+                v
+                for v in values[max(0, i - half_n):i + half_n + 1]
+                if v is not None
+            ]
         else:
-            legs.append(_FullLeg(type=want, start=i, end=i + 1,
-                                 distance_m=dist, ascent_m=ascent))
-    return legs
+            # Advance the trailing edge past everything older than the window…
+            while lo < i:
+                other = times[lo]
+                if other is None or (moment - other).total_seconds() > half_s:
+                    lo += 1
+                else:
+                    break
+            if hi < i:
+                hi = i
+            # …and the leading edge while the next fix is still inside it.
+            while hi + 1 < len(times):
+                other = times[hi + 1]
+                if other is None or (other - moment).total_seconds() > half_s:
+                    break
+                hi += 1
+            window = [v for v in values[lo:hi + 1] if v is not None]
+        out.append(sum(window) / len(window) if window else None)
+    return out
+
+
+def profile_gain(values: list[Optional[float]]) -> float:
+    """Positive gain of a profile, gated by ``ELE_GAIN_THRESHOLD_M``.
+
+    A rise counts only once it clears the threshold above the last COUNTED
+    reference; a fall resets that reference. Sub-threshold oscillation is
+    therefore never summed, while a sustained climb is counted in full
+    (the reference keeps advancing, so nothing above the noise is lost).
+    """
+    reference: Optional[float] = None
+    gain = 0.0
+    for value in values:
+        if value is None:
+            continue
+        if reference is None:
+            reference = value
+            continue
+        if value > reference + ELE_GAIN_THRESHOLD_M:
+            gain += value - reference
+            reference = value
+        elif value < reference - ELE_GAIN_THRESHOLD_M:
+            reference = value
+    return gain
+
+
+def _pair_runs(pair_is_ride: list[bool]) -> list[list]:
+    """Consecutive same-type pairs → ``[type, first_pair, last_pair + 1]``."""
+    runs: list[list] = []
+    for i, ride in enumerate(pair_is_ride):
+        want = "ride" if ride else "lift"
+        if runs and runs[-1][0] == want:
+            runs[-1][2] = i + 1
+        else:
+            runs.append([want, i, i + 1])
+    return runs
+
+
+def _full_legs(points: list[LegPoint], pair_is_ride: list[bool]) -> list[_FullLeg]:
+    """Merge consecutive same-type pairs into legs with full-fidelity stats.
+
+    Distance is summed pair by pair — geometry, never smoothed. Ascent is the
+    gated gain of the ``smoothed_profile`` walk, attributed to the pair's own
+    leg, so a leg's figure is that stretch of the day and the legs still sum
+    to the whole track's ascent.
+    """
+    runs = _pair_runs(pair_is_ride)
+    distances = [
+        haversine_m(a.lat, a.lng, b.lat, b.lng)
+        for a, b in zip(points, points[1:])
+    ]
+
+    def run_distance(run: list) -> float:
+        return sum(distances[run[1]:run[2]])
+
+    profile = smoothed_profile(points)
+    # One walk over the whole trace, so the legs' figures sum to exactly the
+    # track's (``profile_gain`` of the same profile): the reference is seeded
+    # on the first fix that carries an elevation, then each pair's rise is the
+    # step from the previous point — gated, and never counted twice.
+    pair_gains = [0.0] * len(pair_is_ride)
+    reference: Optional[float] = None
+    for i, value in enumerate(profile):
+        if value is None:
+            continue
+        if reference is None:
+            reference = value
+            continue
+        if value > reference + ELE_GAIN_THRESHOLD_M:
+            pair_gains[i - 1] = value - reference
+            reference = value
+        elif value < reference - ELE_GAIN_THRESHOLD_M:
+            reference = value
+
+    # A stray "lift" — too short to be a ride, or with no climb of its own — is
+    # a ridden leg; same-type neighbours merge back together, so a demoted
+    # stretch never survives as a leg of its own (and no dashed stub is drawn).
+    # The climb test needs an elevation to read: a track that carries none
+    # (a route-only GPX) keeps the legs its cadence produced.
+    has_elevation = [p.ele is not None for p in points]
+    merged: list[list] = []
+    for run in runs:
+        ascent = sum(pair_gains[run[1]:run[2]])
+        measured_climb = any(has_elevation[run[1]:run[2] + 1])
+        if run[0] == "lift" and (
+            run_distance(run) < LIFT_MIN_DISTANCE_M
+            or (measured_climb and ascent < LIFT_MIN_CLIMB_M)
+        ):
+            run[0] = "ride"
+        if merged and merged[-1][0] == run[0]:
+            merged[-1][2] = run[2]
+        else:
+            merged.append(run)
+
+    return [
+        _FullLeg(
+            type=run[0],
+            start=run[1],
+            end=run[2],
+            distance_m=run_distance(run),
+            ascent_m=sum(pair_gains[run[1]:run[2]]),
+        )
+        for run in merged
+    ]
 
 
 def build_feature(
