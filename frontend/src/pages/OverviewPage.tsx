@@ -3,11 +3,16 @@ import { Link, useParams } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { Button, Card, Separator, StageBadge } from "../components/ui";
+import { InlineField } from "../components/inline-edit";
 import { TripMedia } from "../components/photos";
 import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
+import { roleAtLeast, withTripFields } from "../lib/editing";
+import { useTripWrite } from "../lib/useTripWrite";
+import { putTrip } from "../lib/api";
+import { capture } from "../lib/posthog";
 import { TripMap } from "../components/MapView";
 import { locatedPlaces } from "../lib/maps";
 import { tripTracks } from "../lib/tracks";
@@ -147,6 +152,69 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
   );
 }
 
+/**
+ * Trip title + subtitle, editable inline on the cover (#296) — the fix-a-typo
+ * path that previously required opening chat. Editor+ only; everyone else
+ * reads the same hero as before (InlineField's anon tree is display-only).
+ */
+function HeroTitleEdit() {
+  const trip = useTrip();
+  const { run, error } = useTripWrite();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+  return (
+    <InlineField
+      value={trip.title}
+      label="Trip title"
+      canEdit={canEdit}
+      error={error}
+      onSave={async (next) => {
+        capture("trip_title_updated", { field: "title" });
+        return (
+          (await run(
+            (token) => putTrip(trip.id, { title: next }, token),
+            (t) => withTripFields(t, { title: next }),
+          )) !== null
+        );
+      }}
+      renderDisplay={(v) => (
+        <h1 className="mt-3 font-display text-5xl uppercase leading-[0.95] text-white md:text-7xl">
+          {v}
+        </h1>
+      )}
+    />
+  );
+}
+
+function HeroSubtitleEdit() {
+  const trip = useTrip();
+  const { run, error } = useTripWrite();
+  const canEdit = roleAtLeast(trip.myRole, "editor");
+  return (
+    <InlineField
+      value={trip.subtitle ?? ""}
+      label="Trip subtitle"
+      canEdit={canEdit}
+      error={error}
+      placeholder="Add a subtitle"
+      emptyLabel="Add a subtitle"
+      onSave={async (next) => {
+        capture("trip_title_updated", { field: "subtitle" });
+        return (
+          (await run(
+            (token) => putTrip(trip.id, { subtitle: next }, token),
+            (t) => withTripFields(t, { subtitle: next }),
+          )) !== null
+        );
+      }}
+      renderDisplay={(v) => (
+        <p className="mt-2 max-w-xl text-sm font-medium uppercase tracking-wide text-white/85 md:text-base">
+          {v}
+        </p>
+      )}
+    />
+  );
+}
+
 export function OverviewPage() {
   const trip = useTrip();
   const { tripId } = useParams();
@@ -172,14 +240,8 @@ export function OverviewPage() {
               {trip.days.length > 0 && ` · ${trip.days.length} days`}
             </span>
           </div>
-          <h1 className="mt-3 font-display text-5xl uppercase leading-[0.95] text-white md:text-7xl">
-            {trip.title}
-          </h1>
-          {trip.subtitle && (
-            <p className="mt-2 max-w-xl text-sm font-medium uppercase tracking-wide text-white/85 md:text-base">
-              {trip.subtitle}
-            </p>
-          )}
+          <HeroTitleEdit />
+          <HeroSubtitleEdit />
           {trip.coverCredit && <p className="mt-3 text-[10px] uppercase tracking-widest text-white/50">© {trip.coverCredit}</p>}
         </div>
       </div>
