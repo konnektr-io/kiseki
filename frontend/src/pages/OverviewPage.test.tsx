@@ -140,3 +140,62 @@ describe("OverviewPage feature media cells (#284)", () => {
     assertCellsFillTheirImage(html);
   });
 });
+
+/* #301 — the content-agent's riding-log cards: `links: [{ label: "Open the
+ * day", url: "/t/<trip_id>/day/<idx>" }]` on a feature and on its cards, asking
+ * for the trip's OWN days instead of Strava. Every one of these surfaces
+ * rendered `<a target="_blank" rel="noreferrer">`, so an in-app target opened a
+ * second tab; the seven cards were dropped from the feature and the ask was
+ * withdrawn. Off-app links (Strava, Maps, booking pages) must keep the new tab
+ * — the fix is per target, never "stop using target=_blank". */
+const ANCHORS = /<a\b[^>]*>/g;
+
+describe("OverviewPage content links follow their target (#301)", () => {
+  const DAY_URL = "/t/t1/day/3";
+  const DAY_LINK = { label: "Open the day", url: DAY_URL };
+  const STRAVA = { label: "Strava", url: "https://www.strava.com/activities/9001" };
+
+  function renderTrip(): string {
+    const trip = {
+      id: "t1",
+      slug: "test",
+      title: "Japow 2026",
+      stage: "archive",
+      crew: [],
+      days: [],
+      sections: [],
+      locations: [],
+      practical: { links: [DAY_LINK, STRAVA] },
+      features: [
+        {
+          kicker: "centerpiece",
+          title: "Riding log",
+          links: [DAY_LINK],
+          cards: [{ title: "Day 3", value: "12 km", links: [DAY_LINK] }],
+        },
+      ],
+    } as unknown as Trip;
+    return renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(MemoryRouter, null, createElement(OverviewPage)),
+      }),
+    );
+  }
+
+  it("keeps the day card's link in the app — on the card, the feature and the practical preview", () => {
+    const html = renderTrip();
+    const internal = (html.match(ANCHORS) ?? []).filter((a) => a.includes(`href="${DAY_URL}"`));
+    // the card's own link, the feature's link pill, the practical preview row
+    expect(internal.length).toBeGreaterThanOrEqual(3);
+    for (const a of internal) expect(a).not.toContain('target="_blank"');
+  });
+
+  it("still sends an off-app link to a new tab", () => {
+    const html = renderTrip();
+    const external = (html.match(ANCHORS) ?? []).filter((a) => a.includes(`href="${STRAVA.url}"`));
+    expect(external.length).toBeGreaterThanOrEqual(1);
+    for (const a of external) expect(a).toContain('target="_blank"');
+  });
+});

@@ -160,3 +160,34 @@ describe("practicals page — titled practicalities blocks (#254)", () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 });
+
+/* #301 — `practical.links` and a todo's own links are content-supplied targets
+ * too, and both rendered `<a target="_blank">`: an in-app target (the trip's own
+ * day route) opened a second tab, an off-app one should. */
+const ANCHORS = /<a\b[^>]*>/g;
+
+describe("practicals page content links follow their target (#301)", () => {
+  const DAY_URL = "/t/t-231/day/3";
+
+  function anchorsFor(html: string, href: string): string[] {
+    return (html.match(ANCHORS) ?? []).filter((a) => a.includes(`href="${href}"`));
+  }
+
+  it("keeps the practical links and a todo's link in the app", () => {
+    const html = renderPage({
+      links: [
+        { label: "Open the day", url: DAY_URL },
+        { label: "Strava", url: "https://www.strava.com/activities/9001" },
+      ],
+      todos: [{ label: "Book the ferry", done: false, links: [{ label: "Open the day", url: DAY_URL }] }],
+    });
+    const internal = anchorsFor(html, DAY_URL);
+    // the todo's pill + the "Important links" row
+    expect(internal.length).toBeGreaterThanOrEqual(2);
+    for (const a of internal) expect(a).not.toContain('target="_blank"');
+
+    const external = anchorsFor(html, "https://www.strava.com/activities/9001");
+    expect(external.length).toBe(1);
+    expect(external[0]).toContain('target="_blank"');
+  });
+});

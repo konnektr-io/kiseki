@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { useTrip } from "../components/theme";
 import { Card } from "../components/ui";
 import { TricountPanel } from "../components/TricountPanel";
+import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { toggleTodoItem } from "../lib/api";
 import { roleAtLeast, withTodoDone } from "../lib/editing";
@@ -76,16 +77,14 @@ export function PracticalsPage() {
                   {t.links?.length ? (
                     <span className="mt-1 flex flex-wrap gap-1.5">
                       {t.links.map((l) => (
-                        <a
+                        <ContentLink
                           key={l.url}
-                          href={l.url}
-                          target="_blank"
-                          rel="noreferrer"
+                          url={l.url}
+                          glyph="h-3 w-3"
                           className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
                         >
-                          <ExternalLink className="h-3 w-3" />
                           {l.label}
-                        </a>
+                        </ContentLink>
                       ))}
                     </span>
                   ) : null}
@@ -185,14 +184,13 @@ export function PracticalsPage() {
           <ul className="space-y-1.5">
             {links.map((l) => (
               <li key={l.url}>
-                <a
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
+                <ContentLink
+                  url={l.url}
+                  glyph="h-3.5 w-3.5"
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
                 >
-                  <ExternalLink className="h-3.5 w-3.5" /> {l.label}
-                </a>
+                  {l.label}
+                </ContentLink>
               </li>
             ))}
           </ul>

@@ -10,7 +10,6 @@ import {
   BedDouble,
   Car,
   Check,
-  ChevronRight,
   Clock,
   CreditCard,
   ExternalLink,
@@ -29,6 +28,7 @@ import type { Block, BlockKind, BlockStatus, Trip, TripLocation } from "../lib/t
 import { classifyTransportMode, type TransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
+import { ContentLink } from "./content-link";
 import { PhotoGallery, PhotoStrip } from "./photos";
 import { TrackCard } from "./track-card";
 import { YouTubeEmbeds } from "./youtube";
@@ -106,16 +106,14 @@ function Links({ links }: { links?: { label: string; url: string }[] }) {
       {rest.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {rest.map((l) => (
-            <a
+            <ContentLink
               key={l.url}
-              href={l.url}
-              target="_blank"
-              rel="noreferrer"
+              url={l.url}
+              glyph="h-3 w-3 text-muted-foreground"
               className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
             >
-              <ExternalLink className="h-3 w-3 text-muted-foreground" />
               {l.label}
-            </a>
+            </ContentLink>
           ))}
         </div>
       )}
@@ -317,15 +315,14 @@ function TransportBlock({
             {b.links?.length ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {b.links.map((l) => (
-                  <a
+                  <ContentLink
                     key={l.url}
-                    href={l.url}
-                    target="_blank"
-                    rel="noreferrer"
+                    url={l.url}
+                    glyph="h-3 w-3"
                     className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                   >
-                    <ExternalLink className="h-3 w-3" /> {l.label}
-                  </a>
+                    {l.label}
+                  </ContentLink>
                 ))}
               </div>
             ) : null}
@@ -454,15 +451,14 @@ function TransportBlock({
                   {b.links
                     .filter((l) => !extractYouTubeId(l.url))
                     .map((l) => (
-                      <a
+                      <ContentLink
                         key={l.url}
-                        href={l.url}
-                        target="_blank"
-                        rel="noreferrer"
+                        url={l.url}
+                        glyph="h-3 w-3"
                         className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
                       >
-                        <ExternalLink className="h-3 w-3" /> {l.label}
-                      </a>
+                        {l.label}
+                      </ContentLink>
                     ))}
                 </div>
               )}
@@ -703,14 +699,13 @@ function LinkBlock({ b }: { b: Block }) {
             <ul className="mt-1 space-y-1">
               {rest.map((l) => (
                 <li key={l.url}>
-                  <a
-                    href={l.url}
-                    target="_blank"
-                    rel="noreferrer"
+                  <ContentLink
+                    url={l.url}
+                    glyph="h-3.5 w-3.5"
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
                   >
-                    <ChevronRight className="h-3.5 w-3.5" /> {l.label}
-                  </a>
+                    {l.label}
+                  </ContentLink>
                 </li>
               ))}
             </ul>

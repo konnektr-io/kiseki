@@ -4,6 +4,7 @@ import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-rea
 import { useTrip } from "../components/theme";
 import { Button, Card, Separator, StageBadge } from "../components/ui";
 import { TripMedia } from "../components/photos";
+import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
@@ -79,15 +80,13 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
                   {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
                   {c.description && <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{c.description}</p>}
                   {c.links?.map((l) => (
-                    <a
+                    <ContentLink
                       key={l.url}
-                      href={l.url}
-                      target="_blank"
-                      rel="noreferrer"
+                      url={l.url}
                       className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-accent underline underline-offset-2"
                     >
                       {l.label}
-                    </a>
+                    </ContentLink>
                   ))}
                 </div>
               </div>
@@ -115,15 +114,13 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
                     {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
                     {c.description && <p className="mt-1 text-xs leading-snug text-muted-foreground">{c.description}</p>}
                     {c.links?.map((l) => (
-                      <a
+                      <ContentLink
                         key={l.url}
-                        href={l.url}
-                        target="_blank"
-                        rel="noreferrer"
+                        url={l.url}
                         className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-accent underline underline-offset-2"
                       >
                         {l.label}
-                      </a>
+                      </ContentLink>
                     ))}
                   </div>
                 </div>
@@ -136,15 +133,13 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
       {f.links?.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {f.links.map((l) => (
-            <a
+            <ContentLink
               key={l.url}
-              href={l.url}
-              target="_blank"
-              rel="noreferrer"
+              url={l.url}
               className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-primary hover:bg-primary/20"
             >
               {l.label} <ArrowRight className="h-3 w-3" />
-            </a>
+            </ContentLink>
           ))}
         </div>
       ) : null}
@@ -310,9 +305,9 @@ export function OverviewPage() {
               {trip.practical.links.slice(0, 4).map((l) => (
                 <li key={l.url} className="flex items-center gap-2 text-sm">
                   <MapPin className="h-3 w-3 text-muted-foreground" />
-                  <a href={l.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                  <ContentLink url={l.url} className="text-accent hover:underline">
                     {l.label}
-                  </a>
+                  </ContentLink>
                 </li>
               ))}
             </ul>
