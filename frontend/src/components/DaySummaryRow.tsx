@@ -134,6 +134,7 @@ export function DaySummaryRow({
                 src={src}
                 alt=""
                 className="aspect-[16/9] w-full rounded-lg border border-border object-cover"
+                fill
               />
             ))}
           </div>
@@ -267,6 +268,7 @@ export function FoldedDayCard({
                 src={src}
                 alt=""
                 className="aspect-[16/9] w-full rounded-lg border border-border object-cover"
+                fill
               />
             ))}
           </div>

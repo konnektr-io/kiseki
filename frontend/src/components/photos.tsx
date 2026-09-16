@@ -32,21 +32,43 @@ export const STRIP_PRINT_COUNT = 4;
 export const GALLERY_PRINT_COUNT = 6;
 
 /** One trip photo — the shared atom (mirrors the PlaceFacts figure pattern,
- *  #95: figure + cover img + credit only when present). */
+ *  #95: figure + cover img + credit only when present).
+ *
+ *  The CELL owns the geometry, the image fills it — `className` lands on the
+ *  `<figure>`, the `<img>` is `object-cover`, and by default the cell is the
+ *  4:3 box above. A caller that gives the cell its own size (a definite height
+ *  like `h-40`, or a different ratio like `aspect-[16/9]`) MUST pass `fill`:
+ *  without it the image keeps its own 4:3 body inside that other box, which on
+ *  a taller cell leaves a residual band next to the photo (the mobile feature
+ *  pair, #284 — the band is the cell's height minus the image's ratio-sized
+ *  body, so it looked the same for every picture and every aspect ratio) and on
+ *  a shorter cell silently clips a slice of the photo (#250's regression: it
+ *  moved the sizing classes from the `<img>` onto this wrapper while the `<img>`
+ *  kept its own ratio).
+ *
+ *  Use `fill` whenever the cell is sized by anything but the default ratio —
+ *  it makes the image `h-full w-full`, i.e. exactly the cell. */
 export function TripPhoto({
   src,
   alt,
   credit,
   className = "",
+  fill = false,
 }: {
   src: string;
   alt: string;
   credit?: string;
   className?: string;
+  fill?: boolean;
 }) {
   return (
     <figure className={`overflow-hidden rounded-lg border border-border ${className}`}>
-      <img src={src} alt={alt} loading="lazy" className="aspect-[4/3] w-full object-cover" />
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        className={fill ? "h-full w-full object-cover" : "aspect-[4/3] w-full object-cover"}
+      />
       {credit && (
         <figcaption className="px-2 py-1 text-right text-[11px] text-muted-foreground">
           {credit}
@@ -72,10 +94,12 @@ export function TripVideo({
   src,
   alt,
   className = "",
+  fill = false,
 }: {
   src: string;
   alt: string;
   className?: string;
+  fill?: boolean;
 }) {
   return (
     <figure className={`overflow-hidden rounded-lg border border-border ${className}`}>
@@ -86,7 +110,7 @@ export function TripVideo({
         playsInline
         preload="metadata"
         aria-label={alt}
-        className="no-print aspect-[4/3] w-full bg-black object-cover"
+        className={`no-print w-full bg-black object-cover ${fill ? "h-full" : "aspect-[4/3]"}`}
       />
       <figcaption className="hidden gap-2 px-2 py-1 text-[11px] text-muted-foreground print:flex">
         {/* A clip with no poster frame must not print a broken-image glyph —
@@ -112,15 +136,17 @@ export function TripMedia({
   src,
   alt,
   className = "",
+  fill = false,
 }: {
   src: string;
   alt: string;
   className?: string;
+  fill?: boolean;
 }) {
   return isVideoSrc(src) ? (
-    <TripVideo src={src} alt={alt} className={className} />
+    <TripVideo src={src} alt={alt} className={className} fill={fill} />
   ) : (
-    <TripPhoto src={src} alt={alt} className={className} />
+    <TripPhoto src={src} alt={alt} className={className} fill={fill} />
   );
 }
 
