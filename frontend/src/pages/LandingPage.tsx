@@ -940,6 +940,49 @@ function AuthenticatedLanding() {
     return () => window.clearTimeout(t);
   }, [flashDtId]);
 
+  // Follow a public trip from a discovery card (2026-09-16 review). The
+  // endpoint shipped with #197 and had NO caller in the UI — a public trip
+  // could only be followed by opening it and hunting for the affordance. This
+  // is its first home, and the empty home is exactly where it belongs: a
+  // visitor with no trips is looking at someone else's.
+  const [followedIds, setFollowedIds] = useState<readonly string[]>([]);
+  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
+  const [followError, setFollowError] = useState<string | null>(null);
+  const onFollow = useCallback(
+    async (dtId: string) => {
+      setFollowBusyId(dtId);
+      setFollowError(null);
+      try {
+        const token = await getAccessTokenSilently();
+        await followPublicTrip(dtId, token);
+        setFollowedIds((prev) => (prev.includes(dtId) ? prev : [...prev, dtId]));
+        // It is one of "your trips" now (role=follower), so re-read: the trip
+        // leaves the shelf and appears under your own trips — the feedback IS
+        // the move. Same refetch the Retry button uses.
+        setAttempt((n) => n + 1);
+      } catch (e) {
+        // A private trip 403s ("can only be followed with an invite link") —
+        // say so where the button is, never swallow it.
+        setFollowError(e instanceof Error ? e.message : "Could not follow that trip.");
+      } finally {
+        setFollowBusyId(null);
+      }
+    },
+    [getAccessTokenSilently],
+  );
+
+  // ---------------------------------------------------------------------------
+  // EVERY hook in this component lives ABOVE these two returns. The first paint
+  // is `authLoading`, and an anonymous visit returns the marketing page — so a
+  // hook placed after them renders on the second pass but not the first, and
+  // React throws #310 ("Rendered more hooks than during the previous render")
+  // the instant auth resolves. That is exactly what v0.58.0 shipped: the four
+  // follow hooks sat below this line and the signed-in home crashed for real
+  // users while every test passed (the suite starts authenticated, and the
+  // `?kiseki_e2e=1` probe seam stubs auth as already resolved — neither ever
+  // renders the transition). `LandingPage.test.tsx` → "the auth transition"
+  // now pins it.
+  // ---------------------------------------------------------------------------
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -978,37 +1021,6 @@ function AuthenticatedLanding() {
 
   const toggleVis = (v: Visibility) =>
     setVis((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
-
-  // Follow a public trip from a discovery card (2026-09-16 review). The
-  // endpoint shipped with #197 and had NO caller in the UI — a public trip
-  // could only be followed by opening it and hunting for the affordance. This
-  // is its first home, and the empty home is exactly where it belongs: a
-  // visitor with no trips is looking at someone else's.
-  const [followedIds, setFollowedIds] = useState<readonly string[]>([]);
-  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
-  const [followError, setFollowError] = useState<string | null>(null);
-  const onFollow = useCallback(
-    async (dtId: string) => {
-      setFollowBusyId(dtId);
-      setFollowError(null);
-      try {
-        const token = await getAccessTokenSilently();
-        await followPublicTrip(dtId, token);
-        setFollowedIds((prev) => (prev.includes(dtId) ? prev : [...prev, dtId]));
-        // It is one of "your trips" now (role=follower), so re-read: the trip
-        // leaves the shelf and appears under your own trips — the feedback IS
-        // the move. Same refetch the Retry button uses.
-        setAttempt((n) => n + 1);
-      } catch (e) {
-        // A private trip 403s ("can only be followed with an invite link") —
-        // say so where the button is, never swallow it.
-        setFollowError(e instanceof Error ? e.message : "Could not follow that trip.");
-      } finally {
-        setFollowBusyId(null);
-      }
-    },
-    [getAccessTokenSilently],
-  );
 
   const bands = (
     <HomeBands

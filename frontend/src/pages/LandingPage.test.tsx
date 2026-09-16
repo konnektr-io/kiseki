@@ -627,3 +627,64 @@ describe("the peek line is a door, not a label", () => {
     expect(el.querySelector('[data-testid="sheet-header"] a[href$="/today"]')).toBeNull();
   });
 });
+
+describe("the auth transition (React #310)", () => {
+  /**
+   * What shipped broken in v0.58.0: the four follow hooks sat BELOW the two
+   * early returns in `AuthenticatedLanding`, so the first paint (`authLoading`)
+   * rendered fewer hooks than the signed-in paint. React throws #310 —
+   * "Rendered more hooks than during the previous render" — the moment auth
+   * resolves, and the signed-in home died for real users.
+   *
+   * Nothing caught it: every test in this file starts authenticated, and the
+   * browser probe's `?kiseki_e2e=1` seam stubs auth as ALREADY resolved, so no
+   * test — unit or browser — ever rendered the transition. These two do, on one
+   * component instance, which is the only shape that can catch it.
+   */
+  async function rerender(): Promise<void> {
+    await act(async () => {
+      root!.render(
+        <MemoryRouter>
+          <LandingPage />
+        </MemoryRouter>,
+      );
+    });
+  }
+
+  it("survives auth loading → signed in", async () => {
+    authState.isLoading = true;
+    const el = await mount();
+    expect(el.textContent).toContain("Loading…");
+    authState.isLoading = false;
+    authState.isAuthenticated = true;
+    await rerender();
+    expect(el.textContent).toContain("Home");
+    expect(el.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("survives anonymous → signed in", async () => {
+    authState.isAuthenticated = false;
+    const el = await mount();
+    // Signed out, the front door is the marketing page.
+    expect(el.textContent).toContain("Sign in");
+    authState.isAuthenticated = true;
+    await rerender();
+    expect(el.textContent).toContain("Home");
+  });
+
+  it("keeps the follow action working after the transition", async () => {
+    // The hooks that caused #310 are the follow ones, so prove they are alive
+    // on the far side of the transition — not merely present.
+    authState.isLoading = true;
+    const el = await mount();
+    authState.isLoading = false;
+    net.trips = "empty";
+    await rerender();
+    const follow = el.querySelector('button[aria-label^="Follow "]') as HTMLElement;
+    expect(follow).toBeTruthy();
+    await act(async () => {
+      follow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(net.followed).toHaveLength(1);
+  });
+});
