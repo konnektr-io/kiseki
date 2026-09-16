@@ -31,6 +31,8 @@ import { Markdown } from "../lib/markdown";
 import { EditableBlockList } from "./block-edit";
 import { PhotoGallery, PhotoStrip } from "./photos";
 import { TrackCard } from "./track-card";
+import { YouTubeEmbeds } from "./youtube";
+import { extractYouTubeId } from "../lib/youtube";
 
 /* ---------- shared bits ---------- */
 
@@ -96,21 +98,28 @@ export function MetaChips({ meta }: { meta?: { label: string; value: string }[] 
 
 function Links({ links }: { links?: { label: string; url: string }[] }) {
   if (!links?.length) return null;
+  // A YouTube URL plays inline above the pills (#283) — never as a pill.
+  const rest = links.filter((l) => !extractYouTubeId(l.url));
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5">
-      {links.map((l) => (
-        <a
-          key={l.url}
-          href={l.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
-        >
-          <ExternalLink className="h-3 w-3 text-muted-foreground" />
-          {l.label}
-        </a>
-      ))}
-    </div>
+    <>
+      <YouTubeEmbeds links={links} />
+      {rest.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {rest.map((l) => (
+            <a
+              key={l.url}
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-muted"
+            >
+              <ExternalLink className="h-3 w-3 text-muted-foreground" />
+              {l.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -438,19 +447,26 @@ function TransportBlock({
             </a>
           )}
           {b.links?.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {b.links.map((l) => (
-                <a
-                  key={l.url}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
-                >
-                  <ExternalLink className="h-3 w-3" /> {l.label}
-                </a>
-              ))}
-            </div>
+            <>
+              <YouTubeEmbeds links={b.links} />
+              {b.links.some((l) => !extractYouTubeId(l.url)) && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {b.links
+                    .filter((l) => !extractYouTubeId(l.url))
+                    .map((l) => (
+                      <a
+                        key={l.url}
+                        href={l.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25"
+                      >
+                        <ExternalLink className="h-3 w-3" /> {l.label}
+                      </a>
+                    ))}
+                </div>
+              )}
+            </>
           ) : null}
         </div>
       </div>
@@ -633,6 +649,7 @@ function TodoBlock({
               ))}
             </ul>
           )}
+          <YouTubeEmbeds links={b.links} />
         </div>
       </div>
     </BlockCard>
@@ -651,6 +668,7 @@ function NoteBlock({ b }: { b: Block }) {
               <Markdown>{b.description}</Markdown>
             </div>
           )}
+          <YouTubeEmbeds links={b.links} />
         </div>
       </div>
     </BlockCard>
@@ -662,38 +680,43 @@ function GalleryBlock({ b }: { b: Block }) {
   // Shapes may still carry bare strings — unwrap both.
   const imgs = (b.items ?? []) as (string | { url?: string })[];
   const files = imgs.map((it) => (typeof it === "string" ? it : it?.url ?? "")).filter(Boolean);
-  if (!files.length) return null;
+  if (!files.length && !extractYouTubeId(b.links?.[0]?.url)) return null;
   return (
     <BlockCard className="p-3">
-      <PhotoGallery items={files} title={b.title ?? undefined} />
+      {files.length > 0 && <PhotoGallery items={files} title={b.title ?? undefined} />}
+      <YouTubeEmbeds links={b.links} />
     </BlockCard>
   );
 }
 
 function LinkBlock({ b }: { b: Block }) {
   if (!b.links?.length) return null;
+  const rest = b.links.filter((l) => !extractYouTubeId(l.url));
   return (
     <BlockCard>
-      <div className="flex items-start gap-3">
-        <IconBadge icon={<Link2 className="h-4 w-4" />} tone="muted" />
-        <div className="min-w-0 flex-1">
-          <Kicker>Links</Kicker>
-          <ul className="mt-1 space-y-1">
-            {b.links.map((l) => (
-              <li key={l.url}>
-                <a
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" /> {l.label}
-                </a>
-              </li>
-            ))}
-          </ul>
+      <YouTubeEmbeds links={b.links} />
+      {rest.length > 0 && (
+        <div className="flex items-start gap-3">
+          <IconBadge icon={<Link2 className="h-4 w-4" />} tone="muted" />
+          <div className="min-w-0 flex-1">
+            <Kicker>Links</Kicker>
+            <ul className="mt-1 space-y-1">
+              {rest.map((l) => (
+                <li key={l.url}>
+                  <a
+                    href={l.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" /> {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
-      </div>
+      )}
     </BlockCard>
   );
 }
