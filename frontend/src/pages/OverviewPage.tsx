@@ -31,11 +31,20 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
           {f.images.map((src) => (
             // TripMedia, not <img>: a clip plays here and prints as its poster
             // frame with a link (#250) — an <img src="….mp4"> shows nothing.
-            <TripMedia key={src} src={src} alt={f.title} className="h-40 w-full rounded-lg border border-border object-cover" />
+            // `fill`: the CELL owns the geometry and the image fills it, so the
+            // cell has to state a box the image can fill — the shared 4:3 photo
+            // box on a phone, the wide strip from md up (a fixed 160px cell is a
+            // desktop strip; at 152px wide it would crop a landscape photo to
+            // near-square). Without it the image sized itself by its own 4:3
+            // ratio inside the cell and left the white band under every photo.
+            <TripMedia key={src} src={src} alt={f.title} className="aspect-[4/3] w-full rounded-lg border border-border object-cover md:h-40" fill />
           ))}
         </div>
       ) : f.image && !f.map ? (
-        <TripMedia src={f.image} alt={f.title} className="mt-3 max-h-64 w-full rounded-lg border border-border object-cover" />
+        // `aspect-[4/3]` beside the `max-h-64` cap: the CELL states the box the
+        // image fills, so the cap crops nothing away (a bare `max-h-64` on the
+        // wrapper just clipped a taller ratio-sized image, #284).
+        <TripMedia src={f.image} alt={f.title} className="mt-3 aspect-[4/3] max-h-64 w-full rounded-lg border border-border object-cover" fill />
       ) : null}
 
       {f.chips?.length ? (
@@ -63,7 +72,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
           <div className="mt-3 hidden grid-cols-2 gap-3 md:grid md:grid-cols-4">
             {f.cards.map((c) => (
               <div key={c.title} className="overflow-hidden rounded-lg border border-border">
-                {c.image && <TripMedia src={c.image} alt={c.title} className="h-24 w-full object-cover" />}
+                {c.image && <TripMedia src={c.image} alt={c.title} className="h-24 w-full object-cover" fill />}
                 <div className="p-2.5">
                   <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
                   {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
@@ -99,7 +108,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
             <div className="mt-2 space-y-2.5 md:hidden">
               {f.cards.map((c) => (
                 <div key={c.title} className="overflow-hidden rounded-lg border border-border">
-                  {c.image && <TripMedia src={c.image} alt={c.title} className="h-28 w-full object-cover" />}
+                  {c.image && <TripMedia src={c.image} alt={c.title} className="h-28 w-full object-cover" fill />}
                   <div className="p-2.5">
                     <p className="font-heading text-sm font-semibold uppercase leading-tight">{c.title}</p>
                     {c.value && <p className="text-xs font-semibold text-accent">{c.value}</p>}
