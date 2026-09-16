@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, Layers, MapPin, MessageCircle, Search, Ticket } from "lucide-react";
+import { ArrowRight, Layers, MapPin, MessageCircle, Ticket } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
 import { FeedRow } from "../components/FeedRow";
+import { HomeFilters } from "../components/HomeFilters";
 import { HomeMap } from "../components/HomeMap";
 import { SplitView } from "../components/SplitView";
 import { TripPinCard, type PinCardTrip } from "../components/TripPinCard";
@@ -14,7 +15,19 @@ import { Button, Card, StageBadge } from "../components/ui";
 import { fetchFeed, fetchMyTrips, fetchShowcase, fetchTripGeo } from "../lib/api";
 import { formatDate, tripTodayIso } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
-import { filterTrips, nextUpTrip, presentStages, upNextLabel, SEASON_MONTHS, type Season, type TripFilter, type TripOrigin } from "../lib/home";
+import {
+  activeFacetCount,
+  filterTrips,
+  nextUpTrip,
+  presentSeasons,
+  presentStages,
+  presentVisibilities,
+  upNextLabel,
+  SEASON_MONTHS,
+  type Season,
+  type TripFilter,
+  type TripOrigin,
+} from "../lib/home";
 import { homePinsFromGeo, homeRowId } from "../lib/home-geo";
 import { sortShowcaseTrips } from "../lib/marketing";
 import { prefersReducedMotion } from "../lib/maps";
@@ -250,20 +263,8 @@ function HomeBands({
   gridTrips,
   followed,
   discoverTrips,
-  stageChips,
+  filters,
   todayIso,
-  query,
-  onQueryChange,
-  stages,
-  onToggleStage,
-  place,
-  onPlaceChange,
-  months,
-  onToggleSeason,
-  originSel,
-  onOriginSel,
-  vis,
-  onToggleVisibility,
   filtering,
   selectedDtId,
   flashDtId,
@@ -278,20 +279,10 @@ function HomeBands({
   gridTrips: TripSummary[] | null;
   followed: FeedEntry[] | null;
   discoverTrips: ShowcaseTrip[] | null;
-  stageChips: Stage[];
+  /** Search + the Filters door (#249 slice 4, reviewed) — built by the page,
+   *  which owns the filter state and the facet counts. */
+  filters?: ReactNode;
   todayIso: string;
-  query: string;
-  onQueryChange: (q: string) => void;
-  stages: readonly Stage[];
-  onToggleStage: (stage: Stage) => void;
-  place: string;
-  onPlaceChange: (q: string) => void;
-  months: readonly number[];
-  onToggleSeason: (season: Season) => void;
-  originSel: "all" | "mine" | "following";
-  onOriginSel: (sel: "all" | "mine" | "following") => void;
-  vis: readonly Visibility[];
-  onToggleVisibility: (v: Visibility) => void;
   filtering: boolean;
   selectedDtId: string | null;
   flashDtId: string | null;
@@ -328,117 +319,11 @@ function HomeBands({
         )}
       </div>
 
-      {/* Search + facets sit above the bands and filter the trip bands (feed
-          rows carry no stage, month, origin or visibility, so the chips skip
-          them — the text applies). Stage chips stay as-is. */}
-      {trips && trips.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <label className="relative min-w-52 flex-1 sm:max-w-xs">
-            <span className="sr-only">Search trips</span>
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => onQueryChange(e.target.value)}
-              placeholder="Search trips"
-              className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:focus-ring"
-            />
-          </label>
-          <label className="relative min-w-40 flex-1 sm:max-w-[12rem]">
-            <span className="sr-only">Place or region</span>
-            <MapPin
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              value={place}
-              onChange={(e) => onPlaceChange(e.target.value)}
-              placeholder="Place or region"
-              className="h-9 w-full rounded-md border border-border bg-card pl-9 pr-3 text-sm placeholder:text-muted-foreground focus-visible:focus-ring"
-            />
-          </label>
-          {stageChips.map((stage) => {
-            const active = stages.includes(stage);
-            return (
-              <button
-                key={stage}
-                type="button"
-                onClick={() => onToggleStage(stage)}
-                aria-pressed={active}
-                className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {stage}
-              </button>
-            );
-          })}
-          {(["spring", "summer", "autumn", "winter"] as const).map((season) => {
-            const want = SEASON_MONTHS[season];
-            const active = want.every((m) => months.includes(m));
-            return (
-              <button
-                key={season}
-                type="button"
-                onClick={() => onToggleSeason(season)}
-                aria-pressed={active}
-                title="Trips starting in this season"
-                className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {season}
-              </button>
-            );
-          })}
-          <span role="group" aria-label="Whose trips" className="inline-flex overflow-hidden rounded-full border border-border">
-            {(["all", "mine", "following"] as const).map((sel) => {
-              const active = originSel === sel;
-              return (
-                <button
-                  key={sel}
-                  type="button"
-                  onClick={() => onOriginSel(sel)}
-                  aria-pressed={active}
-                  className={`h-9 px-3 text-xs font-medium capitalize transition-colors ${
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {sel === "all" ? "All" : sel === "mine" ? "Mine" : "Following"}
-                </button>
-              );
-            })}
-          </span>
-          {(["public", "private"] as const).map((v) => {
-            const active = vis.includes(v);
-            return (
-              <button
-                key={v}
-                type="button"
-                onClick={() => onToggleVisibility(v)}
-                aria-pressed={active}
-                className={`h-9 rounded-full border px-3 text-xs font-medium capitalize transition-colors ${
-                  active
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {v}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {/* Search + the Filters door sit above the bands and narrow the trip
+          bands (feed rows carry no stage, month, origin or visibility, so the
+          chips skip them — the text applies). The page owns the state and the
+          facet counts; `HomeFilters` owns the two visible controls. */}
+      {filters}
 
       {error ? (
         error.kind === "expired" ? (
@@ -615,7 +500,20 @@ function AuthenticatedLanding() {
   // The row a pin tap just raised — flashes once via `place-pill-flash` (#104).
   const [flashDtId, setFlashDtId] = useState<string | null>(null);
   // Phone sheet detent (`SplitView` owns the ladder; desktop ignores this).
-  const [detent, setDetent] = useState<Detent>("half");
+  //
+  // `peek`, not `half`, and that is a deliberate call for THIS surface: the home
+  // is the §2.2 map canvas, so what you should meet first is the map with your
+  // trips on it, and the peek line already says what is next. It is also the
+  // only detent where every pin is actually visible on a phone — measured on a
+  // 390×844 viewport with a Canada/Chile/Japan pin set: the sheet's top sits at
+  // 453px at `half` and 727px at `peek`, while MapLibre refuses to make the
+  // world shorter than the canvas, so a −33° latitude lands ~60% down a world
+  // that is at least 783px tall (469px) — behind the sheet at `half`, at every
+  // zoom the transform permits. Swiping up is the whole cost; the bands, search
+  // and the assistant are one gesture away. (The trip surface keeps `half`: its
+  // sheet holds the day document, not the map.) See PR #310 — revert by putting
+  // "half" back if bands-first is wanted here.
+  const [detent, setDetent] = useState<Detent>("peek");
   // Global trip map (slice 5): the discoverable layer, default ON with the
   // bands. Mine always shows — another person's trips are what toggles.
   const [showDiscoverPins, setShowDiscoverPins] = useState(true);
@@ -635,10 +533,11 @@ function AuthenticatedLanding() {
   const [chatOpen, setChatOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [stages, setStages] = useState<readonly Stage[]>([]);
-  // Rich facets (#249 slice 4): month/season from startDate, place/region over
-  // the E2 anchors, mine⇄following provenance, visibility. All optional, all
-  // empty by default — the bands answer the unfiltered home first.
-  const [place, setPlace] = useState("");
+  // Rich facets (#249 slice 4, reviewed): month/season from startDate,
+  // mine⇄following provenance and visibility, all behind the Filters door.
+  // "Place" is not a facet of its own — the search box matches the E2 anchor
+  // too. Everything is optional and empty by default, so the bands answer the
+  // unfiltered home first.
   const [months, setMonths] = useState<readonly number[]>([]);
   const [originSel, setOriginSel] = useState<"all" | "mine" | "following">("all");
   const [vis, setVis] = useState<readonly Visibility[]>([]);
@@ -707,15 +606,15 @@ function AuthenticatedLanding() {
       q: query,
       stages,
       months,
-      place,
       origins:
         originSel === "all" ? [] : originSel === "mine" ? ["mine"] : (["following", "discover"] as TripOrigin[]),
       visibility: vis,
     }),
-    [query, stages, months, place, originSel, vis],
+    [query, stages, months, originSel, vis],
   );
 
-  // Anchor names by trip, from the E2 read — the place/region facet's index.
+  // Anchor names by trip, from the E2 read — what the search box matches by
+  // place, and what a band card shows as the trip's anchor.
   const anchorByTrip = useMemo(() => {
     const map = new Map<string, string>();
     for (const row of geo ?? []) map.set(row.dtId, row.anchor.name);
@@ -743,9 +642,9 @@ function AuthenticatedLanding() {
   );
   const followed = useMemo(() => {
     if (!feed) return null;
-    // Feed rows carry no stage, month, origin or visibility — the chips skip
-    // them; the text (search or place) applies, over the same fields as today.
-    const q = `${query} ${place}`.trim().toLowerCase();
+    // Feed rows carry no stage, month, origin or visibility — the facets skip
+    // them; the text search applies, over the same fields as before.
+    const q = query.trim().toLowerCase();
     return feed
       .filter((e) => e.source === "followed-user")
       .filter(
@@ -756,7 +655,7 @@ function AuthenticatedLanding() {
           (e.label ?? "").toLowerCase().includes(q),
       )
       .slice(0, 6);
-  }, [feed, query, place]);
+  }, [feed, query]);
   const discoverTrips = useMemo(() => {
     if (!discover) return null;
     const mine = new Set((trips ?? []).map((t) => t.dtId));
@@ -773,16 +672,33 @@ function AuthenticatedLanding() {
     () => presentStages([...(trips ?? []), ...(discover ?? [])]),
     [trips, discover],
   );
+  // The facet sets the panel offers — only values something can match, so the
+  // Filters door never shows a chip that returns an empty list.
+  const seasonChips = useMemo(
+    () => presentSeasons([...(trips ?? []), ...(discover ?? [])]),
+    [trips, discover],
+  );
+  const visibilityChips = useMemo(
+    () =>
+      presentVisibilities([
+        ...(trips ?? []),
+        // Everything on the discover shelf is `public` by construction — the
+        // showcase read requires public AND discoverable — so the shelf can
+        // only ever contribute that one value.
+        ...(discover ?? []).map(() => ({ visibility: "public" as const })),
+      ]),
+    [trips, discover],
+  );
+  const facetCount = useMemo(() => activeFacetCount(filter), [filter]);
   // Any active facet steps Up next aside and rewords the empty bands.
   const filtering = useMemo(
     () =>
       query.trim() !== "" ||
-      place.trim() !== "" ||
       stages.length > 0 ||
       months.length > 0 ||
       originSel !== "all" ||
       vis.length > 0,
-    [query, place, stages, months, originSel, vis],
+    [query, stages, months, originSel, vis],
   );
   const todayIso = useMemo(() => tripTodayIso({}), []);
   // Pins from the E2 read, verbatim — a trip the read did not list gets no
@@ -875,6 +791,15 @@ function AuthenticatedLanding() {
     return <MarketingLanding signIn={<SignInButton />} />;
   }
 
+  // "Clear all filters" empties the FACETS and deliberately leaves the search
+  // text: what you typed is visible, so wiping it silently would surprise.
+  const clearFacets = () => {
+    setStages([]);
+    setMonths([]);
+    setOriginSel("all");
+    setVis([]);
+  };
+
   const toggleStage = (stage: Stage) =>
     setStages((prev) => (prev.includes(stage) ? prev.filter((s) => s !== stage) : [...prev, stage]));
 
@@ -899,20 +824,26 @@ function AuthenticatedLanding() {
       gridTrips={gridTrips}
       followed={followed}
       discoverTrips={discoverTrips}
-      stageChips={stageChips}
+      filters={
+        <HomeFilters
+          query={query}
+          onQueryChange={setQuery}
+          stageChips={stageChips}
+          stages={stages}
+          onToggleStage={toggleStage}
+          seasonChips={seasonChips}
+          months={months}
+          onToggleSeason={toggleSeason}
+          originSel={originSel}
+          onOriginSel={setOriginSel}
+          visibilityChips={visibilityChips}
+          vis={vis}
+          onToggleVisibility={toggleVis}
+          activeCount={facetCount}
+          onClearAll={clearFacets}
+        />
+      }
       todayIso={todayIso}
-      query={query}
-      onQueryChange={setQuery}
-      stages={stages}
-      onToggleStage={toggleStage}
-      place={place}
-      onPlaceChange={setPlace}
-      months={months}
-      onToggleSeason={toggleSeason}
-      originSel={originSel}
-      onOriginSel={setOriginSel}
-      vis={vis}
-      onToggleVisibility={toggleVis}
       filtering={filtering}
       selectedDtId={selectedDtId}
       flashDtId={flashDtId}

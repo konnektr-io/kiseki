@@ -5,7 +5,7 @@
  * browser lives here and is pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { clusterPins, homePinsFromGeo, homeRowId, pinStage } from "./home-geo";
+import { clusterPins, homePinsFromGeo, homeRowId, normalizeLng, pinStage, unfoldLngs } from "./home-geo";
 import type { TripGeo } from "./types";
 
 function geo(over: Partial<TripGeo> & { dtId: string }): TripGeo {
@@ -107,5 +107,60 @@ describe("clusterPins", () => {
 
   it("clusters nothing when there is nothing", () => {
     expect(clusterPins([], R)).toEqual([]);
+  });
+});
+
+describe("unfoldLngs — the shortest arc across the date line", () => {
+  it("keeps a set that does not cross ±180 in order", () => {
+    // `normalizeLng` reshapes through a modulo, so compare with tolerance.
+    const near = unfoldLngs([11.84, 13.4]);
+    expect(near[0]).toBeCloseTo(11.84, 6);
+    expect(near[1]).toBeCloseTo(13.4, 6);
+    const west = unfoldLngs([-114.06, -70.66]);
+    expect(west[0]).toBeCloseTo(-114.06, 6);
+    expect(west[1]).toBeCloseTo(-70.66, 6);
+  });
+
+  it("measures Canada + Chile + Japan by 148°, not 255°", () => {
+    // Naive min/max: −114.06 … 141.35 = 255.41°, centred on Africa, which no
+    // zoom can hold on a phone. The shortest arc runs Japan → Chile eastward.
+    const unfolded = unfoldLngs([-114.06, -70.66, 141.35]);
+    const min = Math.min(...unfolded);
+    const max = Math.max(...unfolded);
+    expect(min).toBeCloseTo(141.35, 4);
+    expect(max).toBeCloseTo(289.34, 4);
+    expect(max - min).toBeCloseTo(147.99, 2);
+    // Every value is still the same point on the globe.
+    expect(normalizeLng(unfolded[0])).toBeCloseTo(-114.06, 4);
+  });
+
+  it("always reports the arc's own midpoint back inside ±180", () => {
+    const unfolded = unfoldLngs([-114.06, -70.66, 141.35]);
+    const mid = (Math.min(...unfolded) + Math.max(...unfolded)) / 2;
+    expect(normalizeLng(mid)).toBeCloseTo(-144.655, 3);
+  });
+
+  it("handles the two-point case in both directions", () => {
+    // 170 and −170 are 20° apart across the line, not 340° around it.
+    const pair = unfoldLngs([170, -170]);
+    expect(Math.max(...pair) - Math.min(...pair)).toBeCloseTo(20, 4);
+    expect([...pair].sort((a, b) => a - b)).toEqual([170, 190]);
+  });
+
+  it("is a no-op for none or one point, and never mutates its input", () => {
+    const input = [-114.06, -70.66, 141.35];
+    unfoldLngs(input);
+    expect(input).toEqual([-114.06, -70.66, 141.35]);
+    expect(unfoldLngs([])).toEqual([]);
+    expect(unfoldLngs([200])).toEqual([-160]);
+  });
+});
+
+describe("normalizeLng", () => {
+  it("wraps any longitude into [−180, 180)", () => {
+    expect(normalizeLng(215.345)).toBeCloseTo(-144.655, 3);
+    expect(normalizeLng(-190)).toBeCloseTo(170, 4);
+    expect(normalizeLng(190)).toBeCloseTo(-170, 4);
+    expect(normalizeLng(0)).toBe(0);
   });
 });

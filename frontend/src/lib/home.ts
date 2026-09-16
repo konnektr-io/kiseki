@@ -51,14 +51,16 @@ function daysBetween(aIso: string, bIso: string): number {
 }
 
 export interface TripFilter {
-  /** Free text over title + subtitle, case-insensitive. Blank matches all. */
+  /**
+   * Free text. Matches the title, the subtitle AND the trip's map anchor place
+   * — one box, because "where" is part of what you are looking for and a second
+   * input for it was just another thing on screen.
+   */
   q: string;
   /** Stages to keep. Empty means every stage. */
   stages: readonly Stage[];
   /** Months (0 = January) of `startDate` to keep. Empty means every month. */
   months?: readonly number[];
-  /** Free text over the trip's anchor place + title + subtitle. Blank matches all. */
-  place?: string;
   /** Provenance to keep: "mine" (a crew role) vs others' trips. Empty means all. */
   origins?: readonly TripOrigin[];
   /** Visibility to keep. Empty means both. */
@@ -115,7 +117,6 @@ export function filterTrips<T extends FilterableTrip>(
   filter: TripFilter,
 ): T[] {
   const q = filter.q.trim().toLowerCase();
-  const place = (filter.place ?? "").trim().toLowerCase();
   const months = filter.months ?? [];
   const origins = filter.origins ?? [];
   const visibility = filter.visibility ?? [];
@@ -128,15 +129,48 @@ export function filterTrips<T extends FilterableTrip>(
     if (origins.length > 0 && (t.origin === undefined || !origins.includes(t.origin))) return false;
     if (visibility.length > 0 && (t.visibility === undefined || !visibility.includes(t.visibility)))
       return false;
-    if (place) {
-      const hay = `${t.title} ${t.subtitle ?? ""} ${t.anchorName ?? ""}`.toLowerCase();
-      if (!hay.includes(place)) return false;
-    }
     if (!q) return true;
-    return (
-      t.title.toLowerCase().includes(q) || (t.subtitle ?? "").toLowerCase().includes(q)
-    );
+    // One box searches the words AND the place: "Japan" should find the trip
+    // whose anchor is New Chitose, without a second input for it.
+    const hay = `${t.title} ${t.subtitle ?? ""} ${t.anchorName ?? ""}`.toLowerCase();
+    return hay.includes(q);
   });
+}
+
+/**
+ * The seasons present in a list, in calendar order — the season chips. Only
+ * seasons that can return something are offered, so no chip is a dead click.
+ */
+export function presentSeasons(
+  trips: readonly Pick<FilterableTrip, "startDate">[],
+): Season[] {
+  const months = new Set(
+    trips.map((t) => monthOfTrip(t.startDate)).filter((m): m is number => m !== null),
+  );
+  const order: Season[] = ["spring", "summer", "autumn", "winter"];
+  return order.filter((season) => SEASON_MONTHS[season].some((m) => months.has(m)));
+}
+
+/** The visibilities present in a list — the visibility chips. */
+export function presentVisibilities(
+  trips: readonly Pick<FilterableTrip, "visibility">[],
+): Visibility[] {
+  const seen = new Set(trips.map((t) => t.visibility).filter(Boolean) as Visibility[]);
+  return (["public", "private"] as Visibility[]).filter((v) => seen.has(v));
+}
+
+/**
+ * How many FACETS are narrowing the list — the Filters button's badge. The
+ * free-text box is not a facet: you can see what you typed, so counting it
+ * would only make the badge contradict the panel.
+ */
+export function activeFacetCount(filter: TripFilter): number {
+  return (
+    filter.stages.length +
+    (filter.months ?? []).length +
+    (filter.origins ?? []).length +
+    (filter.visibility ?? []).length
+  );
 }
 
 /** The stages present in a list, in stage-weight order — the filter chips. */

@@ -224,7 +224,12 @@ export function LandingMap({
       <div
         ref={ref}
         data-landing-map={failed ? "failed" : webgl2 === false ? "no-webgl2" : ready ? "ready" : onScreen ? "loading" : "idle"}
-        className={`absolute inset-0 transition-opacity duration-300 ${
+        /* `h-full w-full`, NOT `absolute inset-0`: MapLibre adds its
+           `maplibregl-map` class to this element, and that class's unlayered
+           `position: relative` defeats Tailwind's `.absolute` — a relative box
+           with no in-flow children collapses to 0 and the map measures 0. See
+           `HomeMap`'s doc comment for the measured timeline. */
+        className={`h-full w-full transition-opacity duration-300 ${
           ready ? "opacity-100" : "opacity-0"
         }`}
       />

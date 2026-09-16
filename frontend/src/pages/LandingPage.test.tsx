@@ -10,10 +10,10 @@
  * - the four bands render in the documented order (Up next → Your trips →
  *   Following → Discover), and Up next does not duplicate into the grid;
  * - an empty band collapses to one line of copy, never an empty frame;
- * - search + stage chips filter the trip bands;
- * - rich facets (season/month, place over the geo anchors, Mine⇄Following
- *   provenance, visibility) filter the trip bands; feed rows take the text
- *   only, never the chips;
+ * - the search box filters the trip bands by name, note and place;
+ * - the facets (stage, season/month, Mine⇄Following provenance, visibility)
+ *   live behind the Filters door and filter the trip bands when opened; feed
+ *   rows take the text only, never the facets;
  * - Discover never shows your own trips;
  * - the map canvas renders beside the bands when geo arrives, and collapses
  *   (bands as-is, no error) when geo is empty or fails; hovering a card
@@ -57,12 +57,15 @@ vi.mock("../components/SplitView", () => ({
     header,
     content,
     map,
+    detent,
   }: {
     header: React.ReactNode;
     content: React.ReactNode;
     map: (padding: { top: number; right: number; bottom: number; left: number }) => React.ReactNode;
+    /** Exposed so the page-level test can pin which detent the page asks for. */
+    detent?: string;
   }) => (
-    <main>
+    <main data-detent={detent}>
       <div data-testid="sheet-header">{header}</div>
       {content}
       {map({ top: 0, right: 0, bottom: 0, left: 0 })}
@@ -246,6 +249,41 @@ describe("empty bands collapse", () => {
   });
 });
 
+/**
+ * The three interactions the search row and the Filters door are driven with.
+ * Module scope, so both the search test and the facets block reach the same
+ * helpers — a local copy in one `describe` is how the two drift apart.
+ */
+async function openFilters(el: HTMLElement): Promise<void> {
+  const door = [...el.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Filters"))!;
+  await act(async () => {
+    door.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+async function setSearch(el: HTMLElement, value: string): Promise<void> {
+  const input = el.querySelector('input[type="search"]') as HTMLInputElement;
+  await act(async () => {
+    input.focus();
+    // React 19: native setter + input event drives the controlled input.
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+/** Click a facet chip, opening the door first when it is not on screen yet. */
+async function clickChip(el: HTMLElement, text: string): Promise<void> {
+  let chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text);
+  if (!chip) {
+    await openFilters(el);
+    chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text);
+  }
+  await act(async () => {
+    chip!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
 describe("search and stage filters", () => {
   it("filters the trip bands by text", async () => {
     const el = await mount();
@@ -264,6 +302,7 @@ describe("search and stage filters", () => {
 
   it("filters by stage chip, and Up next steps aside while filtering", async () => {
     const el = await mount();
+    await openFilters(el);
     const chip = [...el.querySelectorAll("button")].find((b) => b.textContent === "idea")!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -379,23 +418,55 @@ describe("the global trip map layer", () => {
   });
 });
 
-describe("rich facets", () => {
-  async function setPlace(el: HTMLElement, value: string): Promise<void> {
-    const input = el.querySelector('input[placeholder="Place or region"]') as HTMLInputElement;
-    await act(async () => {
-      input.focus();
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
+describe("search and the Filters door", () => {
+  const door = (el: HTMLElement) =>
+    [...el.querySelectorAll("button")].find((b) => b.textContent?.startsWith("Filters"))!;
 
-  async function clickChip(el: HTMLElement, text: string): Promise<void> {
-    const chip = [...el.querySelectorAll("button")].find((b) => b.textContent === text)!;
+  it("hides every facet behind the door, and shows none of them by default", async () => {
+    const el = await mount();
+    // The door is the only facet control on screen: no season/stage/whichever
+    // pills, and no second text box for the place.
+    expect(door(el)).toBeTruthy();
+    expect(door(el).getAttribute("aria-expanded")).toBe("false");
+    expect(el.querySelector("[data-home-filters]")).toBeNull();
+    expect(el.querySelector('input[placeholder="Place or region"]')).toBeNull();
+    expect(el.querySelectorAll('input[type="search"]')).toHaveLength(1);
+    for (const label of ["winter", "public", "Mine", "idea"]) {
+      expect([...el.querySelectorAll("button")].some((b) => b.textContent === label)).toBe(false);
+    }
+    await openFilters(el);
+    expect(door(el).getAttribute("aria-expanded")).toBe("true");
+    expect(el.querySelector("[data-home-filters]")).toBeTruthy();
+    // …and the panel renders in the page flow, not as a floating popover.
+    expect(el.querySelector("[data-home-filters]")!.className).not.toContain("absolute");
+  });
+
+  it("badges the door with the facet count, and clears them all", async () => {
+    const el = await mount();
+    expect(door(el).textContent).not.toMatch(/\d/);
+    await clickChip(el, "Mine");
+    expect(door(el).textContent).toContain("1");
+    await clickChip(el, "public");
+    expect(door(el).textContent).toContain("2");
+    const clear = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Clear all filters"),
+    )!;
     await act(async () => {
-      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      clear.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-  }
+    expect(door(el).textContent).not.toMatch(/\d/);
+    // Clearing facets leaves the search text alone — it is visible, so wiping
+    // it would be a surprise.
+    await setSearch(el, "heliski");
+    expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe("heliski");
+    await clickChip(el, "Mine");
+    await act(async () => {
+      [...el.querySelectorAll("button")]
+        .find((b) => b.textContent?.includes("Clear all filters"))!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect((el.querySelector('input[type="search"]') as HTMLInputElement).value).toBe("heliski");
+  });
 
   it("filters by season, from the start date", async () => {
     const el = await mount();
@@ -407,10 +478,10 @@ describe("rich facets", () => {
     expect(yours.textContent).not.toContain("Japan Campervan");
   });
 
-  it("filters by place, over anchors, titles and subtitles", async () => {
+  it("searches the place as well as the words, off the geo anchors", async () => {
     net.geo = "ok"; // anchors come from the geo read
     const el = await mount();
-    await setPlace(el, "selk");
+    await setSearch(el, "selk");
     const yours = el.querySelector('section[aria-label="Your trips"]')!;
     expect(yours.textContent).toContain("Canada Heliski");
     expect(yours.textContent).not.toContain("Japan Campervan");
@@ -436,12 +507,40 @@ describe("rich facets", () => {
     expect(yours.textContent).not.toContain("Japan Campervan");
   });
 
-  it("applies the place text to the Following band, and skips the chips there", async () => {
+  it("applies the search text to the Following band, and skips the facets there", async () => {
     const el = await mount();
-    await setPlace(el, "rifugio");
+    await setSearch(el, "rifugio");
     const following = el.querySelector('section[aria-label="Following"]')!;
     expect(following.textContent).toContain("Rifugio lunch");
-    await setPlace(el, "nowhere-near-anything");
+    await setSearch(el, "nowhere-near-anything");
     expect(el.querySelector('section[aria-label="Following"]')!.querySelector("ul")).toBeNull();
+  });
+
+  it("closes the door on Escape", async () => {
+    const el = await mount();
+    await openFilters(el);
+    expect(el.querySelector("[data-home-filters]")).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(el.querySelector("[data-home-filters]")).toBeNull();
+  });
+});
+
+describe("the phone's first impression", () => {
+  it("opens the sheet at `peek` — the map first, bands one swipe away", async () => {
+    net.geo = "ok"; // the canvas branch is the one with a detent
+    const el = await mount();
+    const sheet = el.querySelector("[data-detent]")!;
+    // The home is the §2.2 map canvas: it opens showing the map and the
+    // "what's next" line. `half` (the trip surface's default) hides the
+    // southernmost pin behind the sheet on a phone — see the note on the
+    // detent state in LandingPage.
+    expect(sheet.getAttribute("data-detent")).toBe("peek");
+  });
+
+  it("still renders every band under the collapsed sheet", async () => {
+    const el = await mount();
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
   });
 });

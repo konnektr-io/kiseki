@@ -10,10 +10,13 @@ import { describe, expect, it } from "vitest";
 import type { TripSummary } from "./types";
 import {
   SEASON_MONTHS,
+  activeFacetCount,
   filterTrips,
   monthOfTrip,
   nextUpTrip,
+  presentSeasons,
   presentStages,
+  presentVisibilities,
   upNextLabel,
 } from "./home";
 
@@ -131,16 +134,16 @@ describe("filterTrips facets", () => {
     expect(filterTrips(trips, blank)).toHaveLength(3);
   });
 
-  it("place matches the anchor, the title and the subtitle", () => {
+  it("the one search box matches the anchor place too, not just the words", () => {
     const anchored = [
       { ...trips[0], anchorName: "Revelstoke" },
       { ...trips[1], anchorName: "Cusco" },
       trips[2],
     ];
-    expect(filterTrips(anchored, { ...blank, place: "revel" }).map((t) => t.dtId)).toEqual(["a"]);
-    expect(filterTrips(anchored, { ...blank, place: "ANDES" }).map((t) => t.dtId)).toEqual(["b"]);
-    expect(filterTrips(anchored, { ...blank, place: "japan" }).map((t) => t.dtId)).toEqual(["c"]);
-    expect(filterTrips(anchored, { ...blank, place: "nowhere" })).toHaveLength(0);
+    expect(filterTrips(anchored, { ...blank, q: "revel" }).map((t) => t.dtId)).toEqual(["a"]);
+    expect(filterTrips(anchored, { ...blank, q: "ANDES" }).map((t) => t.dtId)).toEqual(["b"]);
+    expect(filterTrips(anchored, { ...blank, q: "japan" }).map((t) => t.dtId)).toEqual(["c"]);
+    expect(filterTrips(anchored, { ...blank, q: "nowhere" })).toHaveLength(0);
   });
 
   it("origin keeps mine vs others, and unannotated items prove nothing", () => {
@@ -160,6 +163,36 @@ describe("filterTrips facets", () => {
     expect(filterTrips(listed, { ...blank, visibility: ["private"] }).map((t) => t.dtId)).toEqual(["a"]);
   });
 
+  it("presentSeasons lists only the seasons something starts in, in calendar order", () => {
+    expect(presentSeasons(trips)).toEqual(["autumn", "winter"]); // Sep, then Feb
+    expect(presentSeasons([])).toEqual([]);
+    expect(presentSeasons([{ startDate: null }, { startDate: "not-a-date" }])).toEqual([]);
+    // A southern-hemisphere December is still "winter" — seasons are fixed by
+    // month, not by hemisphere (the trip tells you where it is).
+    expect(presentSeasons([{ startDate: "2027-12-24" }])).toEqual(["winter"]);
+  });
+
+  it("presentVisibilities lists only what is on screen, public first", () => {
+    expect(presentVisibilities(trips)).toEqual(["public", "private"]);
+    expect(presentVisibilities([trips[0]])).toEqual(["private"]);
+    expect(presentVisibilities([{ visibility: undefined }])).toEqual([]);
+  });
+
+  it("activeFacetCount counts facets, and never the search text", () => {
+    expect(activeFacetCount({ q: "", stages: [] })).toBe(0);
+    // Text is visible on screen, so it is not a facet.
+    expect(activeFacetCount({ q: "heliski", stages: [] })).toBe(0);
+    expect(
+      activeFacetCount({
+        q: "",
+        stages: ["booked"],
+        months: [1, 2, 3],
+        origins: ["mine"],
+        visibility: ["public"],
+      }),
+    ).toBe(6);
+  });
+
   it("combines every facet, and preserves the caller's order", () => {
     const sourced = [
       { ...trips[1], origin: "discover" as const, anchorName: "Cusco" },
@@ -169,7 +202,6 @@ describe("filterTrips facets", () => {
       q: "a",
       stages: ["booked", "planned"],
       months: [1, 8],
-      place: "e",
       origins: ["mine", "discover"],
       visibility: ["private", "public"],
     });
