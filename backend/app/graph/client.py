@@ -74,7 +74,9 @@ _GRAPH_TTL = {"fetch_graph": 60.0, "role_for_user_on_trip": 30.0,
               # full bundle while the feed stops paying for it entirely.
               "fetch_feed_bundle": 60.0,
               # The landing showcase (#249): same 60 s as the reads above.
-              "list_showcase_trips": 60.0}
+              "list_showcase_trips": 60.0,
+              # The signed-in home's map pins (#249 E2): same 60 s poll budget.
+              "list_geo_trips": 60.0}
 
 
 def _cached_graph(method: Callable) -> Callable:
@@ -107,7 +109,7 @@ def _clear_graph_cache() -> None:
 # is trip-keyed — omitting it would leave an edited trip's feed rows stale for
 # up to its full TTL.
 _CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user",
-                      "fetch_feed_bundle"}
+                      "fetch_feed_bundle", "list_geo_trips"}
 # Token lookups are keyed by the SECRET, not the trip id — a rotation or a
 # revoke must therefore retire them by token value (#197). Crew writes
 # deliberately leave them cached (a claim/link write doesn't change what a
@@ -424,6 +426,33 @@ RETURN t.`$dtId` AS dtId, t.visibility AS visibility,
 LIMIT {limit}
 """
 
+# The signed-in home's map canvas (#249 E2): one anchor point per LISTABLE
+# trip. Two queries, merged in Python — the same two-round-trip shape as
+# ``_profile_trips`` (the target's trips + the viewer's trips for the role
+# map), because the list rule is the same one: ``discoverable`` OR the viewer
+# already has a role on it.
+#
+# Both carry each trip's registry locations as collected [name, lat, lng,
+# edge-index] rows so the anchor ("the first located registry entry") is
+# picked in Python without a second query per trip. ``$uid`` is a bound
+# parameter; the discoverable read takes none.
+_Q_GEO_MINE = """
+MATCH (t:Twin)-[crew:hasCrew]->(u:Twin)
+WHERE u.`$dtId` = $uid
+OPTIONAL MATCH (t)-[a:atLocation]->(l:Twin)
+RETURN t.`$dtId` AS dtId, t.title AS title, t.stage AS stage,
+       collect(DISTINCT [l.name, l.lat, l.lng, a.index]) AS places
+"""
+
+_Q_GEO_DISCOVERABLE = """
+MATCH (t:Twin)
+WHERE t.discoverable = true
+OPTIONAL MATCH (t)-[a:atLocation]->(l:Twin)
+RETURN t.`$dtId` AS dtId, t.title AS title, t.stage AS stage,
+       t.discoverable AS discoverable,
+       collect(DISTINCT [l.name, l.lat, l.lng, a.index]) AS places
+"""
+
 # ACL: the role a user has on ONE trip (issue #5). Trip-scoped via `$dtid`;
 # the person is the User twin whose `$dtId` IS the global auth id (created on
 # claim — issue #6). Deliberately NOT matched by name/email: those are
@@ -732,6 +761,64 @@ class GraphReadClient:
                 f"({len(rows)} row(s) matched, limit={clamp_showcase_limit(limit)})"
             )
         return cards
+
+    @_cached_graph
+    def list_geo_trips(self, user_dtid: str) -> list[dict]:
+        """One anchor point per trip the viewer may LIST (#249 E2 — the gate
+        slices 3 and 5 build on).
+
+        A trip is listed when EITHER it is ``discoverable`` OR the viewer
+        already has a role on it — the ``_profile_trips`` rule
+        (``backend/app/main.py``), re-checked in Python, never trusted to the
+        WHERE clause alone (same discipline as ``list_showcase_trips``).
+
+        Each row is ``dtId, title, stage`` plus an ``anchor`` ``{lat, lng,
+        name}`` — the FIRST located registry entry (``atLocation`` edge order,
+        i.e. the trip's own ① ② … marker order). The choice is documented
+        because a trip has many places and a pin needs one: the first stop is
+        where the journey starts. Trips with no located place are OMITTED —
+        never a null-island 0,0 pin.
+
+        Cards, not documents: no crew, no claim/follow token, no ``practical``,
+        no booking/cost fields. Cached 60 s like the other hot reads; ``[]``
+        when the graph is disabled, the id is malformed, or the read fails —
+        the home collapses the map instead of 500-ing.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            mine_rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_GEO_MINE, query_parameters={"uid": user_dtid}
+                )
+            )
+            disc_rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_GEO_DISCOVERABLE
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — a home read must not 5xx
+            print(f"[kiseki] graph geo read failed: {exc}")
+            return []
+        out: list[dict] = []
+        seen: set[str] = set()
+        for row in mine_rows:
+            geo = self._geo_row_from_dict(row, origin="mine")
+            if geo is not None:
+                seen.add(geo["dtId"])
+                out.append(geo)
+        for row in disc_rows:
+            if not isinstance(row, dict) or row.get("dtId") in seen:
+                continue
+            # The second lock on the listing boundary: the query filters, but
+            # an absent flag must never read as "listable".
+            if row.get("discoverable") is not True:
+                continue
+            geo = self._geo_row_from_dict(row, origin="discover")
+            if geo is not None:
+                seen.add(geo["dtId"])
+                out.append(geo)
+        return out
 
     @_cached_graph
     def trips_for_user_ordered(
@@ -1358,6 +1445,55 @@ class GraphReadClient:
             "startDate": row.get("startDate"),
             "endDate": row.get("endDate"),
             "cover": row.get("cover"),
+        }
+
+    @staticmethod
+    def _geo_row_from_dict(row: Any, origin: str) -> Optional[dict]:
+        """One ``_Q_GEO_*`` row to a map pin, or ``None``.
+
+        ``None`` means "no pin": no dtId, or no located place — an unlocated
+        trip is omitted rather than pinned at 0,0. Returns an allowlisted dict
+        (never the row), so a future column added to the query cannot ride
+        along to the caller by accident.
+        """
+        if not isinstance(row, dict):
+            return None
+        dt_id = row.get("dtId")
+        if not dt_id:
+            return None
+        places = row.get("places") or []
+        # Registry order is the `atLocation` edge `index` (trip_to_graph
+        # writes it per registry position); entries without one sort last.
+        # `collect()` over a trip with no locations yields a single
+        # null-padded row — skipped like any other unlocated entry below.
+        def _order(place: Any) -> tuple[bool, Any]:
+            idx = place[3] if isinstance(place, (list, tuple)) and len(place) > 3 else None
+            if isinstance(idx, bool) or not isinstance(idx, (int, float)):
+                return (True, 0)
+            return (False, idx)
+
+        anchor: Optional[dict] = None
+        for place in sorted(places, key=_order):
+            if not isinstance(place, (list, tuple)) or len(place) < 3:
+                continue
+            name, lat, lng = place[0], place[1], place[2]
+            if (
+                isinstance(lat, bool)
+                or isinstance(lng, bool)
+                or not isinstance(lat, (int, float))
+                or not isinstance(lng, (int, float))
+            ):
+                continue
+            anchor = {"lat": lat, "lng": lng, "name": name or ""}
+            break
+        if anchor is None:
+            return None
+        return {
+            "dtId": dt_id,
+            "title": row.get("title") or "",
+            "stage": row.get("stage") or "",
+            "anchor": anchor,
+            "origin": origin,
         }
 
     @staticmethod

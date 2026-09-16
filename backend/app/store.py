@@ -188,6 +188,41 @@ def list_showcase_trips(limit: int | None = None) -> list[dict]:
     return out
 
 
+def list_geo_trips(user_dtid: str) -> list[dict]:
+    """Anchor points for the signed-in home's map canvas (#249 E2).
+
+    Graph-backed; when the graph is not configured, the discoverable
+    anonymized fixtures stand in (dev/CI) — held to the discoverable half of
+    the list rule, since the fallback carries no crew roles. In practice this
+    is ``[]`` (the committed fixtures carry no ``discoverable`` flag), and the
+    home collapses the map — same soft-load discipline as the showcase.
+    """
+    client = get_graph_client()
+    if client is not None:
+        return client.list_geo_trips(user_dtid)
+    out: list[dict] = []
+    for trip in _anon_trips():
+        if not trip.discoverable:
+            continue
+        anchor = None
+        for loc in trip.locations or []:
+            if loc.lat is not None and loc.lng is not None:
+                anchor = {"lat": loc.lat, "lng": loc.lng, "name": loc.name}
+                break
+        if anchor is None:
+            continue
+        out.append(
+            {
+                "dtId": trip.id,
+                "title": trip.title,
+                "stage": trip.stage,
+                "anchor": anchor,
+                "origin": "discover",
+            }
+        )
+    return out
+
+
 def get_trip_role_for_user(
     trip_dtid: str,
     user_dtid: str,
