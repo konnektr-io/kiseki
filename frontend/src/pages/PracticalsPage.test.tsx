@@ -306,3 +306,51 @@ describe("practicals page content links follow their target (#301)", () => {
     expect(external[0]).toContain('target="_blank"');
   });
 });
+
+/* #315 — the Group card is who is coming: followers are a count linking to the
+ * crew page, never rows of their own on the trip's practicalities. */
+describe("practicals page — group vs followers (#315)", () => {
+  function renderCrew(crew: Trip["crew"]): string {
+    const trip = { ...tripWith({}), crew } as unknown as Trip;
+    return renderToString(
+      createElement(
+        MemoryRouter,
+        { initialEntries: ["/t/t-231/practical"] },
+        createElement(
+          Routes,
+          null,
+          createElement(Route, {
+            path: "/t/:tripId/practical",
+            element: createElement(TripProvider, {
+              trip,
+              apply: () => {},
+              children: createElement(PracticalsPage),
+            }),
+          }),
+        ),
+      ),
+    );
+  }
+
+  it("renders the crew as people and the followers as a count that links out", () => {
+    const html = renderCrew([
+      { id: "u1", name: "Niko Owner", role: "owner", claimed: true },
+      { id: "u2", name: "Sam Follower", role: "follower", claimed: true },
+    ] as Trip["crew"]);
+    expect(html).toContain("Niko Owner");
+    expect(html).not.toContain("Sam Follower");
+    // SSR inserts comment nodes between interpolations: match the count loosely
+    expect(html).toMatch(/1(?:<!-- -->)?\s*(?:<!-- -->)?follower(?:s)?/);
+    expect(html).toContain('href="/t/t-231/crew#followers"');
+  });
+
+  it("a followers-only trip renders the card with the count and no member rows", () => {
+    const html = renderCrew([
+      { id: "u2", name: "Sam Follower", role: "follower", claimed: true },
+      { id: "u3", name: "Kim Watcher", role: "follower", claimed: true },
+    ] as Trip["crew"]);
+    expect(html).toContain("Group");
+    expect(html).toMatch(/2(?:<!-- -->)?\s*(?:<!-- -->)?followers/);
+    expect(html).not.toContain("Sam Follower");
+  });
+});

@@ -208,3 +208,51 @@ describe("Add crew from the people you follow (#198 follow-up)", () => {
     expect(few).not.toContain('id="crew-add-search"');
   });
 });
+
+describe("CrewPage followers are their own section (#315)", () => {
+  it("renders the crew and the followers as two sections, follower rows inside the followers one", () => {
+    const html = renderCrew(crewTrip({ myRole: "owner", crew: [OWNER, VIEWER, FOLLOWER] }));
+    const anchor = html.indexOf('id="followers"');
+    expect(anchor).toBeGreaterThan(-1);
+    const [crew, followers] = [html.slice(0, anchor), html.slice(anchor)];
+    // the crew list is the people coming — a follower is not one of them
+    expect(crew).toContain("Niko Owner");
+    expect(crew).toContain("Alex Viewer");
+    expect(crew).not.toContain("Sam Follower");
+    expect(followers).toContain("Sam Follower");
+    expect(followers).toContain("Followers");
+    // the heading says what they are; the row does not repeat the role badge
+    expect(followers).not.toContain(">Follower<");
+  });
+
+  it("no followers, no section (and the word never leaks into the page)", () => {
+    const html = renderCrew(crewTrip({ myRole: "owner", crew: [OWNER, VIEWER] }));
+    expect(html).not.toContain('id="followers"');
+    expect(html).not.toContain("Follower");
+  });
+
+  it("a trip whose only people are followers still says the crew is unannounced", () => {
+    const html = renderCrew(crewTrip({ myRole: "viewer", crew: [FOLLOWER] }));
+    expect(html).toContain("Crew not announced yet.");
+    expect(html).toContain('id="followers"');
+    expect(html).toContain("Sam Follower");
+  });
+
+  it("the title row wraps as a unit and the button labels never break mid-word", () => {
+    // The geometry (two lines instead of wrapped labels at 390px) is asserted
+    // in the browser probe; this pins the classes that make it so. `h-8 px-3`
+    // is the sm Button box, so this counts BUTTONS only — Badge carries
+    // whitespace-nowrap too.
+    const label = "h-8 px-3 whitespace-nowrap";
+    const count = (html: string) => (html.match(new RegExp(label, "g")) ?? []).length;
+    const withPlaceholder = renderCrew(crewTrip({ myRole: "owner", crew: [OWNER, VIEWER] }));
+    expect(withPlaceholder).toContain("flex flex-wrap items-center justify-between gap-2");
+    expect(withPlaceholder).not.toContain("flex items-center justify-between gap-2");
+    // add crew member + copy invite link (the viewer is an unclaimed placeholder)
+    expect(count(withPlaceholder)).toBe(2);
+    // …and the invite button is the placeholder's alone: a settled crew keeps
+    // just the add button
+    expect(count(renderCrew(crewTrip({ myRole: "owner", crew: [OWNER, FOLLOWER] })))).toBe(1);
+    expect(count(renderCrew(crewTrip({ myRole: "owner", crew: [OWNER] })))).toBe(1);
+  });
+});

@@ -87,3 +87,55 @@ describe("booklet — titled practicalities blocks (#254)", () => {
     expect(html).not.toContain("Driving times");
   });
 });
+
+/* #315 — the printed group is the people coming. A follower reads the trip
+ * online; they are not on it, so they never appear in the booklet. */
+function crewTrip(crew: Trip["crew"]): Trip {
+  return {
+    id: "t-315",
+    slug: "crew",
+    title: "Crew trip",
+    stage: "planned",
+    visibility: "private",
+    myRole: "owner",
+    locations: [],
+    sections: [],
+    crew,
+    days: [],
+    practical: {},
+  } as unknown as Trip;
+}
+
+function renderCrewBooklet(crew: Trip["crew"]): string {
+  return renderToString(
+    createElement(TripProvider, {
+      trip: crewTrip(crew),
+      apply: () => {},
+      children: createElement(BookletPage),
+    }),
+  );
+}
+
+describe("booklet — the group is the crew, never the followers (#315)", () => {
+  const MEMBERS = [
+    { id: "u1", name: "Niko Owner", role: "owner", claimed: true },
+    { id: "u2", name: "Alex Viewer", role: "viewer", claimed: false },
+  ] as Trip["crew"];
+  const FOLLOWER = { id: "u3", name: "Sam Follower", role: "follower", claimed: true } as Trip["crew"][number];
+
+  it("prints the crew and drops every follower", () => {
+    const html = renderCrewBooklet([...MEMBERS, FOLLOWER]);
+    expect(html).toContain("Group");
+    expect(html).toContain("Niko Owner");
+    expect(html).toContain("Alex Viewer");
+    expect(html).not.toContain("Sam Follower");
+  });
+
+  it("a trip whose only people are followers prints no Group block", () => {
+    const html = renderCrewBooklet([FOLLOWER]);
+    expect(html).not.toContain("Group");
+    expect(html).not.toContain("Sam Follower");
+    // …and with nothing else practical to say, no empty Key info section either
+    expect(html).not.toContain("Key info");
+  });
+});

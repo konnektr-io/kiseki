@@ -8,6 +8,7 @@ import { classifyTransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { expandSectionDays, sectionRange } from "../lib/sections";
+import { splitCrew } from "../lib/crew";
 import type { Day, Feature } from "../lib/types";
 
 function SectionHeading({ title, part, range }: { title: string; part?: string; range?: string | null }) {
@@ -157,6 +158,9 @@ export function BookletPage() {
   );
   const openTodos = (trip.practical.todos ?? []).filter((t) => !t.done);
   const coverStats = trip.coverStats?.length ? trip.coverStats : [];
+  // The printed group is the people coming (#315): a follower reads the trip
+  // online, they are not on it, so they never appear in the booklet.
+  const { members } = splitCrew(trip.crew);
 
   return (
     <div
@@ -254,7 +258,7 @@ export function BookletPage() {
       )}
 
       {/* key info — contacts / dates / group / essentials (booklet 'At a glance') */}
-      {(trip.practical.contacts?.length || trip.practical.notes || trip.practical.blocks?.length || trip.crew.length > 0) && (
+      {(trip.practical.contacts?.length || trip.practical.notes || trip.practical.blocks?.length || members.length > 0) && (
         <div className="booklet-section">
           <SectionHeading title="Key info" />
           <div className="grid grid-cols-2 gap-4">
@@ -274,11 +278,11 @@ export function BookletPage() {
                 </ul>
               </div>
             ) : null}
-            {trip.crew.length > 0 && (
+            {members.length > 0 && (
               <div>
                 <p className="kicker mb-2">Group</p>
                 <ul className="space-y-1.5">
-                  {trip.crew.map((p) => (
+                  {members.map((p) => (
                     <li key={p.name} className="text-xs">
                       <span className="font-heading font-semibold">{p.name}</span>
                       {p.note && <span className="text-muted-foreground"> — {p.note}</span>}
