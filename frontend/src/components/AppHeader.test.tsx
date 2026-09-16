@@ -40,3 +40,16 @@ describe("AppHeader brand on phones", () => {
     expect(out).not.toContain(BRAND_YIELD);
   });
 });
+
+describe("AppHeader stacking", () => {
+  it("paints above the sheet, so an open menu is never covered", () => {
+    const html = render({ actions: <span /> });
+    // Stacking cannot be computed in jsdom, so the contract is pinned here and
+    // MEASURED in the browser probe: the header is chrome (§2.3) and the sheet
+    // is content, and `Sheet.tsx` is z-20. At z-20 both sat in the root
+    // stacking context, the sheet won on DOM order, and a phone's account menu
+    // was covered by the sheet's top edge.
+    expect(html).toContain("z-30");
+    expect(html).not.toContain("sticky top-0 z-20");
+  });
+});

@@ -74,11 +74,13 @@ vi.mock("../components/SplitView", () => ({
 }));
 
 const net = vi.hoisted(() => ({
-  trips: "ok" as "ok" | "fail",
+  trips: "ok" as "ok" | "fail" | "empty" | "no-live",
   feed: "ok" as "ok" | "fail" | "empty",
   showcase: "ok" as "ok" | "fail" | "empty" | "mine-only",
   geo: "empty" as "ok" | "empty" | "fail",
   fetched: [] as string[],
+  /** POST /api/trips/<id>/follow calls, in order. */
+  followed: [] as string[],
 }));
 
 const TRIPS: TripSummary[] = [
@@ -133,14 +135,23 @@ const GEO: TripGeo[] = [
 
 vi.stubGlobal(
   "fetch",
-  vi.fn(async (url: string) => {
+  vi.fn(async (url: string, init?: { method?: string }) => {
     net.fetched.push(url);
+    // Follow a public trip (#249 review) — the one write this page makes.
+    if (url.endsWith("/follow") && init?.method === "POST") {
+      net.followed.push(url);
+      return { ok: true, json: async () => ({ dtId: url.split("/")[3] }) };
+    }
     if (url === "/api/trips/geo") {
       if (net.geo === "fail") throw new Error("geo down");
       return { ok: true, json: async () => ({ trips: net.geo === "ok" ? GEO : [] }) };
     }
     if (url.startsWith("/api/trips")) {
       if (net.trips === "fail") throw new Error("graph down");
+      if (net.trips === "empty") return { ok: true, json: async () => ({ trips: [] }) };
+      if (net.trips === "no-live") {
+        return { ok: true, json: async () => ({ trips: TRIPS.filter((t) => t.stage !== "live") }) };
+      }
       return { ok: true, json: async () => ({ trips: TRIPS }) };
     }
     if (url.startsWith("/api/feed")) {
@@ -172,6 +183,7 @@ beforeEach(() => {
   net.showcase = "ok";
   net.geo = "empty";
   net.fetched = [];
+  net.followed = [];
   authState.isAuthenticated = true;
   authState.isLoading = false;
   container = document.createElement("div");
@@ -528,19 +540,90 @@ describe("search and the Filters door", () => {
 });
 
 describe("the phone's first impression", () => {
-  it("opens the sheet at `peek` — the map first, bands one swipe away", async () => {
+  it("opens the sheet at `half` — the bands first, the map a swipe down", async () => {
     net.geo = "ok"; // the canvas branch is the one with a detent
     const el = await mount();
-    const sheet = el.querySelector("[data-detent]")!;
-    // The home is the §2.2 map canvas: it opens showing the map and the
-    // "what's next" line. `half` (the trip surface's default) hides the
-    // southernmost pin behind the sheet on a phone — see the note on the
-    // detent state in LandingPage.
-    expect(sheet.getAttribute("data-detent")).toBe("peek");
+    // Niko's call (2026-09-16 review): the bands give more context on arrival,
+    // and swiping DOWN for the map beats swiping UP for your trips. (An earlier
+    // revision opened at `peek` so every pin cleared the sheet; the camera
+    // stays honest either way — see DESIGN.md §2.2 on the zoom floor.)
+    expect(el.querySelector("[data-detent]")!.getAttribute("data-detent")).toBe("half");
   });
 
   it("still renders every band under the collapsed sheet", async () => {
     const el = await mount();
     expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+  });
+});
+
+describe("a brand-new account", () => {
+  it("gets something to look at: the public shelf, not just a button", async () => {
+    net.trips = "empty";
+    const el = await mount();
+    expect(el.textContent).toContain("No trips yet");
+    // 2026-09-16 review: "No trips yet" + one button asked a stranger to take
+    // the product on faith — show the discoverable shelf instead.
+    expect(el.textContent).toContain("Trips worth a look");
+    const shelf = el.querySelector('section[aria-label="Trips worth a look"]')!;
+    expect(shelf.querySelectorAll('a[href^="/t/"]').length).toBeGreaterThan(0);
+  });
+
+  it("makes every shelf card followable, without opening it", async () => {
+    net.trips = "empty";
+    const el = await mount();
+    // Target one card BY NAME: the shelf is sorted (booked before planned), so
+    // "the first button" would silently depend on the comparator.
+    const follow = el.querySelector(
+      'button[aria-label="Follow Canada Heliski"]',
+    ) as HTMLElement;
+    expect(follow).toBeTruthy();
+    // Never nested in the card's link: a button inside an anchor is invalid
+    // HTML and the click would fight the navigation.
+    expect(follow.closest("a")).toBeNull();
+    await act(async () => {
+      follow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(net.followed).toEqual(["/api/trips/booked-1/follow"]);
+    expect(el.textContent).toContain("Following");
+    // Followed = a role on it, so the home re-reads and the trip moves into
+    // "your trips" instead of lingering on the shelf.
+    expect(net.fetched.filter((u) => u === "/api/trips").length).toBeGreaterThan(1);
+  });
+
+  it("skips your own trips on the shelf", async () => {
+    net.trips = "empty";
+    const el = await mount();
+    const shelf = el.querySelector('section[aria-label="Trips worth a look"]')!;
+    // SHOWCASE has two trips, one of which (booked-1) is in TRIPS — with an
+    // empty account neither is "mine", so both are shelf material.
+    expect(shelf.querySelectorAll('a[href^="/t/"]').length).toBe(2);
+  });
+});
+
+describe("the peek line is a door, not a label", () => {
+  const stripLink = (el: HTMLElement, href: string) =>
+    el.querySelector(`[data-testid="sheet-header"] a[href="${href}"]`);
+
+  it("links the Up next title to its trip", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    // The default fixtures have a LIVE trip, and `nextUpTrip` prefers it.
+    expect(stripLink(el, "/t/live-1")).toBeTruthy();
+  });
+
+  it("offers Today while a trip is happening", async () => {
+    net.geo = "ok";
+    const el = await mount();
+    // A live trip's useful destination is the day it is on right now (§7.5's
+    // live swap), so the strip carries both doors.
+    expect(stripLink(el, "/t/live-1/today")).toBeTruthy();
+  });
+
+  it("offers no Today link when nothing is live", async () => {
+    net.geo = "ok";
+    net.trips = "no-live";
+    const el = await mount();
+    expect(stripLink(el, "/t/booked-1")).toBeTruthy();
+    expect(el.querySelector('[data-testid="sheet-header"] a[href$="/today"]')).toBeNull();
   });
 });

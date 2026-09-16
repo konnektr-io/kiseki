@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { ArrowRight, Layers, MapPin, MessageCircle, Ticket } from "lucide-react";
+import { ArrowRight, Check, Layers, MapPin, MessageCircle, Plus, Ticket } from "lucide-react";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
@@ -12,7 +12,13 @@ import { SplitView } from "../components/SplitView";
 import { TripPinCard, type PinCardTrip } from "../components/TripPinCard";
 import type { Detent } from "../components/Sheet";
 import { Button, Card, StageBadge } from "../components/ui";
-import { fetchFeed, fetchMyTrips, fetchShowcase, fetchTripGeo } from "../lib/api";
+import {
+  fetchFeed,
+  fetchMyTrips,
+  fetchShowcase,
+  fetchTripGeo,
+  followPublicTrip,
+} from "../lib/api";
 import { formatDate, tripTodayIso } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import {
@@ -162,6 +168,151 @@ function TripCard({ trip }: { trip: CardTrip }) {
   );
 }
 
+/**
+ * Follow a public trip, straight from its discovery card.
+ *
+ * The endpoint has existed since #197 (`followPublicTrip`) with no caller in
+ * the UI at all — so a public trip could only be followed by opening it and
+ * finding the follow link. This is its first home: the front door, where a
+ * visitor with no trips of their own is looking at someone else's.
+ *
+ * A sibling of the card's link, never nested inside it: a `<button>` inside an
+ * `<a>` is invalid HTML and the click would fight the navigation. It floats
+ * over the photo's top-right corner — the stage badge owns the left.
+ */
+function FollowChip({
+  busy,
+  following,
+  title,
+  onFollow,
+}: {
+  busy: boolean;
+  following: boolean;
+  title: string;
+  onFollow: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onFollow}
+      disabled={busy || following}
+      aria-label={following ? `Following ${title}` : `Follow ${title}`}
+      className="floating flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-foreground transition-colors focus-visible:focus-ring disabled:cursor-default"
+    >
+      {following ? (
+        <>
+          <Check className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+          Following
+        </>
+      ) : busy ? (
+        "Following…"
+      ) : (
+        <>
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          Follow
+        </>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A discovery card: the trip card plus the one action a stranger may take on a
+ * public trip they do not have a role on.
+ */
+function DiscoverCard({
+  trip,
+  following,
+  busy,
+  onFollow,
+}: {
+  trip: CardTrip;
+  following: boolean;
+  busy: boolean;
+  onFollow: () => void;
+}) {
+  return (
+    <div className="relative">
+      <TripCard trip={trip} />
+      <div className="absolute right-2.5 top-2.5 z-10">
+        <FollowChip
+          busy={busy}
+          following={following}
+          title={trip.title}
+          onFollow={onFollow}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The discovery shelf — public, discoverable trips worth a look, with the
+ * follow action on every card.
+ *
+ * Rendered by BOTH homes: the populated one (bands) and the brand-new account,
+ * where it is the difference between "No trips yet" and something to look at.
+ * One component so the two can never drift apart.
+ */
+function DiscoverBand({
+  trips,
+  filtering,
+  followedIds,
+  busyId,
+  error,
+  onFollow,
+  selectedDtId,
+  flashDtId,
+  title = "Discover",
+  blurb = "Public trips worth a look.",
+  emptyLine = "No public trips to discover right now.",
+}: {
+  trips: ShowcaseTrip[] | null;
+  filtering: boolean;
+  followedIds: readonly string[];
+  busyId: string | null;
+  error: string | null;
+  onFollow: (dtId: string) => void;
+  selectedDtId: string | null;
+  flashDtId: string | null;
+  title?: string;
+  blurb?: string;
+  emptyLine?: string;
+}) {
+  return (
+    <Band title={title} blurb={blurb}>
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {trips === null ? (
+        <Collapsed>Looking for public trips…</Collapsed>
+      ) : trips.length > 0 ? (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {trips.map((trip) => (
+            <BandRow
+              key={trip.dtId}
+              dtId={trip.dtId}
+              selected={selectedDtId === trip.dtId}
+              flash={flashDtId === trip.dtId}
+            >
+              <DiscoverCard
+                trip={trip}
+                following={followedIds.includes(trip.dtId)}
+                busy={busyId === trip.dtId}
+                onFollow={() => onFollow(trip.dtId)}
+              />
+            </BandRow>
+          ))}
+        </div>
+      ) : (
+        <Collapsed>{filtering ? "No public trips match this search." : emptyLine}</Collapsed>
+      )}
+    </Band>
+  );
+}
+
 function TripGridSkeleton() {
   return (
     <div className="grid gap-5 sm:grid-cols-2">
@@ -272,6 +423,10 @@ function HomeBands({
   onOpenChat,
   onRetry,
   onSignInAgain,
+  followedIds,
+  followBusyId,
+  followError,
+  onFollow,
 }: {
   trips: TripSummary[] | null;
   error: TripsError | null;
@@ -290,6 +445,13 @@ function HomeBands({
   onOpenChat: () => void;
   onRetry: () => void;
   onSignInAgain: () => void;
+  /** Trips followed in THIS session — the chip's optimistic "Following". */
+  followedIds: readonly string[];
+  /** The trip whose follow request is in flight, if any. */
+  followBusyId: string | null;
+  /** A refused follow (a private trip, a network hiccup) — one line, in place. */
+  followError: string | null;
+  onFollow: (dtId: string) => void;
 }) {
   return (
     <>
@@ -353,24 +515,44 @@ function HomeBands({
       ) : trips === null ? (
         <TripGridSkeleton />
       ) : trips.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-border bg-card p-10 text-center">
-          <Ticket className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
-          <h3 className="font-heading text-lg font-semibold">No trips yet</h3>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Plan your first journey with the Kiseki assistant — describe the trip you have in
-            mind and it will build the booklet for you. Or ask a trip owner for their join link
-            to hop onto an existing one.
-          </p>
-          <Button
-            onClick={onOpenChat}
-            aria-haspopup="dialog"
-            aria-expanded={chatOpen}
-            className="mt-5"
-          >
-            <MessageCircle className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Plan a trip
-          </Button>
-        </div>
+        // A brand-new account: the invitation to plan stays, but it is no longer
+        // the ONLY thing on the page — the discovery shelf below shows what a
+        // Kiseki trip looks like, and every public one can be followed on the
+        // spot (2026-09-16 review). "No trips yet" with a single button asked a
+        // stranger to take the product on faith.
+        <>
+          <div className="mt-6 rounded-xl border border-border bg-card p-8 text-center">
+            <Ticket className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
+            <h3 className="font-heading text-lg font-semibold">No trips yet</h3>
+            <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+              Plan your first journey with the Kiseki assistant — describe the trip you have in
+              mind and it will build the booklet for you. Or follow one of the public trips
+              below, and its owner's updates land in your feed.
+            </p>
+            <Button
+              onClick={onOpenChat}
+              aria-haspopup="dialog"
+              aria-expanded={chatOpen}
+              className="mt-5"
+            >
+              <MessageCircle className="mr-1.5 h-4 w-4" aria-hidden="true" />
+              Plan a trip
+            </Button>
+          </div>
+          <DiscoverBand
+            trips={discoverTrips}
+            filtering={filtering}
+            followedIds={followedIds}
+            busyId={followBusyId}
+            error={followError}
+            onFollow={onFollow}
+            selectedDtId={selectedDtId}
+            flashDtId={flashDtId}
+            title="Trips worth a look"
+            blurb="Public trips you can follow — their updates land in your feed."
+            emptyLine="No public trips to show yet — the shelf fills up as owners publish theirs."
+          />
+        </>
       ) : (
         <>
           {nextUp && !filtering && (
@@ -451,30 +633,16 @@ function HomeBands({
             )}
           </Band>
 
-          <Band title="Discover" blurb="Public trips worth a look.">
-            {discoverTrips === null ? (
-              <Collapsed>Looking for public trips…</Collapsed>
-            ) : discoverTrips && discoverTrips.length > 0 ? (
-              <div className="grid gap-5 sm:grid-cols-2">
-                {discoverTrips.map((trip) => (
-                  <BandRow
-                    key={trip.dtId}
-                    dtId={trip.dtId}
-                    selected={selectedDtId === trip.dtId}
-                    flash={flashDtId === trip.dtId}
-                  >
-                    <TripCard trip={trip} />
-                  </BandRow>
-                ))}
-              </div>
-            ) : (
-              <Collapsed>
-                {filtering
-                  ? "No public trips match this search."
-                  : "No public trips to discover right now."}
-              </Collapsed>
-            )}
-          </Band>
+          <DiscoverBand
+            trips={discoverTrips}
+            filtering={filtering}
+            followedIds={followedIds}
+            busyId={followBusyId}
+            error={followError}
+            onFollow={onFollow}
+            selectedDtId={selectedDtId}
+            flashDtId={flashDtId}
+          />
         </>
       )}
     </>
@@ -501,19 +669,14 @@ function AuthenticatedLanding() {
   const [flashDtId, setFlashDtId] = useState<string | null>(null);
   // Phone sheet detent (`SplitView` owns the ladder; desktop ignores this).
   //
-  // `peek`, not `half`, and that is a deliberate call for THIS surface: the home
-  // is the §2.2 map canvas, so what you should meet first is the map with your
-  // trips on it, and the peek line already says what is next. It is also the
-  // only detent where every pin is actually visible on a phone — measured on a
-  // 390×844 viewport with a Canada/Chile/Japan pin set: the sheet's top sits at
-  // 453px at `half` and 727px at `peek`, while MapLibre refuses to make the
-  // world shorter than the canvas, so a −33° latitude lands ~60% down a world
-  // that is at least 783px tall (469px) — behind the sheet at `half`, at every
-  // zoom the transform permits. Swiping up is the whole cost; the bands, search
-  // and the assistant are one gesture away. (The trip surface keeps `half`: its
-  // sheet holds the day document, not the map.) See PR #310 — revert by putting
-  // "half" back if bands-first is wanted here.
-  const [detent, setDetent] = useState<Detent>("peek");
+  // `half`, on Niko's call (2026-09-16 review): opening on the bands gives more
+  // context than the bare map, and he would rather swipe DOWN for the map than
+  // UP for his trips. An earlier revision of this branch opened at `peek` to
+  // keep every pin clear of the sheet (a −33° pin cannot clear a `half` sheet at
+  // any zoom the transform permits — see DESIGN.md §2.2); that trade is his to
+  // make and he made it the other way, so the camera stays honest and the sheet
+  // opens on the content.
+  const [detent, setDetent] = useState<Detent>("half");
   // Global trip map (slice 5): the discoverable layer, default ON with the
   // bands. Mine always shows — another person's trips are what toggles.
   const [showDiscoverPins, setShowDiscoverPins] = useState(true);
@@ -816,6 +979,37 @@ function AuthenticatedLanding() {
   const toggleVis = (v: Visibility) =>
     setVis((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
 
+  // Follow a public trip from a discovery card (2026-09-16 review). The
+  // endpoint shipped with #197 and had NO caller in the UI — a public trip
+  // could only be followed by opening it and hunting for the affordance. This
+  // is its first home, and the empty home is exactly where it belongs: a
+  // visitor with no trips is looking at someone else's.
+  const [followedIds, setFollowedIds] = useState<readonly string[]>([]);
+  const [followBusyId, setFollowBusyId] = useState<string | null>(null);
+  const [followError, setFollowError] = useState<string | null>(null);
+  const onFollow = useCallback(
+    async (dtId: string) => {
+      setFollowBusyId(dtId);
+      setFollowError(null);
+      try {
+        const token = await getAccessTokenSilently();
+        await followPublicTrip(dtId, token);
+        setFollowedIds((prev) => (prev.includes(dtId) ? prev : [...prev, dtId]));
+        // It is one of "your trips" now (role=follower), so re-read: the trip
+        // leaves the shelf and appears under your own trips — the feedback IS
+        // the move. Same refetch the Retry button uses.
+        setAttempt((n) => n + 1);
+      } catch (e) {
+        // A private trip 403s ("can only be followed with an invite link") —
+        // say so where the button is, never swallow it.
+        setFollowError(e instanceof Error ? e.message : "Could not follow that trip.");
+      } finally {
+        setFollowBusyId(null);
+      }
+    },
+    [getAccessTokenSilently],
+  );
+
   const bands = (
     <HomeBands
       trips={trips}
@@ -853,6 +1047,10 @@ function AuthenticatedLanding() {
       onSignInAgain={() =>
         loginWithRedirect({ appState: { returnTo: window.location.pathname } })
       }
+      followedIds={followedIds}
+      followBusyId={followBusyId}
+      followError={followError}
+      onFollow={onFollow}
     />
   );
 
@@ -885,13 +1083,36 @@ function AuthenticatedLanding() {
     />
   );
 
-  // Peek line for the phone sheet: one line of "what's next".
+  // Peek line for the phone sheet: one line of "what's next" — and it is a
+  // DOOR, not a label (2026-09-16 review): the trip's title opens the trip, so
+  // "what's next" costs one tap instead of a trip through the bands below.
   const peek =
     nextUp && !filtering ? (
       <>
-        Up next: <span className="font-medium text-foreground">{nextUp.title}</span>
+        Up next:{" "}
+        <Link
+          to={`/t/${nextUp.dtId}`}
+          title={nextUp.title}
+          className="font-medium text-foreground underline-offset-2 hover:underline focus-visible:focus-ring"
+        >
+          {nextUp.title}
+        </Link>
         {" — "}
         {upNextLabel(nextUp, todayIso)}
+        {/* A live trip's useful destination is TODAY, not its overview — the
+            day it is on right now. Same rule as the trip nav's live swap
+            (§7.5): while it is happening, "today" is the surface you want. */}
+        {nextUp.stage === "live" && (
+          <>
+            {" · "}
+            <Link
+              to={`/t/${nextUp.dtId}/today`}
+              className="font-medium text-primary underline-offset-2 hover:underline focus-visible:focus-ring"
+            >
+              Today →
+            </Link>
+          </>
+        )}
       </>
     ) : (
       <>
