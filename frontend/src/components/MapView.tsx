@@ -14,7 +14,7 @@ import {
   resolveMapStyle,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { fetchTrack, trackDataUrl } from "../lib/tracks";
+import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { legModes } from "../lib/route-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -219,7 +219,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // and every recorded track in parallel — a failed track fetch degrades
         // to no line (the card's download link stays), never a broken map.
         let legs: Awaited<ReturnType<typeof fetchRouteLegs>> = null;
-        let trackLines: [number, number][][] = [];
+        let trackSegs: TrackSegment[] = [];
         {
           const trackUrls = tracks
             .map((t) => trackDataUrl(t))
@@ -231,9 +231,9 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
             ...trackUrls.map((u) => fetchTrack(u, abort.signal).catch(() => null)),
           ]);
           legs = fetchedLegs;
-          trackLines = fetchedTracks
+          trackSegs = fetchedTracks
             .filter((f): f is NonNullable<typeof f> => f != null)
-            .map((f) => f.geometry.coordinates);
+            .flatMap((f) => trackSegments(f));
         }
         if (cancelled || !map) return;
 
@@ -249,9 +249,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           if (includeRoute && legs) {
             legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
           }
-          // The day's extent INCLUDES the track (#193) — a traverse swings
-          // well outside its pins, exactly like a road route does.
-          trackLines.forEach((line) => line.forEach((c) => full.extend(c)));
+          // The day's extent INCLUDES the track (#193, #290) — a traverse
+          // swings well outside its pins, exactly like a road route does, and
+          // the lift legs are part of the day's shape too.
+          trackSegs.forEach((segment) => segment.coordinates.forEach((c) => full.extend(c)));
           // Every geometry source missed (failed fetches, unresolvable pins):
           // nothing to frame — leave the construction camera alone rather
           // than fitting an empty bounds (which throws).
@@ -343,42 +344,65 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           refit(false);
         }
 
-        if (trackLines.length) {
+        if (trackSegs.length) {
           map.addSource("tracks", {
             type: "geojson",
             data: {
               type: "FeatureCollection",
-              features: trackLines.map((coordinates) => ({
+              features: trackSegs.map((segment) => ({
                 type: "Feature" as const,
-                properties: {},
-                geometry: { type: "LineString" as const, coordinates },
+                properties: { lift: segment.type === "lift" },
+                geometry: { type: "LineString" as const, coordinates: segment.coordinates },
               })),
             },
           });
           // A recorded track is the shape of the day, not a proposal: solid,
           // full-strength, cased exactly like the route (§8.4) — under the
-          // basemap's labels with everything else the trip draws.
+          // basemap's labels with everything else the trip draws. #290: the
+          // lift legs draw dashed and lighter, so a day reads as runs + lifts
+          // rather than as one long run. Casing before body, always.
           const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
-          map.addLayer(
-            {
-              id: "track-casing",
-              type: "line",
-              source: "tracks",
-              layout: { "line-cap": "round", "line-join": "round" },
-              paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
-            },
-            firstSymbol,
-          );
-          map.addLayer(
-            {
-              id: "track-body",
-              type: "line",
-              source: "tracks",
-              layout: { "line-cap": "round", "line-join": "round" },
-              paint: { "line-color": colors.route, "line-width": 4 },
-            },
-            firstSymbol,
-          );
+          const ride: import("maplibre-gl").FilterSpecification = ["!", ["get", "lift"]];
+          const lift: import("maplibre-gl").FilterSpecification = ["get", "lift"];
+          const trackLayers: Array<{
+            id: string;
+            filter: import("maplibre-gl").FilterSpecification;
+            body: boolean;
+            dashed: boolean;
+          }> = [
+            { id: "track-casing", filter: ride, body: false, dashed: false },
+            { id: "track-lift-casing", filter: lift, body: false, dashed: true },
+            { id: "track-body", filter: ride, body: true, dashed: false },
+            { id: "track-lift-body", filter: lift, body: true, dashed: true },
+          ];
+          for (const layer of trackLayers) {
+            map.addLayer(
+              {
+                id: layer.id,
+                type: "line",
+                source: "tracks",
+                filter: layer.filter,
+                layout: {
+                  "line-cap": layer.dashed ? "butt" : "round",
+                  "line-join": "round",
+                },
+                paint: layer.body
+                  ? {
+                      "line-color": colors.route,
+                      "line-width": 4,
+                      "line-opacity": layer.dashed ? 0.75 : 1,
+                      ...(layer.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                    }
+                  : {
+                      "line-color": colors.routeCasing,
+                      "line-width": layer.dashed ? 6 : 7,
+                      "line-opacity": layer.dashed ? 0.6 : 0.9,
+                      ...(layer.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                    },
+              },
+              firstSymbol,
+            );
+          }
           // Frame the track even when no other geometry reframed above
           // (single-pin card, or a track-only map with no pins at all).
           refit(true);

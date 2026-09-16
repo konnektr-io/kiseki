@@ -189,7 +189,7 @@ def test_track_rejected_when_file_was_never_uploaded(
         headers=_auth(token),
     )
     assert r.status_code == 422, r.text
-    assert "upload the .gpx first" in r.json()["detail"]
+    assert "upload the track first" in r.json()["detail"]
 
 
 def test_track_rejected_as_url(

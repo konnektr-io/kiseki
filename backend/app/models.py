@@ -106,7 +106,7 @@ class Block(BaseModel):
     location: Optional[str] = Field(default=None, description="Place name/alias → auto Google Maps link + map thumbnail.")
     placeId: Optional[str] = Field(default=None, description="Google place_id for THE specific venue (hotel/restaurant, not just the town) — the preferred deep-link key for the Google Maps link (keyless URL form, no photo/review fetch), under the same name as Location.placeId. Indefinitely cacheable per the #15/#95 storage rule.")
     images: list[str] = Field(default_factory=list, description="Card media strip — bare media filenames, served by the API at /media/<trip_id>/<file>.")
-    track: Optional[str] = Field(default=None, description="Recorded GPS track for this activity (#193) — a bare .gpx filename uploaded via POST /api/files, served at /media/<trip_id>/<file> and parsed at /api/tracks/<trip_id>/<file> (polyline + distance/ascent/time). Activity blocks only: the model stays coarse (spec §5), so a completed/shared activity is a `kind: activity` with a `track`, not a new block kind.")
+    track: Optional[str] = Field(default=None, description="Recorded GPS track for this activity (#193, #290) — a bare .gpx/.fit filename uploaded via POST /api/files, served at /media/<trip_id>/<file> and parsed at /api/tracks/<trip_id>/<file> (polyline + distance/ascent/time + ride/lift legs). Activity blocks only: the model stays coarse (spec §5), so a completed/shared activity is a `kind: activity` with a `track`, not a new block kind.")
 
 
 class Day(BaseModel):

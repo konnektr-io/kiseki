@@ -30,6 +30,7 @@ describe("CHAT_FILE_ACCEPT", () => {
       ".txt",
       ".md",
       ".gpx",
+      ".fit",
     ]) {
       expect(CHAT_FILE_ACCEPT.split(",")).toContain(token);
     }
@@ -46,9 +47,10 @@ describe("acceptKinds / acceptSummary", () => {
       "documents",
       "text notes",
       "GPX tracks",
+      "FIT tracks",
     ]);
     expect(acceptSummary()).toBe(
-      "photos, videos, documents, text notes and GPX tracks",
+      "photos, videos, documents, text notes, GPX tracks and FIT tracks",
     );
   });
 
@@ -57,15 +59,15 @@ describe("acceptKinds / acceptSummary", () => {
     expect(acceptSummary("image/*")).toBe("photos");
   });
 
-  it("derives from the list it is given — .fit joins the copy by itself", () => {
+  it("derives from the list it is given — a new family joins the copy by itself", () => {
     // #290 adds FIT parsing; the drop zone's vocabulary follows the accept
     // list with no second string to update. An unknown token is stated
     // verbatim rather than dropped.
-    expect(acceptSummary(`${CHAT_FILE_ACCEPT},.fit`)).toBe(
-      "photos, videos, documents, text notes, GPX tracks and .fit",
+    expect(acceptSummary(`${CHAT_FILE_ACCEPT},.kml`)).toBe(
+      "photos, videos, documents, text notes, GPX tracks, FIT tracks and .kml",
     );
     expect(acceptSummary("image/*,.gpx,.fit")).toBe(
-      "photos, GPX tracks and .fit",
+      "photos, GPX tracks and FIT tracks",
     );
   });
 

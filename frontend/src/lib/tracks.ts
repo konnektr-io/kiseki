@@ -10,6 +10,16 @@
  * reads the same shape.
  */
 
+export interface TrackLeg {
+  type: "ride" | "lift";
+  /** Inclusive indices into `geometry.coordinates` — `slice(start, end + 1)`. */
+  startIndex: number;
+  endIndex: number;
+  distanceM: number;
+  ascentM: number;
+  durationS?: number | null;
+}
+
 export interface TrackProperties {
   distanceM: number;
   ascentM: number;
@@ -17,6 +27,16 @@ export interface TrackProperties {
   endTime?: string | null;
   durationS?: number | null;
   pointCount: number;
+  /**
+   * Ride/lift split (#290). `distanceM` stays the FULL trace total (lifts
+   * included); `rideDistanceM` is the riding-only figure the rider logs —
+   * the day card shows both rather than picking one. Absent on a track
+   * parsed before #290 or with no legs to classify.
+   */
+  rideDistanceM?: number;
+  liftDistanceM?: number;
+  liftVerticalM?: number;
+  legs?: TrackLeg[];
   url?: string;
 }
 
@@ -24,6 +44,12 @@ export interface TrackFeature {
   type: "Feature";
   geometry: { type: "LineString"; coordinates: [number, number][] };
   properties: TrackProperties;
+}
+
+/** One drawable piece of a recorded track (#290): a ride or a lift leg. */
+export interface TrackSegment {
+  type: "ride" | "lift";
+  coordinates: [number, number][];
 }
 
 /**
@@ -50,9 +76,10 @@ export function tripTracks(trip: {
 }
 
 /**
- * The parse route for a block `track` value — `/media/<trip>/<file>.gpx` →
- * `/api/tracks/<trip>/<file>.gpx`. Null for anything that is not a readable
- * trip track (bare names, external URLs, non-gpx files): those never fetch.
+ * The parse route for a block `track` value — `/media/<trip>/<file>` →
+ * `/api/tracks/<trip>/<file>`. Null for anything that is not a readable trip
+ * track (bare names, external URLs, non-track files): those never fetch.
+ * `.gpx` and `.fit` are both served by the parse route (#279 / #290).
  */
 export function trackDataUrl(track: string | undefined | null): string | null {
   if (typeof track !== "string" || !track.startsWith("/media/")) return null;
@@ -60,7 +87,10 @@ export function trackDataUrl(track: string | undefined | null): string | null {
   const slash = rest.indexOf("/");
   if (slash < 0) return null;
   const file = rest.slice(slash + 1);
-  if (!file || file.includes("/") || !file.toLowerCase().endsWith(".gpx")) return null;
+  const lower = file.toLowerCase();
+  if (!file || file.includes("/") || !(lower.endsWith(".gpx") || lower.endsWith(".fit"))) {
+    return null;
+  }
   const trip = rest.slice(0, slash);
   if (!trip) return null;
   return `/api/tracks/${trip}/${file}`;
@@ -113,6 +143,24 @@ export function trackTracePath(
   height: number,
   pad: number,
 ): string | null {
+  const project = trackProjector(coordinates, width, height, pad);
+  if (!project) return null;
+  const pts = coordinates.map(project);
+  return `M${pts[0]}L${pts.slice(1).join("L")}`;
+}
+
+/**
+ * One shared projection for a whole trace (#290): legs are drawn as separate
+ * paths, so they must agree on a single fit — projecting each leg on its own
+ * would scale every leg to the box and scatter the day across the card.
+ * Returns a `[lng, lat] → "x y"` mapper, or null for a one-point line.
+ */
+export function trackProjector(
+  coordinates: [number, number][],
+  width: number,
+  height: number,
+  pad: number,
+): ((c: [number, number]) => string) | null {
   if (coordinates.length < 2) return null;
   const lats = coordinates.map((c) => c[1]);
   const lngs = coordinates.map((c) => c[0]);
@@ -130,11 +178,75 @@ export function trackTracePath(
   const scale = Math.min(innerW / spanX, innerH / spanY);
   const offX = pad + (innerW - spanX * scale) / 2;
   const offY = pad + (innerH - spanY * scale) / 2;
-  const pts = coordinates.map(([lng, lat]) => {
+  return ([lng, lat]) => {
     const x = offX + (lng - minLng) * kx * scale;
     // SVG y grows downward — the northernmost point sits at the top.
     const y = offY + (maxLat - lat) * scale;
     return `${x.toFixed(1)} ${y.toFixed(1)}`;
-  });
-  return `M${pts[0]}L${pts.slice(1).join("L")}`;
+  };
+}
+
+/**
+ * A track's bytes as drawable segments (#290): one per classified leg, so the
+ * day map can dash the lifts and keep the runs solid. A track with no legs
+ * (pre-#290 payload, or a file with nothing to classify) is ONE ride segment —
+ * the pre-existing single-line behaviour.
+ */
+export function trackSegments(feature: TrackFeature): TrackSegment[] {
+  const coords = feature.geometry.coordinates;
+  const legs = feature.properties.legs;
+  if (!legs?.length) {
+    return coords.length >= 2 ? [{ type: "ride", coordinates: coords }] : [];
+  }
+  const out: TrackSegment[] = [];
+  for (const leg of legs) {
+    const start = Math.max(0, leg.startIndex);
+    const end = Math.min(coords.length - 1, leg.endIndex);
+    if (end - start < 1) continue;
+    out.push({
+      type: leg.type === "lift" ? "lift" : "ride",
+      coordinates: coords.slice(start, end + 1),
+    });
+  }
+  return out.length ? out : [{ type: "ride", coordinates: coords }];
+}
+
+/**
+ * The trace drawn leg by leg (#290) — ride solid, lift dashed — sharing one
+ * projection. The card's static SVG trace and anything else static use this.
+ */
+export function trackLegPaths(
+  feature: TrackFeature,
+  width: number,
+  height: number,
+  pad: number,
+): { type: "ride" | "lift"; d: string }[] {
+  const coords = feature.geometry.coordinates;
+  const project = trackProjector(coords, width, height, pad);
+  if (!project) return [];
+  return trackSegments(feature)
+    .map((segment) => {
+      const pts = segment.coordinates.map(project);
+      if (pts.length < 2) return null;
+      return { type: segment.type, d: `M${pts[0]}L${pts.slice(1).join("L")}` };
+    })
+    .filter((p): p is { type: "ride" | "lift"; d: string } => p != null);
+}
+
+/**
+ * The #290 headline split for a track card: riding-only distance beside the
+ * full trace distance. Null when the payload carries no legs (nothing to
+ * compare — the card then shows the plain total).
+ */
+export function trackRideSplit(
+  props: TrackProperties | undefined | null,
+): { rideM: number; totalM: number; liftM: number; liftVerticalM: number } | null {
+  if (!props || typeof props.rideDistanceM !== "number") return null;
+  if (!props.legs?.length) return null;
+  return {
+    rideM: props.rideDistanceM,
+    totalM: props.distanceM,
+    liftM: props.liftDistanceM ?? Math.max(props.distanceM - props.rideDistanceM, 0),
+    liftVerticalM: props.liftVerticalM ?? 0,
+  };
 }

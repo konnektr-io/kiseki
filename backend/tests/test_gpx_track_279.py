@@ -116,11 +116,11 @@ def test_gpx_is_an_accepted_upload_kind() -> None:
     assert upload_kind("morning-skin-track.gpx") == "document"
 
 
-def test_fit_upload_fails_with_export_gpx_guidance() -> None:
-    """`.fit` needs a new binary dep — refused with guidance, not silence."""
-    with pytest.raises(Exception) as exc:
-        require_upload_kind("activity.fit", "activity.fit")
-    assert "export GPX from Slopes/Garmin" in str(exc.value)
+def test_fit_is_an_accepted_upload_kind() -> None:
+    """`.fit` joined the curated set (#290) — pre-fix this raised with the
+    export-GPX guidance."""
+    assert upload_kind("activity.fit") == "document"
+    assert require_upload_kind("activity.fit", "activity.fit") == "document"
 
 
 # ------------------------------------------------------------------ server-side parse
@@ -193,9 +193,11 @@ def test_post_files_rejects_malformed_gpx_per_file(
     assert "broken.gpx" in r.json()["detail"]
 
 
-def test_post_files_rejects_fit_with_export_guidance(
+def test_post_files_rejects_garbage_fit_per_file(
     client: TestClient, graph, media_store, rsa_keypair
 ) -> None:
+    """`.fit` uploads parse at ingest (#290): random bytes are a per-file 422
+    naming the file — never stored and then invisible (the #251 contract)."""
     g = graph("editor")
     token = _token_of(rsa_keypair)
     r = client.post(
@@ -205,7 +207,7 @@ def test_post_files_rejects_fit_with_export_guidance(
         headers=_auth(token),
     )
     assert r.status_code == 422, r.text
-    assert "export GPX from Slopes/Garmin" in r.json()["detail"]
+    assert "activity.fit" in r.json()["detail"]
 
 
 # ------------------------------------------------------------------ track endpoint

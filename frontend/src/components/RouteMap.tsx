@@ -15,7 +15,7 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { fetchTrack, trackDataUrl } from "../lib/tracks";
+import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { greatCircle, legModes, placeRole, type Journey } from "../lib/route-surface";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
@@ -148,9 +148,11 @@ export function RouteMap({
    *  refetches only when the pairs actually differ. */
   const [dayLegsData, setDayLegsData] = useState<Map<string, LegFeature> | null | undefined>(undefined);
   const dayLegKey = day?.legs.map((l) => `${l.from.name}>${l.to.name}`).join("|") ?? "";
-  /** Recorded track geometry (#193), blockId → polyline. Empty = none on the
-   *  day (or every fetch missed — the card's download link stays). */
-  const [dayTracksData, setDayTracksData] = useState<Map<string, [number, number][]>>(new Map());
+  /** Recorded track geometry (#193), blockId → its drawable segments. Each
+   *  segment is a classified leg (#290): ride = solid, lift = dashed — so a
+   *  day map can show the shape of the day the way Slopes/Strava do. Empty =
+   *  none on the day (or every fetch missed — the card's download link stays). */
+  const [dayTracksData, setDayTracksData] = useState<Map<string, TrackSegment[]>>(new Map());
   const dayTracksKey = (day?.tracks ?? []).map((t) => t.url).join("|");
 
   useEffect(() => {
@@ -242,7 +244,7 @@ export function RouteMap({
             if (!url) return null;
             try {
               const feature = await fetchTrack(url, abort.signal);
-              return [t.blockId, feature.geometry.coordinates] as const;
+              return [t.blockId, trackSegments(feature)] as const;
             } catch {
               return null;
             }
@@ -627,45 +629,78 @@ export function RouteMap({
           }),
         );
       }
-      // Recorded tracks (#193): the shape of the day as cased lines in the
-      // trip route colour (§8.4 — wide casing under a narrower body, solid
-      // and full-strength: a completed activity is not provisional), drawn
-      // under the basemap's labels with the legs.
-      const trackLines = [...dayTracksData.values()];
-      if (trackLines.length) {
+      // Recorded tracks (#193, #290): the shape of the day as cased lines in
+      // the trip route colour (§8.4 — wide casing under a narrower body, solid
+      // and full-strength: a completed activity is not provisional). Ridden
+      // runs draw solid; lift rides draw dashed and lighter — the distinction
+      // Slopes and Strava make on their own maps, so the day reads as a day
+      // and not as one 33 km run. Drawn under the basemap's labels.
+      const trackSegmentsAll = [...dayTracksData.values()].flat();
+      if (trackSegmentsAll.length) {
         map.addSource("day-tracks", {
           type: "geojson",
           data: {
             type: "FeatureCollection",
-            features: trackLines.map((coordinates) => ({
+            features: trackSegmentsAll.map((segment) => ({
               type: "Feature" as const,
-              properties: {},
-              geometry: { type: "LineString" as const, coordinates },
+              properties: { lift: segment.type === "lift" },
+              geometry: { type: "LineString" as const, coordinates: segment.coordinates },
             })),
           },
         });
         addedSources.push("day-tracks");
         const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
-        for (const [id, body] of [["day-tracks-casing", false], ["day-tracks-body", true]] as const) {
+        const ride: import("maplibre-gl").FilterSpecification = ["!", ["get", "lift"]];
+        const lift: import("maplibre-gl").FilterSpecification = ["get", "lift"];
+        // Every line twice (§8.4), and every CASING before any body — a lift's
+        // casing must not sit on top of a neighbouring ride's body.
+        const specs: Array<{
+          id: string;
+          filter: import("maplibre-gl").FilterSpecification;
+          body: boolean;
+          dashed: boolean;
+        }> = [
+          { id: "day-tracks-casing", filter: ride, body: false, dashed: false },
+          { id: "day-tracks-lift-casing", filter: lift, body: false, dashed: true },
+          { id: "day-tracks-body", filter: ride, body: true, dashed: false },
+          { id: "day-tracks-lift-body", filter: lift, body: true, dashed: true },
+        ];
+        for (const s of specs) {
           map.addLayer(
             {
-              id,
+              id: s.id,
               type: "line",
               source: "day-tracks",
-              layout: { "line-cap": "round", "line-join": "round" },
-              paint: body
-                ? { "line-color": colors.route, "line-width": 4 }
-                : { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+              filter: s.filter,
+              layout: {
+                "line-cap": s.dashed ? "butt" : "round",
+                "line-join": "round",
+              },
+              paint: s.body
+                ? {
+                    "line-color": colors.route,
+                    "line-width": 4,
+                    "line-opacity": s.dashed ? 0.75 : 1,
+                    ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                  }
+                : {
+                    "line-color": colors.routeCasing,
+                    "line-width": s.dashed ? 6 : 7,
+                    "line-opacity": s.dashed ? 0.6 : 0.9,
+                    ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
+                  },
             } as Parameters<MapLibreMap["addLayer"]>[0],
             firstSymbol,
           );
-          addedLayers.push(id);
+          addedLayers.push(s.id);
         }
       }
       surface.markers.forEach((m) => extend(m.place));
       // The day's extent INCLUDES the track — a traverse swings outside its
       // pins, and a track-only day (no markers at all) still frames.
-      for (const line of trackLines) for (const c of line) bounds.extend(c);
+      for (const segment of trackSegmentsAll) {
+        for (const c of segment.coordinates) bounds.extend(c);
+      }
       // #104: the fit must include the ROAD, not just the endpoints — a real
       // route swings well outside the straight line (Rogers Pass rides north
       // of the ②→③ pair), and endpoint-only bounds clip the pin it exists to
@@ -678,9 +713,9 @@ export function RouteMap({
       fitDayRef.current = () => {
         // A track-only day (no markers, a recorded line) still frames — the
         // track IS the day's extent there.
-        if (!mapRef.current || (surface.markers.length === 0 && trackLines.length === 0)) return;
+        if (!mapRef.current || (surface.markers.length === 0 && trackSegmentsAll.length === 0)) return;
         if (bounds.isEmpty()) return;
-        if (surface.markers.length === 1 && trackLines.length === 0) {
+        if (surface.markers.length === 1 && trackSegmentsAll.length === 0) {
           const p = surface.markers[0].place;
           const opts = {
             center: [p.lng!, p.lat!] as [number, number],

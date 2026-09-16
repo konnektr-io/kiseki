@@ -246,7 +246,7 @@
         "name": "track",
         "schema": "string",
         "writable": true,
-        "description": "Recorded GPS track for this activity (#193) — a bare .gpx filename uploaded via POST /api/files, served at /media/<trip_id>/<file> and parsed at /api/tracks/<trip_id>/<file> (polyline + distance/ascent/time). Activity blocks only: the model stays coarse (spec §5), so a completed/shared activity is a `kind: activity` with a `track`, not a new block kind."
+        "description": "Recorded GPS track for this activity (#193, #290) — a bare .gpx/.fit filename uploaded via POST /api/files, served at /media/<trip_id>/<file> and parsed at /api/tracks/<trip_id>/<file> (polyline + distance/ascent/time + ride/lift legs). Activity blocks only: the model stays coarse (spec §5), so a completed/shared activity is a `kind: activity` with a `track`, not a new block kind."
       },
       {
         "@type": "Relationship",

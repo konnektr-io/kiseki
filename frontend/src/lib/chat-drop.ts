@@ -18,10 +18,10 @@
  *  vocabulary. Extensions first-class because the server keys its
  *  per-family caps off the extension (image 64 MB, video 1024 MB,
  *  document 32 MB), and `image/*`/`video/*` because a phone's photo picker
- *  only offers those families then. `.gpx` is the track export every
- *  Slopes/Strava/Garmin workflow ends with (#193/#279). */
+ *  only offers those families then. `.gpx`/`.fit` are the track exports every
+ *  Slopes/Strava/Garmin workflow ends with (#193/#279/#290). */
 export const CHAT_FILE_ACCEPT =
-  "image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md,.gpx";
+  "image/*,.heic,.heif,video/*,.mp4,.mov,.m4v,.webm,.pdf,.doc,.docx,.txt,.md,.gpx,.fit";
 
 /** Human labels for the accept tokens, keyed by the token. Tokens that are
  *  extensions of a family already named (`image/*` + a list of image
@@ -42,6 +42,7 @@ const KIND_LABELS: Record<string, string> = {
   ".txt": "text notes",
   ".md": "text notes",
   ".gpx": "GPX tracks",
+  ".fit": "FIT tracks",
 };
 
 /** The kinds named by an accept list, in the list's own order, deduped. A

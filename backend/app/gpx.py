@@ -1,10 +1,9 @@
-"""Recorded-track parsing for activity blocks (issues #279 / #193).
+"""Recorded-track parsing for activity blocks (issues #279 / #193, #290).
 
 A shared/completed activity arrives as a GPX file exported from Slopes,
 Strava, AllTrails, Komoot or Garmin — small XML, parsed here with STDLIB ONLY
-(``xml.etree``; no new dependency per AGENTS.md). The parse produces the
-polyline the day's map draws plus the summary the track card reads
-(distance / time / ascent).
+(``xml.etree``). The parse produces the polyline the day's map draws plus the
+summary the track card reads (distance / time / ascent).
 
 XXE safety: ``xml.etree.ElementTree.fromstring`` does NOT resolve external
 entities or expand arbitrary entity graphs the way a validating parser does —
@@ -13,18 +12,25 @@ or loop here. Defense in depth on top: a size cap (the document family's
 upload cap already bounds this) and a point cap with deterministic decimation
 for the payload the map draws.
 
-``.fit`` is deliberately NOT parsed: it needs a new binary runtime dependency
-and AGENTS.md says ask before adding one. Slopes exports GPX too, so GPX
-unblocks the need. A ``.fit`` upload is refused in ``media.require_upload_kind``
-with guidance to export GPX instead.
+Lift legs (#290): a Slopes GPX carries no labels — a single ``trkseg`` of
+lat/lon/ele/time fixes. The lift legs are recovered from the recording
+cadence (``tracklegs.cadence_is_ride``: pairs >2 min apart are lift legs),
+which reproduces the rider's own logged figures on the Slopes-original
+exports. See ``app/fit.py`` for the preferred FIT path (producer labels).
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from typing import Optional
 from xml.etree import ElementTree as ET
+
+from .tracklegs import (
+    LegPoint,
+    build_feature,
+    cadence_is_ride,
+    haversine_m,
+)
 
 # Namespaces GPX 1.0 / 1.1 use. A track file without any namespace (hand-rolled
 # exporters do this) is accepted too — matching is done on the LOCAL name.
@@ -36,9 +42,8 @@ _GPX11_NS = "http://www.topografix.com/GPX/1/1"
 # point, endpoints kept) so the payload stays small and the line identical.
 MAX_POINTS = 5000
 
-# Payload bound for the line the map draws: the response carries at most this
-# many coordinates (endpoints always kept). A full-fidelity copy is never
-# needed — a 4px body at trip zoom cannot resolve more.
+# Payload bound for the line the map draws — re-exported here so existing
+# importers keep working; the value lives in ``app.tracklegs``.
 RESPONSE_MAX_POINTS = 2000
 
 # Refuse to parse beyond this many bytes even if the caller forgot the cap.
@@ -98,19 +103,26 @@ class GpxTrack:
         return [[p.lng, p.lat] for p in pts]
 
     def to_feature(self) -> dict:
-        """GeoJSON Feature the day map draws + the card reads."""
-        return {
-            "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": self.coordinates()},
-            "properties": {
-                "distanceM": round(self.distance_m, 1),
-                "ascentM": round(self.ascent_m, 1),
-                "startTime": self.start_time,
-                "endTime": self.end_time,
-                "durationS": self.duration_s,
-                "pointCount": self.point_count,
-            },
-        }
+        """GeoJSON Feature the day map draws + the card reads (#290: with legs)."""
+        leg_points = [
+            LegPoint(lat=p.lat, lng=p.lng, ele=p.ele, time=p.time)
+            for p in self.points
+        ]
+        pair_is_ride = [
+            cadence_is_ride(a, b)
+            for a, b in zip(leg_points, leg_points[1:])
+        ]
+        feature = build_feature(leg_points, pair_is_ride)
+        # Back-compat: the pre-#290 summary fields stay byte-identical so old
+        # surfaces keep reading them while new ones use the legs + ride/lift
+        # split beside them.
+        feature["properties"]["distanceM"] = round(self.distance_m, 1)
+        feature["properties"]["ascentM"] = round(self.ascent_m, 1)
+        feature["properties"]["startTime"] = self.start_time
+        feature["properties"]["endTime"] = self.end_time
+        feature["properties"]["durationS"] = self.duration_s
+        feature["properties"]["pointCount"] = self.point_count
+        return feature
 
 
 def _local(tag: str) -> str:
@@ -119,17 +131,8 @@ def _local(tag: str) -> str:
 
 
 def _haversine_m(a: GpxPoint, b: GpxPoint) -> float:
-    """Great-circle metres between two points (WGS84 mean radius)."""
-    r = 6371000.0
-    d_lat = math.radians(b.lat - a.lat)
-    d_lng = math.radians(b.lng - a.lng)
-    s = (
-        math.sin(d_lat / 2) ** 2
-        + math.cos(math.radians(a.lat))
-        * math.cos(math.radians(b.lat))
-        * math.sin(d_lng / 2) ** 2
-    )
-    return 2 * r * math.asin(min(1.0, math.sqrt(s)))
+    """Great-circle metres between two points — kept for import compat."""
+    return haversine_m(a.lat, a.lng, b.lat, b.lng)
 
 
 def parse_gpx(raw: bytes, label: str) -> GpxTrack:
