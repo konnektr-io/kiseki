@@ -6,9 +6,10 @@ import { sortShowcaseTrips } from "./marketing";
  *
  * The home answers "why is this first?" with exactly one rule, in two parts:
  *
- * 1. **Bands are fixed** — Up next, Your trips, Following, Discover — and an empty
- *    band collapses to one line of copy instead of rendering an empty frame. Band
- *    order is a layout decision in `pages/LandingPage.tsx`, not a comparator.
+ * 1. **Bands are fixed** — Up next, Your trips, Trips you follow, Updates,
+ *    Discover — and an empty band collapses to one line of copy instead of
+ *    rendering an empty frame. Band order is a layout decision in
+ *    `pages/LandingPage.tsx`, not a comparator.
  * 2. **Inside a trip list, one comparator** — `sortShowcaseTrips` (stage weight,
  *    then soonest start, then title). It types on `ShowcaseTrip`, and `TripSummary`
  *    carries every field it reads, so both bands share it rather than each owning

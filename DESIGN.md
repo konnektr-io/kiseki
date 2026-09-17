@@ -120,7 +120,7 @@ Two further gotchas behind the same review, both measured on a 390×844 phone:
 
 **2026-09-16 — the signed-in home is built on this section (#249, slices 3/5).**
 `/` signed in is a map surface on the `SplitView`/`Sheet` ladder: one pin per
-listable trip (`GET /api/trips/geo`), stage-coloured, beside the four bands in
+listable trip (`GET /api/trips/geo`), stage-coloured, beside the five bands in
 the rail/sheet furniture — plus the discoverable layer and the pin cards on the
 same canvas. No new route, no second sheet, no second card language.
 
@@ -129,11 +129,21 @@ bands are the context a visitor came for, and the map is one swipe down — whil
 the sheet's own header line is a *door*, not a label: the trip's title opens the
 trip, and a `live` trip also carries a **Today** link, because the day it is on
 right now is the surface you want (§7.5's live swap). And an account with no
-trips yet is never a dead end: the discovery shelf renders under the "No trips
-yet" card — the same `DiscoverBand` as the populated home, with **Follow** on
-every card, which is the first and only UI for `followPublicTrip` (#197's
-endpoint had no caller until now). `visibility: public` is the invitation, so a
-stranger can put a trip in their feed without an invite link.
+trips yet is never a dead end: it renders on the SAME canvas, with the
+discoverable pins as its map — the "No trips yet" card and its Plan-a-trip
+button sit in the sheet above them, the header keeps its Ask Kiseki launcher,
+and the shelf below is the same `DiscoverBand` as the populated home, with
+**Follow** on every card, which is the first and only UI for
+`followPublicTrip` (#197's endpoint had no caller until now).
+`visibility: public` is the invitation, so a stranger can put a trip in their
+feed without an invite link.
+
+**Followed trips are not your trips.** A trip with `role=follower` bands under
+"Trips you follow", never under "Your trips" (crew: owner/editor/viewer) — the
+card's role badge says so too. The band only renders while it has rows, or
+while a filter is hiding them, so follower-free homes keep the four-band
+order. The people-feed band is "Updates" (writes), named so it cannot be
+confused with the trips band above it.
 
 ### 2.3 Chrome — *shared*
 
