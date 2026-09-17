@@ -164,7 +164,7 @@ class _RawPathTraversalGuard:
     async def __call__(self, scope, receive, send):
         if scope.get("type") == "http":
             raw = bytes(scope.get("raw_path", b"") or b"").lower()
-            if raw.startswith((b"/media", b"/inbox", b"/api/maps/static")) and any(
+            if raw.startswith((b"/media", b"/inbox", b"/api/avatars", b"/api/maps/static")) and any(
                 m in raw for m in self._ENCODED_MARKERS
             ):
                 response = JSONResponse({"detail": "Not Found"}, status_code=404)
@@ -1040,18 +1040,19 @@ def delete_my_avatar(session: AuthSession = Depends(get_current_session)) -> dic
 
 
 @app.get("/api/avatars/{file_name}")
-def avatar_file(
-    file_name: str, request: Request, user: dict = Depends(get_current_user)
-) -> Response:
+def avatar_file(file_name: str, request: Request) -> Response:
     """Serve one uploaded profile photo (issue #317).
 
-    Any valid token works — avatars are visible on profiles to every
-    signed-in user, and the content-addressed name is the unguessable
-    capability, exactly like trip media and the inbox. Structurally invalid
-    names (``..`` / separators / non-photo extensions) are 404 without ever
-    touching storage.
+    NO auth (#320): a profile photo renders in an ``<img src>``, and an
+    ``<img>`` cannot send an ``Authorization`` header — the route used to
+    demand a bearer token, so every uploaded avatar 401'd in the browser and
+    the profile showed a broken image. Same posture as ``/media/<trip>/<file>``
+    and ``/inbox/<file>``: the content-addressed name (``sha256[:32]``) IS the
+    capability, and unguessable-ness is the whole access-control story. The
+    stored value is a bare filename chosen by the server at upload, never a
+    client-supplied path. Structurally invalid names (``..`` / separators /
+    non-photo extensions) are 404 without ever touching storage.
     """
-    _ = user
     if not is_valid_media_name(file_name):
         raise HTTPException(404, "Not Found")
     if Path(file_name).suffix.lower() not in _AVATAR_EXTS:

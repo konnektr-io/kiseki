@@ -17,13 +17,11 @@
  * - 404 and 503 render distinct, human error states;
  * - a truncated drill-in says so honestly ("Showing 1 of 250");
  * - a peer's email is never rendered, even if the payload carries one.
- * - (#317) your own profile carries the Edit profile card (peer profiles
- *   never do); saving a name PUTs /api/me {"displayName"} and renames the
- *   heading, a failed save keeps the old name with an error;
- * - (#317) the header stacks below `sm` with a wrapping name (no Follow /
- *   name overlap on phones);
- * - (#317) photo upload posts the cropped blob and swaps the header photo;
- *   remove falls back and clears it.
+ * - (#317/#320) your own profile edits IN PLACE — the avatar button opens the
+ *   picker, the shared inline-edit pencil renames (PUT /api/me {displayName}),
+ *   a peer's profile carries neither; the crop dialog clips a fixed square
+ *   viewport, positions the photo in px (never a scale transform), posts the
+ *   cropped blob on save and clears the header photo on remove.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -473,10 +471,23 @@ describe("MePage — the signed-in user's own profile", () => {
   });
 });
 
-describe("ProfilePage — editing your profile (#317)", () => {
+describe("ProfilePage — editing your profile (#317/#320)", () => {
   const SELF_SUB = authState.sub;
 
-  function editHandler(): Handler {
+  function selfDoc(overrides: Record<string, unknown> = {}) {
+    return {
+      sub: SELF_SUB,
+      name: "Me User",
+      publicName: false,
+      counts: { followers: 0, following: 0, trips: 0 },
+      viewer: { isSelf: true, following: false },
+      trips: [],
+      ...overrides,
+    };
+  }
+
+  function editHandler(extra?: Handler): Handler {
+    const tail: Handler = extra ?? (() => ({ ok: true, status: 200, body: selfDoc() }));
     return (url, init) => {
       if (url === "/api/me" && init?.method === "PUT") {
         const patch = JSON.parse(init?.body ?? "{}") as { displayName?: string };
@@ -487,24 +498,11 @@ describe("ProfilePage — editing your profile (#317)", () => {
           body: { sub: SELF_SUB, ensured: true, name, displayName: name, publicName: false },
         };
       }
-      return {
-        ok: true,
-        status: 200,
-        body: {
-          sub: SELF_SUB,
-          name: "Me User",
-          publicName: false,
-          counts: { followers: 0, following: 0, trips: 0 },
-          viewer: { isSelf: true, following: false },
-          trips: [],
-        },
-      };
+      return tail(url, init);
     };
   }
 
-  function selfPath() {
-    return `/u/${encodeURIComponent(SELF_SUB)}`;
-  }
+  const selfPath = () => `/u/${encodeURIComponent(SELF_SUB)}`;
 
   /** Drive a controlled input the way the skill prescribes: native setter
    *  + `input` event inside act(). */
@@ -517,37 +515,243 @@ describe("ProfilePage — editing your profile (#317)", () => {
     await flush();
   }
 
-  it("renders the Edit profile card on your own profile, never on a peer's", async () => {
+  async function pickFile(file: File) {
+    const picker = container.querySelector(
+      'input[type="file"][aria-label="Choose a profile photo"]',
+    ) as HTMLInputElement;
+    await act(async () => {
+      Object.defineProperty(picker, "files", { value: [file], configurable: true });
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flush();
+  }
+
+  /** jsdom never loads an image, so `onLoad` (which is what measures the
+   *  photo) has to be driven by hand — otherwise the crop maths never gets
+   *  its dimensions and Save stays disabled. */
+  async function loadPhoto(naturalWidth = 1200, naturalHeight = 800) {
+    const photo = container.querySelector('[data-testid="avatar-photo"]') as HTMLImageElement;
+    Object.defineProperty(photo, "naturalWidth", { value: naturalWidth, configurable: true });
+    Object.defineProperty(photo, "naturalHeight", { value: naturalHeight, configurable: true });
+    await act(async () => {
+      photo.dispatchEvent(new Event("load"));
+    });
+    await flush();
+  }
+
+  /** jsdom has no canvas 2d context and no object URLs. */
+  function stubCanvasBits() {
+    const realCreateObjectURL = URL.createObjectURL;
+    const drawImage = vi.fn();
+    const getCtx = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation(((cb: (b: Blob | null) => void) =>
+        cb(new Blob(["cropped"], { type: "image/jpeg" }))) as unknown as typeof HTMLCanvasElement.prototype.toBlob);
+    Object.defineProperty(URL, "createObjectURL", {
+      value: vi.fn(() => "blob:fake-photo"),
+      configurable: true,
+      writable: true,
+    });
+    return {
+      drawImage,
+      restore() {
+        Object.defineProperty(URL, "createObjectURL", {
+          value: realCreateObjectURL,
+          configurable: true,
+          writable: true,
+        });
+        getCtx.mockRestore();
+        toBlob.mockRestore();
+      },
+    };
+  }
+
+  it("your own profile edits in place: avatar is the upload button, name has the pencil", async () => {
     stubFetch(editHandler());
     mount(selfPath());
     await flush();
 
-    expect(container.querySelector('[data-testid="profile-editor"]')).not.toBeNull();
-    expect(container.querySelector("#profile-display-name")).not.toBeNull();
+    // The heavy "Edit profile" card is gone (#320) — the header itself edits.
+    expect(container.querySelector('[data-testid="profile-editor"]')).toBeNull();
+    const avatarBtn = container.querySelector('button[aria-label="Add a profile photo"]');
+    expect(avatarBtn).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Choose a profile photo"]')).toBeNull();
+    // The shared inline-edit pencil, the same control trip titles use.
+    expect(container.querySelector('button[aria-label="Edit name"]')).not.toBeNull();
+    expect(container.querySelector("h1")?.textContent).toBe("Me User");
   });
 
-  it("a peer's profile carries no editor", async () => {
+  it("a peer's profile has no edit affordances at all", async () => {
     stubFetch(() => okProfile());
     mount(peerPath);
     await flush();
 
-    expect(container.querySelector('[data-testid="profile-editor"]')).toBeNull();
-    expect(container.querySelector("#profile-display-name")).toBeNull();
+    expect(container.querySelector('[data-testid="profile-avatar-button"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Edit name"]')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(container.querySelector('[data-testid="avatar-viewport"]')).toBeNull();
+  });
+  it("clicking your avatar opens the file picker", async () => {
+    stubFetch(editHandler());
+    mount(selfPath());
+    await flush();
+
+    const picker = container.querySelector(
+      'input[type="file"][aria-label="Choose a profile photo"]',
+    ) as HTMLInputElement;
+    const clickSpy = vi.spyOn(picker, "click").mockImplementation(() => undefined);
+    await click(container.querySelector('button[aria-label="Add a profile photo"]')!);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
   });
 
-  it("saving a new name PUTs /api/me {displayName} and renames the heading", async () => {
+  it("picking a photo opens the square cropper: clipped viewport, pan+zoom, explicit px", async () => {
+    const { restore } = stubCanvasBits();
+    try {
+      stubFetch(editHandler());
+      mount(selfPath());
+      await flush();
+      await pickFile(new File(["bytes"], "me.png", { type: "image/png" }));
+      await loadPhoto();
+
+      const dialog = container.querySelector('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      const viewport = container.querySelector('[data-testid="avatar-viewport"]') as HTMLElement;
+      // The #320 defect: the photo was clipped by NOTHING, so zoom spilled it
+      // over the page. The viewport must own the clipping.
+      expect(viewport.className).toContain("overflow-hidden");
+      expect(viewport.className).toContain("touch-none");
+      // …and the photo is positioned in px with a translate (never a scale
+      // transform that escapes the box).
+      const photo = container.querySelector('[data-testid="avatar-photo"]') as HTMLImageElement;
+      expect(photo.style.transform).toContain("translate3d");
+      expect(photo.style.transform).not.toContain("scale");
+      expect(photo.style.width).toMatch(/px$/);
+      expect(container.querySelector('input[type="range"]')).not.toBeNull();
+      // Remove is offered only because this profile has no photo yet → absent.
+      expect(
+        Array.from(dialog!.querySelectorAll("button")).some((b) => b.textContent === "Remove photo"),
+      ).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("Save photo posts the cropped blob and swaps the header photo", async () => {
+    const bits = stubCanvasBits();
+    try {
+      const sent = stubFetch(
+        editHandler((url, init) => {
+          if (url === "/api/me/avatar" && init?.method === "POST") {
+            return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: "/api/avatars/abc.jpg" } };
+          }
+          return { ok: true, status: 200, body: selfDoc() };
+        }),
+      );
+      mount(selfPath());
+      await flush();
+      await pickFile(new File(["bytes"], "me.png", { type: "image/png" }));
+      await loadPhoto();
+
+      const save = Array.from(container.querySelectorAll('[role="dialog"] button')).find(
+        (b) => b.textContent === "Save photo",
+      )!;
+      await click(save);
+
+      expect(bits.drawImage).toHaveBeenCalledTimes(1);
+      const post = sent.find((c) => c.method === "POST" && c.url === "/api/me/avatar");
+      expect(post?.auth).toBe("Bearer test-token");
+      // Dialog closed, header shows the new photo (no token in the src — the
+      // route is public, #320).
+      expect(container.querySelector('[role="dialog"]')).toBeNull();
+      const shown = container.querySelector('img[src="/api/avatars/abc.jpg"]');
+      expect(shown).not.toBeNull();
+    } finally {
+      bits.restore();
+    }
+  });
+
+  it("a failed photo upload keeps the dialog open with the server's word", async () => {
+    const bits = stubCanvasBits();
+    try {
+      stubFetch(
+        editHandler((url, init) => {
+          if (url === "/api/me/avatar" && init?.method === "POST") {
+            return { ok: false, status: 422, detail: "that file is not a photo" };
+          }
+          return { ok: true, status: 200, body: selfDoc() };
+        }),
+      );
+      mount(selfPath());
+      await flush();
+      await pickFile(new File(["bytes"], "me.png", { type: "image/png" }));
+      await loadPhoto();
+      const save = Array.from(container.querySelectorAll('[role="dialog"] button')).find(
+        (b) => b.textContent === "Save photo",
+      )!;
+      await click(save);
+
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(container.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain(
+        "not a photo",
+      );
+    } finally {
+      bits.restore();
+    }
+  });
+
+  it("Remove photo (inside the dialog) clears the header photo", async () => {
+    const bits = stubCanvasBits();
+    try {
+      const sent = stubFetch(
+        editHandler((url, init) => {
+          if (url === "/api/me/avatar" && init?.method === "DELETE") {
+            return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: null } };
+          }
+          return {
+            ok: true,
+            status: 200,
+            body: selfDoc({ avatar: "/api/avatars/old.jpg" }),
+          };
+        }),
+      );
+      mount(selfPath());
+      await flush();
+      expect(container.querySelector('img[src="/api/avatars/old.jpg"]')).not.toBeNull();
+
+      await pickFile(new File(["bytes"], "me.png", { type: "image/png" }));
+      await loadPhoto();
+      const remove = Array.from(container.querySelectorAll('[role="dialog"] button')).find(
+        (b) => b.textContent === "Remove photo",
+      )!;
+      await click(remove);
+
+      const del = sent.find((c) => c.method === "DELETE" && c.url === "/api/me/avatar");
+      expect(del?.auth).toBe("Bearer test-token");
+      expect(container.querySelector('img[src="/api/avatars/old.jpg"]')).toBeNull();
+    } finally {
+      bits.restore();
+    }
+  });
+
+  it("the pencil renames through PUT /api/me {displayName} and the h1 follows", async () => {
     const sent = stubFetch(editHandler());
     mount(selfPath());
     await flush();
 
-    await typeInto(
-      container.querySelector("#profile-display-name") as HTMLInputElement,
-      "Bea",
-    );
-    const saveBtn = Array.from(
-      container.querySelectorAll('[data-testid="profile-editor"] button'),
-    ).find((b) => b.textContent === "Save name")!;
-    await click(saveBtn);
+    await click(container.querySelector('button[aria-label="Edit name"]')!);
+    const field = container.querySelector("input#inline-name") as HTMLInputElement;
+    expect(field).not.toBeNull();
+    expect(field.value).toBe("Me User");
+
+    await typeInto(field, "Bea");
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Save",
+    )!;
+    await click(save);
 
     const put = sent.find((c) => c.method === "PUT" && c.url === "/api/me");
     expect(put?.auth).toBe("Bearer test-token");
@@ -560,23 +764,28 @@ describe("ProfilePage — editing your profile (#317)", () => {
       if (url === "/api/me" && init?.method === "PUT") {
         return { ok: false, status: 500, detail: "Graph not configured" };
       }
-      return editHandler()(url, init);
+      return { ok: true, status: 200, body: selfDoc() };
     });
     mount(selfPath());
     await flush();
 
-    await typeInto(
-      container.querySelector("#profile-display-name") as HTMLInputElement,
-      "Bea",
-    );
-    const saveBtn = Array.from(
-      container.querySelectorAll('[data-testid="profile-editor"] button'),
-    ).find((b) => b.textContent === "Save name")!;
-    await click(saveBtn);
+    await click(container.querySelector('button[aria-label="Edit name"]')!);
+    const field = container.querySelector("input#inline-name") as HTMLInputElement;
+    await typeInto(field, "Bea");
+    const save = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Save",
+    )!;
+    await click(save);
 
+    // The field stays open (nothing was saved) with the server's message …
+    expect(container.querySelector("h1")).toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Graph not configured");
+    // … and cancelling proves the profile still reads the OLD name.
+    const cancel = Array.from(container.querySelectorAll("button")).find(
+      (b) => b.textContent === "Cancel",
+    )!;
+    await click(cancel);
     expect(container.querySelector("h1")?.textContent).toBe("Me User");
-    expect(container.querySelector('[data-testid="profile-editor"] [role="alert"]')?.textContent)
-      .toContain("Graph not configured");
   });
 
   it("the header stacks below sm with a wrapping name (no Follow overlap)", async () => {
@@ -588,7 +797,6 @@ describe("ProfilePage — editing your profile (#317)", () => {
     mount(peerPath);
     await flush();
 
-    const header = container.querySelector("main > div:first-child > div, main > * > div");
     const h1 = container.querySelector("h1");
     // The h1 carries the unbreakable-token wrap; its flex row stacks below sm.
     expect(h1?.className).toContain("wrap-anywhere");
@@ -596,91 +804,7 @@ describe("ProfilePage — editing your profile (#317)", () => {
     while (row && !row.className.includes("flex-col")) row = row.parentElement;
     expect(row?.className).toContain("flex-col");
     expect(row?.className).toContain("sm:flex-row");
-    expect(header).not.toBeNull();
     const follow = container.querySelector('button[aria-label^="Follow"]');
     expect(follow?.className).toContain("self-start");
-  });
-
-  it("photo upload posts the cropped blob and swaps the header photo", async () => {
-    const realCreateObjectURL = URL.createObjectURL;
-    const drawImage = vi.fn();
-    const getCtx = vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
-    const toBlob = vi
-      .spyOn(HTMLCanvasElement.prototype, "toBlob")
-      .mockImplementation(function (this: HTMLCanvasElement, cb: (b: Blob | null) => void) {
-        cb(new Blob(["cropped"], { type: "image/jpeg" }));
-      } as unknown as typeof HTMLCanvasElement.prototype.toBlob);
-    URL.createObjectURL = vi.fn(() => "blob:fake-photo") as unknown as typeof URL.createObjectURL;
-    try {
-      const sent = stubFetch((url, init) => {
-        if (url === "/api/me/avatar" && init?.method === "POST") {
-          return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: "/api/avatars/abc.jpg" } };
-        }
-        return editHandler()(url, init);
-      });
-      mount(selfPath());
-      await flush();
-
-      const picker = container.querySelector(
-        '[data-testid="profile-editor"] input[type="file"]',
-      ) as HTMLInputElement;
-      const file = new File(["bytes"], "me.png", { type: "image/png" });
-      await act(async () => {
-        Object.defineProperty(picker, "files", { value: [file], configurable: true });
-        picker.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      await flush();
-
-      // Preview + zoom appear; saving posts the blob with the token.
-      expect(container.querySelector('img[alt="Profile photo preview"]')).not.toBeNull();
-      const savePhoto = Array.from(
-        container.querySelectorAll('[data-testid="profile-editor"] button'),
-      ).find((b) => b.textContent === "Save photo")!;
-      await click(savePhoto);
-
-      expect(drawImage).toHaveBeenCalledTimes(1);
-      const post = sent.find((c) => c.method === "POST" && c.url === "/api/me/avatar");
-      expect(post?.auth).toBe("Bearer test-token");
-      expect(container.querySelector('main img[src="/api/avatars/abc.jpg"]')).not.toBeNull();
-    } finally {
-      URL.createObjectURL = realCreateObjectURL;
-      getCtx.mockRestore();
-      toBlob.mockRestore();
-    }
-  });
-
-  it("remove photo falls back and clears the header", async () => {
-    const sent = stubFetch((url, init) => {
-      if (url === "/api/me/avatar" && init?.method === "DELETE") {
-        return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: null } };
-      }
-      return {
-        ok: true,
-        status: 200,
-        body: {
-          sub: SELF_SUB,
-          name: "Me User",
-          avatar: "/api/avatars/old.jpg",
-          publicName: false,
-          counts: { followers: 0, following: 0, trips: 0 },
-          viewer: { isSelf: true, following: false },
-          trips: [],
-        },
-      };
-    });
-    mount(selfPath());
-    await flush();
-
-    expect(container.querySelector('main img[src="/api/avatars/old.jpg"]')).not.toBeNull();
-    const remove = Array.from(
-      container.querySelectorAll('[data-testid="profile-editor"] button'),
-    ).find((b) => b.textContent === "Remove")!;
-    await click(remove);
-
-    const del = sent.find((c) => c.method === "DELETE" && c.url === "/api/me/avatar");
-    expect(del?.auth).toBe("Bearer test-token");
-    expect(container.querySelector('main img[src="/api/avatars/old.jpg"]')).toBeNull();
   });
 });

@@ -736,6 +736,14 @@ def test_avatar_upload_round_trip(client, rsa_keypair, graph, monkeypatch, tmp_p
         assert serve.status_code == 200
         assert serve.content == raw
         assert serve.headers["content-type"] == "image/jpeg"
+
+        # #320: no token at all — the <img src> path. An avatar renders in an
+        # <img>, which cannot send an Authorization header; the content-addressed
+        # name is the capability (same posture as /media and /inbox).
+        anon = client.get(body["avatar"])
+        assert anon.status_code == 200
+        assert anon.content == raw
+        assert anon.headers["content-type"] == "image/jpeg"
     finally:
         media_module.clear_media_store()
 
