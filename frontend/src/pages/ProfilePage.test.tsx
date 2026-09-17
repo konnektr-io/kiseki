@@ -583,7 +583,7 @@ describe("ProfilePage — editing your profile (#317)", () => {
     stubFetch(() => ({
       ok: true,
       status: 200,
-      body: peerProfile({ name: "josserke@yakult-very-long-domain.example.com" }),
+      body: peerProfile({ name: "josserke.vanherckelele1974@yahoo.com" }),
     }));
     mount(peerPath);
     await flush();
