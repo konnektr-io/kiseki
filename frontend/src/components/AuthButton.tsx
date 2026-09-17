@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import type { User } from "@auth0/auth0-react";
 import { Activity, ChevronDown, LogIn, LogOut, UserRound } from "lucide-react";
 import { isAuthConfigured } from "../lib/auth";
+import { myAvatar } from "../lib/my-avatar";
 import { resetIdentity } from "../lib/posthog";
 import { Button } from "./ui";
 
@@ -46,12 +47,14 @@ function initialsFor(user: {
   return name.slice(0, 2).toUpperCase();
 }
 
-/** The avatar as it appears in both clusters: photo, or initials fallback. */
-function Avatar({ user, name }: { user?: User; name: string }) {
-  if (user?.picture) {
+/** The avatar as it appears in both clusters: the Kiseki profile photo when
+ *  known, else the Auth0 session picture, else an initials fallback. */
+function Avatar({ user, name, photo }: { user?: User; name: string; photo?: string | null }) {
+  const src = photo ?? user?.picture;
+  if (src) {
     return (
       <img
-        src={user.picture}
+        src={src}
         alt={name}
         referrerPolicy="no-referrer"
         className="h-8 w-8 shrink-0 rounded-full object-cover"
@@ -73,10 +76,24 @@ const MENU_ITEM =
   "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:focus-ring";
 
 function AuthButtonInner() {
-  const { isLoading, isAuthenticated, user, loginWithRedirect, logout } =
+  const { isLoading, isAuthenticated, user, loginWithRedirect, logout, getAccessTokenSilently } =
     useAuth0();
   const [menuOpen, setMenuOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  // The Kiseki profile photo, resolved once per session with the Auth0
+  // picture as the fallback (see lib/my-avatar). Never blocks the header:
+  // until it resolves the chip shows the session picture / initials.
+  const [kisekiPhoto, setKisekiPhoto] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isAuthenticated || !user?.sub) return;
+    let cancelled = false;
+    myAvatar(user.sub, getAccessTokenSilently).then((avatar) => {
+      if (!cancelled) setKisekiPhoto(avatar);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.sub, getAccessTokenSilently]);
 
   // Close on outside click or Escape while open (the trip menu's pattern).
   useEffect(() => {
@@ -136,7 +153,7 @@ function AuthButtonInner() {
           title={name}
           className="shrink-0 rounded-full focus-visible:focus-ring"
         >
-          <Avatar user={user} name={name} />
+          <Avatar user={user} name={name} photo={kisekiPhoto} />
         </Link>
         <Button
           variant="outline"
@@ -160,7 +177,7 @@ function AuthButtonInner() {
         title={name}
         className="flex h-11 items-center gap-1 rounded-full border border-border pl-1 pr-1.5 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground focus-visible:focus-ring md:hidden"
       >
-        <Avatar user={user} name={name} />
+        <Avatar user={user} name={name} photo={kisekiPhoto} />
         <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
 
