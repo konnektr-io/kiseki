@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from .acl import (
+    has_credential,
     authorize_trip_path,
     require_trip_owner,
     require_trip_role,
@@ -33,7 +34,7 @@ from .acl import (
     resolve_actor_sub,
     resolve_request_actor_sub,
 )
-from .auth import AuthSession, get_current_session, get_current_user
+from .auth import AuthSession, authenticate_user, get_current_session, get_current_user
 from .chat import (
     ChatRequest,
     RunGone,
@@ -263,18 +264,18 @@ def _redact_crew_for_outsider(crew: list, viewer_sub: str | None) -> list:
     return out
 
 
-def _viewer_sub(authorization: str | None) -> str | None:
+def _viewer_sub(authorization: str | None = None, x_api_key: str | None = None) -> str | None:
     """Best-effort viewer sub for the initials exemption (#196 phase B).
 
-    Returns the token's own sub, or None for anonymous/invalid tokens (an
-    invalid token on a public trip reads as anonymous — same rule as
-    ``authorize_trip_path``). Never raises: identity here only decides whose
-    crew entry keeps its real name, never access.
+    Returns the credential's own sub, or None for anonymous/invalid
+    credentials (an invalid credential on a public trip reads as anonymous —
+    same rule as ``authorize_trip_path``). Never raises: identity here only
+    decides whose crew entry keeps its real name, never access.
     """
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if not has_credential(authorization, x_api_key):
         return None
     try:
-        user = get_current_user(authorization)
+        user = authenticate_user(authorization, x_api_key)
     except Exception:
         # Broad on purpose: this read-path identity only decides whose crew
         # entry keeps its real name — a JWKS/network hiccup (not an
@@ -1372,12 +1373,14 @@ def get_trip(
     trip_id: str,
     my_role: str | None = Depends(authorize_trip_path),
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ) -> dict:
     """Read a trip — single id route, gated by visibility (#64).
 
     - visibility == "public"  → anyone (no auth), myRole returned if the
       caller happens to be authenticated and on the crew.
-    - visibility == "private" → requires valid Auth0 token + crew role
+    - visibility == "private" → requires a valid credential (Auth0 token or
+      admin API key, #324) + crew role
       (follower+, #65). The ACL is enforced by ``authorize_trip_path``.
 
     ``claimToken`` is always stripped from the response.
@@ -1385,7 +1388,7 @@ def get_trip(
     trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization))
+    return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization, x_api_key))
 
 
 # ------------------------------------------------------------------ write path (#46)

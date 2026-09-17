@@ -23,7 +23,15 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException
 
-from .auth import get_current_user
+from .auth import authenticate_user
+
+
+def has_credential(authorization: str | None, x_api_key: str | None) -> bool:
+    """Either a bearer token or an admin API key was presented (issue #324)."""
+    return bool(
+        (authorization and authorization.lower().startswith("bearer "))
+        or (x_api_key and x_api_key.strip())
+    )
 from .config import KISEKI_AGENT_ACT_AS, KISEKI_AGENT_CLIENT_ID
 from .store import get_trip_by_id, get_trip_role_for_user
 
@@ -160,6 +168,7 @@ def _role_ok(role: str | None, min_role: str) -> bool:
 def authorize_trip_path(
     trip_id: str,
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
 ) -> str | None:
     """FastAPI dependency for GET /api/trips/{trip_id} (and booklet.pdf).
 
@@ -171,27 +180,27 @@ def authorize_trip_path(
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
 
-    # Public: anyone may read. If a token is present, try to resolve the
-    # caller's role for myRole; invalid tokens are ignored (public access
+    # Public: anyone may read. If a credential is present, try to resolve the
+    # caller's role for myRole; invalid credentials are ignored (public access
     # does not require auth, so a stale header shouldn't break it).
     if trip.visibility == "public":
-        if authorization and authorization.lower().startswith("bearer "):
+        if has_credential(authorization, x_api_key):
             try:
-                user = get_current_user(authorization)
+                user = authenticate_user(authorization, x_api_key)
                 actor = _resolve_actor(user, trip_id.lower())
                 return actor["role"] if actor else None
             except HTTPException:
                 return None
         return None
 
-    # Private: valid token + follower+ required (follower is the lowest read role, #65).
-    if not authorization or not authorization.lower().startswith("bearer "):
+    # Private: valid credential + follower+ required (follower is the lowest read role, #65).
+    if not has_credential(authorization, x_api_key):
         raise HTTPException(
             status_code=401,
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user = get_current_user(authorization)  # validates; 401 on invalid
+    user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
     actor = _resolve_actor(user, trip_id.lower())
     if not actor or not _role_ok(actor["role"], "follower"):
         raise HTTPException(
@@ -218,14 +227,15 @@ def require_trip_role(min_role: str):
     def dependency(
         trip_id: str,
         authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> dict:
-        if not authorization or not authorization.lower().startswith("bearer "):
+        if not has_credential(authorization, x_api_key):
             raise HTTPException(
                 status_code=401,
                 detail="Missing bearer token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        user = get_current_user(authorization)  # validates; 401 on invalid
+        user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
         actor = _resolve_actor(user, trip_id.lower())
         if not actor or not _role_ok(actor["role"], min_role):
             raise HTTPException(
@@ -239,7 +249,7 @@ def require_trip_role(min_role: str):
     return dependency
 
 
-def require_trip_owner(trip_id: str, authorization: str | None = Header(default=None)) -> dict:
+def require_trip_owner(trip_id: str, authorization: str | None = Header(default=None), x_api_key: str | None = Header(default=None)) -> dict:
     """The DELETE /api/trips/{trip_id} gate (issue #163) — existence FIRST.
 
     Unlike ``require_trip_role`` (which gates on the crew role alone and lets
@@ -251,13 +261,13 @@ def require_trip_owner(trip_id: str, authorization: str | None = Header(default=
     403 (exists, caller is not the owner). The write service re-checks the
     owner role (belt and braces) and does the graph work.
     """
-    if not authorization or not authorization.lower().startswith("bearer "):
+    if not has_credential(authorization, x_api_key):
         raise HTTPException(
             status_code=401,
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user = get_current_user(authorization)  # validates; 401 on invalid
+    user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
     if get_trip_by_id(trip_id.lower()) is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     actor = _resolve_actor(user, trip_id.lower())
