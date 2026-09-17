@@ -21,6 +21,8 @@ REAL auth/ACL/store/service code (same harness as ``test_identity_196.py``):
 
 from __future__ import annotations
 
+import hashlib
+import io
 import uuid
 
 import pytest
@@ -28,6 +30,7 @@ from fastapi.testclient import TestClient
 
 from app import acl as acl_module
 from app import auth as auth_module
+from app import media as media_module
 from app import store as store_mod
 from app.auth import Auth0JWTValidator
 from app.graph.convert import graph_to_trip
@@ -173,8 +176,9 @@ def test_put_me_flips_own_flag_and_nothing_else(client, rsa_keypair, graph) -> N
 
 
 def test_put_me_is_one_knob(client, rsa_keypair, graph) -> None:
-    """Any field besides ``publicName`` is a 422 — this can never grow into a
-    general twin editor by accident."""
+    """Any field besides ``publicName``/``displayName`` is a 422 — this can
+    never grow into a general twin editor by accident (#317 added the second
+    knob; the photo stays on its own upload route)."""
     graph(role="owner")
     token = _token_of(rsa_keypair)
     r = client.put("/api/me", headers=_auth(token),
@@ -574,3 +578,265 @@ def test_set_user_public_name_write_shape_and_failure(monkeypatch) -> None:
     with pytest.raises(gc.GraphWriteError) as excinfo:
         client_obj.set_user_public_name(SUB, False)
     assert excinfo.value.status == 503
+
+
+# ------------------------------------------------------- 6. editable profile (#317)
+
+
+def test_put_me_sets_display_name(client, rsa_keypair, graph) -> None:
+    """``PUT /api/me {"displayName"}`` renames the profile (Kiseki-only) and
+    the twin's ``name`` mirror with it — the profile reads the new name."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    token = _token_of(rsa_keypair, sub=OTHER)
+
+    r = client.put("/api/me", headers=_auth(token), json={"displayName": "  Bea  "})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["displayName"] == "Bea"
+    assert body["name"] == "Bea"
+    assert g.twin(OTHER).get("displayName") == "Bea"
+    assert g.twin(OTHER).get("name") == "Bea"
+
+    doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+    assert doc["name"] == "Bea"
+
+
+def test_put_me_rejects_bad_display_name(client, rsa_keypair, graph) -> None:
+    """Empty / blank / over-long names and an empty body are 422 — nothing
+    is written either way."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    token = _token_of(rsa_keypair, sub=OTHER)
+
+    for payload in ({"displayName": ""}, {"displayName": "   "},
+                    {"displayName": "x" * 81}, {}):
+        r = client.put("/api/me", headers=_auth(token), json=payload)
+        assert r.status_code == 422, payload
+    assert g.twin(OTHER).get("displayName") == "User Bee"
+
+
+def test_put_me_display_name_survives_re_ensure(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Kiseki-edited name is never clobbered: a later ``ensure`` (whose
+    Auth0 profile still carries the OLD name) keeps the user's edit, while
+    the email stays fresh from the provider."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    token = _token_of(rsa_keypair, sub=OTHER)
+    assert client.put("/api/me", headers=_auth(token),
+                      json={"displayName": "Bea"}).status_code == 200
+
+    monkeypatch.setattr(
+        auth_module, "fetch_userinfo",
+        lambda tok: {"email": "new@example.com", "name": "User Bee",
+                     "picture": "https://example.com/pic.jpg"},
+    )
+    r = client.post("/api/me/ensure", headers=_auth(token))
+    assert r.status_code == 200
+    assert g.twin(OTHER).get("displayName") == "Bea"
+    assert g.twin(OTHER).get("email") == "new@example.com"
+
+    doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+    assert doc["name"] == "Bea"
+
+
+def test_ensure_syncs_google_picture_on_first_login(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First login with an IdP photo stores it: the profile carries the
+    ``https://`` avatar (the exact photo the top-right menu already showed
+    from the Auth0 session)."""
+    g = graph(role="owner")
+    token = _token_of(rsa_keypair, sub=OTHER)
+    monkeypatch.setattr(
+        auth_module, "fetch_userinfo",
+        lambda tok: {"email": "bee@example.com", "name": "User Bee",
+                     "picture": "https://example.com/bee.jpg"},
+    )
+    assert client.post("/api/me/ensure", headers=_auth(token)).status_code == 200
+    assert g.twin(OTHER).get("avatar") == "https://example.com/bee.jpg"
+
+    doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+    assert doc["avatar"] == "https://example.com/bee.jpg"
+
+
+def test_ensure_never_clobbers_uploaded_avatar(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An uploaded avatar survives later logins: re-ensure with an Auth0
+    ``picture`` present keeps the user's photo and only fills what's missing."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    assert g.update_user_profile(OTHER, avatar="c383ce57abcd1234c383ce57abcd1234.jpg")
+    token = _token_of(rsa_keypair, sub=OTHER)
+    monkeypatch.setattr(
+        auth_module, "fetch_userinfo",
+        lambda tok: {"email": "bee@example.com", "name": "Someone Else",
+                     "picture": "https://example.com/other.jpg"},
+    )
+    assert client.post("/api/me/ensure", headers=_auth(token)).status_code == 200
+    assert g.twin(OTHER).get("avatar") == "c383ce57abcd1234c383ce57abcd1234.jpg"
+
+    doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+    assert doc["avatar"] == "/api/avatars/c383ce57abcd1234c383ce57abcd1234.jpg"
+
+
+class _AvatarConfig:
+    """Config stand-in pointing the media store at a tmp dir (test_chat.py's
+    ``_FakeConfig`` pattern — local to this module, no cross-test import)."""
+
+    def __init__(self, root):
+        self.KISEKI_S3_ENDPOINT = ""
+        self.KISEKI_S3_BUCKET = ""
+        self.KISEKI_S3_ACCESS_KEY = ""
+        self.KISEKI_S3_SECRET_KEY = ""
+        self.KISEKI_S3_REGION = ""
+        self.ASSETS_DIR = root
+
+
+def _avatar_store(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    monkeypatch.setattr(media_module, "config", _AvatarConfig(tmp_path))
+    media_module.clear_media_store()
+    return tmp_path
+
+
+def _upload_avatar(client, token, raw: bytes, filename: str):
+    return client.post(
+        "/api/me/avatar",
+        files={"file": (filename, io.BytesIO(raw), "image/jpeg")},
+        headers=_auth(token),
+    )
+
+
+def test_avatar_upload_round_trip(client, rsa_keypair, graph, monkeypatch, tmp_path) -> None:
+    """Upload → content-addressed serve URL on the profile → bytes back.
+    The twin stores the BARE filename; only readers resolve the URL."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    token = _token_of(rsa_keypair, sub=OTHER)
+    _avatar_store(monkeypatch, tmp_path)
+    try:
+        raw = b"\x89PNG\r\n\x1a\navatar-bytes"
+        r = _upload_avatar(client, token, raw, "me.jpg")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["sub"] == OTHER
+        expected = hashlib.sha256(raw).hexdigest()[:32]
+        assert body["avatar"] == f"/api/avatars/{expected}.jpg"
+
+        twin = g.twin(OTHER)
+        assert twin.get("avatar") == f"{expected}.jpg"  # bare, never a path
+
+        doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+        assert doc["avatar"] == f"/api/avatars/{expected}.jpg"
+
+        serve = client.get(body["avatar"], headers=_auth(token))
+        assert serve.status_code == 200
+        assert serve.content == raw
+        assert serve.headers["content-type"] == "image/jpeg"
+    finally:
+        media_module.clear_media_store()
+
+
+def test_avatar_upload_rejects_non_photos(client, rsa_keypair, graph, monkeypatch, tmp_path) -> None:
+    """Documents and SVG are 422 with a message naming the file — and the
+    twin keeps whatever avatar it had (no half-write)."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    token = _token_of(rsa_keypair, sub=OTHER)
+    _avatar_store(monkeypatch, tmp_path)
+    try:
+        r = _upload_avatar(client, token, b"hi", "notes.txt")
+        assert r.status_code == 422
+        r = client.post(
+            "/api/me/avatar",
+            files={"file": ("evil.svg", io.BytesIO(b"<svg/>"), "image/svg+xml")},
+            headers=_auth(token),
+        )
+        assert r.status_code == 422
+        assert "avatar" not in (g.twin(OTHER) or {})
+    finally:
+        media_module.clear_media_store()
+
+
+def test_avatar_upload_needs_twin_and_user_token(
+    client, rsa_keypair, graph, monkeypatch, tmp_path,
+) -> None:
+    """No twin → 404 (call ``ensure`` first); a sanctioned-agent M2M token is
+    refused 403 — avatar writes provision identity like every ``/api/me*``."""
+    graph(role="owner")
+    _avatar_store(monkeypatch, tmp_path)
+    try:
+        ghost = _token_of(rsa_keypair, sub="auth0|ghost-0000000009")
+        r = _upload_avatar(client, ghost, b"\x89PNG\r\n\x1a\nx", "me.jpg")
+        assert r.status_code == 404
+
+        monkeypatch.setattr(acl_module, "KISEKI_AGENT_CLIENT_ID", AGENT_CLIENT)
+        m2m = _token_of(rsa_keypair, gty="client-credentials", azp=AGENT_CLIENT,
+                        sub=f"{AGENT_CLIENT}@clients")
+        r = _upload_avatar(client, m2m, b"\x89PNG\r\n\x1a\nx", "me.jpg")
+        assert r.status_code == 403
+    finally:
+        media_module.clear_media_store()
+
+
+def test_avatar_delete_falls_back_to_provider_picture(
+    client, rsa_keypair, graph, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Remove → the IdP photo when the provider has one, else the monogram
+    (no key at all — never a dangling upload reference)."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "User Bee")
+    assert g.update_user_profile(OTHER, avatar="c383ce57abcd1234c383ce57abcd1234.jpg")
+    token = _token_of(rsa_keypair, sub=OTHER)
+
+    monkeypatch.setattr(
+        auth_module, "fetch_userinfo",
+        lambda tok: {"email": "bee@example.com", "name": "User Bee",
+                     "picture": "https://example.com/bee.jpg"},
+    )
+    r = client.delete("/api/me/avatar", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["avatar"] == "https://example.com/bee.jpg"
+
+    monkeypatch.setattr(auth_module, "fetch_userinfo", lambda tok: {})
+    r = client.delete("/api/me/avatar", headers=_auth(token))
+    assert r.status_code == 200
+    assert r.json()["avatar"] is None
+    doc = client.get(f"/api/users/{OTHER}", headers=_auth(token)).json()
+    assert "avatar" not in doc
+
+
+def test_avatar_serve_404s(client, rsa_keypair, graph) -> None:
+    """Unknown files, non-photo extensions and traversal are 404 without
+    ever touching storage."""
+    graph(role="owner")
+    token = _token_of(rsa_keypair)
+    assert client.get("/api/avatars/doesnotexist0123456789abcdef.jpg",
+                      headers=_auth(token)).status_code == 404
+    assert client.get("/api/avatars/notes.txt",
+                      headers=_auth(token)).status_code == 404
+    assert client.get("/api/avatars/..%2Fsecret.jpg",
+                      headers=_auth(token)).status_code == 404
+
+
+def test_followers_list_resolves_uploaded_avatar(client, rsa_keypair, graph) -> None:
+    """Drill-in entries carry the resolved serve URL for uploaded avatars —
+    the same ``_resolve_avatar`` contract as the profile document."""
+    g = graph(role="owner")
+    _ensure_user(g, OTHER, "Other User")
+    _ensure_user(g, FAN, "Fan User")
+    assert g.update_user_profile(FAN, avatar="f383ce57abcd1234f383ce57abcd1234.jpg")
+    fan_token = _token_of(rsa_keypair, sub=FAN)
+    assert client.post(f"/api/users/{OTHER}/follow",
+                       headers=_auth(fan_token)).status_code == 200
+
+    other_token = _token_of(rsa_keypair, sub=OTHER)
+    doc = client.get(f"/api/users/{OTHER}/followers",
+                     headers=_auth(other_token)).json()
+    assert doc["count"] == 1
+    (entry,) = doc["people"]
+    assert entry["sub"] == FAN
+    assert entry["avatar"] == "/api/avatars/f383ce57abcd1234f383ce57abcd1234.jpg"

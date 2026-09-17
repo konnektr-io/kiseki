@@ -921,31 +921,54 @@ class GraphReadClient:
         ``$dtId`` IS the global auth id (the token's ``sub``). The twin carries
         the OIDC profile; ``role`` stays on the ``hasCrew`` EDGE, never on the
         node. PUT by ``$dtId`` — idempotent.
+
+        User-editable fields are NEVER clobbered (#317): on re-ensure (the twin
+        already exists) a non-empty ``displayName``/``avatar`` the user set in
+        Kiseki survives, and an Auth0 ``picture`` only fills an ABSENT avatar
+        (first-login Google-photo sync). ``name`` mirrors ``displayName``.
         """
         if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
             return False
         email = (profile.get("email") or "").strip()
         if not email:
             return False  # a User twin without a verified email is not useful
-        name = (profile.get("name") or "").strip() or email.split("@")[0]
+        auth_name = (profile.get("name") or "").strip() or email.split("@")[0]
+        picture = (profile.get("picture") or "").strip()
         auth_provider = "external"
         for prefix, provider in (("google-oauth2|", "google"), ("auth0|", "auth0")):
             if user_dtid.startswith(prefix):
                 auth_provider = provider
                 break
+        existing = self.get_user_profile(user_dtid)
+        if existing is not None:
+            display_name = (existing.get("displayName") or "").strip() or auth_name
+            avatar = (existing.get("avatar") or "").strip() or picture or None
+        else:
+            display_name = auth_name
+            avatar = picture or None
         try:
             from konnektr_graph import BasicDigitalTwin
 
-            twin = BasicDigitalTwin.from_dict(
-                {
-                    "$dtId": user_dtid,
-                    "$metadata": {"$model": USER_MODEL},
-                    "name": name,
-                    "email": email,
-                    "displayName": name,
-                    "authProvider": auth_provider,
-                }
-            )
+            props: dict[str, Any] = {
+                "$dtId": user_dtid,
+                "$metadata": {"$model": USER_MODEL},
+                "name": display_name,
+                # email is Auth0-sourced truth (not user-editable in Kiseki),
+                # so it stays fresh; displayName/avatar are user-editable and
+                # preserved above.
+                "email": email,
+                "displayName": display_name,
+                "authProvider": auth_provider,
+            }
+            if avatar:
+                props["avatar"] = avatar
+            if existing is not None:
+                # Preserve every other prop the twin carries (publicName, …) —
+                # ensure provisions identity, it never resets preferences.
+                for k, v in existing.items():
+                    if isinstance(k, str) and not k.startswith("$") and k not in props:
+                        props[k] = v
+            twin = BasicDigitalTwin.from_dict(props)
             self._client.upsert_digital_twin(user_dtid, twin)  # type: ignore[union-attr]
             return True
         except Exception as exc:
@@ -1350,13 +1373,22 @@ class GraphReadClient:
                 out[sub] = node
         return out
 
-    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
-        """Write the caller's own ``User.publicName`` opt-in (``PUT /api/me``).
+    def update_user_profile(
+        self,
+        user_dtid: str,
+        *,
+        display_name: str | None = None,
+        avatar: str | None = None,
+        public_name: bool | None = None,
+    ) -> dict | None:
+        """Write the caller's own ``User`` profile fields (``PUT /api/me``).
 
-        Get-then-upsert-full: the existing props (name/email/displayName/…)
-        are preserved and only ``publicName`` changes. Returns those props, or
-        None when the twin does not exist (the route maps this to 404 — the
-        client calls ``ensure`` first).
+        Get-then-upsert-full: the existing props (name/email/…) are preserved
+        and only the fields passed as non-None change. ``avatar=""`` clears
+        the photo (back to monogram); ``displayName``/``publicName`` treat
+        None as "untouched". Returns those props, or None when the twin does
+        not exist (the route maps this to 404 — the client calls ``ensure``
+        first).
 
         "The twin is missing" and "the graph refused the write" are DIFFERENT
         answers: a failed write raises ``GraphWriteError`` (mapped to 503), it
@@ -1377,7 +1409,16 @@ class GraphReadClient:
             for k, v in current.items()
             if not (isinstance(k, str) and k.startswith("$"))
         }
-        props["publicName"] = bool(public_name)
+        if display_name is not None:
+            props["displayName"] = display_name
+            props["name"] = display_name
+        if avatar is not None:
+            if avatar:
+                props["avatar"] = avatar
+            else:
+                props.pop("avatar", None)
+        if public_name is not None:
+            props["publicName"] = bool(public_name)
         try:
             from konnektr_graph import BasicDigitalTwin
 
@@ -1386,9 +1427,17 @@ class GraphReadClient:
             )
             self._client.upsert_digital_twin(user_dtid, twin)  # type: ignore[union-attr]
         except Exception as exc:
-            print(f"[kiseki] graph set publicName({user_dtid}) failed: {exc}")
+            print(f"[kiseki] graph update user profile({user_dtid}) failed: {exc}")
             raise GraphWriteError(503, f"graph write failed for {user_dtid}") from exc
         return props
+
+    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
+        """Write the caller's own ``User.publicName`` opt-in (``PUT /api/me``).
+
+        Thin wrapper over :meth:`update_user_profile` (kept so existing
+        callers/tests pinning this name keep working).
+        """
+        return self.update_user_profile(user_dtid, public_name=public_name)
 
 
     @staticmethod

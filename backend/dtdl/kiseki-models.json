@@ -1178,7 +1178,7 @@
         "name": "displayName",
         "schema": "string",
         "writable": true,
-        "description": "Name shown in the UI."
+        "description": "Name shown in the UI. User-editable in Kiseki only (PUT /api/me) — never pushed back to Auth0."
       },
       {
         "@type": "Property",
@@ -1186,6 +1186,13 @@
         "schema": "string",
         "writable": true,
         "description": "Auth origin: password | auth0 | google (P2)."
+      },
+      {
+        "@type": "Property",
+        "name": "avatar",
+        "schema": "string",
+        "writable": true,
+        "description": "Profile photo (#317): an https:// URL synced from Auth0 userinfo at ensure-time (e.g. the Google photo), or a bare content-addressed filename served at /api/avatars/<file> (POST /api/me/avatar). Absent = monogram. Like Location.photo, an https URL stays URL-permitted here — the write-path URL gate covers trip media only."
       },
       {
         "@type": "Property",

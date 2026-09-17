@@ -399,20 +399,36 @@ class FakeGraph:
     def create_user_twin(self, user_dtid: str, profile: dict) -> bool:
         """Mirror the real ``create_user_twin`` (claim flow, #6): a User twin
         without a verified email is refused (False) — the server invents no
-        identity. PUT by ``$dtId`` — idempotent."""
+        identity. PUT by ``$dtId`` — idempotent.
+
+        Mirrors the #317 no-clobber rule: on re-ensure an existing
+        ``displayName``/``avatar`` survives and an Auth0 ``picture`` only
+        fills an absent avatar."""
         email = ((profile or {}).get("email") or "").strip()
         if not email:
             return False
-        name = ((profile or {}).get("name") or "").strip() or email.split("@")[0]
-        if self.twin(user_dtid) is None:
-            self.twins.append({
+        auth_name = ((profile or {}).get("name") or "").strip() or email.split("@")[0]
+        picture = ((profile or {}).get("picture") or "").strip()
+        existing = self.twin(user_dtid)
+        if existing is None:
+            twin: dict = {
                 "$dtId": user_dtid,
                 "$metadata": {"$model": "dtmi:kiseki:travel:User;1"},
-                "name": name,
+                "name": auth_name,
                 "email": email,
-                "displayName": name,
+                "displayName": auth_name,
                 "authProvider": "external",
-            })
+            }
+            if picture:
+                twin["avatar"] = picture
+            self.twins.append(twin)
+        else:
+            existing["email"] = email
+            if not (existing.get("displayName") or "").strip():
+                existing["displayName"] = auth_name
+            existing["name"] = (existing.get("displayName") or "").strip() or auth_name
+            if not (existing.get("avatar") or "").strip() and picture:
+                existing["avatar"] = picture
         return True
 
     def role_for_user_on_trip(self, trip_dtid: str, user_dtid: str) -> str | None:
@@ -594,13 +610,29 @@ class FakeGraph:
                 out[sub] = node
         return out
 
-    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
-        """Mirror the real ``set_user_public_name``: preserve every prop, flip
-        only ``publicName``. None when the twin does not exist."""
+    def update_user_profile(
+        self, user_dtid: str, *, display_name=None, avatar=None, public_name=None
+    ) -> dict | None:
+        """Mirror the real ``update_user_profile`` (#317): only the passed
+        fields change; ``avatar=""`` clears. None when the twin is absent."""
         import copy as _copy
 
         t = self.twin(user_dtid)
         if t is None or (t.get("$metadata") or {}).get("$model") != "dtmi:kiseki:travel:User;1":
             return None
-        t["publicName"] = bool(public_name)
+        if display_name is not None:
+            t["displayName"] = display_name
+            t["name"] = display_name
+        if avatar is not None:
+            if avatar:
+                t["avatar"] = avatar
+            else:
+                t.pop("avatar", None)
+        if public_name is not None:
+            t["publicName"] = bool(public_name)
         return _copy.deepcopy(t)
+
+    def set_user_public_name(self, user_dtid: str, public_name: bool) -> dict | None:
+        """Mirror the real ``set_user_public_name``: delegates to
+        ``update_user_profile``, like the real one."""
+        return self.update_user_profile(user_dtid, public_name=public_name)
