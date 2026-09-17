@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { MapPin, UserCheck, UserPlus } from "lucide-react";
+import { Camera, MapPin, UserCheck, UserPlus } from "lucide-react";
 import {
   TripAccessError,
   deleteMyAvatar,
@@ -16,12 +16,13 @@ import {
   uploadMyAvatar,
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
-import { cropAvatar, type CropCanvas } from "../lib/avatar-crop";
 import { formatDate } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib/types";
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
+import { AvatarEditor } from "../components/avatar-editor";
+import { InlineField } from "../components/inline-edit";
 import { Badge, Button, Card, StageBadge } from "../components/ui";
 import { AccountPanel } from "../components/AccountPanel";
 
@@ -242,285 +243,6 @@ function TripRow({ trip }: { trip: ProfileTrip }) {
 type ListKind = "followers" | "following";
 
 /**
- * Self-only profile editor (#317): rename + photo, rendered on `/me` (and
- * your own `/u/:sub`) below the header card — never on a peer's profile.
- *
- * Name: inline input saved through `PUT /api/me {displayName}` (Kiseki-only,
- * never pushed to Auth0). Photo: file picker → square preview with a zoom
- * slider (center-crop + zoom, v1 — no panning) → client-side canvas crop
- * (`lib/avatar-crop`, 512px JPEG) → `POST /api/me/avatar`. Remove falls
- * back to the IdP photo when there is one, else the monogram. Every save
- * reports back through `onSaved` so the header updates without a refetch.
- */
-function SelfProfileEditor({
-  name,
-  avatar,
-  getAccessTokenSilently,
-  loginWithRedirect,
-  onSaved,
-}: {
-  name: string;
-  avatar?: string;
-  getAccessTokenSilently: () => Promise<string>;
-  loginWithRedirect: (opts: { appState: { returnTo: string } }) => void;
-  onSaved: (next: { name: string; avatar?: string }) => void;
-}) {
-  const [draft, setDraft] = useState(name);
-  const [nameBusy, setNameBusy] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [removeBusy, setRemoveBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const previewRef = useRef<HTMLImageElement>(null);
-
-  // Keep the draft honest when the profile reloads underneath (e.g. after
-  // a retry) — but never while the user is typing.
-  useEffect(() => {
-    setDraft((d) => (d === name || document.activeElement?.tagName === "INPUT" ? d : name));
-  }, [name]);
-
-  useEffect(() => {
-    return () => {
-      if (photoUrl) URL.revokeObjectURL(photoUrl);
-    };
-  }, [photoUrl]);
-
-  const expired = () => {
-    loginWithRedirect({ appState: { returnTo: window.location.pathname } });
-  };
-
-  const saveName = async () => {
-    const next = draft.trim();
-    if (nameBusy || !next || next === name) return;
-    if (next.length > 80) {
-      setNameError("Keep it to 80 characters.");
-      return;
-    }
-    setNameBusy(true);
-    setNameError(null);
-    try {
-      const at = await getAccessTokenSilently();
-      const res = await updateMyProfile({ displayName: next }, at);
-      onSaved({ name: res.displayName, avatar });
-    } catch (e) {
-      if (isSessionExpiredError(e)) {
-        setNameBusy(false);
-        expired();
-        return;
-      }
-      setNameError(e instanceof Error ? e.message : "Couldn't save that name. Nothing changed.");
-    } finally {
-      setNameBusy(false);
-    }
-  };
-
-  const pickPhoto = (file: File | undefined) => {
-    setPhotoError(null);
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setPhotoError("That file isn't a photo — pick a JPEG, PNG, WebP, GIF or AVIF image.");
-      return;
-    }
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    setZoom(1);
-    setPhotoUrl(URL.createObjectURL(file));
-  };
-
-  const cancelPhoto = () => {
-    if (photoUrl) URL.revokeObjectURL(photoUrl);
-    setPhotoUrl(null);
-    setZoom(1);
-    setPhotoError(null);
-    if (fileRef.current) fileRef.current.value = "";
-  };
-
-  const savePhoto = async () => {
-    const img = previewRef.current;
-    if (photoBusy || !img) return;
-    setPhotoBusy(true);
-    setPhotoError(null);
-    try {
-      // The DOM canvas satisfies CropCanvas structurally at runtime; the
-      // cast bridges TS's strict image-source variance, not a real gap.
-      const blob = await cropAvatar(img, zoom, document.createElement("canvas") as unknown as CropCanvas);
-      const at = await getAccessTokenSilently();
-      const res = await uploadMyAvatar(blob, at);
-      onSaved({ name, avatar: res.avatar });
-      cancelPhoto();
-    } catch (e) {
-      if (isSessionExpiredError(e)) {
-        setPhotoBusy(false);
-        expired();
-        return;
-      }
-      setPhotoError(e instanceof Error ? e.message : "Couldn't upload that photo. Nothing changed.");
-    } finally {
-      setPhotoBusy(false);
-    }
-  };
-
-  const removePhoto = async () => {
-    if (removeBusy || !avatar) return;
-    setRemoveBusy(true);
-    setPhotoError(null);
-    try {
-      const at = await getAccessTokenSilently();
-      const res = await deleteMyAvatar(at);
-      onSaved({ name, avatar: res.avatar ?? undefined });
-    } catch (e) {
-      if (isSessionExpiredError(e)) {
-        setRemoveBusy(false);
-        expired();
-        return;
-      }
-      setPhotoError(e instanceof Error ? e.message : "Couldn't remove that photo. Nothing changed.");
-    } finally {
-      setRemoveBusy(false);
-    }
-  };
-
-  return (
-    <Card className="mt-4 p-4 sm:p-6" data-testid="profile-editor">
-      <p className="kicker">Edit profile</p>
-
-      <div className="mt-3 flex items-center gap-4">
-        {avatar && !photoUrl ? (
-          <img
-            src={avatar}
-            alt=""
-            referrerPolicy="no-referrer"
-            className="h-16 w-16 shrink-0 rounded-full object-cover"
-          />
-        ) : !photoUrl ? (
-          <span
-            aria-hidden="true"
-            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xl font-bold text-primary"
-          >
-            {initials(name)}
-          </span>
-        ) : null}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Photo</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {photoUrl ? "Preview — drag the zoom until it looks right." : "Square crop, stored on Kiseki."}
-          </p>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileRef.current?.click()}
-              disabled={photoBusy}
-              className="min-h-[44px]"
-            >
-              {avatar || photoUrl ? "Choose a new photo" : "Upload a photo"}
-            </Button>
-            {avatar && !photoUrl && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => void removePhoto()}
-                disabled={removeBusy}
-                className="min-h-[44px] text-destructive hover:text-destructive"
-              >
-                {removeBusy ? "Removing…" : "Remove"}
-              </Button>
-            )}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            className="sr-only"
-            aria-label="Choose a profile photo"
-            onChange={(e) => pickPhoto(e.target.files?.[0])}
-          />
-        </div>
-      </div>
-
-      {photoUrl && (
-        <div className="mt-3 rounded-xl border border-border bg-muted/40 p-3">
-          <div className="flex items-center gap-4">
-            <img
-              ref={previewRef}
-              src={photoUrl}
-              alt="Profile photo preview"
-              className="h-32 w-32 shrink-0 rounded-lg object-cover"
-              style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-            />
-            <div className="min-w-0 flex-1">
-              <label htmlFor="avatar-zoom" className="text-xs font-medium text-muted-foreground">
-                Zoom
-              </label>
-              <input
-                id="avatar-zoom"
-                type="range"
-                min={1}
-                max={3}
-                step={0.1}
-                value={zoom}
-                onChange={(e) => setZoom(Number(e.target.value))}
-                className="mt-1 w-full"
-              />
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => void savePhoto()} disabled={photoBusy} className="min-h-[44px]">
-                  {photoBusy ? "Uploading…" : "Save photo"}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={cancelPhoto} disabled={photoBusy} className="min-h-[44px]">
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-      {photoError && (
-        <p role="alert" className="mt-2 text-xs font-medium text-destructive">
-          {photoError}
-        </p>
-      )}
-
-      <div className="mt-4 border-t border-border pt-4">
-        <label htmlFor="profile-display-name" className="text-sm font-medium">
-          Name
-        </label>
-        <p className="text-xs text-muted-foreground">
-          Shown on your profile and trips instead of your email address. Kiseki-only — it never changes your login.
-        </p>
-        <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
-          <input
-            id="profile-display-name"
-            type="text"
-            value={draft}
-            maxLength={80}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void saveName();
-            }}
-            className="min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background px-3 text-sm focus-visible:focus-ring"
-          />
-          <Button
-            size="sm"
-            onClick={() => void saveName()}
-            disabled={nameBusy || !draft.trim() || draft.trim() === name}
-            className="min-h-[44px] shrink-0"
-          >
-            {nameBusy ? "Saving…" : "Save name"}
-          </Button>
-        </div>
-        {nameError && (
-          <p role="alert" className="mt-2 text-xs font-medium text-destructive">
-            {nameError}
-          </p>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-/**
  * The profile body shared by `/u/:sub` and `/me`: header (avatar/monogram,
  * name, follower/following counts, Follow button), the self-only
  * `publicName` opt-in, drill-in people lists, and the trip list. Never
@@ -559,6 +281,13 @@ function ProfileView({
   const [publicName, setPublicNameValue] = useState<boolean | null>(null);
   const [pnBusy, setPnBusy] = useState(false);
   const [pnError, setPnError] = useState<string | null>(null);
+  // #317/#320 self-edit: the picked file (non-null = the photo dialog is
+  // open), its request state, and the inline name edit's error.
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   usePageTitle(profile ? `${profile.name} · Profile` : "Profile");
 
@@ -573,6 +302,9 @@ function ProfileView({
     setListError(null);
     setPublicNameValue(null);
     setPnError(null);
+    setAvatarFile(null);
+    setAvatarError(null);
+    setNameError(null);
     getAccessTokenSilently()
       .then((at) => fetchUserProfile(sub, at))
       .then((doc) => {
@@ -709,6 +441,66 @@ function ProfileView({
     }
   };
 
+  /** Rename the profile (#320: through the shared InlineField pencil).
+   *  Kiseki-only — never pushed back to Auth0. Closes the field only on a
+   *  real server success; a failure keeps it open with the server's word. */
+  const saveName = async (next: string): Promise<boolean> => {
+    setNameError(null);
+    try {
+      const at = await getAccessTokenSilently();
+      const res = await updateMyProfile({ displayName: next }, at);
+      setProfile((p) => (p ? { ...p, name: res.displayName } : p));
+      return true;
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return false;
+      }
+      setNameError(e instanceof Error ? e.message : "Couldn't save that name. Nothing changed.");
+      return false;
+    }
+  };
+
+  const uploadAvatar = async (blob: Blob) => {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const at = await getAccessTokenSilently();
+      const res = await uploadMyAvatar(blob, at);
+      setProfile((p) => (p ? { ...p, avatar: res.avatar } : p));
+      setAvatarFile(null); // the dialog's job is done — close it
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        setAvatarBusy(false);
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
+      setAvatarError(e instanceof Error ? e.message : "Couldn't upload that photo. Nothing changed.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const removeAvatar = async () => {
+    setAvatarBusy(true);
+    setAvatarError(null);
+    try {
+      const at = await getAccessTokenSilently();
+      const res = await deleteMyAvatar(at);
+      setProfile((p) => (p ? { ...p, avatar: res.avatar ?? undefined } : p));
+      setAvatarFile(null);
+    } catch (e) {
+      if (isSessionExpiredError(e)) {
+        setAvatarBusy(false);
+        loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+        return;
+      }
+      setAvatarError(e instanceof Error ? e.message : "Couldn't remove that photo. Nothing changed.");
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const openDoc = openList ? lists[openList] : undefined;
 
   return (
@@ -725,7 +517,41 @@ function ProfileView({
               address for passkey accounts) used to run UNDER the shrink-0
               Follow button. Column layout below `sm`, row above. */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-            {profile.avatar ? (
+            {isSelf ? (
+              // #320: your own photo IS the upload affordance — no separate
+              // "Edit profile" card. A small camera badge says so; the picker
+              // opens on click and hands the file to the crop dialog.
+              <button
+                type="button"
+                data-testid="profile-avatar-button"
+                onClick={() => avatarInputRef.current?.click()}
+                aria-label={profile.avatar ? "Change your profile photo" : "Add a profile photo"}
+                title={profile.avatar ? "Change your profile photo" : "Add a profile photo"}
+                className="no-print relative grid h-16 w-16 shrink-0 place-items-center rounded-full focus-visible:focus-ring"
+              >
+                {profile.avatar ? (
+                  <img
+                    src={profile.avatar}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="h-16 w-16 rounded-full object-cover"
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/15 text-xl font-bold text-primary"
+                  >
+                    {initials(profile.name)}
+                  </span>
+                )}
+                <span
+                  aria-hidden="true"
+                  className="absolute -bottom-0.5 -right-0.5 grid h-6 w-6 place-items-center rounded-full bg-primary text-primary-foreground shadow"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            ) : profile.avatar ? (
               <img
                 src={profile.avatar}
                 alt={profile.name}
@@ -740,10 +566,51 @@ function ProfileView({
                 {initials(profile.name)}
               </span>
             )}
+            {isSelf && (
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                aria-label="Choose a profile photo"
+                onChange={(e) => {
+                  const picked = e.target.files?.[0] ?? null;
+                  // Always clear the input so picking the SAME file again
+                  // still fires a change event.
+                  e.target.value = "";
+                  if (!picked) return;
+                  setAvatarError(
+                    picked.type && !picked.type.startsWith("image/")
+                      ? "That file isn't a photo — pick a JPEG, PNG, WebP, GIF or AVIF image."
+                      : null,
+                  );
+                  setAvatarFile(picked);
+                }}
+              />
+            )}
             <div className="min-w-0 flex-1">
-              <h1 className="font-heading wrap-anywhere text-2xl font-semibold tracking-wide">
-                {profile.name}
-              </h1>
+              {isSelf ? (
+                // #320: the profile name edits through the SAME pencil the
+                // trip titles use — one interaction everywhere, no settings
+                // form. `canEdit` false (a peer's profile) renders the h1
+                // with no chrome at all.
+                <InlineField
+                  value={profile.name}
+                  label="name"
+                  canEdit
+                  onSave={saveName}
+                  error={nameError}
+                  renderDisplay={(value) => (
+                    <h1 className="font-heading wrap-anywhere text-2xl font-semibold tracking-wide">
+                      {value}
+                    </h1>
+                  )}
+                />
+              ) : (
+                <h1 className="font-heading wrap-anywhere text-2xl font-semibold tracking-wide">
+                  {profile.name}
+                </h1>
+              )}
               <div className="mt-1 flex flex-wrap items-center gap-1">
                 <button
                   type="button"
@@ -846,17 +713,27 @@ function ProfileView({
           )}
         </Card>
 
-        {isSelf && (
-          <SelfProfileEditor
-            name={profile.name}
-            avatar={profile.avatar}
-            getAccessTokenSilently={getAccessTokenSilently}
-            loginWithRedirect={loginWithRedirect}
-            onSaved={(next) =>
-              setProfile((p) =>
-                p ? { ...p, name: next.name, avatar: next.avatar } : p,
-              )
-            }
+        {/* Photo errors surface where the action was: inside the dialog while
+            it is open, under the header otherwise (#320). */}
+        {isSelf && !avatarFile && avatarError && (
+          <p role="alert" className="mt-3 text-xs font-medium text-destructive">
+            {avatarError}
+          </p>
+        )}
+
+        {isSelf && avatarFile && (
+          <AvatarEditor
+            file={avatarFile}
+            hasPhoto={Boolean(profile.avatar)}
+            busy={avatarBusy}
+            error={avatarError}
+            onUpload={(blob) => void uploadAvatar(blob)}
+            onRemove={() => void removeAvatar()}
+            onClose={() => {
+              if (avatarBusy) return;
+              setAvatarFile(null);
+              setAvatarError(null);
+            }}
           />
         )}
 

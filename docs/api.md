@@ -84,7 +84,7 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `PUT` | `/api/me` | user | Update own profile (display name, public name) |
 | `POST` | `/api/me/avatar` | user | Upload own profile photo (image only, no SVG; HEIC → JPEG; content-addressed under `avatars/`) |
 | `DELETE` | `/api/me/avatar` | user | Remove own profile photo (falls back to the IdP photo when there is one, else monogram) |
-| `GET` | `/api/avatars/{file}` | user | Serve an uploaded profile photo (content-addressed name = capability) |
+| `GET` | `/api/avatars/{file}` | none | Serve an uploaded profile photo — public like `/media`, the content-addressed name is the capability (an `<img src>` cannot send a bearer token, #320) |
 | `GET` | `/api/me/export` | user | Data portability export (GDPR art. 20) |
 | `DELETE` | `/api/me` | user | Erase the account: crew edges revert to placeholders, follows drop, twin deleted (409 while the user still owns trips) |
 | `GET` | `/api/feed` | user | The activity feed from followed trips and people |
