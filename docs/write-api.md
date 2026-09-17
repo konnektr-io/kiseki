@@ -20,8 +20,9 @@ Companion pieces:
 
 ## Authentication and shape of a call
 
-- Credentials ride in the `Authorization` header; the client reads the
-  access token from `KISEKI_TOKEN`.
+- Credentials ride in the `Authorization` header (JWT) or `X-API-Key`
+  (admin key, #324); the client reads either from `KISEKI_API_KEY` first,
+  then `KISEKI_TOKEN`.
 - Every write answers with the **canonical trip document** — reread it rather
   than assuming what landed.
 - IDs are UUIDs; dates are ISO `YYYY-MM-DD`; money is a number plus a
