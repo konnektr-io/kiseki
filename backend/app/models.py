@@ -331,8 +331,16 @@ class User(Person):
     `role`) from the placeholder Person onto it, then drop the placeholder."""
 
     email: str = Field(..., description="Primary login email (unique).")
-    displayName: str = Field(..., description="Name shown in the UI.")
+    displayName: str = Field(..., description="Name shown in the UI. User-editable in Kiseki only (PUT /api/me) — never pushed back to Auth0.")
     authProvider: str = Field(default="password", description="Auth origin: password | auth0 | google (P2).")
+    avatar: Optional[str] = Field(
+        default=None,
+        description="Profile photo (#317): an https:// URL synced from Auth0 userinfo "
+                    "at ensure-time (e.g. the Google photo), or a bare content-addressed "
+                    "filename served at /api/avatars/<file> (POST /api/me/avatar). "
+                    "Absent = monogram. Like Location.photo, an https URL stays "
+                    "URL-permitted here — the write-path URL gate covers trip media only.",
+    )
     publicName: bool = Field(
         default=False,
         description="Opt-in (#196): when True, a listed (discoverable) trip renders this "

@@ -831,15 +831,44 @@ def unfollow_user(
 
 
 class MeUpdate(BaseModel):
-    """Self-service profile edit (issue #196 phase B) — exactly one knob.
+    """Self-service profile edit (issue #196 phase B, extended #317).
 
-    Strict: any field besides ``publicName`` is a 422, so this can never grow
-    into a general twin editor by accident.
+    Strict: any field besides ``displayName``/``publicName`` is a 422, so
+    this can never grow into a general twin editor by accident. At least one
+    of the two must be present (an empty body is a 422). The photo is NOT
+    edited here — ``POST /api/me/avatar`` (upload) and
+    ``DELETE /api/me/avatar`` own it, so a photo can never arrive as a pasted
+    URL string smuggled through this route.
     """
 
     model_config = {"extra": "forbid"}
 
-    publicName: bool
+    displayName: str | None = None
+    publicName: bool | None = None
+
+
+def _resolve_avatar(raw: object) -> str | None:
+    """Public avatar URL for a twin's stored ``avatar``/``picture`` value.
+
+    Stored shapes (#317): an ``https://`` URL synced from Auth0 userinfo
+    (passed through verbatim) or a bare content-addressed filename from
+    ``POST /api/me/avatar`` (resolved to its ``/api/avatars`` serve route).
+    Anything else (empty, non-string, odd scheme) resolves to None — the UI
+    renders a monogram, it never invents a photo.
+    """
+    if not isinstance(raw, str):
+        return None
+    value = raw.strip()
+    if not value or len(value) > 2000:
+        return None
+    lowered = value.lower()
+    if lowered.startswith("https://"):
+        return value
+    if is_valid_media_name(value) and Path(value).suffix.lower() in (
+        ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif",
+    ):
+        return f"/api/avatars/{value}"
+    return None
 
 
 @app.put("/api/me")
@@ -847,36 +876,187 @@ def update_me(
     body: MeUpdate,
     session: AuthSession = Depends(get_current_session),
 ) -> dict:
-    """Flip the caller's own ``User.publicName`` opt-in (issue #196).
+    """Edit the caller's own profile (issue #196; ``displayName`` via #317).
 
     Self-service: writes the caller's OWN twin only (404 when it does not
     exist — the client calls ``ensure`` first). Like ``ensure``/claims/follow
     this provisions graph identity, so it is user-token-only
-    (``acl.require_user_token``): an M2M token is refused 403. Returns the
-    ``ensure`` shape plus the new ``publicName`` value. A graph write failure
-    is 503 (``GraphWriteError``): a missing twin stays the only 404, because
-    "call ``ensure`` first" is only the right advice when it is really gone.
+    (``acl.require_user_token``): an M2M token is refused 403.
+
+    ``displayName`` is Kiseki-only: it renames the profile (and the twin's
+    ``name`` mirror) and is never pushed back to Auth0 — which is exactly why
+    a later ``ensure`` must not clobber it (see ``create_user_twin``). Empty
+    or >80-char names are 422. Returns the ``ensure`` shape plus the new
+    values. A graph write failure is 503 (``GraphWriteError``): a missing
+    twin stays the only 404, because "call ``ensure`` first" is only the
+    right advice when it is really gone.
     """
     require_user_token(session.user)
+    display_name = body.displayName.strip() if isinstance(body.displayName, str) else None
+    if body.displayName is not None and not (display_name and len(display_name) <= 80):
+        raise HTTPException(
+            status_code=422,
+            detail="displayName must be 1–80 characters",
+        )
+    if display_name is None and body.publicName is None:
+        raise HTTPException(status_code=422, detail="Nothing to update")
     actor_sub = session.user["sub"]
     client = get_graph_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Graph not configured")
     try:
-        updated = client.set_user_public_name(actor_sub, body.publicName)
+        updated = client.update_user_profile(
+            actor_sub,
+            display_name=display_name,
+            public_name=body.publicName,
+        )
     except GraphWriteError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
     name = (updated.get("displayName") or updated.get("name") or "").strip()
     email = (updated.get("email") or "").strip()
-    return {
+    out = {
         "sub": actor_sub,
         "ensured": True,
         "name": name,
+        "displayName": name,
         "email": email,
         "publicName": bool(updated.get("publicName", False)),
     }
+    avatar = _resolve_avatar(updated.get("avatar"))
+    if avatar is not None:
+        out["avatar"] = avatar
+    return out
+
+
+# Avatar photo extensions the ``/api/avatars`` serve route resolves (#317).
+# SVG is deliberately absent although ``UPLOAD_KINDS`` accepts it: an avatar
+# served as ``image/svg+xml`` from our own origin is a stored-XSS surface,
+# and a profile photo is always a raster image anyway.
+_AVATAR_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif")
+
+
+@app.post("/api/me/avatar")
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    session: AuthSession = Depends(get_current_session),
+) -> dict:
+    """Upload the caller's profile photo (issue #317).
+
+    Self-service, user-token-only (``acl.require_user_token``): an M2M token
+    is refused 403. Image family only (the same curated set + caps + spooling
+    as ``POST /api/files`` — HEIC iPhone photos transcode to JPEG at ingest,
+    SVG is refused outright, empty/non-image bodies are 422). 404 when the
+    caller has no twin (call ``ensure`` first), 503 when media storage or the
+    graph is unavailable.
+
+    Bytes are content-addressed (``avatars/<sha256[:32]>.<ext>`` — the name
+    IS the unguessable capability, same posture as trip media and the inbox),
+    and the twin stores the BARE filename: readers resolve it to
+    ``/api/avatars/<file>`` via ``_resolve_avatar``. Returns the public URL
+    the profile reads back.
+    """
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    file_name = file.filename or ""
+    try:
+        kind = require_upload_kind(file_name, file_name or "avatar")
+    except UnsupportedUpload as exc:
+        raise HTTPException(422, str(exc)) from exc
+    if kind != "image":
+        raise HTTPException(
+            422,
+            f"{file_name or 'that file'}: a profile photo must be an image — "
+            "no video or documents",
+        )
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    if client.get_user_profile(actor_sub) is None:
+        raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(status_code=503, detail="Media storage is not configured")
+    with tempfile.TemporaryDirectory() as spool_dir:
+        spool = Path(spool_dir) / "avatar"
+        try:
+            with spool.open("wb") as sink:
+                size, _digest = await asyncio.to_thread(
+                    stream_upload, file.file, sink, upload_limit("image"),
+                    file_name or "avatar",
+                )
+        except UploadTooLarge as exc:
+            raise HTTPException(413, str(exc)) from exc
+        except UnsupportedUpload as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if size == 0:
+            raise HTTPException(422, "Empty file")
+        raw = spool.read_bytes()
+        try:
+            raw, ext, _converted = normalize_upload(raw, file_name)
+        except UnsupportedUpload as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if ext not in _AVATAR_EXTS:
+            raise HTTPException(
+                422,
+                f"{file_name or 'that file'}: a profile photo must be a "
+                "JPEG, PNG, WebP, GIF or AVIF photo",
+            )
+        name = content_addressed_key(raw, ext)
+        store.put(f"avatars/{name}", raw, media_content_type(name))
+    try:
+        updated = client.update_user_profile(actor_sub, avatar=name)
+    except GraphWriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    if updated is None:  # pragma: no cover - twin existed a moment ago
+        raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
+    return {"sub": actor_sub, "avatar": f"/api/avatars/{name}"}
+
+
+@app.delete("/api/me/avatar")
+def delete_my_avatar(session: AuthSession = Depends(get_current_session)) -> dict:
+    """Remove the caller's uploaded profile photo (issue #317).
+
+    Self-service, user-token-only like the upload. Falls back to the Auth0
+    ``picture`` when the identity provider has one (e.g. the Google photo),
+    otherwise back to the monogram — "remove" never leaves a dangling upload
+    reference behind. 404 with no twin, 503 on graph failure.
+    """
+    require_user_token(session.user)
+    actor_sub = session.user["sub"]
+    picture = ((session.profile or {}).get("picture") or "").strip()
+    fallback = picture if picture.lower().startswith("https://") else ""
+    client = get_graph_client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    try:
+        updated = client.update_user_profile(actor_sub, avatar=fallback)
+    except GraphWriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="No user identity — call /api/me/ensure first")
+    return {"sub": actor_sub, "avatar": _resolve_avatar(updated.get("avatar"))}
+
+
+@app.get("/api/avatars/{file_name}")
+def avatar_file(
+    file_name: str, request: Request, user: dict = Depends(get_current_user)
+) -> Response:
+    """Serve one uploaded profile photo (issue #317).
+
+    Any valid token works — avatars are visible on profiles to every
+    signed-in user, and the content-addressed name is the unguessable
+    capability, exactly like trip media and the inbox. Structurally invalid
+    names (``..`` / separators / non-photo extensions) are 404 without ever
+    touching storage.
+    """
+    _ = user
+    if not is_valid_media_name(file_name):
+        raise HTTPException(404, "Not Found")
+    if Path(file_name).suffix.lower() not in _AVATAR_EXTS:
+        raise HTTPException(404, "Not Found")
+    return _serve_stored_media(request, f"avatars/{file_name}", file_name)
 
 
 @app.delete("/api/me")
@@ -993,8 +1173,8 @@ def _profile_people(client, subs: list[str], viewer_sub: str, cap: int = 200) ->
             "sub": sid,
             "name": node.get("displayName") or node.get("name") or "",
         }
-        avatar = node.get("avatar") or node.get("picture")
-        if isinstance(avatar, str) and avatar:
+        avatar = _resolve_avatar(node.get("avatar") or node.get("picture"))
+        if avatar is not None:
             entry["avatar"] = avatar
         if sid == viewer_sub:
             entry["isSelf"] = True
@@ -1028,8 +1208,8 @@ def get_user_profile(sub: str, user: dict = Depends(get_current_user)) -> dict:
         "sub": sub,
         "name": node.get("displayName") or node.get("name") or "",
     }
-    avatar = node.get("avatar") or node.get("picture")
-    if isinstance(avatar, str) and avatar:
+    avatar = _resolve_avatar(node.get("avatar") or node.get("picture"))
+    if avatar is not None:
         body["avatar"] = avatar
     if is_self:
         email = node.get("email")

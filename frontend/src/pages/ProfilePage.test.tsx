@@ -17,6 +17,13 @@
  * - 404 and 503 render distinct, human error states;
  * - a truncated drill-in says so honestly ("Showing 1 of 250");
  * - a peer's email is never rendered, even if the payload carries one.
+ * - (#317) your own profile carries the Edit profile card (peer profiles
+ *   never do); saving a name PUTs /api/me {"displayName"} and renames the
+ *   heading, a failed save keeps the old name with an error;
+ * - (#317) the header stacks below `sm` with a wrapping name (no Follow /
+ *   name overlap on phones);
+ * - (#317) photo upload posts the cropped blob and swaps the header photo;
+ *   remove falls back and clears it.
  */
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -463,5 +470,217 @@ describe("MePage — the signed-in user's own profile", () => {
     expect(
       Array.from(container.querySelectorAll("button")).some((b) => b.textContent === "Sign in"),
     ).toBe(true);
+  });
+});
+
+describe("ProfilePage — editing your profile (#317)", () => {
+  const SELF_SUB = authState.sub;
+
+  function editHandler(): Handler {
+    return (url, init) => {
+      if (url === "/api/me" && init?.method === "PUT") {
+        const patch = JSON.parse(init?.body ?? "{}") as { displayName?: string };
+        const name = patch.displayName ?? "Me User";
+        return {
+          ok: true,
+          status: 200,
+          body: { sub: SELF_SUB, ensured: true, name, displayName: name, publicName: false },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          sub: SELF_SUB,
+          name: "Me User",
+          publicName: false,
+          counts: { followers: 0, following: 0, trips: 0 },
+          viewer: { isSelf: true, following: false },
+          trips: [],
+        },
+      };
+    };
+  }
+
+  function selfPath() {
+    return `/u/${encodeURIComponent(SELF_SUB)}`;
+  }
+
+  /** Drive a controlled input the way the skill prescribes: native setter
+   *  + `input` event inside act(). */
+  async function typeInto(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+  }
+
+  it("renders the Edit profile card on your own profile, never on a peer's", async () => {
+    stubFetch(editHandler());
+    mount(selfPath());
+    await flush();
+
+    expect(container.querySelector('[data-testid="profile-editor"]')).not.toBeNull();
+    expect(container.querySelector("#profile-display-name")).not.toBeNull();
+  });
+
+  it("a peer's profile carries no editor", async () => {
+    stubFetch(() => okProfile());
+    mount(peerPath);
+    await flush();
+
+    expect(container.querySelector('[data-testid="profile-editor"]')).toBeNull();
+    expect(container.querySelector("#profile-display-name")).toBeNull();
+  });
+
+  it("saving a new name PUTs /api/me {displayName} and renames the heading", async () => {
+    const sent = stubFetch(editHandler());
+    mount(selfPath());
+    await flush();
+
+    await typeInto(
+      container.querySelector("#profile-display-name") as HTMLInputElement,
+      "Bea",
+    );
+    const saveBtn = Array.from(
+      container.querySelectorAll('[data-testid="profile-editor"] button'),
+    ).find((b) => b.textContent === "Save name")!;
+    await click(saveBtn);
+
+    const put = sent.find((c) => c.method === "PUT" && c.url === "/api/me");
+    expect(put?.auth).toBe("Bearer test-token");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ displayName: "Bea" });
+    expect(container.querySelector("h1")?.textContent).toBe("Bea");
+  });
+
+  it("a failed rename keeps the old name with an error", async () => {
+    stubFetch((url, init) => {
+      if (url === "/api/me" && init?.method === "PUT") {
+        return { ok: false, status: 500, detail: "Graph not configured" };
+      }
+      return editHandler()(url, init);
+    });
+    mount(selfPath());
+    await flush();
+
+    await typeInto(
+      container.querySelector("#profile-display-name") as HTMLInputElement,
+      "Bea",
+    );
+    const saveBtn = Array.from(
+      container.querySelectorAll('[data-testid="profile-editor"] button'),
+    ).find((b) => b.textContent === "Save name")!;
+    await click(saveBtn);
+
+    expect(container.querySelector("h1")?.textContent).toBe("Me User");
+    expect(container.querySelector('[data-testid="profile-editor"] [role="alert"]')?.textContent)
+      .toContain("Graph not configured");
+  });
+
+  it("the header stacks below sm with a wrapping name (no Follow overlap)", async () => {
+    stubFetch(() => ({
+      ok: true,
+      status: 200,
+      body: peerProfile({ name: "josserke.vanherckelele1974@yahoo.com" }),
+    }));
+    mount(peerPath);
+    await flush();
+
+    const header = container.querySelector("main > div:first-child > div, main > * > div");
+    const h1 = container.querySelector("h1");
+    // The h1 carries the unbreakable-token wrap; its flex row stacks below sm.
+    expect(h1?.className).toContain("wrap-anywhere");
+    let row: HTMLElement | null = h1?.parentElement ?? null;
+    while (row && !row.className.includes("flex-col")) row = row.parentElement;
+    expect(row?.className).toContain("flex-col");
+    expect(row?.className).toContain("sm:flex-row");
+    expect(header).not.toBeNull();
+    const follow = container.querySelector('button[aria-label^="Follow"]');
+    expect(follow?.className).toContain("self-start");
+  });
+
+  it("photo upload posts the cropped blob and swaps the header photo", async () => {
+    const realCreateObjectURL = URL.createObjectURL;
+    const drawImage = vi.fn();
+    const getCtx = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue({ drawImage } as unknown as CanvasRenderingContext2D);
+    const toBlob = vi
+      .spyOn(HTMLCanvasElement.prototype, "toBlob")
+      .mockImplementation(function (this: HTMLCanvasElement, cb: (b: Blob | null) => void) {
+        cb(new Blob(["cropped"], { type: "image/jpeg" }));
+      } as unknown as typeof HTMLCanvasElement.prototype.toBlob);
+    URL.createObjectURL = vi.fn(() => "blob:fake-photo") as unknown as typeof URL.createObjectURL;
+    try {
+      const sent = stubFetch((url, init) => {
+        if (url === "/api/me/avatar" && init?.method === "POST") {
+          return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: "/api/avatars/abc.jpg" } };
+        }
+        return editHandler()(url, init);
+      });
+      mount(selfPath());
+      await flush();
+
+      const picker = container.querySelector(
+        '[data-testid="profile-editor"] input[type="file"]',
+      ) as HTMLInputElement;
+      const file = new File(["bytes"], "me.png", { type: "image/png" });
+      await act(async () => {
+        Object.defineProperty(picker, "files", { value: [file], configurable: true });
+        picker.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      await flush();
+
+      // Preview + zoom appear; saving posts the blob with the token.
+      expect(container.querySelector('img[alt="Profile photo preview"]')).not.toBeNull();
+      const savePhoto = Array.from(
+        container.querySelectorAll('[data-testid="profile-editor"] button'),
+      ).find((b) => b.textContent === "Save photo")!;
+      await click(savePhoto);
+
+      expect(drawImage).toHaveBeenCalledTimes(1);
+      const post = sent.find((c) => c.method === "POST" && c.url === "/api/me/avatar");
+      expect(post?.auth).toBe("Bearer test-token");
+      expect(container.querySelector('main img[src="/api/avatars/abc.jpg"]')).not.toBeNull();
+    } finally {
+      URL.createObjectURL = realCreateObjectURL;
+      getCtx.mockRestore();
+      toBlob.mockRestore();
+    }
+  });
+
+  it("remove photo falls back and clears the header", async () => {
+    const sent = stubFetch((url, init) => {
+      if (url === "/api/me/avatar" && init?.method === "DELETE") {
+        return { ok: true, status: 200, body: { sub: SELF_SUB, avatar: null } };
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: {
+          sub: SELF_SUB,
+          name: "Me User",
+          avatar: "/api/avatars/old.jpg",
+          publicName: false,
+          counts: { followers: 0, following: 0, trips: 0 },
+          viewer: { isSelf: true, following: false },
+          trips: [],
+        },
+      };
+    });
+    mount(selfPath());
+    await flush();
+
+    expect(container.querySelector('main img[src="/api/avatars/old.jpg"]')).not.toBeNull();
+    const remove = Array.from(
+      container.querySelectorAll('[data-testid="profile-editor"] button'),
+    ).find((b) => b.textContent === "Remove")!;
+    await click(remove);
+
+    const del = sent.find((c) => c.method === "DELETE" && c.url === "/api/me/avatar");
+    expect(del?.auth).toBe("Bearer test-token");
+    expect(container.querySelector('main img[src="/api/avatars/old.jpg"]')).toBeNull();
   });
 });

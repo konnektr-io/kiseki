@@ -700,6 +700,62 @@ export async function setPublicName(
   return profileRequest("PUT", "/api/me", accessToken, { publicName });
 }
 
+/** The `PUT /api/me` answer: the ensure shape plus the new profile values.
+ *  `avatar` rides along only when the twin carries one. */
+export interface MeProfile {
+  sub: string;
+  ensured: boolean;
+  name: string;
+  displayName: string;
+  email: string;
+  publicName: boolean;
+  avatar?: string;
+}
+
+/** Rename the caller's own profile (`displayName`, Kiseki-only — never
+ *  pushed back to Auth0) and/or flip `publicName`. At least one knob must
+ *  be present; anything else is a server-side 422. The photo is NOT edited
+ *  here — `uploadMyAvatar` / `deleteMyAvatar` own it. */
+export async function updateMyProfile(
+  patch: { displayName?: string; publicName?: boolean },
+  accessToken: string,
+): Promise<MeProfile> {
+  return profileRequest<MeProfile>("PUT", "/api/me", accessToken, patch);
+}
+
+/** Upload the caller's profile photo — a client-side square-cropped JPEG/
+ *  PNG blob (see `lib/avatar-crop`). Answers the public serve URL the
+ *  profile reads back. A plain `<form>` cannot send the bearer token, so
+ *  this posts `FormData` with `fetch` like `downloadMyExport` does. */
+export async function uploadMyAvatar(
+  photo: Blob,
+  accessToken: string,
+): Promise<{ sub: string; avatar: string }> {
+  const form = new FormData();
+  form.append("file", photo, "avatar.jpg");
+  const res = await fetch("/api/me/avatar", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as { sub: string; avatar: string };
+}
+
+/** Remove the caller's uploaded photo — falls back to the IdP photo when
+ *  the provider has one, else the monogram. Answers `avatar: null` in the
+ *  monogram case. */
+export async function deleteMyAvatar(
+  accessToken: string,
+): Promise<{ sub: string; avatar: string | null }> {
+  const res = await fetch("/api/me/avatar", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as { sub: string; avatar: string | null };
+}
+
 /* ---------------- #196e account: export + erasure ----------------
  * GDPR art. 20 (export) and art. 17 (erasure). Both are user-token-only
  * on the server (M2M refused 403) and 404 when the caller has no User
