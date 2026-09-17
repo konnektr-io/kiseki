@@ -108,6 +108,18 @@ KISEKI_GRAPH_TOKEN = os.environ.get("KISEKI_GRAPH_TOKEN", "")
 KISEKI_AGENT_CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
 KISEKI_AGENT_ACT_AS = os.environ.get("KISEKI_AGENT_ACT_AS", "")
 
+# Admin API key(s) for agents (issue #324) — the quota-independent credential.
+# Auth0 meters EVERY client_credentials grant tenant-wide (~1 000/month), and
+# a spent quota kills every agent path until the reset. API keys bypass Auth0
+# entirely: `name:sha256hex` pairs, comma-separated so rotation overlaps
+# (old + new live together until the old is removed). ONLY the sha256 of each
+# key lives here — the plaintext exists in the two agent profile .envs and
+# nowhere else. Presented as the `X-API-Key` header; authenticates as a
+# service identity with act-as-anyone via `X-Act-As-Sub` (1:1 the power the
+# sanctioned M2M client has today), and refused on identity-provisioning
+# routes exactly like M2M. Empty = no API-key auth.
+KISEKI_API_KEYS = os.environ.get("KISEKI_API_KEYS", "")
+
 # Kiseki chat (issue #9 / M3): where the kiseki content agent's Hermes API
 # server lives. The app pod relays /api/chat to this URL — the in-cluster
 # hermes gateway's API server (http://hermes.hermes.svc.cluster.local:8642)

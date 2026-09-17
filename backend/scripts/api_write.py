@@ -16,6 +16,11 @@ agent lacked `create-trip` for a full release for exactly this reason). The
 wrapper's "Install:" note and the content skill's "Deploying scripts"
 section carry the same rule.
 
+    export KISEKI_API_KEY=<admin key>               # 0. ADMIN API KEY (issue #324, quota-independent):
+                                                    #    preferred on agent profiles; acts AS Niko
+                                                    #    (KISEKI_AGENT_ACT_AS), no Auth0 grant spent.
+                                                    #    --token, KISEKI_API_KEY and KISEKI_TOKEN are one
+                                                    #    knob: either credential value works anywhere.
     export KISEKI_TOKEN=<access token>              # 1. USER token (dedicated/UI profile):
                                                     #    ACL + x-user-id follow its sub.
                                                     # 2. M2M client token on the home profile:
@@ -873,6 +878,22 @@ def block_intents(plan: dict, existing: dict | None = None) -> list[tuple[str, s
     return intents
 
 
+def _credential(args) -> str:
+    """The credential for this call (issue #324): --token, then KISEKI_API_KEY,
+    then KISEKI_TOKEN. One knob — either credential value works anywhere."""
+    token = args.token or os.environ.get("KISEKI_API_KEY") or os.environ.get("KISEKI_TOKEN")
+    if token is None:
+        raise SystemExit("error: no credential — pass --token or set KISEKI_API_KEY / KISEKI_TOKEN")
+    return token
+
+
+def _auth_headers(token: str) -> dict[str, str]:
+    """Bearer for JWTs, `X-API-Key` for admin keys (`ksk_` prefix, #324)."""
+    if token.startswith("ksk_"):
+        return {"X-API-Key": token}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def _request(
     method: str,
     base: str,
@@ -888,7 +909,8 @@ def _request(
         data = json.dumps(body).encode("utf-8") if body is not None else None
         content_type = "application/json"
     req = urllib.request.Request(url, method=method.upper(), data=data)
-    req.add_header("Authorization", f"Bearer {token}")
+    for header, value in _auth_headers(token).items():
+        req.add_header(header, value)
     if data is not None:
         req.add_header("Content-Type", content_type)
     try:
@@ -938,9 +960,7 @@ def _bare_name(url: str) -> str:
 def upload_file(args) -> int:
     """`upload <local-file> [--trip-id <id>]` — bytes into the trip (or the inbox)."""
     base = args.base
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
     path = args.path
     if not path:
         raise SystemExit("error: upload needs a local file path: upload <file> [--trip-id <id>]")
@@ -969,9 +989,7 @@ def upload_file(args) -> int:
 def promote_file(args) -> int:
     """`promote <file-name> --trip-id <id>` — inbox file → the trip's media namespace."""
     base = args.base
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
     if not args.path:
         raise SystemExit("error: promote needs the file name: promote <file-name> --trip-id <id>")
     if not args.trip_id:
@@ -1230,9 +1248,7 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
 def resolve_places_verb(args) -> int:
     """``resolve-places <trip_id>`` — fill in missing place_ids / venue keys."""
     base = args.base
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
     if not args.path:
         raise SystemExit("error: resolve-places needs a trip id: resolve-places <trip_id>")
     report = resolve_trip_places(args.path, base, token)
@@ -1344,9 +1360,7 @@ def fetch_photo(args) -> int:
     refused by the write API (#187).
     """
     base = args.base
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
     if not args.trip_id:
         raise SystemExit(
             "error: photo needs --trip-id <trip_id> (media belongs to a trip; "
@@ -1436,9 +1450,7 @@ def fetch_photo(args) -> int:
 def fill_trip(args) -> int:
     """`fill` — one validated plan, one ordered run, one summary."""
     base = args.base
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
     if not args.path:
         raise SystemExit("error: fill needs a trip id: fill <trip_id> --file plan.json")
 
@@ -1673,7 +1685,7 @@ def main() -> int:
                          "(binary-safe — booklet.pdf); prints bytes=N content-type=…")
     ap.add_argument("--title", help="Trip title (create-trip only)")
     ap.add_argument("--subtitle", help="Trip subtitle (create-trip only)")
-    ap.add_argument("--token", help="Bearer token (default: $KISEKI_TOKEN)")
+    ap.add_argument("--token", help="Credential: JWT or ksk_ admin key (default: $KISEKI_API_KEY, then $KISEKI_TOKEN)")
     ap.add_argument("--base", default=BASE_URL, help=f"API base (default: {BASE_URL})")
     ap.add_argument("--dry-run", action="store_true",
                     help="fill only: validate + print the calls, write nothing")
@@ -1701,9 +1713,7 @@ def main() -> int:
     if args.method == "promote":
         return promote_file(args)
 
-    token = args.token or os.environ.get("KISEKI_TOKEN")
-    if token is None:
-        raise SystemExit("error: no token — pass --token or set KISEKI_TOKEN")
+    token = _credential(args)
 
     method = args.method
     path = args.path
@@ -1737,7 +1747,8 @@ def main() -> int:
             return 1
 
     req = urllib.request.Request(url, method=method.upper(), data=body)
-    req.add_header("Authorization", f"Bearer {token}")
+    for header, value in _auth_headers(token).items():
+        req.add_header(header, value)
     if body is not None:
         req.add_header("Content-Type", "application/json")
 

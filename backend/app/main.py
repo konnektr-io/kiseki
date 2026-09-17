@@ -481,9 +481,10 @@ def health() -> dict:
 def auth_me(user: dict = Depends(get_current_user)) -> dict:
     """Who am I — identity from a validated Auth0 access token.
 
-    `sub` is the RESOLVED actor sub (acl.resolve_actor_sub): for the
-    sanctioned agent M2M client with act-as configured, the act-as user (the
-    identity writes carry); for any other token, the token's own sub. Profile
+    `sub` is the RESOLVED actor sub (acl.resolve_actor_sub): for a service
+    credential (sanctioned agent M2M client or admin API key, #324) with
+    act-as configured, the act-as user (the identity writes carry); for any
+    other token, the token's own sub. Profile
     claims (email/name/picture) are only included when the token carries them
     — by default they live in the ID token; the access token always has `sub`.
     """

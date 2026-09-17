@@ -43,6 +43,15 @@ def _is_agent_token(user: dict) -> bool:
     return user.get("gty") == "client-credentials"
 
 
+def _is_agent_credential(user: dict) -> bool:
+    """Either service credential: the sanctioned agent M2M token OR an admin
+    API key (issue #324). Both authenticate a service identity that never
+    appears in the graph and both resolve per-request identity the same way
+    (act-as header, then the static pin, then 401) with the same prohibitions.
+    """
+    return _is_agent_token(user) or bool(user.get("api_key"))
+
+
 def resolve_actor_sub(user: dict) -> str:
     """The effective user sub for USER-SCOPED routes (my trips, /auth/me).
 
@@ -54,7 +63,7 @@ def resolve_actor_sub(user: dict) -> str:
     listings are empty by design; per-trip writes still work via
     ``_agent_actor``'s owner fallback.
     """
-    if _is_agent_token(user) and KISEKI_AGENT_ACT_AS:
+    if _is_agent_credential(user) and KISEKI_AGENT_ACT_AS:
         return KISEKI_AGENT_ACT_AS
     return user["sub"]
 
@@ -63,12 +72,13 @@ def require_user_token(user: dict) -> None:
     """Claims/follow PROVISION graph identity (User twin + hasCrew edge) —
     only a real end-user token may do that.
 
-    An M2M client-credentials token is refused (403): the agent never gains a
-    graph identity, and act-as must never be used to claim/follow on behalf
-    of the mapped user — identity provisioning happens with the user's own
-    token (mode 1), or not at all.
+    Service credentials are refused (403): an M2M client-credentials token
+    AND an admin API key (issue #324) alike. The agent never gains a graph
+    identity, and act-as must never be used to claim/follow on behalf of the
+    mapped user — identity provisioning happens with the user's own token
+    (mode 1), or not at all.
     """
-    if user.get("gty") == "client-credentials":
+    if user.get("gty") == "client-credentials" or user.get("api_key"):
         raise HTTPException(
             status_code=403,
             detail="Service principals cannot claim or follow trips",
@@ -82,19 +92,20 @@ def resolve_request_actor_sub(
     """Per-request actor sub for chat/agent routes (issue #9, mode 1 + 2).
 
     Rule (Niko, 2026-09-09): ALWAYS check the bearer token first; its sub is
-    the actor UNLESS the token is a full-access agent M2M token — then the
+    the actor UNLESS the credential is a full-access service credential
+    (sanctioned agent M2M token or admin API key, issue #324) — then the
     act-as sub comes from the request (``X-Act-As-Sub`` header), falling back
     to the static ``KISEKI_AGENT_ACT_AS`` pin only when the request names no
     sub (single-user interim, deprecated).
 
     Mode 1 (UI): the end user's own Auth0 token → actor = token sub.
-    Mode 2 (agent backend): sanctioned M2M token + request-scoped act-as sub
+    Mode 2 (agent backend): service credential + request-scoped act-as sub
     (header) → actor = that sub. This is the per-request identity model that
     replaces the static env pin once the chat UI ships (#9).
     """
-    if not _is_agent_token(user):
+    if not _is_agent_credential(user):
         return user["sub"]
-    # Sanctioned agent M2M client: act-as is REQUIRED for user-scoped work.
+    # Service credential: act-as is REQUIRED for user-scoped work.
     if x_act_as_sub and x_act_as_sub.strip():
         return x_act_as_sub.strip()
     if KISEKI_AGENT_ACT_AS:
@@ -110,7 +121,7 @@ def resolve_request_actor_sub(
 
 
 def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
-    """Actor {sub, role} for the sanctioned agent M2M client (#46).
+    """Actor {sub, role} for a service credential (#46, extended #324).
 
     The agent NEVER appears in the graph — no User twin, no hasCrew edge.
 
@@ -121,9 +132,9 @@ def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
       their hasCrew edge; never widened, None when the user has no access).
       Attribution (x-user-id) is the user's sub.
     - unset: owner-level service principal for unattended changes that cannot
-      be linked to a user. Attribution = the M2M token's own sub.
+      be linked to a user. Attribution = the credential's own sub.
     """
-    if not _is_agent_token(user):
+    if not _is_agent_credential(user):
         return None
     if KISEKI_AGENT_ACT_AS:
         role = get_trip_role_for_user(trip_dtid, KISEKI_AGENT_ACT_AS)
