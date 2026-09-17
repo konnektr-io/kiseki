@@ -50,11 +50,25 @@ import type { FeedEntry, ShowcaseTrip, Stage, TripGeo, TripSummary, Visibility }
  *   three-detent sheet) and the four bands live in the rail/sheet furniture:
  *
  *   1. **Up next** — the live trip, else the soonest-starting one (`lib/home`).
- *   2. **Your trips** — every trip you have a crew role on, furthest-along first.
- *   3. **Following** — the newest writes on trips of people you follow (the same
+ *   2. **Your trips** — trips you are crew on (owner/editor/viewer),
+ *      furthest-along first. A trip you merely follow is NOT yours: it lives
+ *      in the next band, with its `follower` role badge on the card.
+ *   3. **Trips you follow** — role=`follower` only. Rendered only while it has
+ *      rows, or while a filter is hiding them — so a home with no followed
+ *      trips never sprouts the band, filtering or not.
+ *   4. **Updates** — the newest writes on trips of people you follow (the same
  *      `FeedRow` `/feed` renders; the home shows the first page, `/feed` keeps
- *      the archive). Never re-sorted: the server owns feed order (#199).
- *   4. **Discover** — public, discoverable trips as cards, minus your own.
+ *      the archive). Never re-sorted: the server owns feed order (#199). Named
+ *      for what it holds (writes), so it cannot be confused with the trips band
+ *      above it.
+ *   5. **Discover** — public, discoverable trips as cards, minus your own.
+ *
+ * The canvas shows whenever there are pins to stand on — including a brand-new
+ * account whose only pins are discoverable trips. A home with no pins (geo
+ * down, or nothing listable at all) collapses to the bands in a reading
+ * column. Either way the agent stays one tap away: the header's Ask Kiseki
+ * button renders whenever the trips read has landed, and the empty state keeps
+ * its own Plan-a-trip button.
  *
  * Pins come from the E2 geo read (`GET /api/trips/geo` — one anchor per
  * listable trip), coloured by stage via `pinClassForStage`. Band↔pin linkage
@@ -411,7 +425,9 @@ function HomeBands({
   trips,
   error,
   nextUp,
-  gridTrips,
+  ownGrid,
+  followedGrid,
+  hasFollowed,
   followed,
   discoverTrips,
   filters,
@@ -431,7 +447,14 @@ function HomeBands({
   trips: TripSummary[] | null;
   error: TripsError | null;
   nextUp: TripSummary | null;
-  gridTrips: TripSummary[] | null;
+  /** Crew-only grid (owner/editor/viewer) — what "Your trips" renders. */
+  ownGrid: TripSummary[] | null;
+  /** Role=`follower` rows, split out of the grid — someone else's trips. */
+  followedGrid: TripSummary[] | null;
+  /** Whether the unfiltered trip list holds a followed trip — the band's
+   *  "a filter is hiding them" leg. Derived from `trips`, never from the
+   *  filtered grid, so a filter that empties the band still shows it. */
+  hasFollowed: boolean;
   followed: FeedEntry[] | null;
   discoverTrips: ShowcaseTrip[] | null;
   /** Search + the Filters door (#249 slice 4, reviewed) — built by the page,
@@ -462,11 +485,12 @@ function HomeBands({
             Your trips, the people you follow, and trips worth discovering.
           </p>
         </div>
-        {/* Landing chat launcher — top-right of the home (only when the user
-            has trips; the empty state gets a center button below, so a
-            brand-new user still finds the assistant). Opens the same floating
+        {/* Landing chat launcher — top-right of the home. It renders whenever the
+            trips read has landed, even with zero trips: creating a trip with
+            the agent is the empty home's main CTA, and hiding the launcher
+            there would leave only the card's button. Opens the same floating
             popup as the in-trip chat (#9 / M4 v2). */}
-        {trips && trips.length > 0 && (
+        {trips && (
           <Button
             variant="outline"
             size="sm"
@@ -572,14 +596,14 @@ function HomeBands({
           <Band
             title="Your trips"
             blurb={
-              gridTrips?.length
-                ? "Every journey you're part of — pick one to open the booklet."
+              ownGrid?.length
+                ? "Trips you're planning or joining — pick one to open the booklet."
                 : undefined
             }
           >
-            {gridTrips && gridTrips.length > 0 ? (
+            {ownGrid && ownGrid.length > 0 ? (
               <div className="grid gap-5 sm:grid-cols-2">
-                {gridTrips.map((trip) => (
+                {ownGrid.map((trip) => (
                   <BandRow
                     key={trip.dtId}
                     dtId={trip.dtId}
@@ -594,13 +618,45 @@ function HomeBands({
               <Collapsed>
                 {filtering
                   ? "No trips match this search."
-                  : "Every journey you're part of will land here."}
+                  : "Trips you plan or join will land here."}
               </Collapsed>
             )}
           </Band>
 
+          {/* Someone else's trips you follow (role=`follower`) — never mixed
+              into Your trips. Only rendered while it has rows, or while a
+              filter is hiding them — so a home with no followed trips never
+              sprouts the band, filtering or not. */}
+          {followedGrid && (followedGrid.length > 0 || (filtering && hasFollowed)) && (
+            <Band
+              title="Trips you follow"
+              blurb={
+                followedGrid.length
+                  ? "Trips other people are planning — you read along, they do the work."
+                  : undefined
+              }
+            >
+              {followedGrid.length > 0 ? (
+                <div className="grid gap-5 sm:grid-cols-2">
+                  {followedGrid.map((trip) => (
+                    <BandRow
+                      key={trip.dtId}
+                      dtId={trip.dtId}
+                      selected={selectedDtId === trip.dtId}
+                      flash={flashDtId === trip.dtId}
+                    >
+                      <TripCard trip={trip} />
+                    </BandRow>
+                  ))}
+                </div>
+              ) : (
+                <Collapsed>No followed trips match this search.</Collapsed>
+              )}
+            </Band>
+          )}
+
           <Band
-            title="Following"
+            title="Updates"
             blurb="The newest writes on trips of people you follow."
             action={
               <Link
@@ -790,7 +846,9 @@ function AuthenticatedLanding() {
         ? filterTrips(
             sortShowcaseTrips(trips).map((t) => ({
               ...t,
-              origin: "mine" as const,
+              // A followed trip is someone else's: it filters (and bands) as
+              // "following", never as one of your own.
+              origin: (t.role === "follower" ? "following" : "mine") as TripOrigin,
               anchorName: anchorByTrip.get(t.dtId) ?? null,
             })),
             filter,
@@ -802,6 +860,22 @@ function AuthenticatedLanding() {
   const gridTrips = useMemo(
     () => orderedTrips?.filter((t) => t.dtId !== nextUp?.dtId) ?? null,
     [orderedTrips, nextUp],
+  );
+  // "Your trips" is crew only (owner/editor/viewer). Followed trips get their
+  // own band below — a trip you follow is not your trip.
+  const ownGrid = useMemo(
+    () => gridTrips?.filter((t) => t.origin !== "following") ?? null,
+    [gridTrips],
+  );
+  const followedGrid = useMemo(
+    () => gridTrips?.filter((t) => t.origin === "following") ?? null,
+    [gridTrips],
+  );
+  // The band's "a filter is hiding them" leg — from the UNFILTERED list, so a
+  // filter that empties the band still shows its one-line collapse.
+  const hasFollowed = useMemo(
+    () => trips?.some((t) => t.role === "follower") ?? false,
+    [trips],
   );
   const followed = useMemo(() => {
     if (!feed) return null;
@@ -956,9 +1030,10 @@ function AuthenticatedLanding() {
         const token = await getAccessTokenSilently();
         await followPublicTrip(dtId, token);
         setFollowedIds((prev) => (prev.includes(dtId) ? prev : [...prev, dtId]));
-        // It is one of "your trips" now (role=follower), so re-read: the trip
-        // leaves the shelf and appears under your own trips — the feedback IS
-        // the move. Same refetch the Retry button uses.
+        // It is one of "your" trips in the API sense now (role=follower), so
+        // re-read: the trip leaves the shelf and appears under "Trips you
+        // follow" — the feedback IS the move. Same refetch the Retry button
+        // uses.
         setAttempt((n) => n + 1);
       } catch (e) {
         // A private trip 403s ("can only be followed with an invite link") —
@@ -1027,7 +1102,9 @@ function AuthenticatedLanding() {
       trips={trips}
       error={error}
       nextUp={nextUp}
-      gridTrips={gridTrips}
+      ownGrid={ownGrid}
+      followedGrid={followedGrid}
+      hasFollowed={hasFollowed}
       followed={followed}
       discoverTrips={discoverTrips}
       filters={
@@ -1098,6 +1175,8 @@ function AuthenticatedLanding() {
   // Peek line for the phone sheet: one line of "what's next" — and it is a
   // DOOR, not a label (2026-09-16 review): the trip's title opens the trip, so
   // "what's next" costs one tap instead of a trip through the bands below.
+  // With no trips of your own there is no "next" — the line points at the
+  // discovery pins instead, which is what the canvas is showing.
   const peek =
     nextUp && !filtering ? (
       <>
@@ -1126,6 +1205,8 @@ function AuthenticatedLanding() {
           </>
         )}
       </>
+    ) : trips && trips.length === 0 ? (
+      <>{pins.length} {pins.length === 1 ? "trip" : "trips"} to discover on the map</>
     ) : (
       <>
         {trips?.length ?? 0} {trips?.length === 1 ? "trip" : "trips"} · {pins.length} on the map
@@ -1136,7 +1217,12 @@ function AuthenticatedLanding() {
   // into the rail/sheet furniture. Desktop ≥1280px gets the fixed left rail,
   // phones the full-bleed map behind the three-detent sheet — the ladder owns
   // that, this branch only decides canvas vs. collapsed.
-  if (hasMap && trips && trips.length > 0 && !error) {
+  //
+  // The canvas shows whenever there are pins — NOT only when the viewer has
+  // trips of their own. A brand-new account whose pins are all discoverable
+  // trips gets the map as its discovery surface, with the "No trips yet" card
+  // and its Plan-a-trip button in the sheet above it.
+  if (hasMap && trips && !error) {
     return (
       <div
         className="flex h-dvh flex-col overflow-hidden"
@@ -1148,7 +1234,7 @@ function AuthenticatedLanding() {
         </div>
         <div className="min-h-0 flex-1">
           <SplitView
-            label="Your trips on the map"
+            label="Trips on the map"
             header={<p className="truncate text-sm text-muted-foreground">{peek}</p>}
             content={bands}
             detent={detent}
@@ -1206,8 +1292,10 @@ function AuthenticatedLanding() {
     );
   }
 
-  // Collapsed map (no geo, an error, or no trips yet): the bands as-is in a
-  // reading column — a home with trips is still a home.
+  // Collapsed map (no geo, or an error): the bands as-is in a reading column —
+  // a home with trips is still a home. Note "no trips yet" is NOT a collapse
+  // case anymore: with pins the empty home renders on the canvas above, so the
+  // discovery map is the empty state's backdrop.
   return (
     <div className="min-h-screen" onMouseOver={selectFromRow} onFocus={selectFromRow}>
       <AppHeader actions={<AuthButton />} />

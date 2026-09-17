@@ -7,8 +7,9 @@
  * context controlled through a hoisted mock.
  *
  * Gates under test:
- * - the four bands render in the documented order (Up next → Your trips →
- *   Following → Discover), and Up next does not duplicate into the grid;
+ * - the bands render in the documented order (Up next → Your trips →
+ *   [Trips you follow] → Updates → Discover), and Up next does not duplicate
+ *   into the grid;
  * - an empty band collapses to one line of copy, never an empty frame;
  * - the search box filters the trip bands by name, note and place;
  * - the facets (stage, season/month, Mine⇄Following provenance, visibility)
@@ -74,7 +75,7 @@ vi.mock("../components/SplitView", () => ({
 }));
 
 const net = vi.hoisted(() => ({
-  trips: "ok" as "ok" | "fail" | "empty" | "no-live",
+  trips: "ok" as "ok" | "fail" | "empty" | "no-live" | "follower",
   feed: "ok" as "ok" | "fail" | "empty",
   showcase: "ok" as "ok" | "fail" | "empty" | "mine-only",
   geo: "empty" as "ok" | "empty" | "fail",
@@ -99,6 +100,18 @@ const TRIPS: TripSummary[] = [
     stage: "idea", slug: "japan", role: "owner",
   },
 ];
+
+/**
+ * Someone else's trip the viewer follows (role=`follower`). Kept OUT of the
+ * base TRIPS fixture on purpose: the "follower" fetch mode appends it, so the
+ * follower-free tests above keep asserting the four-band order while the
+ * suites below pin the split.
+ */
+const FOLLOWED_TRIP: TripSummary = {
+  dtId: "followed-1", visibility: "public", title: "Lofoten", subtitle: "Arctic",
+  stage: "planned", startDate: "2027-05-01", endDate: "2027-05-09", slug: "lofoten",
+  role: "follower",
+};
 
 const FEED: FeedEntry[] = [
   {
@@ -149,6 +162,9 @@ vi.stubGlobal(
     if (url.startsWith("/api/trips")) {
       if (net.trips === "fail") throw new Error("graph down");
       if (net.trips === "empty") return { ok: true, json: async () => ({ trips: [] }) };
+      if (net.trips === "follower") {
+        return { ok: true, json: async () => ({ trips: [...TRIPS, FOLLOWED_TRIP] }) };
+      }
       if (net.trips === "no-live") {
         return { ok: true, json: async () => ({ trips: TRIPS.filter((t) => t.stage !== "live") }) };
       }
@@ -217,9 +233,9 @@ function bandOrder(el: HTMLElement): string[] {
 }
 
 describe("the four bands", () => {
-  it("renders Up next, Your trips, Following and Discover in that order", async () => {
+  it("renders Up next, Your trips, Updates and Discover in that order", async () => {
     const el = await mount();
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
     expect(el.textContent).toContain("Happening now");
     expect(el.textContent).toContain("Ski Week");
   });
@@ -234,7 +250,7 @@ describe("the four bands", () => {
     const el = await mount();
     expect(el.textContent).toContain("Rifugio lunch");
     expect(el.querySelector('a[href="/feed"]')).toBeTruthy();
-    // the my-trip row is not in the Following band — that band is other people
+    // the my-trip row is not in the Updates band — that band is other people
     expect(el.textContent).not.toContain("Updated title");
   });
 
@@ -247,14 +263,14 @@ describe("the four bands", () => {
 });
 
 describe("empty bands collapse", () => {
-  it("collapses Following and Discover to one line each", async () => {
+  it("collapses Updates and Discover to one line each", async () => {
     net.feed = "empty";
     net.showcase = "empty";
     const el = await mount();
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
-    const following = el.querySelector('section[aria-label="Following"]')!;
-    expect(following.querySelector("ul")).toBeNull();
-    expect(following.textContent).toContain("Nothing here yet");
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
+    const updates = el.querySelector('section[aria-label="Updates"]')!;
+    expect(updates.querySelector("ul")).toBeNull();
+    expect(updates.textContent).toContain("Nothing here yet");
     const discover = el.querySelector('section[aria-label="Discover"]')!;
     expect(discover.querySelector("a[href^='/t/']")).toBeNull();
     expect(discover.textContent).toContain("No public trips to discover right now.");
@@ -319,7 +335,7 @@ describe("search and stage filters", () => {
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(bandOrder(el)).toEqual(["Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Your trips", "Updates", "Discover"]);
     const yours = el.querySelector('section[aria-label="Your trips"]')!;
     expect(yours.textContent).toContain("Japan Campervan");
     expect(yours.textContent).not.toContain("Canada Heliski");
@@ -334,14 +350,14 @@ describe("failure isolation", () => {
     expect(el.textContent).toContain("graph down");
   });
 
-  it("collapses the Following and Discover bands when only they fail", async () => {
+  it("collapses the Updates and Discover bands when only they fail", async () => {
     net.feed = "fail";
     net.showcase = "fail";
     const el = await mount();
     // no page-level error — your trips still render
     expect(el.querySelector('[role="alert"]')).toBeNull();
     expect(el.textContent).toContain("Canada Heliski");
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
   });
 });
 
@@ -350,7 +366,7 @@ describe("the map canvas", () => {
     net.geo = "empty";
     const el = await mount();
     expect(el.querySelector("[data-home-map]")).toBeNull();
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
     expect(el.textContent).toContain("Canada Heliski");
   });
 
@@ -366,7 +382,7 @@ describe("the map canvas", () => {
     net.geo = "ok";
     const el = await mount();
     expect(el.querySelector("[data-home-map]")).toBeTruthy();
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
     expect(el.textContent).toContain("Ski Week");
   });
 
@@ -484,7 +500,7 @@ describe("search and the Filters door", () => {
     const el = await mount();
     await clickChip(el, "winter");
     // February starts stay; September and the dateless go. Up next steps aside.
-    expect(bandOrder(el)).toEqual(["Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Your trips", "Updates", "Discover"]);
     const yours = el.querySelector('section[aria-label="Your trips"]')!;
     expect(yours.textContent).toContain("Canada Heliski");
     expect(yours.textContent).not.toContain("Japan Campervan");
@@ -519,13 +535,13 @@ describe("search and the Filters door", () => {
     expect(yours.textContent).not.toContain("Japan Campervan");
   });
 
-  it("applies the search text to the Following band, and skips the facets there", async () => {
+  it("applies the search text to the Updates band, and skips the facets there", async () => {
     const el = await mount();
     await setSearch(el, "rifugio");
-    const following = el.querySelector('section[aria-label="Following"]')!;
-    expect(following.textContent).toContain("Rifugio lunch");
+    const updates = el.querySelector('section[aria-label="Updates"]')!;
+    expect(updates.textContent).toContain("Rifugio lunch");
     await setSearch(el, "nowhere-near-anything");
-    expect(el.querySelector('section[aria-label="Following"]')!.querySelector("ul")).toBeNull();
+    expect(el.querySelector('section[aria-label="Updates"]')!.querySelector("ul")).toBeNull();
   });
 
   it("closes the door on Escape", async () => {
@@ -552,7 +568,7 @@ describe("the phone's first impression", () => {
 
   it("still renders every band under the collapsed sheet", async () => {
     const el = await mount();
-    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Following", "Discover"]);
+    expect(bandOrder(el)).toEqual(["Up next", "Your trips", "Updates", "Discover"]);
   });
 });
 
@@ -586,7 +602,7 @@ describe("a brand-new account", () => {
     expect(net.followed).toEqual(["/api/trips/booked-1/follow"]);
     expect(el.textContent).toContain("Following");
     // Followed = a role on it, so the home re-reads and the trip moves into
-    // "your trips" instead of lingering on the shelf.
+    // "Trips you follow" instead of lingering on the shelf.
     expect(net.fetched.filter((u) => u === "/api/trips").length).toBeGreaterThan(1);
   });
 
@@ -686,5 +702,84 @@ describe("the auth transition (React #310)", () => {
       follow.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(net.followed).toHaveLength(1);
+  });
+});
+
+describe("followed trips are not your trips", () => {
+  it("bands a followed trip under 'Trips you follow', never 'Your trips'", async () => {
+    net.trips = "follower";
+    const el = await mount();
+    expect(bandOrder(el)).toEqual([
+      "Up next",
+      "Your trips",
+      "Trips you follow",
+      "Updates",
+      "Discover",
+    ]);
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).not.toContain("Lofoten");
+    const followedBand = el.querySelector('section[aria-label="Trips you follow"]')!;
+    expect(followedBand.textContent).toContain("Lofoten");
+    // The card is honest about whose trip it is.
+    expect(followedBand.textContent).toContain("follower");
+  });
+
+  it("hides followed trips behind the Mine facet, with the band's one-line collapse", async () => {
+    net.trips = "follower";
+    const el = await mount();
+    await clickChip(el, "Mine");
+    // Your own trips are untouched by the same facet.
+    expect(el.querySelector('section[aria-label="Your trips"]')!.textContent).toContain(
+      "Canada Heliski",
+    );
+    // The band stays (a filter is hiding its rows) and says so in one line.
+    const followedBand = el.querySelector('section[aria-label="Trips you follow"]')!;
+    expect(followedBand.textContent).toContain("No followed trips match this search.");
+    expect(followedBand.querySelector('a[href^="/t/"]')).toBeNull();
+  });
+
+  it("never sprouts the band on a follower-free home, filtering or not", async () => {
+    const el = await mount();
+    expect(el.querySelector('section[aria-label="Trips you follow"]')).toBeNull();
+    await clickChip(el, "idea");
+    expect(bandOrder(el)).toEqual(["Your trips", "Updates", "Discover"]);
+    expect(el.querySelector('section[aria-label="Trips you follow"]')).toBeNull();
+  });
+});
+
+describe("a brand-new account on the canvas", () => {
+  it("shows the discovery map behind the empty state, with the agent one tap away", async () => {
+    net.trips = "empty";
+    net.geo = "ok";
+    const el = await mount();
+    // The canvas is the empty state's backdrop now, not a collapse case.
+    expect(el.querySelector("[data-home-map]")).toBeTruthy();
+    expect(el.querySelector("[data-detent]")).toBeTruthy();
+    expect(el.textContent).toContain("No trips yet");
+    // Plan-a-trip stays the obvious CTA — the card's own button…
+    const plan = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Plan a trip"),
+    )!;
+    expect(plan).toBeTruthy();
+    // …and the header launcher, which used to hide until the first trip.
+    const ask = [...el.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Ask Kiseki"),
+    )!;
+    expect(ask).toBeTruthy();
+    // The sheet header points at the discovery pins, not a "0 trips" count.
+    expect(el.querySelector('[data-testid="sheet-header"]')!.textContent).toContain(
+      "to discover on the map",
+    );
+  });
+
+  it("still collapses to the reading column when there is nothing to stand on", async () => {
+    net.trips = "empty";
+    net.geo = "empty";
+    const el = await mount();
+    expect(el.querySelector("[data-home-map]")).toBeNull();
+    expect(el.textContent).toContain("No trips yet");
+    expect(el.textContent).toContain("Trips worth a look");
+    // The agent CTA survives the collapse too.
+    expect(el.textContent).toContain("Ask Kiseki");
   });
 });
