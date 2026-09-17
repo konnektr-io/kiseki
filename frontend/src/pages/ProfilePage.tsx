@@ -17,6 +17,7 @@ import {
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { formatDate } from "../lib/dates";
+import { setMyAvatar } from "../lib/my-avatar";
 import { usePageTitle } from "../lib/seo";
 import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib/types";
 import { AppHeader } from "../components/AppHeader";
@@ -468,6 +469,7 @@ function ProfileView({
       const at = await getAccessTokenSilently();
       const res = await uploadMyAvatar(blob, at);
       setProfile((p) => (p ? { ...p, avatar: res.avatar } : p));
+      setMyAvatar(sub, res.avatar);
       setAvatarFile(null); // the dialog's job is done — close it
     } catch (e) {
       if (isSessionExpiredError(e)) {
@@ -488,6 +490,7 @@ function ProfileView({
       const at = await getAccessTokenSilently();
       const res = await deleteMyAvatar(at);
       setProfile((p) => (p ? { ...p, avatar: res.avatar ?? undefined } : p));
+      setMyAvatar(sub, res.avatar);
       setAvatarFile(null);
     } catch (e) {
       if (isSessionExpiredError(e)) {
