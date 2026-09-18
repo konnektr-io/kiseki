@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { FileText, Film, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
@@ -139,13 +139,25 @@ export function ChatPanel({
     isAuthenticated,
     isLoading: authLoading,
     loginWithRedirect,
+    user,
   } = useAuth0();
   const context = chatContextKey(tripId);
-  // Initialized synchronously (not in an effect) so the thread also resolves
-  // in SSR/prerender, where effects never run. Rotating creates a new thread
-  // AND remounts the thread below (key), so chat state restarts cleanly.
-  const [threadId, setThreadId] = useState(
-    () => loadThreadId(context) ?? newThreadId(context),
+  const userSub = user?.sub ?? null;
+  // Resolved per render (not once in useState): the login transition
+  // (userSub null → sub) must re-resolve under the SIGNED-IN user's slot —
+  // otherwise a fresh login resumes whatever thread id this browser stored
+  // under the bare context key, i.e. the previous user's thread. Rotation
+  // bumps `rotation`, which re-runs this memo AFTER newThreadId persisted
+  // the fresh id, so the mounted thread follows. key={threadId} below
+  // remounts the thread on every change, so chat state restarts cleanly.
+  // (SSR-safe: without localStorage the helpers return unpersisted ids.)
+  const [rotation, setRotation] = useState(0);
+  const threadId = useMemo(
+    () => loadThreadId(context, userSub) ?? newThreadId(context, userSub),
+    // rotation is write-only state bumped by onNewChat (below) after it
+    // persisted the fresh id, so this memo picks the new thread up
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [context, userSub, rotation],
   );
 
   if (authLoading) {
@@ -183,7 +195,10 @@ export function ChatPanel({
       key={threadId}
       tripId={tripId}
       threadId={threadId}
-      onNewChat={() => setThreadId(newThreadId(context))}
+      onNewChat={() => {
+        newThreadId(context, userSub);
+        setRotation((n) => n + 1);
+      }}
       onTripCreated={onTripCreated}
       onTurnComplete={onTurnComplete}
       onClose={onClose}
