@@ -265,7 +265,7 @@ def test_feed_merges_both_streams_newest_first_with_their_source() -> None:
         mine=[_row(TRIP_A, "canada-2027", "2026-09-14T09:00:00Z", by=SUB,
                    meta={"title": _stamp("2026-09-14T09:00:00Z")})],
         followed=[_row(TRIP_B, "burning-man-2027", "2026-09-14T11:00:00Z", by=OTHER,
-                       discoverable=True,
+                       visibility="public", discoverable=True,
                        meta={"cover": _stamp("2026-09-14T11:00:00Z")})],
     )
     out = feed_mod.build_feed(SUB, client=client)
@@ -281,11 +281,49 @@ def test_feed_hides_a_followed_trip_that_is_not_discoverable() -> None:
     """The listing rule (#196) is applied HERE, not in the query: `follows`
     grants no access, so a private trip of a followed person must never appear."""
     client = _Streams(followed=[
-        _row(TRIP_A, "canada-2027", "2026-09-14T10:00:00Z", discoverable=False),
-        _row(TRIP_B, "urban-legends", "2026-09-14T11:00:00Z", discoverable=True),
+        _row(TRIP_A, "canada-2027", "2026-09-14T10:00:00Z", visibility="public",
+             discoverable=False),
+        _row(TRIP_B, "urban-legends", "2026-09-14T11:00:00Z", visibility="public",
+             discoverable=True),
     ])
     out = feed_mod.build_feed(SUB, client=client)
     assert [i["tripId"] for i in out["items"]] == [TRIP_B]
+
+
+def test_feed_hides_a_private_followed_trip_even_when_discoverable() -> None:
+    """The Costa Rica case: `discoverable` has been listed-by-default since
+    #228 (even on private trips), so it cannot stand in for the visibility
+    check — a followed person's private trip contributes no row and no items.
+    """
+    client = _Streams(followed=[
+        _row(TRIP_A, "costa-rica", "2026-09-14T10:00:00Z", visibility="private",
+             discoverable=True),
+        _row(TRIP_B, "urban-legends", "2026-09-14T11:00:00Z", visibility="public",
+             discoverable=True),
+    ])
+    out = feed_mod.build_feed(SUB, client=client)
+    assert [i["tripId"] for i in out["items"]] == [TRIP_B]
+
+
+def test_feed_skips_a_followed_row_missing_either_listing_flag() -> None:
+    """Fail closed: a row missing `visibility` or `discoverable` is skipped,
+    never listed — same strictness as the showcase mapper."""
+    client = _Streams(followed=[
+        _row(TRIP_A, "no-visibility", "2026-09-14T10:00:00Z", discoverable=True),
+        _row(TRIP_C, "no-flag", "2026-09-14T11:00:00Z", visibility="public"),
+    ])
+    out = feed_mod.build_feed(SUB, client=client)
+    assert out["items"] == []
+
+
+def test_feed_still_lists_my_own_private_trip() -> None:
+    """The gate is stream-2-only: stream 1 is every trip I can read, and my
+    own private trips are the feed's first stream."""
+    client = _Streams(mine=[
+        _row(TRIP_A, "costa-rica", "2026-09-14T10:00:00Z", visibility="private"),
+    ])
+    out = feed_mod.build_feed(SUB, client=client)
+    assert [i["tripId"] for i in out["items"]] == [TRIP_A]
 
 
 def test_feed_keeps_unstamped_trips_last_and_only_on_the_first_page() -> None:
@@ -394,11 +432,15 @@ def test_feed_serves_the_callers_own_view_and_is_never_cached(
         def trips_of_followed(self, sub, limit=30):
             return [
                 {"dtId": TRIP_B, "title": "Burning Man 2027",
+                 "visibility": "public",
                  "discoverable": True, "at": "2026-09-14T11:00:00Z", "by": OTHER},
                 # A followed person's private trip: listed or not, it must not
-                # appear — `follows` grants no access (#196).
+                # appear — `follows` grants no access (#196). Discoverable on
+                # purpose: since #228 that flag defaults on, even on private
+                # trips, so it cannot stand in for the visibility check.
                 {"dtId": TRIP_C, "title": "Private Thing",
-                 "discoverable": False, "at": "2026-09-14T12:00:00Z", "by": OTHER},
+                 "visibility": "private",
+                 "discoverable": True, "at": "2026-09-14T12:00:00Z", "by": OTHER},
             ]
 
     monkeypatch.setattr(feed_mod, "get_graph_client", lambda: _Graph())
@@ -678,8 +720,9 @@ class _ItemsGraph:
         )
 
 
-def _followed_row(dtid, *, at, discoverable=True, title="A Trip"):
-    return {"dtId": dtid, "title": title, "visibility": "public",
+def _followed_row(dtid, *, at, discoverable=True, visibility="public",
+                  title="A Trip"):
+    return {"dtId": dtid, "title": title, "visibility": visibility,
             "discoverable": discoverable, "at": at, "by": OTHER}
 
 
@@ -704,6 +747,18 @@ def test_build_feed_merges_a_followed_trips_items_into_the_ranked_list() -> None
 def test_build_feed_never_walks_a_private_followed_trip() -> None:
     """The listing rule (#196) gates the ITEMS too — and savings: no bundle read."""
     graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z", discoverable=False)],
+                        {TRIP_B: _day_bundle()})
+    feed = feed_mod.build_feed(SUB, client=graph)
+    assert graph.walked == []
+    assert [i["kind"] for i in feed["items"]] == []
+
+
+def test_build_feed_never_walks_a_private_but_discoverable_followed_trip() -> None:
+    """The Costa Rica case at item granularity: a private trip that is still
+    `discoverable` (the #228 default) contributes neither a row nor a bundle
+    walk — its blocks must never reach a non-reader's feed."""
+    graph = _ItemsGraph([_followed_row(TRIP_B, at="2026-09-14T11:00:00Z",
+                                       visibility="private", discoverable=True)],
                         {TRIP_B: _day_bundle()})
     feed = feed_mod.build_feed(SUB, client=graph)
     assert graph.walked == []

@@ -430,7 +430,10 @@ LIMIT {limit}
 # trip. Two queries, merged in Python — the same two-round-trip shape as
 # ``_profile_trips`` (the target's trips + the viewer's trips for the role
 # map), because the list rule is the same one: ``discoverable`` OR the viewer
-# already has a role on it.
+# already has a role on it. The discoverable half means public AND listed:
+# ``discoverable`` alone is listed-by-default since #228 (even on private
+# trips), so the query filters both and Python re-checks both, never trusting
+# the WHERE clause alone (same discipline as ``list_showcase_trips``).
 #
 # Both carry each trip's registry locations as collected [name, lat, lng,
 # edge-index] rows so the anchor ("the first located registry entry") is
@@ -446,10 +449,10 @@ RETURN t.`$dtId` AS dtId, t.title AS title, t.stage AS stage,
 
 _Q_GEO_DISCOVERABLE = """
 MATCH (t:Twin)
-WHERE t.discoverable = true
+WHERE t.visibility = 'public' AND t.discoverable = true
 OPTIONAL MATCH (t)-[a:atLocation]->(l:Twin)
 RETURN t.`$dtId` AS dtId, t.title AS title, t.stage AS stage,
-       t.discoverable AS discoverable,
+       t.visibility AS visibility, t.discoverable AS discoverable,
        collect(DISTINCT [l.name, l.lat, l.lng, a.index]) AS places
 """
 
@@ -811,8 +814,9 @@ class GraphReadClient:
             if not isinstance(row, dict) or row.get("dtId") in seen:
                 continue
             # The second lock on the listing boundary: the query filters, but
-            # an absent flag must never read as "listable".
-            if row.get("discoverable") is not True:
+            # an absent flag must never read as "listable". Both halves, like
+            # the showcase mapper: public AND listed, fail closed on either.
+            if row.get("visibility") != "public" or row.get("discoverable") is not True:
                 continue
             geo = self._geo_row_from_dict(row, origin="discover")
             if geo is not None:
