@@ -11,6 +11,11 @@
  * Playwright renderer's loopback GET on /t/<key>/booklet). The SPA uses it as
  * the Bearer for its own /api/* fetches — no Auth0 login needed. Undefined
  * outside PDF-render mode.
+ *
+ * `__KISEKI_API_KEY__` is the ADMIN API KEY seam (issue #324): browser probes
+ * set it with `add_init_script` (see backend/scripts/probe_trip_page.py) so a
+ * Playwright session makes authorized API calls through `X-API-Key` without
+ * minting an Auth0 M2M token. Set only by a probe — never by the app.
  */
 export {};
 
@@ -18,5 +23,6 @@ declare global {
   interface Window {
     __KISEKI_PDF_RENDER__?: boolean;
     __KISEKI_ACCESS_TOKEN__?: string;
+    __KISEKI_API_KEY__?: string;
   }
 }

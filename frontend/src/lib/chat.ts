@@ -3,6 +3,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import type { FileUIPart, UIMessage, UIMessageChunk } from "ai";
 
+import { authHeaders } from "./auth-headers";
 import { posterNameFor } from "./media";
 
 /**
@@ -335,7 +336,7 @@ export async function getTurnStatus(args: {
   if (args.tripId) query.set("tripId", args.tripId);
   const res = await fetchImpl(`/api/chat/turn?${query.toString()}`, {
     headers: {
-      Authorization: `Bearer ${await args.getToken()}`,
+      ...authHeaders(await args.getToken()),
     },
   });
   if (res.status === 401 || res.status === 403) {
@@ -380,7 +381,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     super({
       api: "/api/chat",
       headers: async () => ({
-        Authorization: `Bearer ${await getToken()}`,
+        ...authHeaders(await getToken()),
       }),
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
         const res = await fetchImpl(input, init);
@@ -514,7 +515,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          Authorization: `Bearer ${await this.getToken()}`,
+          ...authHeaders(await this.getToken()),
         },
         body: JSON.stringify({
           turnKey: turn.turnKey,
@@ -623,7 +624,7 @@ export async function uploadChatFile(
   if (tripId) form.append("trip_id", tripId);
   const res = await fetch("/api/files", {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
     body: form,
   });
   if (!res.ok) {
@@ -689,7 +690,7 @@ export async function uploadChatPoster(
     if (tripId) form.append("trip_id", tripId);
     const res = await fetch("/api/files", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(token),
       body: form,
     });
     if (!res.ok) return null;

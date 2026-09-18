@@ -1,3 +1,4 @@
+import { authHeaders } from "./auth-headers";
 import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripGeo, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
@@ -57,7 +58,7 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
   const cached = tripCache.get(key(param));
   if (cached) return cached;
   const headers: Record<string, string> = {};
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  Object.assign(headers, authHeaders(accessToken));
   const res = await fetch(`/api/trips/${encodeURIComponent(param)}`, { headers });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -110,7 +111,7 @@ export async function claimIdentity(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders(accessToken),
     },
     body: JSON.stringify({ claimToken, personId }),
   });
@@ -123,7 +124,7 @@ export async function claimIdentity(
 /** The caller's trips (issue #7 — logged-in landing). */
 export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> {
   const res = await fetch("/api/trips", {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -144,7 +145,7 @@ export async function fetchMyTrips(accessToken: string): Promise<TripSummary[]> 
 export async function fetchTripGeo(accessToken: string): Promise<TripGeo[]> {
   try {
     const res = await fetch("/api/trips/geo", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: authHeaders(accessToken),
     });
     if (!res.ok) return [];
     const body = (await res.json()) as { trips?: unknown };
@@ -191,7 +192,7 @@ export async function downloadBooklet(
   filename: string,
 ): Promise<void> {
   const headers: Record<string, string> = {};
-  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  Object.assign(headers, authHeaders(accessToken));
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/booklet.pdf`, {
     headers,
   });
@@ -212,7 +213,7 @@ export async function downloadBooklet(
 /** Owner-only: the trip's join link (claimToken is never in trip documents). */
 export async function fetchJoinLink(tripId: string, accessToken: string): Promise<string> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/join-link`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -238,7 +239,7 @@ export async function fetchTripByFollow(followToken: string): Promise<Trip> {
 export async function followPublicTrip(tripId: string, accessToken: string): Promise<Trip> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -252,7 +253,7 @@ export async function fetchFollowLink(
   accessToken: string,
 ): Promise<string | null> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow-link`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (res.status === 404) return null;
   if (!res.ok) {
@@ -269,7 +270,7 @@ export async function fetchFollowLink(
 export async function createFollowLink(tripId: string, accessToken: string): Promise<string> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/follow-link`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -286,7 +287,7 @@ export async function createFollowLink(tripId: string, accessToken: string): Pro
 export async function disableCrewInvite(tripId: string, accessToken: string): Promise<void> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}/join-link`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -307,7 +308,7 @@ export async function followTrip(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders(accessToken),
     },
     body: JSON.stringify(kind === "follow" ? { followToken: token } : { claimToken: token }),
   });
@@ -333,7 +334,7 @@ async function tripWrite<T = Trip>(
   body?: JsonBody,
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  headers.Authorization = `Bearer ${accessToken}`;
+  Object.assign(headers, authHeaders(accessToken));
   const res = await fetch(path, {
     method,
     headers,
@@ -371,7 +372,7 @@ export async function putTrip(
 export async function deleteTrip(tripId: string, accessToken: string): Promise<void> {
   const res = await fetch(`/api/trips/${encodeURIComponent(tripId)}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
   tripCache.delete(`${tripId}|anon`);
@@ -604,7 +605,7 @@ async function profileRequest<T>(
     method,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
+      ...authHeaders(accessToken),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -735,7 +736,7 @@ export async function uploadMyAvatar(
   form.append("file", photo, "avatar.jpg");
   const res = await fetch("/api/me/avatar", {
     method: "POST",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
     body: form,
   });
   if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -750,7 +751,7 @@ export async function deleteMyAvatar(
 ): Promise<{ sub: string; avatar: string | null }> {
   const res = await fetch("/api/me/avatar", {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
   return (await res.json()) as { sub: string; avatar: string | null };
@@ -786,7 +787,7 @@ export class AccountDeleteBlockedError extends TripAccessError {
  *  blob. The document is complete with no query knobs. */
 export async function downloadMyExport(accessToken: string): Promise<void> {
   const res = await fetch("/api/me/export", {
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));
@@ -814,7 +815,7 @@ export async function deleteMyAccount(
 ): Promise<{ deleted: Record<string, unknown> }> {
   const res = await fetch("/api/me", {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${accessToken}` },
+    headers: authHeaders(accessToken),
   });
   if (res.ok) {
     return (await res.json()) as { deleted: Record<string, unknown> };
@@ -870,7 +871,7 @@ export async function fetchTricountSnapshot(
 ): Promise<TricountSnapshot> {
   const res = await fetch(
     `/api/trips/${encodeURIComponent(tripId)}/practical/tricount${refresh ? "?refresh=true" : ""}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } },
+    { headers: authHeaders(accessToken) },
   );
   if (!res.ok) {
     throw new TripAccessError(res.status, await apiErrorMessage(res));

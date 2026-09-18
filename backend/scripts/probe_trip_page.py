@@ -9,22 +9,29 @@ app-wide boundary's "Something went wrong. Please refresh the page and try
 again." Nothing short of loading a page catches that class, so run this after
 every deploy that touches the frontend:
 
-    PROBE_TOKEN=<jwt> python3 backend/scripts/probe_trip_page.py
+    PROBE_API_KEY=<ksk_…> python3 backend/scripts/probe_trip_page.py   # preferred
+    PROBE_TOKEN=<jwt>     python3 backend/scripts/probe_trip_page.py   # fallback
 
 Exit 0 = every trip page rendered its title; 1 = at least one crashed or
 rendered nothing recognisable.
 
-Auth: the SPA's e2e mode (``?kiseki_e2e=1``) stubs Auth0 as signed-in and
-feeds ``window.__KISEKI_ACCESS_TOKEN__`` to every API call — the same bypass
-the PDF renderer uses. It grants nothing: the backend still enforces the
-token. This probe only reads; it never writes to the deployment.
+Auth (issue #324): prefer the ADMIN API KEY. It costs nothing — an Auth0 M2M
+token costs a metered `client_credentials` grant (~1 000/month tenant-wide),
+so a probe loop can exhaust the agent's whole quota. The probe injects
+``window.__KISEKI_API_KEY__`` and the SPA's ``authHeaders()`` sends
+``X-API-Key`` on every /api/* fetch; the probe's own listing calls use the
+same header. ``PROBE_TOKEN`` remains for the end-user path (the key cannot
+mint or stand in for a real user's own token).
 
-Mint the token with the workspace wrapper (see
-profiles/kiseki/skills/.../kiseki-trip-content for the alias), or reuse
-``backend/scripts/api_write.py``'s token plumbing.
+The SPA's e2e mode (``?kiseki_e2e=1``) stubs Auth0 as signed-in and feeds
+either credential to every API call — the same bypass the PDF renderer uses.
+It grants nothing: the backend still enforces the credential. This probe only
+reads; it never writes to the deployment.
 
 Environment:
-  PROBE_TOKEN   (required) bearer token for the API
+  PROBE_API_KEY (preferred) admin API key for the API (falls back to
+                            KISEKI_API_KEY from the profile .env)
+  PROBE_TOKEN   (fallback)  bearer JWT for the API
   PROBE_BASE    frontend origin, default https://kiseki.konnektr.io
   PROBE_API     API origin, defaults to PROBE_BASE
   PROBE_SHOTS   screenshot dir, default /tmp/kiseki-probe
@@ -35,6 +42,7 @@ import glob
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 try:  # pragma: no cover - environment-dependent import
@@ -51,23 +59,39 @@ CHROME_GLOB = "/opt/hermes/.playwright/*/chrome-headless-shell-linux64/chrome-he
 SETTLE_MS = 6000
 
 
-def _token() -> str:
+def credential() -> tuple[str, str]:
+    """``(kind, value)`` — the API key when one is configured, else the token.
+
+    Key first on purpose: it is the quota-free agent credential, and an
+    ambient ``KISEKI_API_KEY`` in the profile env must not be shadowed by a
+    stale ``PROBE_TOKEN``.
+    """
+    key = os.environ.get("PROBE_API_KEY") or os.environ.get("KISEKI_API_KEY")
+    if key:
+        return "key", key
     token = os.environ.get("PROBE_TOKEN")
-    if not token:
-        print("PROBE_TOKEN is required", file=sys.stderr)
-        raise SystemExit(2)
-    return token
+    if token:
+        return "token", token
+    print(
+        "PROBE_API_KEY (or KISEKI_API_KEY) or PROBE_TOKEN is required",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
 
 
-def api_get(path: str, token: str) -> dict:
-    req = urllib.request.Request(f"{API}{path}", headers={"Authorization": f"Bearer {token}"})
+def auth_header(kind: str, value: str) -> dict[str, str]:
+    return {"X-API-Key": value} if kind == "key" else {"Authorization": f"Bearer {value}"}
+
+
+def api_get(path: str, kind: str, value: str) -> dict:
+    req = urllib.request.Request(f"{API}{path}", headers=auth_header(kind, value))
     with urllib.request.urlopen(req, timeout=45) as response:
         return json.load(response)
 
 
-def collect_trips(ids: list[str], token: str) -> list[dict]:
+def collect_trips(ids: list[str], kind: str, value: str) -> list[dict]:
     """Every trip, or just `ids`. The list endpoint keys a trip as `dtId`."""
-    data = api_get("/api/trips?limit=50", token)
+    data = api_get("/api/trips?limit=50", kind, value)
     trips = data["trips"] if isinstance(data, dict) else data
     for trip in trips:
         trip["_id"] = trip.get("dtId") or trip.get("id") or trip.get("slug")
@@ -79,13 +103,23 @@ def collect_trips(ids: list[str], token: str) -> list[dict]:
 
 
 def main() -> int:
-    token = _token()
-    trips = collect_trips(sys.argv[1:], token)
+    kind, value = credential()
+    try:
+        ident = api_get("/api/auth/me", kind, value)
+    except urllib.error.HTTPError as exc:  # noqa: PERF203 - one preflight call
+        print(
+            f"credential rejected: HTTP {exc.code} on /api/auth/me "
+            f"({kind}) — fix the credential before trusting any render result",
+            file=sys.stderr,
+        )
+        return 2
+    print(f"credential ok ({kind}): sub={ident.get('sub')}", file=sys.stderr)
+    trips = collect_trips(sys.argv[1:], kind, value)
     if not trips:
         print("no trips matched", file=sys.stderr)
         return 1
     os.makedirs(SHOTS, exist_ok=True)
-    print(f"probing {len(trips)} trip page(s) at {BASE}", file=sys.stderr)
+    print(f"probing {len(trips)} trip page(s) at {BASE} with {kind}", file=sys.stderr)
 
     shells = sorted(glob.glob(CHROME_GLOB))
     results: list[dict] = []
@@ -104,7 +138,14 @@ def main() -> int:
                     if m.type == "error"
                     else None,
                 )
-                page.add_init_script(f"window.__KISEKI_ACCESS_TOKEN__ = {json.dumps(token)};")
+                if kind == "key":
+                    page.add_init_script(
+                        f"window.__KISEKI_API_KEY__ = {json.dumps(value)};"
+                    )
+                else:
+                    page.add_init_script(
+                        f"window.__KISEKI_ACCESS_TOKEN__ = {json.dumps(value)};"
+                    )
                 try:
                     page.goto(f"{BASE}/t/{trip['_id']}?kiseki_e2e=1", wait_until="domcontentloaded",
                               timeout=45000)

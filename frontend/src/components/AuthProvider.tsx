@@ -68,6 +68,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // (window.__KISEKI_ACCESS_TOKEN__, the same seam the PDF renderer uses) to
   // every API call. No Auth0 session, no cache seeding. The backend still
   // enforces each request against the presented token.
+  //
+  // An injected admin API key (window.__KISEKI_API_KEY__, issue #324) drives
+  // the SAME signed-in stub with no token at all: `authHeaders()` switches to
+  // `X-API-Key`, so a probe can exercise every authorized surface without
+  // minting an Auth0 M2M token (each grant is metered).
   if (typeof window !== "undefined" && isE2EQuery(window.location.search)) {
     const token = window.__KISEKI_ACCESS_TOKEN__ ?? "";
     const user: User = {

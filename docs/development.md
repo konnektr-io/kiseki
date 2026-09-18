@@ -113,12 +113,27 @@ AGENTS.md                        engineering conventions (and coding-agent conte
 | `scripts/release.sh` | Cut a release (tag + notes + vault record), with a post-deploy DTDL check |
 | `scripts/probe_*.py`, `smoke_write_path.py` | Ad-hoc probes against a deployed instance |
 
+### Agent credentials: admin API key first, M2M token only as fallback (#324)
+
+`KISEKI_API_KEY` (the `ksk_…` admin key, headers `X-API-Key` + `X-Act-As-Sub`)
+is the **quota-free** agent credential: the backend validates it locally, so no
+Auth0 call happens at all and a spent M2M quota cannot block an agent round.
+`api_write.py`, `kiseki_api.sh`, `smoke_write_path.py` and
+`probe_trip_page.py` all prefer it and only fall back to a minted token.
+
+Browser probes pass it through `window.__KISEKI_API_KEY__` (Playwright
+`add_init_script`), and the SPA's single `authHeaders()` helper turns that into
+the `X-API-Key` header on every `/api/*` call — so a probe drives an
+authorized, signed-in session with zero grants.
+
 ### M2M tokens are quota-metered — mint once, reuse
 
 The Auth0 tenant charges **every** `client_credentials` grant against a monthly
-M2M-token allowance (~1 000 grants/month on the free plan). The token is valid
-24 h, so a per-call mint spends a day's worth of quota for nothing: two weeks of
-scripted rounds hit ~780 grants, 90 % of the month's allowance (2026-09).
+M2M-token allowance (~1 000 grants/month on the free plan) — and the allowance
+is **tenant-wide**, shared with every other client on it, so a probe loop
+elsewhere can spend the agent's whole budget. The token is valid 24 h, so a
+per-call mint spends a day's worth of quota for nothing: two weeks of scripted
+rounds hit ~780 grants, 90 % of the month's allowance (2026-09).
 
 `scripts/kiseki_m2m.py` therefore **caches the token** in
 `$KISEKI_TOKEN_CACHE_DIR` (default `~/.cache/kiseki/m2m-<hash of
@@ -130,7 +145,8 @@ so scripted and agent rounds share one token.
 
 Do not loop a token mint, do not hand-roll a second one, and do not "refresh" a
 stale cache to be safe — `KISEKI_TOKEN_NO_CACHE=1` forces a grant and is for
-debugging only, since every one of those is quota.
+debugging only, since every one of those is quota. Better still: use the API
+key and spend none of it.
 
 ## Conventions
 

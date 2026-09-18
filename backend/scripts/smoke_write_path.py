@@ -32,9 +32,16 @@ BASE = os.environ.get("KISEKI_BASE", "https://kiseki.konnektr.io")
 FAILURES: list[str] = []
 
 
+def _auth_headers() -> dict[str, str]:
+    """Credential headers (issue #324): admin API key first, bearer fallback."""
+    key = os.environ.get("KISEKI_API_KEY")
+    if key:
+        return {"X-API-Key": key}
+    return {"Authorization": f"Bearer {os.environ.get('KISEKI_TOKEN', '')}"}
+
+
 def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
-    token = os.environ.get("KISEKI_TOKEN", "")
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = dict(_auth_headers())
     data = json.dumps(body).encode() if body is not None else None
     if data:
         headers["content-type"] = "application/json"
@@ -56,8 +63,8 @@ def main() -> int:
     ap.add_argument("--trip", required=True, help="trip $dtId to exercise (editor+ role required)")
     args = ap.parse_args()
     tid = args.trip
-    if not os.environ.get("KISEKI_TOKEN"):
-        print("KISEKI_TOKEN is required (editor+ on the trip)")
+    if not (os.environ.get("KISEKI_API_KEY") or os.environ.get("KISEKI_TOKEN")):
+        print("KISEKI_API_KEY (preferred, quota-free) or KISEKI_TOKEN is required (editor+)")
         return 2
 
     st, trip = _req("GET", f"/api/trips/{tid}")

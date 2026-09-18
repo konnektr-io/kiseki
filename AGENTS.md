@@ -173,9 +173,20 @@ exercises block create/move/delete + section locationRefs + section day-range
 writes against the real graph and restores every mutation.
 
 **Identity model (#46)**: the agent has no identity of its own in the graph.
-Three modes, in order of preference:
+Four modes, in order of preference:
+0. **Admin API key (PREFERRED, #324)**: `X-API-Key: ksk_…` with
+   `X-Act-As-Sub` — the backend validates the key locally (sha256 against
+   `KISEKI_API_KEYS`), so Auth0 is never called: no metered
+   `client_credentials` grant, and a spent M2M quota cannot block the agent.
+   Resolves exactly like mode 2 below (act-as → pin → owner fallback), and
+   every client (CLI scripts, browser probes) prefers it; the SPA's
+   `authHeaders()` picks it up from `window.__KISEKI_API_KEY__`, which is how
+   browser probes run authorized sessions with zero grants. Refused on
+   identity-provisioning routes like every service credential.
 1. **User's own token** (UI chat / end-user profile): present the acting
-   user's access token — ACL + `x-user-id` follow its `sub`.
+   user's access token — ACL + `x-user-id` follow its `sub`. An admin API key
+   is never a substitute here: it cannot provision identity and is not a
+   person.
 2. **Act-as (TEMPORARY, single-user interim only)**: the agent authenticates
    with the sanctioned M2M client token and the backend resolves the actor
    as Niko (`KISEKI_AGENT_ACT_AS`) — ACL = Niko's real crew role,
@@ -190,12 +201,17 @@ Three modes, in order of preference:
    become multi-user identity plumbing: deleting it before the write routes
    accept a request-scoped act-as would silently flip unattended writes to mode 3
    (owner-level service principal). Target: per-request identity everywhere — the
-   caller presents the end user's token, or the M2M token + a request-scoped
-   act-as sub.
-3. **Unattended fallback**: M2M token with no act-as → owner-level service
-   principal (`KISEKI_AGENT_CLIENT_ID`), last resort only.
+   caller presents the end user's token, or the service credential + a
+   request-scoped act-as sub.
+3. **Unattended fallback**: a service credential (M2M token or admin API key)
+   with no act-as → owner-level service principal, last resort only.
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
+Every credential reaches the ACL through ONE resolver (`auth.authenticate_user`
++ `acl.has_credential`) — a path-level gate that hand-rolls its own
+bearer-prefix check silently 401s API-key callers on private trips (hit
+2026-09-17 while live-verifying #324; the trip GET/write/delete gates all had
+their own copy).
 
 **Chat identity (M3, `/api/chat` + `/api/files`) is bearer-first per request**
 (`acl.resolve_request_actor_sub`, #9): every request MUST carry a bearer
