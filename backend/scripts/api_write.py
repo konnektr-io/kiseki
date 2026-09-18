@@ -17,8 +17,9 @@ wrapper's "Install:" note and the content skill's "Deploying scripts"
 section carry the same rule.
 
     export KISEKI_API_KEY=<admin key>               # 0. ADMIN API KEY (issue #324, quota-independent):
-                                                    #    preferred on agent profiles; acts AS Niko
-                                                    #    (KISEKI_AGENT_ACT_AS), no Auth0 grant spent.
+                                                    #    preferred on agent profiles; MUST always name its
+                                                    #    acting user (--act-as or KISEKI_ACT_AS_SUB),
+                                                    #    no Auth0 grant spent.
                                                     #    --token, KISEKI_API_KEY and KISEKI_TOKEN are one
                                                     #    knob: either credential value works anywhere.
     export KISEKI_TOKEN=<access token>              # 1. USER token (dedicated/UI profile):
@@ -887,11 +888,35 @@ def _credential(args) -> str:
     return token
 
 
-def _auth_headers(token: str) -> dict[str, str]:
-    """Bearer for JWTs, `X-API-Key` for admin keys (`ksk_` prefix, #324)."""
-    if token.startswith("ksk_"):
-        return {"X-API-Key": token}
-    return {"Authorization": f"Bearer {token}"}
+def _act_as(args, token: str | None = None) -> str | None:
+    """The request-scoped impersonation sub for this call.
+
+    Admin API-key calls MUST always impersonate a user: when the credential
+    is a ``ksk_`` key, require ``--act-as`` (or ``KISEKI_ACT_AS_SUB``) and
+    send it as ``X-Act-As-Sub``. The backend forwards that sub to the graph
+    as ``x-user-id``; without it there is no attributable actor. Other
+    credentials keep their existing behaviour.
+    """
+    sub = (getattr(args, "act_as", None) or os.environ.get("KISEKI_ACT_AS_SUB") or "").strip()
+    credential = token if token is not None else _credential(args)
+    if credential.startswith("ksk_") and not sub:
+        raise SystemExit(
+            "error: admin API key requires --act-as <user sub> or KISEKI_ACT_AS_SUB "
+            "(API-key calls must always impersonate a user)"
+        )
+    return sub or None
+
+
+def _auth_headers(token: str, act_as: str | None = None) -> dict[str, str]:
+    """Bearer for JWTs, `X-API-Key` for admin keys (`ksk_` prefix, #324).
+
+    An explicit act-as sub rides as `X-Act-As-Sub`; the backend honours it
+    for service credentials and ignores it for an end-user token.
+    """
+    headers = {"X-API-Key": token} if token.startswith("ksk_") else {"Authorization": f"Bearer {token}"}
+    if act_as:
+        headers["X-Act-As-Sub"] = act_as
+    return headers
 
 
 def _request(
@@ -901,6 +926,7 @@ def _request(
     token: str,
     body: dict | None,
     raw: tuple[bytes, str] | None = None,
+    act_as: str | None = None,
 ) -> tuple[int, object]:
     url = base.rstrip("/") + ("/" + path.lstrip("/") if path else "")
     if raw is not None:
@@ -909,7 +935,7 @@ def _request(
         data = json.dumps(body).encode("utf-8") if body is not None else None
         content_type = "application/json"
     req = urllib.request.Request(url, method=method.upper(), data=data)
-    for header, value in _auth_headers(token).items():
+    for header, value in _auth_headers(token, act_as).items():
         req.add_header(header, value)
     if data is not None:
         req.add_header("Content-Type", content_type)
@@ -961,6 +987,7 @@ def upload_file(args) -> int:
     """`upload <local-file> [--trip-id <id>]` — bytes into the trip (or the inbox)."""
     base = args.base
     token = _credential(args)
+    act_as = _act_as(args, token)
     path = args.path
     if not path:
         raise SystemExit("error: upload needs a local file path: upload <file> [--trip-id <id>]")
@@ -969,7 +996,7 @@ def upload_file(args) -> int:
 
     payload, content_type = _multipart({"trip_id": args.trip_id}, "file", path)
     status, body = _request(
-        "post", base, "/api/files", token, None, raw=(payload, content_type)
+        "post", base, "/api/files", token, None, raw=(payload, content_type), act_as=act_as
     )
     if not 200 <= status < 300:
         detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
@@ -990,12 +1017,14 @@ def promote_file(args) -> int:
     """`promote <file-name> --trip-id <id>` — inbox file → the trip's media namespace."""
     base = args.base
     token = _credential(args)
+    act_as = _act_as(args, token)
     if not args.path:
         raise SystemExit("error: promote needs the file name: promote <file-name> --trip-id <id>")
     if not args.trip_id:
         raise SystemExit("error: promote needs --trip-id <trip_id>")
     status, body = _request(
-        "post", base, "/api/files/promote", token, {"trip_id": args.trip_id, "file_name": args.path}
+        "post", base, "/api/files/promote", token, {"trip_id": args.trip_id, "file_name": args.path},
+        act_as=act_as,
     )
     if not 200 <= status < 300:
         detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
@@ -1017,8 +1046,8 @@ def _block_update_body(body: dict) -> dict:
     return {k: v for k, v in body.items() if k not in ("kind", "container")}
 
 
-def _server_base(trip_id: str, base: str, token: str) -> dict:
-    status, doc = _request("get", base, f"/api/trips/{trip_id}", token, None)
+def _server_base(trip_id: str, base: str, token: str, act_as: str | None = None) -> dict:
+    status, doc = _request("get", base, f"/api/trips/{trip_id}", token, None, act_as=act_as)
     if status != 200 or not isinstance(doc, dict):
         raise PlanError(f"cannot read trip {trip_id} first (HTTP {status}: {doc})")
     return doc
@@ -1078,6 +1107,7 @@ def _resolve_query(
     token: str,
     near: tuple[float, float] | None = None,
     radius_km: int = _BIAS_RADIUS_KM,
+    act_as: str | None = None,
 ) -> dict | None:
     """``GET /api/places/search?q=`` — venue name → place_id + coordinates.
 
@@ -1100,13 +1130,13 @@ def _resolve_query(
         path += (
             f"&lat={near[0]:.5f}&lng={near[1]:.5f}&radius={int(radius_km) * 1000}"
         )
-    status, body = _request("get", base, path, token, None)
+    status, body = _request("get", base, path, token, None, act_as=act_as)
     if status != 200 or not isinstance(body, dict) or not body.get("available"):
         return None
     return body if body.get("placeId") else None
 
 
-def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
+def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None = None) -> dict:
     """Fill in every venue key a trip is missing (#187).
 
     Two passes, both mechanical — the point is that exact locations stop being a
@@ -1130,7 +1160,7 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
     ``locations_unresolved``: that is content the plan has to supply, and it is
     the honest signal that the itinerary is anchored to cities, not places.
     """
-    trip = _server_base(trip_id, base, token)
+    trip = _server_base(trip_id, base, token, act_as)
     report: dict = {
         "locations_resolved": [],
         "locations_unresolved": [],
@@ -1148,11 +1178,11 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
         if not name or loc.get("placeId"):
             continue
         anchor = _trip_anchor(trip)
-        hit = _resolve_query(name, base, token, near=anchor)
+        hit = _resolve_query(name, base, token, near=anchor, act_as=act_as)
         if not hit:
             # Nothing yet to bias toward (or the bias changed nothing): the
             # unbounded query is still the fallback, exactly as before.
-            hit = _resolve_query(name, base, token)
+            hit = _resolve_query(name, base, token, act_as=act_as)
         if not hit:
             report["locations_unresolved"].append(name)
             continue
@@ -1161,7 +1191,7 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
             if distance > _OFF_TRIP_KM:
                 # A namesake. Take the unbiased candidate only if it is nearer —
                 # never silently, and never without saying so.
-                plain = _resolve_query(name, base, token)
+                plain = _resolve_query(name, base, token, act_as=act_as)
                 if plain and _coords(plain) and _haversine_km(_coords(plain), anchor) < distance:  # type: ignore[arg-type]
                     hit = plain
                     distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
@@ -1193,14 +1223,15 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
 
     if upserts:
         status, payload = _request(
-            "patch", base, f"/api/trips/{trip_id}/locations", token, {"locations": upserts}
+            "patch", base, f"/api/trips/{trip_id}/locations", token, {"locations": upserts},
+            act_as=act_as,
         )
         if not 200 <= status < 300:
             detail = json.dumps(payload, ensure_ascii=False)[:300] if not isinstance(payload, str) else payload[:300]
             print(f"HTTP {status} patching locations: {detail}", file=sys.stderr)
             report["locations_unresolved"] += [u["name"] for u in upserts]
             report["locations_resolved"] = []
-        trip = _server_base(trip_id, base, token)
+        trip = _server_base(trip_id, base, token, act_as)
 
     # registry name/alias → placeId, for the block pass
     known: dict[str, str] = {}
@@ -1233,7 +1264,7 @@ def resolve_trip_places(trip_id: str, base: str, token: str) -> dict:
                 continue
             status, payload = _request(
                 "put", base, f"/api/trips/{trip_id}/blocks/{block.get('id')}", token,
-                {"placeId": place_id},
+                {"placeId": place_id}, act_as=act_as,
             )
             if 200 <= status < 300:
                 report["blocks_resolved"] += 1
@@ -1249,9 +1280,10 @@ def resolve_places_verb(args) -> int:
     """``resolve-places <trip_id>`` — fill in missing place_ids / venue keys."""
     base = args.base
     token = _credential(args)
+    act_as = _act_as(args, token)
     if not args.path:
         raise SystemExit("error: resolve-places needs a trip id: resolve-places <trip_id>")
-    report = resolve_trip_places(args.path, base, token)
+    report = resolve_trip_places(args.path, base, token, act_as)
     print(json.dumps(report, indent=2, ensure_ascii=False))
     if report["blocks_without_venue"]:
         print(
@@ -1361,6 +1393,7 @@ def fetch_photo(args) -> int:
     """
     base = args.base
     token = _credential(args)
+    act_as = _act_as(args, token)
     if not args.trip_id:
         raise SystemExit(
             "error: photo needs --trip-id <trip_id> (media belongs to a trip; "
@@ -1411,7 +1444,7 @@ def fetch_photo(args) -> int:
 
     try:
         payload, content_type = _multipart({"trip_id": args.trip_id}, "file", local)
-        status, body = _request("post", base, "/api/files", token, None, raw=(payload, content_type))
+        status, body = _request("post", base, "/api/files", token, None, raw=(payload, content_type), act_as=act_as)
     finally:
         if tmp_path:
             try:
@@ -1451,12 +1484,13 @@ def fill_trip(args) -> int:
     """`fill` — one validated plan, one ordered run, one summary."""
     base = args.base
     token = _credential(args)
+    act_as = _act_as(args, token)
     if not args.path:
         raise SystemExit("error: fill needs a trip id: fill <trip_id> --file plan.json")
 
     try:
         plan = _load_plan(args.file if args.file is not None else "-")
-        existing = _server_base(args.path, base, token)
+        existing = _server_base(args.path, base, token, act_as)
         errors, warnings = validate_plan(plan, existing)
     except PlanError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1516,7 +1550,7 @@ def fill_trip(args) -> int:
         return 0
 
     for call_no, (method, path, body) in enumerate(calls, start=1):
-        status, payload = _request(method, base, path, token, body)
+        status, payload = _request(method, base, path, token, body, act_as=act_as)
         mark = "✓" if 200 <= status < 300 else "✗"
         print(f"{mark} {method.upper():6s} {path} → {status}", file=sys.stderr)
         if not 200 <= status < 300:
@@ -1531,12 +1565,12 @@ def fill_trip(args) -> int:
             return 1
 
     # blocks need ids, so they come after a re-GET (days/sections now exist)
-    trip = _server_base(args.path, base, token)
+    trip = _server_base(args.path, base, token, act_as)
 
     # A day this run just created has an id now, so the day fields the POST
     # refused (notes/map/meta — DayCreate is extra=forbid) can land (#255).
     for date, day_id, body in day_create_extras(plan, existing, trip):
-        status, payload = _request("put", base, f"/api/trips/{args.path}/days/{day_id}", token, body)
+        status, payload = _request("put", base, f"/api/trips/{args.path}/days/{day_id}", token, body, act_as=act_as)
         mark = "✓" if 200 <= status < 300 else "✗"
         print(
             f"{mark} PUT    /api/trips/{args.path}/days/{day_id} "
@@ -1585,7 +1619,7 @@ def fill_trip(args) -> int:
             method, path = "put", f"/api/trips/{args.path}/blocks/{block_id}"
             send = _block_update_body(body)
             matched += 1
-        status, payload = _request(method, base, path, token, send)
+        status, payload = _request(method, base, path, token, send, act_as=act_as)
         mark = "✓" if 200 <= status < 300 else "✗"
         verb_note = " (existing)" if block_id else ""
         print(
@@ -1611,11 +1645,11 @@ def fill_trip(args) -> int:
     }
     if not getattr(args, "no_resolve", False):
         try:
-            resolution = resolve_trip_places(args.path, base, token)
+            resolution = resolve_trip_places(args.path, base, token, act_as)
         except Exception as exc:  # noqa: BLE001 — best effort, never fatal
             print(f"warning: venue resolution skipped ({exc})", file=sys.stderr)
 
-    final = _server_base(args.path, base, token)
+    final = _server_base(args.path, base, token, act_as)
     days = final.get("days") or []
     empty = [d.get("date") for d in days if not (d.get("blocks") or [])]
     summary = {
@@ -1686,6 +1720,8 @@ def main() -> int:
     ap.add_argument("--title", help="Trip title (create-trip only)")
     ap.add_argument("--subtitle", help="Trip subtitle (create-trip only)")
     ap.add_argument("--token", help="Credential: JWT or ksk_ admin key (default: $KISEKI_API_KEY, then $KISEKI_TOKEN)")
+    ap.add_argument("--act-as", dest="act_as",
+                    help="Request-scoped impersonation sub, sent as X-Act-As-Sub (default: $KISEKI_ACT_AS_SUB; REQUIRED with an admin API key)")
     ap.add_argument("--base", default=BASE_URL, help=f"API base (default: {BASE_URL})")
     ap.add_argument("--dry-run", action="store_true",
                     help="fill only: validate + print the calls, write nothing")
@@ -1714,6 +1750,7 @@ def main() -> int:
         return promote_file(args)
 
     token = _credential(args)
+    act_as = _act_as(args, token)
 
     method = args.method
     path = args.path
@@ -1747,7 +1784,7 @@ def main() -> int:
             return 1
 
     req = urllib.request.Request(url, method=method.upper(), data=body)
-    for header, value in _auth_headers(token).items():
+    for header, value in _auth_headers(token, act_as).items():
         req.add_header(header, value)
     if body is not None:
         req.add_header("Content-Type", "application/json")

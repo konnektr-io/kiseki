@@ -12,9 +12,9 @@ are not.
 | Level | Meaning |
 |---|---|
 | `anon` | No token needed. Public data only. |
-| `user` | Any valid Auth0 access token, or the admin API key (`X-API-Key`, #324). |
+| `user` | Any valid Auth0 access token, or the admin API key (`X-API-Key` **plus mandatory `X-Act-As-Sub`**, #324). |
 | `follower+` `viewer+` `editor+` `owner` | A crew role on that trip (see [data-model.md](data-model.md#access-control)). Public trips are readable at `follower+` even anonymously; writes always need a real token. |
-| `service` | A service credential: the sanctioned agent M2M token or the admin API key — act-as-anyone via `X-Act-As-Sub`, refused on identity-provisioning routes (claim/follow/ensure). |
+| `service` | A service credential: the sanctioned agent M2M token (static pin fallback) or the admin API key (mandatory per-request `X-Act-As-Sub`, no pin or owner fallback) — act-as via `X-Act-As-Sub`, refused on identity-provisioning routes (claim/follow/ensure). |
 
 A `403` means "authenticated but not allowed"; `401` means "no valid token". On a public trip an
 invalid token is ignored rather than rejected (public means public).

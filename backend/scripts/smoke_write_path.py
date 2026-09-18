@@ -16,6 +16,12 @@ Usage (after any write-path deploy):
     export KISEKI_TOKEN=<M2M or user token — must resolve to editor+ on the trip>
     python scripts/smoke_write_path.py --trip <trip_id>
 
+    export KISEKI_API_KEY=<admin key> KISEKI_ACT_AS_SUB=<acting user sub>
+    python scripts/smoke_write_path.py --trip <trip_id>
+
+Admin API-key calls MUST always impersonate a user; without
+``KISEKI_ACT_AS_SUB`` the smoke refuses to run.
+
 Zero dependencies (stdlib urllib), mirrors api_write.py.
 """
 
@@ -33,10 +39,21 @@ FAILURES: list[str] = []
 
 
 def _auth_headers() -> dict[str, str]:
-    """Credential headers (issue #324): admin API key first, bearer fallback."""
+    """Credential headers (issue #324): admin API key first, bearer fallback.
+
+    An admin API key MUST always impersonate a user: ``KISEKI_ACT_AS_SUB``
+    rides as ``X-Act-As-Sub`` and becomes the graph ``x-user-id``.
+    """
     key = os.environ.get("KISEKI_API_KEY")
     if key:
-        return {"X-API-Key": key}
+        act_as = (os.environ.get("KISEKI_ACT_AS_SUB") or "").strip()
+        if not act_as:
+            print(
+                "KISEKI_API_KEY requires KISEKI_ACT_AS_SUB "
+                "(API-key calls must always impersonate a user)"
+            )
+            raise SystemExit(2)
+        return {"X-API-Key": key, "X-Act-As-Sub": act_as}
     return {"Authorization": f"Bearer {os.environ.get('KISEKI_TOKEN', '')}"}
 
 

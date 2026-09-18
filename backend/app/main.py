@@ -264,13 +264,15 @@ def _redact_crew_for_outsider(crew: list, viewer_sub: str | None) -> list:
     return out
 
 
-def _viewer_sub(authorization: str | None = None, x_api_key: str | None = None) -> str | None:
+def _viewer_sub(authorization: str | None = None, x_api_key: str | None = None, x_act_as_sub: str | None = None) -> str | None:
     """Best-effort viewer sub for the initials exemption (#196 phase B).
 
-    Returns the credential's own sub, or None for anonymous/invalid
-    credentials (an invalid credential on a public trip reads as anonymous —
-    same rule as ``authorize_trip_path``). Never raises: identity here only
-    decides whose crew entry keeps its real name, never access.
+    Returns the credential's resolved user sub, or None for
+    anonymous/invalid credentials (an invalid credential on a public trip
+    reads as anonymous — same rule as ``authorize_trip_path``). An admin API
+    key resolves to its request-scoped ``X-Act-As-Sub`` identity, never to
+    its synthetic service sub. Never raises: identity here only decides
+    whose crew entry keeps its real name, never access.
     """
     if not has_credential(authorization, x_api_key):
         return None
@@ -281,6 +283,9 @@ def _viewer_sub(authorization: str | None = None, x_api_key: str | None = None) 
         # entry keeps its real name — a JWKS/network hiccup (not an
         # HTTPException) must degrade to anonymous, never 500 a public page.
         return None
+    if user.get("api_key"):
+        target = x_act_as_sub.strip() if x_act_as_sub and x_act_as_sub.strip() else None
+        return target
     sub = user.get("sub")
     return sub if isinstance(sub, str) and sub else None
 
@@ -479,18 +484,22 @@ def health() -> dict:
 
 
 @app.get("/api/auth/me")
-def auth_me(user: dict = Depends(get_current_user)) -> dict:
+def auth_me(
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
     """Who am I — identity from a validated Auth0 access token.
 
     `sub` is the RESOLVED actor sub (acl.resolve_actor_sub): for a service
     credential (sanctioned agent M2M client or admin API key, #324) with
-    act-as configured, the act-as user (the identity writes carry); for any
+    act-as configured, the act-as user (the identity writes carry); an admin
+    API key MUST name that user explicitly with `X-Act-As-Sub`. For any
     other token, the token's own sub. Profile
     claims (email/name/picture) are only included when the token carries them
     — by default they live in the ID token; the access token always has `sub`.
     """
     return {
-        "sub": resolve_actor_sub(user),
+        "sub": resolve_actor_sub(user, x_act_as_sub),
         **{
             k: user[k]
             for k in ("email", "name", "picture", "email_verified")
@@ -500,7 +509,10 @@ def auth_me(user: dict = Depends(get_current_user)) -> dict:
 
 
 @app.get("/api/trips")
-def my_trips(user: dict = Depends(get_current_user)) -> dict:
+def my_trips(
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
     """The caller's trips (issue #7 — logged-in landing).
 
     Requires a valid Auth0 token; returns the trips the RESOLVED actor has a
@@ -513,7 +525,7 @@ def my_trips(user: dict = Depends(get_current_user)) -> dict:
     canonicalize them to ``/media/<trip.$dtId>/<file>`` like full trip
     documents.
     """
-    trips = list_trips_for_user(resolve_actor_sub(user))
+    trips = list_trips_for_user(resolve_actor_sub(user, x_act_as_sub))
     for row in trips:
         if isinstance(row, dict) and row.get("dtId"):
             resolve_media_urls(row, row["dtId"])
@@ -548,7 +560,11 @@ def showcase(
 
 
 @app.get("/api/trips/geo")
-def trips_geo(response: Response, user: dict = Depends(get_current_user)) -> dict:
+def trips_geo(
+    response: Response,
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
     """Anchor points for the signed-in home's map canvas (#249 E2).
 
     Authenticated, same actor resolution as ``GET /api/trips``. Returns one
@@ -566,7 +582,7 @@ def trips_geo(response: Response, user: dict = Depends(get_current_user)) -> dic
     captured by it.
     """
     response.headers["Cache-Control"] = "private, max-age=60"
-    return {"trips": list_geo_trips(resolve_actor_sub(user))}
+    return {"trips": list_geo_trips(resolve_actor_sub(user, x_act_as_sub))}
 
 
 @app.get("/api/feed")
@@ -1374,6 +1390,7 @@ def get_trip(
     my_role: str | None = Depends(authorize_trip_path),
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_act_as_sub: str | None = Header(default=None),
 ) -> dict:
     """Read a trip — single id route, gated by visibility (#64).
 
@@ -1388,7 +1405,7 @@ def get_trip(
     trip = get_trip_by_id_store(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization, x_api_key))
+    return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization, x_api_key, x_act_as_sub))
 
 
 # ------------------------------------------------------------------ write path (#46)

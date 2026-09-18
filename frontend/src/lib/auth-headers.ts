@@ -5,17 +5,23 @@
  * bearer token, and when it does the request carries ONLY the key: the
  * backend validates a present `Authorization` header first (bearer-first is
  * deliberate — it is the end-user path), so sending a placeholder bearer
- * alongside a key would 401 instead of authenticating.
+ * alongside a key would 401 instead of authenticating. An API key MUST
+ * always impersonate a user, so an injected act-as sub
+ * (`window.__KISEKI_ACT_AS_SUB__`) rides as `X-Act-As-Sub` with it; that is
+ * the identity the backend forwards to the graph as `x-user-id`.
  *
- * The seam exists for browser probes: Playwright sets the global with
+ * The seam exists for browser probes: Playwright sets the globals with
  * `add_init_script` (see `backend/scripts/probe_trip_page.py`), which drives a
  * fully authorized, signed-in session without minting an Auth0 M2M token —
  * Auth0 meters every client_credentials grant against a monthly quota. The
- * app itself never sets this global.
+ * app itself never sets these globals.
  */
 export function authHeaders(accessToken?: string): Record<string, string> {
   const key = typeof window === "undefined" ? undefined : window.__KISEKI_API_KEY__;
-  if (key) return { "X-API-Key": key };
+  if (key) {
+    const actAs = typeof window === "undefined" ? undefined : window.__KISEKI_ACT_AS_SUB__;
+    return actAs ? { "X-API-Key": key, "X-Act-As-Sub": actAs } : { "X-API-Key": key };
+  }
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 

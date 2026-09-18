@@ -174,13 +174,16 @@ writes against the real graph and restores every mutation.
 
 **Identity model (#46)**: the agent has no identity of its own in the graph.
 Four modes, in order of preference:
-0. **Admin API key (PREFERRED, #324)**: `X-API-Key: ksk_…` with
-   `X-Act-As-Sub` — the backend validates the key locally (sha256 against
+0. **Admin API key (PREFERRED, #324)**: `X-API-Key` **plus a mandatory
+   `X-Act-As-Sub`** — the backend validates the key locally (sha256 against
    `KISEKI_API_KEYS`), so Auth0 is never called: no metered
    `client_credentials` grant, and a spent M2M quota cannot block the agent.
-   Resolves exactly like mode 2 below (act-as → pin → owner fallback), and
-   every client (CLI scripts, browser probes) prefers it; the SPA's
-   `authHeaders()` picks it up from `window.__KISEKI_API_KEY__`, which is how
+   The key NEVER uses the static pin or the owner fallback: every API-key
+   call MUST name its acting user explicitly, and that sub is the identity
+   forwarded to the graph as `x-user-id`. Every client (CLI scripts, browser
+   probes) sends both headers; the SPA's
+   `authHeaders()` picks them up from `window.__KISEKI_API_KEY__` and
+   `window.__KISEKI_ACT_AS_SUB__`, which is how
    browser probes run authorized sessions with zero grants. Refused on
    identity-provisioning routes like every service credential.
 1. **User's own token** (UI chat / end-user profile): present the acting
@@ -203,8 +206,9 @@ Four modes, in order of preference:
    (owner-level service principal). Target: per-request identity everywhere — the
    caller presents the end user's token, or the service credential + a
    request-scoped act-as sub.
-3. **Unattended fallback**: a service credential (M2M token or admin API key)
-   with no act-as → owner-level service principal, last resort only.
+3. **Unattended fallback**: the sanctioned M2M token with no act-as →
+   owner-level service principal, last resort only. Admin API keys have NO
+   unattended mode: without `X-Act-As-Sub` they are 401.
 Nothing is ever provisioned for the agent (no User twin, no hasCrew edge).
 Audience for all tokens: `https://kiseki.konnektr.io`.
 Every credential reaches the ACL through ONE resolver (`auth.authenticate_user`
@@ -225,10 +229,11 @@ and forwarded to the content agent as an identity envelope — the agent's
 own write-API calls act-as that sub, enforced downstream by the API ACL.
 
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
-/api/trips` (my trips) and `GET /api/auth/me`
+/api/trips` (my trips), `GET /api/trips/geo`, and `GET /api/auth/me`
 follow the RESOLVED identity —
 with act-as configured, the agent lists and identifies as the mapped user,
-never as `<client>@clients` (which holds no crew edges). `POST /api/claims`,
+never as `<client>@clients` (which holds no crew edges). An admin API key
+MUST send its mapped user explicitly as `X-Act-As-Sub`. `POST /api/claims`,
 `/api/claims/follow`, `POST /api/me/ensure`, `PUT /api/me`, `DELETE /api/me`,
 `GET /api/me/export` and `POST/DELETE /api/users/{sub}/follow`
 PROVISION graph identity (User twin / hasCrew edge / follows edge)

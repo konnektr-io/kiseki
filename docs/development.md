@@ -32,13 +32,17 @@ When `KISEKI_GRAPH_URL` is unset the backend serves three **anonymised** sample 
 (`backend/data/mocks/*.graph.anon.json`) — enough to exercise every surface, with no real trip data
 and no secrets. This is also exactly what the test suite runs against.
 
-To point a checkout at a real graph:
+To point a checkout at a real graph from inside the cluster:
 
 ```bash
-export KISEKI_GRAPH_URL="http://localhost:8080"     # e.g. a port-forwarded graph-cluster-api
+export KISEKI_GRAPH_URL="http://graph-cluster-api.kiseki.svc.cluster.local:8080"
 export KISEKI_GRAPH_TOKEN="…"
 uv run uvicorn app.main:app --reload --port 8000
 ```
+
+Do NOT port-forward to the graph backend from inside the cluster — use the
+internal Kubernetes service address above. Port-forwarding is only for
+localhost-bound tooling outside the cluster.
 
 `trip.json` and `*.graph.json` files are **authoring scratch** — git-ignored, never read at runtime.
 
@@ -115,16 +119,19 @@ AGENTS.md                        engineering conventions (and coding-agent conte
 
 ### Agent credentials: admin API key first, M2M token only as fallback (#324)
 
-`KISEKI_API_KEY` (the `ksk_…` admin key, headers `X-API-Key` + `X-Act-As-Sub`)
-is the **quota-free** agent credential: the backend validates it locally, so no
-Auth0 call happens at all and a spent M2M quota cannot block an agent round.
-`api_write.py`, `kiseki_api.sh`, `smoke_write_path.py` and
-`probe_trip_page.py` all prefer it and only fall back to a minted token.
+`KISEKI_API_KEY` (the `ksk_…` admin key, headers `X-API-Key` + mandatory
+`X-Act-As-Sub`) is the **quota-free** agent credential: the backend validates
+it locally, so no Auth0 call happens at all and a spent M2M quota cannot block
+an agent round. `api_write.py` (`--act-as` / `KISEKI_ACT_AS_SUB`),
+`kiseki_api.sh`, `smoke_write_path.py` and `probe_trip_page.py` all send the
+acting user explicitly with it and only fall back to a minted token for the
+bearer path.
 
-Browser probes pass it through `window.__KISEKI_API_KEY__` (Playwright
-`add_init_script`), and the SPA's single `authHeaders()` helper turns that into
-the `X-API-Key` header on every `/api/*` call — so a probe drives an
-authorized, signed-in session with zero grants.
+Browser probes pass the key and its acting user through
+`window.__KISEKI_API_KEY__` and `window.__KISEKI_ACT_AS_SUB__` (Playwright
+`add_init_script`), and the SPA's single `authHeaders()` helper turns those
+into the `X-API-Key` + `X-Act-As-Sub` headers on every `/api/*` call — so a
+probe drives an authorized, signed-in session with zero grants.
 
 ### M2M tokens are quota-metered — mint once, reuse
 

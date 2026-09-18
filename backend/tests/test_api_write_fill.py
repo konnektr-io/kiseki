@@ -17,6 +17,8 @@ import sys
 import urllib.parse
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "api_write.py"
 
 
@@ -31,6 +33,27 @@ def _module():
 aw = _module()
 
 TRIP_ID = "11111111-1111-4111-8111-111111111111"
+
+
+def test_admin_key_requires_an_explicit_act_as_sub(monkeypatch):
+    """The client refuses to send an unattributable API-key call."""
+    monkeypatch.delenv("KISEKI_ACT_AS_SUB", raising=False)
+    args = argparse.Namespace(token="ksk_test", act_as=None)
+    with pytest.raises(SystemExit, match="requires --act-as"):
+        aw._act_as(args, "ksk_test")
+
+
+def test_admin_key_sends_act_as_on_every_call(monkeypatch):
+    """--act-as/env identity rides as X-Act-As-Sub with the API key."""
+    args = argparse.Namespace(token="ksk_test", act_as="google-oauth2|agent-user")
+    assert aw._act_as(args, "ksk_test") == "google-oauth2|agent-user"
+    assert aw._auth_headers("ksk_test", "google-oauth2|agent-user") == {
+        "X-API-Key": "ksk_test",
+        "X-Act-As-Sub": "google-oauth2|agent-user",
+    }
+    monkeypatch.setenv("KISEKI_ACT_AS_SUB", "google-oauth2|env-user")
+    env_args = argparse.Namespace(token="ksk_test", act_as=None)
+    assert aw._act_as(env_args, "ksk_test") == "google-oauth2|env-user"
 
 EXISTING = {
     "id": TRIP_ID,
@@ -519,7 +542,7 @@ def test_photo_upload_with_a_local_file_prints_a_bare_name(monkeypatch, tmp_path
     img.write_bytes(b"\xff\xd8\xff\xe0jpegbytes")
     seen = {}
 
-    def fake_request(method, base, path, token, body=None, raw=None):
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
         assert path == "/api/files", path
         seen["raw"] = raw
         return 200, {"url": f"/media/{TRIP_ID}/abc123def456.jpg"}
@@ -559,7 +582,7 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
     }
     state = {"patched": [], "blocks": [], "queries": []}
 
-    def fake_request(method, base, path, token, body=None, raw=None):
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
         if method == "get" and path.startswith("/api/places/search"):
             params = urllib.parse.parse_qs(path.split("?", 1)[1])
             state["queries"].append(params)
@@ -579,7 +602,7 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
         raise AssertionError(f"unexpected {method} {path}")
 
     monkeypatch.setattr(aw, "_request", fake_request)
-    monkeypatch.setattr(aw, "_server_base", lambda trip_id, base, token: trip)
+    monkeypatch.setattr(aw, "_server_base", lambda trip_id, base, token, act_as=None: trip)
 
     report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
 
@@ -803,7 +826,7 @@ def test_fill_lands_the_day_notes_after_the_create(monkeypatch, capsys, tmp_path
     calls: list[tuple[str, str, dict]] = []
     live: dict = {"id": TRIP_ID, "days": [], "sections": [], "locations": []}
 
-    def fake_request(method, base, path, token, body=None, raw=None):
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
         calls.append((method, path, body or {}))
         if method == "post" and path.endswith("/days"):
             live["days"].append({"id": "day-new", "blocks": [], **(body or {})})
@@ -885,7 +908,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
     }
     seen: list[dict] = []
 
-    def fake_request(method, base, path, token, body=None, raw=None):
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
         if method == "get" and path.startswith("/api/places/search"):
             params = urllib.parse.parse_qs(path.split("?", 1)[1])
             seen.append(params)

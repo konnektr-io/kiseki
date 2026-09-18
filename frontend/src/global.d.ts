@@ -16,6 +16,10 @@
  * set it with `add_init_script` (see backend/scripts/probe_trip_page.py) so a
  * Playwright session makes authorized API calls through `X-API-Key` without
  * minting an Auth0 M2M token. Set only by a probe — never by the app.
+ *
+ * `__KISEKI_ACT_AS_SUB__` is the key's mandatory impersonation identity: the
+ * probe sets it beside the key, and `authHeaders()` sends it as
+ * `X-Act-As-Sub` so API-key calls always act as a user.
  */
 export {};
 
@@ -24,5 +28,6 @@ declare global {
     __KISEKI_PDF_RENDER__?: boolean;
     __KISEKI_ACCESS_TOKEN__?: string;
     __KISEKI_API_KEY__?: string;
+    __KISEKI_ACT_AS_SUB__?: string;
   }
 }

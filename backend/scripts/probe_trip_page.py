@@ -18,9 +18,11 @@ rendered nothing recognisable.
 Auth (issue #324): prefer the ADMIN API KEY. It costs nothing — an Auth0 M2M
 token costs a metered `client_credentials` grant (~1 000/month tenant-wide),
 so a probe loop can exhaust the agent's whole quota. The probe injects
-``window.__KISEKI_API_KEY__`` and the SPA's ``authHeaders()`` sends
-``X-API-Key`` on every /api/* fetch; the probe's own listing calls use the
-same header. ``PROBE_TOKEN`` remains for the end-user path (the key cannot
+``window.__KISEKI_API_KEY__`` and ``window.__KISEKI_ACT_AS_SUB__``; the SPA's
+``authHeaders()`` sends ``X-API-Key`` plus ``X-Act-As-Sub`` on every /api/*
+fetch, and the probe's own listing calls use the same headers. An API key
+MUST always impersonate a user — without an act-as sub the probe refuses to
+run. ``PROBE_TOKEN`` remains for the end-user path (the key cannot
 mint or stand in for a real user's own token).
 
 The SPA's e2e mode (``?kiseki_e2e=1``) stubs Auth0 as signed-in and feeds
@@ -31,6 +33,8 @@ reads; it never writes to the deployment.
 Environment:
   PROBE_API_KEY (preferred) admin API key for the API (falls back to
                             KISEKI_API_KEY from the profile .env)
+  PROBE_ACT_AS_SUB          acting user sub for an API key (falls back to
+                            KISEKI_ACT_AS_SUB)
   PROBE_TOKEN   (fallback)  bearer JWT for the API
   PROBE_BASE    frontend origin, default https://kiseki.konnektr.io
   PROBE_API     API origin, defaults to PROBE_BASE
@@ -59,19 +63,27 @@ CHROME_GLOB = "/opt/hermes/.playwright/*/chrome-headless-shell-linux64/chrome-he
 SETTLE_MS = 6000
 
 
-def credential() -> tuple[str, str]:
-    """``(kind, value)`` — the API key when one is configured, else the token.
+def credential() -> tuple[str, str, str | None]:
+    """``(kind, value, act_as_sub)`` — the API key when one is configured, else the token.
 
     Key first on purpose: it is the quota-free agent credential, and an
     ambient ``KISEKI_API_KEY`` in the profile env must not be shadowed by a
-    stale ``PROBE_TOKEN``.
+    stale ``PROBE_TOKEN``. An API key MUST always impersonate a user, so the
+    act-as sub is required with it.
     """
     key = os.environ.get("PROBE_API_KEY") or os.environ.get("KISEKI_API_KEY")
     if key:
-        return "key", key
+        act_as = (os.environ.get("PROBE_ACT_AS_SUB") or os.environ.get("KISEKI_ACT_AS_SUB") or "").strip()
+        if not act_as:
+            print(
+                "PROBE_ACT_AS_SUB (or KISEKI_ACT_AS_SUB) is required with PROBE_API_KEY/KISEKI_API_KEY",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        return "key", key, act_as
     token = os.environ.get("PROBE_TOKEN")
     if token:
-        return "token", token
+        return "token", token, None
     print(
         "PROBE_API_KEY (or KISEKI_API_KEY) or PROBE_TOKEN is required",
         file=sys.stderr,
@@ -79,19 +91,24 @@ def credential() -> tuple[str, str]:
     raise SystemExit(2)
 
 
-def auth_header(kind: str, value: str) -> dict[str, str]:
-    return {"X-API-Key": value} if kind == "key" else {"Authorization": f"Bearer {value}"}
+def auth_header(kind: str, value: str, act_as: str | None = None) -> dict[str, str]:
+    if kind == "key":
+        headers = {"X-API-Key": value}
+        if act_as:
+            headers["X-Act-As-Sub"] = act_as
+        return headers
+    return {"Authorization": f"Bearer {value}"}
 
 
-def api_get(path: str, kind: str, value: str) -> dict:
-    req = urllib.request.Request(f"{API}{path}", headers=auth_header(kind, value))
+def api_get(path: str, kind: str, value: str, act_as: str | None = None) -> dict:
+    req = urllib.request.Request(f"{API}{path}", headers=auth_header(kind, value, act_as))
     with urllib.request.urlopen(req, timeout=45) as response:
         return json.load(response)
 
 
-def collect_trips(ids: list[str], kind: str, value: str) -> list[dict]:
+def collect_trips(ids: list[str], kind: str, value: str, act_as: str | None = None) -> list[dict]:
     """Every trip, or just `ids`. The list endpoint keys a trip as `dtId`."""
-    data = api_get("/api/trips?limit=50", kind, value)
+    data = api_get("/api/trips?limit=50", kind, value, act_as)
     trips = data["trips"] if isinstance(data, dict) else data
     for trip in trips:
         trip["_id"] = trip.get("dtId") or trip.get("id") or trip.get("slug")
@@ -103,9 +120,9 @@ def collect_trips(ids: list[str], kind: str, value: str) -> list[dict]:
 
 
 def main() -> int:
-    kind, value = credential()
+    kind, value, act_as = credential()
     try:
-        ident = api_get("/api/auth/me", kind, value)
+        ident = api_get("/api/auth/me", kind, value, act_as)
     except urllib.error.HTTPError as exc:  # noqa: PERF203 - one preflight call
         print(
             f"credential rejected: HTTP {exc.code} on /api/auth/me "
@@ -114,7 +131,7 @@ def main() -> int:
         )
         return 2
     print(f"credential ok ({kind}): sub={ident.get('sub')}", file=sys.stderr)
-    trips = collect_trips(sys.argv[1:], kind, value)
+    trips = collect_trips(sys.argv[1:], kind, value, act_as)
     if not trips:
         print("no trips matched", file=sys.stderr)
         return 1
@@ -141,6 +158,7 @@ def main() -> int:
                 if kind == "key":
                     page.add_init_script(
                         f"window.__KISEKI_API_KEY__ = {json.dumps(value)};"
+                        f"window.__KISEKI_ACT_AS_SUB__ = {json.dumps(act_as)};"
                     )
                 else:
                     page.add_init_script(
