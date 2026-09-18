@@ -50,9 +50,21 @@ function readThreads(): Record<string, string> {
   }
 }
 
-/** The persisted Hermes thread for this context (null = none yet). */
-export function loadThreadId(context: string): string | null {
-  const id = readThreads()[context];
+/** Storage slot for this (user, context) pair.
+
+Thread ids must never cross users: localStorage is per BROWSER, but logins
+are per user — without a user leg in the key, a second login on the same
+machine reopens the first user's thread (hit 2026-09-18: a fresh test user
+inherited Niko's whole chat). No sub (signed-out, SSR) falls back to the
+bare context key.
+*/
+function threadSlot(context: string, userSub?: string | null): string {
+  return userSub ? `${userSub}::${context}` : context;
+}
+
+/** The persisted Hermes thread for this (user, context) pair (null = none yet). */
+export function loadThreadId(context: string, userSub?: string | null): string | null {
+  const id = readThreads()[threadSlot(context, userSub)];
   return typeof id === "string" && id ? id : null;
 }
 
@@ -64,14 +76,14 @@ function randomThreadId(): string {
   }
 }
 
-/** Rotate a fresh thread for this context (old thread stays resumable by id). */
-export function newThreadId(context: string): string {
+/** Rotate a fresh thread for this (user, context) pair (old thread stays resumable by id). */
+export function newThreadId(context: string, userSub?: string | null): string {
   const id = randomThreadId();
   try {
     if (typeof window !== "undefined" && window.localStorage) {
       window.localStorage.setItem(
         THREADS_KEY,
-        JSON.stringify({ ...readThreads(), [context]: id }),
+        JSON.stringify({ ...readThreads(), [threadSlot(context, userSub)]: id }),
       );
     }
   } catch {

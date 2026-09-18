@@ -346,10 +346,15 @@ def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypa
 
 
 def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> None:
-    """threadId (not the sub) names the conversation: multiple threads per
-    trip, and an unanchored thread (planning a not-yet-created trip) keeps
-    its identity when a trip is anchored later. Per-USER scoping comes from
-    the session key / Honcho peer, not the conversation name (Niko)."""
+    """threadId names the conversation within ONE actor — never across actors.
+
+    The Runs API gives the body's session_id precedence over the
+    X-Hermes-Session-Key header and never rebinds a declared session, so a
+    bare thread:<id> would chain any caller onto whoever created it first
+    (hit 2026-09-18: a fresh user inherited Niko's whole session through a
+    shared localStorage thread id). The session name is therefore
+    actor-scoped: same thread id under two subs is two sessions.
+    """
     from app.chat import conversation_id_for
 
     thread_a, thread_b = "t-a-0001", "t-b-0002"
@@ -362,14 +367,68 @@ def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> 
     unanchored = conversation_id_for(USER_SUB, None, thread_a)
     # … keeps the SAME conversation id once a trip is attached (history chains)
     assert unanchored == conversation_id_for(USER_SUB, TRIP, thread_a)
-    # no sub in the name — thread-scoped only
-    assert unanchored == f"thread:{thread_a}"
-    # but DIFFERENT users with the same threadId do NOT share the legacy
+    # the actor IS in the name — same thread id, different users, no sharing
+    assert unanchored == f"{USER_SUB}::thread:{thread_a}"
+    assert (
+        conversation_id_for(USER_SUB, TRIP, thread_a)
+        != conversation_id_for(OTHER_SUB, TRIP, thread_a)
+    )
+    assert conversation_id_for(OTHER_SUB, TRIP, thread_a) == (
+        f"{OTHER_SUB}::thread:{thread_a}"
+    )
+    # but DIFFERENT users with no threadId do NOT share the legacy
     # fallback (that path stays sub-scoped)
     assert (
         conversation_id_for(USER_SUB, TRIP)
         != conversation_id_for(OTHER_SUB, TRIP)
     )
+
+
+def test_chat_instructions_pin_the_acting_user_for_every_call(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The envelope must tell the agent to ACT AS the thread's user.
+
+    The wrapper's credential can act as anyone, so a call with no explicit
+    act-as inherits the profile's static pin — which is how a brand-new user
+    ended up being shown Niko's trips (2026-09-18).
+    """
+    _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    state_bodies: list[dict] = []
+
+    async def _start(body, *, session_key=None, idempotency_key=None):
+        state_bodies.append(body)
+        return {"run_id": RIDEALONG_RUN, "status": "running", "replayed": False}
+
+    monkeypatch.setattr(chat_module, "start_chat_run", _start)
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "what do you know about me"}]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    text = state_bodies[0]["instructions"]
+    assert USER_SUB in text
+    assert "--act-as" in text
+    assert "KISEKI_ACT_AS_SUB" in text
+    assert "never work as any other user" in text.lower()
+    assert "only ones you may touch or mention" in text.lower()
+    state_bodies.clear()
+    resp = client.post(
+        "/api/chat",
+        json={"messages": [{"role": "user", "content": "hi"}]},
+        headers={
+            "Authorization": f"Bearer {_user_token(rsa_keypair, sub=OTHER_SUB)}"
+        },
+    )
+    assert resp.status_code == 200
+    other = state_bodies[0]["instructions"]
+    assert OTHER_SUB in other
+    assert USER_SUB not in other
 
 
 def test_chat_unanchored_thread_forwards_planning_context(
@@ -392,7 +451,7 @@ def test_chat_unanchored_thread_forwards_planning_context(
     )
     assert resp.status_code == 200
     body = state["bodies"][0]
-    assert body["session_id"] == "thread:plan-chile-001"
+    assert body["session_id"] == f"{USER_SUB}::thread:plan-chile-001"
     assert "No trip is anchored" in body["instructions"]
     # no trip ACL consulted: the route never calls require_actor_trip_access
     # when no tripId is present (get_trip_role_for_user stays un-mocked here,
@@ -436,6 +495,41 @@ def test_chat_m2m_without_act_as_is_401(client, rsa_keypair, monkeypatch) -> Non
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 401
+
+
+def test_chat_same_thread_id_isolation_between_users(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """Same threadId, two users → two upstream sessions (2026-09-18).
+
+    The SPA persists thread ids per browser (localStorage, no user
+    scoping), so two logins on one machine present the SAME threadId. The
+    relay must submit actor-scoped session ids or the second user chains
+    onto the first user's Hermes session — history, memory peer and actor.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    shared_thread = "bcd02c91-3099-471f-8711-e16a03d75a20"
+    for sub in (USER_SUB, OTHER_SUB):
+        resp = client.post(
+            "/api/chat",
+            json={
+                "threadId": shared_thread,
+                "messages": [{"role": "user", "content": "what do you know about me"}],
+            },
+            headers={"Authorization": f"Bearer {_user_token(rsa_keypair, sub=sub)}"},
+        )
+        assert resp.status_code == 200
+    assert state["admissions"] == 2
+    sessions = [body["session_id"] for body in state["bodies"]]
+    assert sessions[0] != sessions[1]
+    assert sessions[0] == f"{USER_SUB}::thread:{shared_thread}"
+    assert sessions[1] == f"{OTHER_SUB}::thread:{shared_thread}"
+    assert state["session_keys"] == [USER_SUB, OTHER_SUB]
 
 
 def test_chat_no_user_message_is_400(client, rsa_keypair, monkeypatch) -> None:

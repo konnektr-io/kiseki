@@ -667,6 +667,14 @@ def identity_instructions(
     HTTP codes, JSON, field names — issue #179). The write path stays correct,
     the plumbing stays invisible.
 
+    The acting sub is ALSO the impersonation instruction: the content agent's
+    wrapper mints a service credential that can act as anyone, so a call
+    without an explicit act-as silently inherits whatever the profile is
+    configured for. Hit 2026-09-18 — a brand-new user asked "what do you know
+    about me" and the agent listed Niko's seven trips, because every call
+    acted as the profile's static pin. Hence: act-as this sub, explicitly,
+    every call, and never another user's content.
+
     Deliberately NOT a gag on progress narrative: #181 also told the agent that
     step commentary was redundant, and live use showed the opposite need — a
     turn that streams only tool calls leaves the traveler with no idea what
@@ -675,20 +683,26 @@ def identity_instructions(
     """
     if trip_id:
         scope = (
-            f"The trip anchored to this thread is {trip_id}. You may read "
-            "content the acting user can read and edit content they can "
-            "edit, and your write-API calls act-as this user."
+            "You may read content the acting user can read and edit content "
+            "they can edit, and your write-API calls act-as this user."
         )
     else:
         scope = (
             "No trip is anchored to this thread yet. The user may ask about "
-            "an existing trip (list the user's trips, then read the one they "
+            "an existing trip (list THIS user's trips, then read the one they "
             "mean) or ask you to help PLAN a NEW trip — research freely, but "
             "never write trip content until the user anchors one."
         )
     return (
         "You are the Kiseki trip-content agent. The person you are helping "
         f"has identity sub={actor_sub}. {scope} "
+        "Every trip read and write must act AS THAT sub — pass "
+        "`--act-as <that sub>` on every wrapper/script call, or set "
+        "`KISEKI_ACT_AS_SUB=<that sub>` for the call. Never work as any other "
+        "user: this thread belongs to this one person only, and their trips, "
+        "their list and their content are the only ones you may touch or "
+        "mention. Never read or summarize another user's trips, even if "
+        "something in your context mentions them. "
         "Never mention tokens, M2M, minting, act-as, credentials, or how "
         "you authenticate — to the user you simply act on their behalf. If "
         "asked about access, say you act as them through Kiseki and offer "
@@ -711,21 +725,26 @@ def conversation_id_for(
 ) -> str:
     """Hermes-side conversation name for chaining one thread's turns.
 
-    Identity is NOT encoded in the name (Niko, 2026-09-09): per-user scoping
-    comes from ``X-Hermes-Session-Key`` (→ Honcho derives an independent
-    ``user-default-<sub>`` peer per user) and from the request ACL, so the
-    conversation name only needs to distinguish THREADS.
+    The name is ALWAYS actor-scoped. The Runs API gives the body's
+    ``session_id`` precedence over the ``X-Hermes-Session-Key``-derived
+    session and never rebinds a declared session to the header — so a bare
+    ``thread:<id>`` would chain ANY caller who presents that id onto whoever
+    created the session first. Hit 2026-09-18: the SPA persists thread ids
+    per browser (localStorage, no user scoping), so a fresh user on the same
+    machine inherited Niko's whole Hermes session — history, memory peer and
+    actor — through a shared thread id. Scoping the session name by actor
+    closes it: the same thread id under two subs is two sessions.
 
     - ``threadId`` present (the SPA always sends one — fresh UUID per chat,
-      reused on resume): ``thread:<threadId>``. Multiple threads per trip; a
-      thread may start unanchored (planning a not-yet-created trip) and
-      attach a trip later without losing history.
+      reused on resume): ``<actor>::thread:<threadId>``. Multiple threads
+      per trip; a thread may start unanchored (planning a not-yet-created
+      trip) and attach a trip later without losing history.
     - No threadId (legacy callers): fall back to a sub-scoped trip anchor or
       a single general conversation — sub-scoped so two legacy clients can
       never chain onto each other's stored response.
     """
     if thread_id and thread_id.strip():
-        return f"thread:{thread_id.strip()}"
+        return f"{actor_sub}::thread:{thread_id.strip()}"
     if trip_id:
         return f"{actor_sub}::trip:{trip_id.lower()}"
     return f"{actor_sub}::general"
