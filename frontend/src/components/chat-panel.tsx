@@ -26,6 +26,7 @@ import {
   uploadChatFile,
   uploadChatPoster,
   useTripChat,
+  type ChatFocus,
   type TurnRecovery,
   type UploadedChatFile,
 } from "../lib/chat";
@@ -124,6 +125,10 @@ interface ChatPanelProps {
    *  drawer is open re-scopes the draft instead of going stale. */
   initialDraft?: string | null;
   prefillKey?: number;
+  /** #330: the day/section/block this drawer is about, sent with every turn
+   *  so the agent knows what it is working on whatever the draft ends up
+   *  saying. Null/absent = the whole-trip chat. */
+  focus?: ChatFocus | null;
 }
 
 export function ChatPanel({
@@ -134,6 +139,7 @@ export function ChatPanel({
   className,
   initialDraft,
   prefillKey,
+  focus,
 }: ChatPanelProps) {
   const {
     isAuthenticated,
@@ -205,6 +211,7 @@ export function ChatPanel({
       className={className}
       initialDraft={initialDraft}
       prefillKey={prefillKey}
+      focus={focus}
     />
   );
 }
@@ -286,6 +293,7 @@ function ChatThread({
   className,
   initialDraft,
   prefillKey,
+  focus,
 }: {
   tripId?: string;
   threadId: string;
@@ -296,11 +304,13 @@ function ChatThread({
   className?: string;
   initialDraft?: string | null;
   prefillKey?: number;
+  focus?: ChatFocus | null;
 }) {
   const { getAccessTokenSilently, loginWithRedirect } = useAuth0();
   const chat = useTripChat({
     tripId,
     threadId,
+    focus,
     getToken: getAccessTokenSilently,
     onFinish: (text) => {
       const ids = findTripIds(text);
@@ -1163,6 +1173,7 @@ export function ChatPopup({
   banner,
   initialDraft,
   prefillKey,
+  focus,
 }: {
   tripId?: string;
   onClose: () => void;
@@ -1172,6 +1183,10 @@ export function ChatPopup({
   banner?: ReactNode;
   initialDraft?: string | null;
   prefillKey?: number;
+  /** #330: which day/section/block the drawer was opened from (null = whole
+   *  trip). Sent with every turn so the agent is told what it is working on,
+   *  not left to guess it from the draft. */
+  focus?: ChatFocus | null;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1202,6 +1217,7 @@ export function ChatPopup({
           className="h-[60dvh] border-0 md:h-full"
           initialDraft={initialDraft}
           prefillKey={prefillKey}
+          focus={focus}
         />
       </div>
     </div>

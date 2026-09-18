@@ -63,6 +63,26 @@ trip mid-conversation would otherwise address a turn that does not exist. The
 relay's thread-scoped lookup also checks the unanchored scope for the same
 reason — that is the ordinary "the agent created the trip in this turn" path.
 
+**Turn identity vs. context anchors (#330).** `tripId` and `focus` are CONTEXT:
+they tell the AGENT what the conversation is about and are deliberately NOT part
+of the turn key — a reconnect (`getTurnStatus` sends `threadId` + `turnKey` +
+`tripId`, never a focus) must keep resolving the same turn. What context does:
+
+- `tripId` → gated (the caller holds follower+ on it) and, since #330, **named
+  to the agent**: `identity_instructions` states the trip's title, id, stage,
+  dates and day count and tells the agent never to ask which trip it means. It
+  used to collapse to a boolean scope sentence — the relay knew the trip and
+  never said so, so a first message in a trip drawer (empty history, nothing to
+  infer from) ended in "which trip do you mean?" after 20 tool calls of
+  guessing.
+- `focus` → `{entity: day|section|block, id}`, the entity whose "Ask the agent
+  about this" (#296) opened the drawer. The relay resolves it against the trip
+  document it already fetched for the ACL gate and names it ("day 4 of 17 —
+  …"), so the context survives the user rewriting the composer draft. It is an
+  ID, never prose: the human label comes from the graph, so no browser can
+  write the agent's instructions. A stale id degrades to a neutral line rather
+  than failing the turn.
+
 **The Reconnect banner is the last resort, not the mechanism.** It used to be
 gated on the relay's `interrupted` marker, which only arrives on a stream someone
 is still reading — a hard disconnect delivers nothing, so the one affordance
@@ -103,6 +123,14 @@ later is additive). Chat is always *about* the trip you're on; the map/day
 pages give the agent all the content it needs via the write API's read
 paths. **Flag in the plan doc; do not build day-anchoring in v1 unless Niko
 says otherwise.**
+
+> **RESOLVED (#296 phase 2 → #330).** The day/block case arrived as the "ask
+> the agent about this" bridge on the day, itinerary-section and block
+> surfaces, and the answer is a request anchor rather than composer text: the
+> SPA sends `focus: {entity, id}` with the turn, and the relay names the entity
+> in the agent's instructions (see *Turn identity vs. context anchors*). The
+> trip anchor was fixed in the same pass — it had never been named to the agent
+> at all, which is what made a first message in a trip drawer ask "which trip?".
 
 ## Scope
 

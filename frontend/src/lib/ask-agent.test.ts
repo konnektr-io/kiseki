@@ -10,6 +10,7 @@ import {
   ASK_AGENT_EVENT,
   blockAskContext,
   dayAskContext,
+  focusOf,
   requestAskAgent,
   sectionAskContext,
   type AskAgentContext,
@@ -95,6 +96,33 @@ describe("blockAskContext", () => {
     const b = t.days[0].blocks[0];
     expect(blockAskContext(t, b, "s1").draft).toContain("in the section “First tracks”");
     expect(blockAskContext(t, b, "nope").draft).toContain("unknown container");
+  });
+});
+
+describe("focusOf (#330)", () => {
+  it("reduces a context to the entity + id the relay resolves", () => {
+    const ctx = dayAskContext(trip(), 0)!;
+    expect(focusOf(ctx)).toEqual({ entity: "day", id: "d1" });
+    expect(focusOf(blockAskContext(trip(), trip().days[0].blocks[0], "d1"))).toEqual({
+      entity: "block",
+      id: "b1",
+    });
+    expect(focusOf(sectionAskContext(trip().sections![0]))).toEqual({
+      entity: "section",
+      id: "s1",
+    });
+  });
+
+  it("sends the label and draft NEVER — they are not authority", () => {
+    const ctx = dayAskContext(trip(), 0)!;
+    // the server derives the human label from the graph, so a browser cannot
+    // write the agent's instructions through this request
+    expect(Object.keys(focusOf(ctx)!)).toEqual(["entity", "id"]);
+  });
+
+  it("is null without a context (the plain whole-trip chat)", () => {
+    expect(focusOf(null)).toBeNull();
+    expect(focusOf(undefined)).toBeNull();
   });
 });
 

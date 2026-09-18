@@ -374,6 +374,10 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     fetchImpl?: typeof fetch;
     /** A turn carried over from this thread's last session (a reload mid-turn). */
     turn?: TurnState | null;
+    /** The entity the drawer is about (#330) — context for the agent, read at
+     *  SEND time (so re-scoping the open drawer re-scopes the next turn
+     *  without rebuilding the transport and losing an in-flight turn). */
+    focus?: ChatFocus | null;
   }) {
     const tripId = options.tripId;
     const threadId = options.threadId;
@@ -387,8 +391,9 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
       options.fetchImpl ??
       ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
     // Shared with the request hook below, which runs before `this` is usable.
-    const state: { turn: TurnState | null } = {
+    const state: { turn: TurnState | null; focus: ChatFocus | null } = {
       turn: options.turn ? { ...options.turn } : null,
+      focus: options.focus ?? null,
     };
     super({
       api: "/api/chat",
@@ -412,6 +417,9 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         // The two anchors ride along for the same reason: the trip the turn
         // was submitted under (the relay keys the turn by it), and the user
         // message that opened it (where a resume rebuilds the transcript).
+        // The third — the day/section/block the drawer is about (#330) — is
+        // read HERE, at send time, so a re-scoped drawer reaches the agent on
+        // the next turn without the transport being rebuilt.
         const opening = messages[messages.length - 1];
         const turn: TurnState = {
           turnKey: newTurnKey(),
@@ -428,6 +436,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
             threadId,
             turnKey: turn.turnKey,
             ...(tripId ? { tripId } : {}),
+            ...(state.focus ? { focus: state.focus } : {}),
           },
         };
       },
@@ -439,7 +448,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     this.fetchImpl = fetchImpl;
   }
 
-  private readonly state: { turn: TurnState | null };
+  private readonly state: { turn: TurnState | null; focus: ChatFocus | null };
   private readonly threadId: string;
   private readonly tripId?: string;
   private readonly getToken: () => Promise<string>;
@@ -467,6 +476,14 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
    *  reads this to know it must put that back. */
   get lastAttachFailed(): boolean {
     return this.attachFailed;
+  }
+
+  /** Re-scope the drawer (#330): the next SUBMITTED turn carries this entity
+   *  as its focus. Deliberately mutable rather than a constructor-only prop —
+   *  a second "ask the agent about this" while the drawer is open must not
+   *  rebuild the transport, which would drop a turn mid-flight. */
+  setFocus(focus: ChatFocus | null): void {
+    this.state.focus = focus ?? null;
   }
 
   /** Point the next reconnect at a frame index, 0 = the turn's first frame.
@@ -830,11 +847,28 @@ export function findTripIds(text: string): string[] {
   return ids;
 }
 
+/** A day / section / block entity inside a trip. */
+export type FocusEntity = "day" | "section" | "block";
+
+/** The ENTITY-level anchor the drawer was opened from (#296 / #330).
+ *
+ * An id, never client prose: the relay resolves it against the trip document
+ * it already reads for the ACL gate and tells the AGENT which day it is
+ * working on. The composer draft the "ask the agent about this" bridge
+ * pre-fills stays a convenience the user may rewrite — it is not the anchor.
+ */
+export interface ChatFocus {
+  entity: FocusEntity;
+  id: string;
+}
+
 export interface UseTripChatOptions {
   tripId?: string;
   threadId: string;
   getToken: () => Promise<string>;
   onFinish?: (text: string) => void;
+  /** Which day/section/block this drawer is about (null = whole trip). */
+  focus?: ChatFocus | null;
 }
 
 /** How a thread's in-flight turn was picked up when the thread opened. */
@@ -988,6 +1022,7 @@ export function useTripChat({
   threadId,
   getToken,
   onFinish,
+  focus,
 }: UseTripChatOptions) {
   const transport = useMemo(
     () =>
@@ -998,9 +1033,17 @@ export function useTripChat({
         // A turn this thread was mid-way through survives a reload: the stored
         // cursor is where the last connection stopped rendering (#217).
         turn: loadTurnState(threadId),
+        focus: focus ?? null,
       }),
     [tripId, threadId, getToken],
   );
+  // The focus is PUSHED, never a transport identity: `focus` is not in the
+  // memo deps above on purpose — a re-scoped drawer (a second "ask the agent
+  // about this" while the drawer is open) updates the live transport instead
+  // of rebuilding it, so an in-flight turn keeps its attach state (#330).
+  useEffect(() => {
+    transport.setFocus(focus ?? null);
+  }, [transport, focus]);
   const chat = useChat({
     id: threadId,
     transport,

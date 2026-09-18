@@ -2642,8 +2642,11 @@ async def post_chat(
     can answer for it when asked with only a ``threadId`` (#217).
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
-    if body.tripId:
+    trip = (
         require_actor_trip_access(actor_sub, body.tripId, min_role="follower")
+        if body.tripId
+        else None
+    )
     turn_key = (body.turnKey or "").strip() or new_turn_key()
     key = turn_key_for(
         actor_sub,
@@ -2663,6 +2666,8 @@ async def post_chat(
             actor_sub=actor_sub,
             trip_id=body.tripId,
             thread_id=body.threadId,
+            trip=trip,
+            focus=body.focus,
         )
 
     async def _stream():

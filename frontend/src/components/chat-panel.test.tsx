@@ -14,8 +14,12 @@ import type { UIMessage } from "ai";
  * the trip anchor.
  */
 
-const { chatMock } = vi.hoisted(() => ({
+const { chatMock, chatOptions } = vi.hoisted(() => ({
   chatMock: { current: null as unknown },
+  /** The options object the LAST `useTripChat` call received — the prop
+   *  plumbing guard for #330 (a prop dropped at a hop is invisible to the
+   *  rendered output, which is how the editor-branch blind spot shipped). */
+  chatOptions: { current: [] as unknown[] },
 }));
 
 vi.mock("@auth0/auth0-react", () => ({
@@ -37,12 +41,19 @@ vi.mock("@ai-sdk/react", () => ({
  * actual module's helpers stay real. */
 vi.mock("../lib/chat", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/chat")>();
-  return { ...actual, useTripChat: () => chatMock.current };
+  return {
+    ...actual,
+    useTripChat: (options: unknown) => {
+      chatOptions.current = [options];
+      return chatMock.current;
+    },
+  };
 });
 
 import { ChatAuthError, type TurnRecovery } from "../lib/chat";
 import {
   ChatPanel,
+  ChatPopup,
   chatOutage,
   summarizeAttachments,
 } from "./chat-panel";
@@ -770,5 +781,44 @@ describe("summarizeAttachments (#251)", () => {
         ready("take-2.MOV", { image: false, video: true }),
       ]),
     ).toBe("2 videos attached");
+  });
+});
+
+/* #330: the drawer's entity anchor has to survive the prop chain
+ * ChatPopup → ChatPanel → ChatThread → useTripChat. A prop dropped at any hop
+ * renders identically, so no assertion on the DOM can see it — assert the
+ * options the hook actually received instead. */
+describe("ChatPopup anchors (#330)", () => {
+  it("passes tripId and the entity focus down to useTripChat", () => {
+    stubChat();
+    chatOptions.current = [];
+    renderToString(
+      createElement(ChatPopup, {
+        tripId: "trip-1",
+        focus: { entity: "day", id: "d1" },
+        label: "Trip chat",
+        onClose: () => {},
+      }),
+    );
+    const options = chatOptions.current[0] as {
+      tripId?: string;
+      focus?: unknown;
+    };
+    expect(options.tripId).toBe("trip-1");
+    expect(options.focus).toEqual({ entity: "day", id: "d1" });
+  });
+
+  it("leaves the focus unset for a whole-trip chat", () => {
+    stubChat();
+    chatOptions.current = [];
+    renderToString(
+      createElement(ChatPopup, {
+        tripId: "trip-1",
+        label: "Trip chat",
+        onClose: () => {},
+      }),
+    );
+    const options = chatOptions.current[0] as { focus?: unknown };
+    expect(options.focus).toBeUndefined();
   });
 });

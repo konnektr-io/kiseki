@@ -37,6 +37,11 @@ from app import main as main_module
 from app import media as media_module
 from app.auth import Auth0JWTValidator
 from app.main import app
+from app.models import Block as BlockModel
+from app.models import Day as DayModel
+from app.models import Trip as TripModel
+from app.models import TripSection as SectionModel
+from app.models import Visibility
 
 from conftest import CLIENT_ID, KID, TENANT, _claims, _sign
 
@@ -78,18 +83,65 @@ def _role(monkeypatch: pytest.MonkeyPatch, value: str | None):
     )
 
 
-def _fake_trip(monkeypatch: pytest.MonkeyPatch, visibility: str = "public"):
-    class _Trip:
-        def __init__(self):
-            self.id = TRIP
-            self.visibility = visibility
-            self.claimToken = "secret"
+def _trip_model(
+    visibility: Visibility = "public",
+    *,
+    title: str = "Chili + Peru — zomer 2027",
+    days: list | None = None,
+    sections: list | None = None,
+):
+    """A REAL ``Trip`` (not a stub) — the chat envelope now reads its identity
+    (#330): title/id/stage/dates/day count + the focused day/section/block."""
+    return TripModel(
+        id=TRIP,
+        slug="chile-peru-2027",
+        title=title,
+        stage="planned",
+        startDate="2027-07-17",
+        endDate="2027-08-02",
+        visibility=visibility,
+        claimToken="secret",
+        days=days
+        if days is not None
+        else [
+            DayModel(id="day-1", date="2027-07-17", title="Vlieg BRU → Santiago"),
+            DayModel(
+                id="day-2",
+                date="2027-07-18",
+                title="Aankomst Santiago",
+                blocks=[
+                    BlockModel(
+                        id="block-9",
+                        kind="meal",
+                        title="Mercado Central",
+                        description="Ceviche lunch.",
+                    )
+                ],
+            ),
+        ],
+        sections=sections
+        if sections is not None
+        else [
+            SectionModel(id="sec-1", title="Valle Nevado & de Andes", days=[0, 1]),
+        ],
+    )
 
+
+def _fake_trip(
+    monkeypatch: pytest.MonkeyPatch,
+    visibility: Visibility = "public",
+    *,
+    title: str = "Chili + Peru — zomer 2027",
+    days: list | None = None,
+    sections: list | None = None,
+):
+    trip = _trip_model(visibility, title=title, days=days, sections=sections)
     monkeypatch.setattr(
         chat_module,
         "get_trip_by_id",
-        lambda trip_id: (_Trip() if trip_id == TRIP else None),
+        lambda trip_id: (trip if trip_id == TRIP else None),
     )
+    return trip
 
 
 def _responses_sse(lines_spec: list[tuple[str, str]]) -> str:
@@ -456,6 +508,204 @@ def test_chat_unanchored_thread_forwards_planning_context(
     # no trip ACL consulted: the route never calls require_actor_trip_access
     # when no tripId is present (get_trip_role_for_user stays un-mocked here,
     # and the upstream fake was reached — proving no gate ran first)
+
+
+# ---------------------------------------------------------------- trip anchor
+# #330: the relay KNOWS the trip (it gates on it) and used to never say so —
+# the anchor collapsed to a boolean scope sentence, the session name carries
+# the trip only on the legacy no-thread path, and the run body has no other
+# field. A first message in a trip drawer therefore had nothing to infer from:
+# the live case asked in Dutch for restaurants and got "which trip?" back.
+
+
+def _anchored_post(client, rsa_keypair, monkeypatch, *, focus=None, trip_id=TRIP, thread="anchor-thread-1"):
+    """POST a trip-anchored turn and return (response, upstream bodies)."""
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    payload = {
+        "tripId": trip_id,
+        "threadId": thread,
+        "messages": [{"role": "user", "content": "Kan je ook wat restaurants voorstellen?"}],
+    }
+    if focus is not None:
+        payload["focus"] = focus
+    resp = client.post(
+        "/api/chat",
+        json=payload,
+        headers={"Authorization": f"Bearer {_user_token(rsa_keypair)}"},
+    )
+    return resp, state["bodies"]
+
+
+def test_chat_instructions_name_the_anchored_trip(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The agent is TOLD which trip the thread is anchored to (#330)."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    resp, bodies = _anchored_post(client, rsa_keypair, monkeypatch)
+    assert resp.status_code == 200
+    text = bodies[0]["instructions"]
+    assert TRIP in text
+    assert "Chili + Peru — zomer 2027" in text
+    # the facts the agent otherwise burns its first calls rediscovering
+    assert "stage planned" in text
+    assert "2027-07-17 to 2027-08-02" in text
+    assert "2 days" in text
+    # …and the rule that the answer is never "which trip?"
+    assert "never ask the user which trip" in text
+    # the payload itself stays message-only (no transcript, no anchor blob)
+    assert bodies[0]["input"] == [
+        {"role": "user", "content": "Kan je ook wat restaurants voorstellen?"}
+    ]
+
+
+def test_chat_focus_names_the_day_section_and_block(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The "ask the agent about this" bridge rides the REQUEST, not the draft.
+
+    #296 shipped the entity context as pre-filled text in the composer, which
+    only reaches the agent if the user leaves it intact; #330 makes it an
+    anchor, so a rewritten (or empty) message still says what it is about.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    cases = [
+        (
+            {"entity": "day", "id": "day-2"},
+            ['day 2 of 2 — "Aankomst Santiago"', "2027-07-18", "day id day-2"],
+        ),
+        (
+            {"entity": "section", "id": "sec-1"},
+            ['the section "Valle Nevado & de Andes" covering days 1-2', "section id sec-1"],
+        ),
+        (
+            {"entity": "block", "id": "block-9"},
+            ['the meal block "Mercado Central" on day 2', "block id block-9"],
+        ),
+    ]
+    for index, (focus, expected) in enumerate(cases):
+        resp, bodies = _anchored_post(
+            client, rsa_keypair, monkeypatch, focus=focus, thread=f"focus-{index}"
+        )
+        assert resp.status_code == 200, resp.text
+        text = bodies[0]["instructions"]
+        for fragment in expected:
+            assert fragment in text, (focus, fragment)
+        # the trip is still named — the focus adds to the anchor, never
+        # replaces it
+        assert TRIP in text
+
+
+def test_chat_focus_with_a_stale_id_is_neutral_not_an_error(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A day deleted since the tab loaded must not 422 or fail the turn."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "threadId": "stale-focus-1",
+            "focus": {"entity": "day", "id": "deleted-day"},
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers={"Authorization": f"Bearer {_user_token(rsa_keypair)}"},
+    )
+    assert resp.status_code == 200
+    text = state["bodies"][0]["instructions"]
+    assert "no longer in this trip (id deleted-day)" in text
+    assert TRIP in text  # the trip anchor survives a stale focus
+
+
+def test_chat_rejects_a_malformed_focus(client, rsa_keypair, monkeypatch) -> None:
+    """The wire model is strict: entity + id, or nothing at all."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    token = _user_token(rsa_keypair)
+    for focus in ({"entity": "day"}, {"id": "day-1"}, {"entity": "trip", "id": "x"}):
+        resp = client.post(
+            "/api/chat",
+            json={
+                "tripId": TRIP,
+                "threadId": "bad-focus-1",
+                "focus": focus,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 422, (focus, resp.text)
+
+
+def test_focus_is_not_part_of_the_turn_identity(client, rsa_keypair, monkeypatch) -> None:
+    """A turn submitted WITH a focus is still addressable without one (#217).
+
+    The SPA's reconnect probe (`getTurnStatus`) sends threadId + turnKey +
+    tripId, never the focus — if the focus were part of the turn key, every
+    reconnect after an "ask the agent about this" turn would report the turn
+    as unknown and re-send the instruction.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "threadId": "focus-turn-1",
+            "turnKey": "turn-focus-1",
+            "focus": {"entity": "day", "id": "day-1"},
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert len(state["bodies"]) == 1
+    probe = client.get(
+        "/api/chat/turn?threadId=focus-turn-1&turnKey=turn-focus-1&tripId=" + TRIP,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert probe.status_code == 200
+    assert probe.json()["known"] is True
+
+
+def test_identity_instructions_name_the_trip_without_the_document() -> None:
+    """Callers that skip the gate (unit paths) still get the trip id."""
+    text = chat_module.identity_instructions(USER_SUB, TRIP, "t-1", trip=None)
+    assert f"has trip id {TRIP}" in text
+    assert "never ask the user which trip" in text
+    # no document → no quoted title invented for it
+    assert '"' not in text.split("has trip id")[1].split("—")[0]
+
+
+def test_focus_line_fallbacks_and_labels() -> None:
+    """Untitled days fall back to their date; a one-day section reads 'day N'."""
+    trip = _trip_model(
+        days=[
+            DayModel(id="d-a", date="2027-07-01"),
+            DayModel(id="d-b", date="2027-07-02", title="Skidag"),
+        ],
+        sections=[SectionModel(id="s-a", title="Aankomst", days=[0, 0])],
+    )
+    day = chat_module.focus_line(trip, chat_module.ChatFocus(entity="day", id="d-a"))
+    assert day == 'day 1 of 2 — "2027-07-01", 2027-07-01 (day id d-a)'
+    section = chat_module.focus_line(
+        trip, chat_module.ChatFocus(entity="section", id="s-a")
+    )
+    assert section == 'the section "Aankomst" covering day 1 (section id s-a)'
+    assert chat_module.focus_line(trip, None) is None
 
 
 def test_chat_m2m_act_as_header_reaches_agent(

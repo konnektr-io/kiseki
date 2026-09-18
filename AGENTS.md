@@ -227,6 +227,12 @@ identity to scope a chat to). The resolved sub is then gated on the named
 trip like any read (follower+ to chat about it, editor+ to attach files)
 and forwarded to the content agent as an identity envelope — the agent's
 own write-API calls act-as that sub, enforced downstream by the API ACL.
+The envelope also carries the **context anchors** the request named: the trip
+(id + title + stage + dates, so the agent is told which trip the thread is
+about rather than asking) and the optional `focus` (`{entity: day|section|block,
+id}`, the entity an "ask the agent about this" opened from, #330). Anchors are
+context, never authority: the ACL is the trip role, and they are not part of the
+turn's identity, so a reconnect resolves the same turn without repeating them.
 
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
 /api/trips` (my trips), `GET /api/trips/geo`, and `GET /api/auth/me`

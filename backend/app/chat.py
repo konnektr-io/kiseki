@@ -55,10 +55,10 @@ import re
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Iterable, Iterator
+from typing import AsyncIterator, Iterable, Iterator, Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import config
 from .store import get_trip_role_for_user, get_trip_by_id
@@ -109,13 +109,42 @@ class ChatRequest(_Strict):
     ``messages`` is empty on an ATTACH (the caller has nothing new to say —
     it only wants the frames it missed); the 400 for a missing user message
     therefore only applies when the request starts a new turn.
+
+    ``focus`` is the ENTITY-level anchor (#296 / #330): the day, section or
+    block whose "Ask the agent about this" opened the drawer. Like ``tripId``
+    it is context for the agent, never an ACL input — the gate stays the trip
+    role — and it only applies to a turn that is being SUBMITTED.
     """
 
     messages: list[ChatMessage] = []
     threadId: str | None = None
     tripId: str | None = None
+    focus: ChatFocus | None = None
     turnKey: str | None = None
     cursor: int | None = None
+
+
+FocusEntity = Literal["day", "section", "block"]
+
+
+class ChatFocus(_Strict):
+    """The entity the drawer was opened from (#296 phase 2, #330).
+
+    ``entity`` + ``id`` name one day / section / block **twin**. The relay
+    resolves them against the trip document it has ALREADY fetched for the ACL
+    gate and states the result in the turn's ``instructions``, so the agent is
+    told which day it is working on.
+
+    Deliberately an id, never client-authored prose: the composer draft the
+    bridge pre-fills is a convenience the user may rewrite or delete, and
+    nothing a browser sends should be able to write the agent's system prompt.
+    The human-readable label is derived server-side from the graph, and an id
+    that no longer resolves degrades to a neutral line instead of failing the
+    turn (a stale tab must not be able to 422 a chat).
+    """
+
+    entity: FocusEntity
+    id: str = Field(min_length=1, max_length=120)
 
 
 class TurnRequest(_Strict):
@@ -653,19 +682,114 @@ class WireTranslator:
 # ------------------------------------------------------------------ identity
 
 
+def trip_anchor_line(trip) -> str:
+    """One line naming the trip this thread is anchored to (#330).
+
+    The agent's ONLY source of truth for WHICH trip it is working on. It used
+    to be told nothing at all — ``identity_instructions`` collapsed the anchor
+    to a boolean scope sentence, ``conversation_id_for`` carries the trip only
+    on the legacy no-thread path, and the run body has no other field — so a
+    first message in a trip's drawer (empty history, nothing to infer from) hit
+    a 20-tool-call guessing game that ended in "which trip do you mean?".
+
+    Dates/stage/day count ride along because they are what the agent otherwise
+    spends its first calls re-discovering, and the id is stated verbatim so it
+    can be read straight back through the write API.
+    """
+    facts = [f"trip id {trip.id}"]
+    if getattr(trip, "stage", None):
+        facts.append(f"stage {trip.stage}")
+    start, end = getattr(trip, "startDate", None), getattr(trip, "endDate", None)
+    if start and end:
+        facts.append(f"{start} to {end}")
+    elif start:
+        facts.append(f"from {start}")
+    days = getattr(trip, "days", None)
+    if days:
+        facts.append(f"{len(days)} days")
+    return f'"{trip.title}" ({", ".join(facts)})'
+
+
+def focus_line(trip, focus: ChatFocus | None) -> str | None:
+    """Name the day/section/block the drawer was opened from (#296 / #330).
+
+    Resolved against the trip document the ACL gate already fetched, so the
+    agent is told which day it is editing instead of having to read it out of
+    the composer draft (``lib/ask-agent.ts`` pre-fills one, but the user may
+    rewrite or delete it before sending).
+
+    An id that no longer resolves (stale tab, entity deleted meanwhile) yields
+    a neutral line rather than an error: this is context, and a missing
+    entity must never break the turn.
+    """
+    if focus is None or not hasattr(trip, "days"):
+        return None
+    if focus.entity == "day":
+        for index, day in enumerate(trip.days):
+            if day.id == focus.id:
+                name = day.title or day.date
+                return (
+                    f'day {index + 1} of {len(trip.days)} — "{name}", '
+                    f"{day.date} (day id {day.id})"
+                )
+    elif focus.entity == "section":
+        for section in getattr(trip, "sections", []) or []:
+            if section.id == focus.id:
+                span = ""
+                if len(section.days) == 2:
+                    first, last = section.days
+                    span = (
+                        f" covering days {first + 1}-{last + 1}"
+                        if last > first
+                        else f" covering day {first + 1}"
+                    )
+                return f'the section "{section.title}"{span} (section id {section.id})'
+    elif focus.entity == "block":
+        for index, day in enumerate(trip.days):
+            for block in day.blocks:
+                if block.id == focus.id:
+                    title = block.title or "untitled"
+                    return (
+                        f'the {block.kind} block "{title}" on day {index + 1} '
+                        f"({day.date}) (block id {block.id})"
+                    )
+        for section in getattr(trip, "sections", []) or []:
+            for block in section.blocks:
+                if block.id == focus.id:
+                    title = block.title or "untitled"
+                    return (
+                        f'the {block.kind} block "{title}" in the section '
+                        f'"{section.title}" (block id {block.id})'
+                    )
+    return f"a {focus.entity} that is no longer in this trip (id {focus.id})"
+
+
 def identity_instructions(
     actor_sub: str,
     trip_id: str | None,
     thread_id: str | None = None,
+    *,
+    trip=None,
+    focus: ChatFocus | None = None,
 ) -> str:
     """Ephemeral system prompt (Responses ``instructions``) telling the agent
-    which user it is acting for. Never stored in the history chain.
+    which user it is acting for — and WHICH TRIP/entity this thread is about.
+    Never stored in the history chain (rebuilt and re-sent every turn).
 
-    The envelope carries the sub the write-API calls act as — and one silence
-    rule: never narrate the machinery (tokens, M2M, minting, act-as — issue
-    #158) nor any other plumbing (tools, skills, scripts, paths, endpoints,
-    HTTP codes, JSON, field names — issue #179). The write path stays correct,
-    the plumbing stays invisible.
+    The anchored case names the trip (``trip_anchor_line``) and the focused
+    entity (``focus_line``) outright (#330). The anchor used to be a boolean:
+    the agent was told it *could* read a trip but never which one, so a thread
+    with no history could only guess — the Chile + Peru drawer asked in Dutch
+    for restaurants and got "which trip do you mean?" back, after 20 API calls
+    of heuristics. Callers pass the ``Trip`` the ACL gate already resolved
+    (``require_actor_trip_access`` returns it), so this costs no extra graph
+    read.
+
+    The envelope also carries the sub the write-API calls act as — and one
+    silence rule: never narrate the machinery (tokens, M2M, minting, act-as —
+    issue #158) nor any other plumbing (tools, skills, scripts, paths,
+    endpoints, HTTP codes, JSON, field names — issue #179). The write path
+    stays correct, the plumbing stays invisible.
 
     The acting sub is ALSO the impersonation instruction: the content agent's
     wrapper mints a service credential that can act as anyone, so a call
@@ -681,21 +805,47 @@ def identity_instructions(
     happened ("it just says Handled and the trip is unchanged"). The rule is
     vocabulary, not volume: speak in traveler terms, one short line at a time.
     """
-    if trip_id:
+    if trip_id and trip is not None:
+        anchored = focus_line(trip, focus)
+        where = f", and the user opened this chat about {anchored}." if anchored else "."
+        anchor = (
+            f"The trip this conversation is anchored to is {trip_anchor_line(trip)}"
+            f"{where} They opened the chat from inside it, so treat that trip as "
+            "the subject: read it before you answer, and never ask the user which "
+            "trip they mean — only follow a different trip when they clearly name "
+            "one. When they say 'this' or 'here', they mean the anchored trip."
+        )
+        scope = (
+            "You may read content the acting user can read and edit content "
+            "they can edit, and your write-API calls act-as this user."
+        )
+    elif trip_id:
+        # The gate resolved no trip document (only possible when a caller
+        # bypasses it): keep the id, the agent can read it itself.
+        anchor = (
+            f"The trip this conversation is anchored to has trip id {trip_id} — "
+            "read it before you answer, and never ask the user which trip they "
+            "mean unless they clearly name a different one."
+        )
         scope = (
             "You may read content the acting user can read and edit content "
             "they can edit, and your write-API calls act-as this user."
         )
     else:
+        anchor = ""
         scope = (
             "No trip is anchored to this thread yet. The user may ask about "
             "an existing trip (list THIS user's trips, then read the one they "
             "mean) or ask you to help PLAN a NEW trip — research freely, but "
             "never write trip content until the user anchors one."
         )
-    return (
+    head = (
         "You are the Kiseki trip-content agent. The person you are helping "
         f"has identity sub={actor_sub}. {scope} "
+    )
+    if anchor:
+        head += f"{anchor} "
+    return head + (
         "Every trip read and write must act AS THAT sub — pass "
         "`--act-as <that sub>` on every wrapper/script call, or set "
         "`KISEKI_ACT_AS_SUB=<that sub>` for the call. Never work as any other "
@@ -1295,6 +1445,8 @@ def build_run_body(
     actor_sub: str,
     trip_id: str | None,
     thread_id: str | None = None,
+    trip=None,
+    focus: ChatFocus | None = None,
 ) -> dict:
     """Runs-API request body — the submitted turn, nothing else (#217).
 
@@ -1305,28 +1457,40 @@ def build_run_body(
     ``X-Hermes-Session-Key`` derived session and the per-run id). The relay
     therefore never re-sends a transcript, and a replayed turn (same
     ``Idempotency-Key``) can never duplicate it.
+
+    ``trip``/``focus`` only shape the ``instructions`` (which trip and which
+    day this thread is about, #330) — the session id is unchanged, so a thread
+    keeps its history across trips and an already-running turn stays
+    addressable by the same key.
     """
     return {
         "model": "kiseki",
         "input": [last_user_input(messages)],
         "session_id": conversation_id_for(actor_sub, trip_id, thread_id),
-        "instructions": identity_instructions(actor_sub, trip_id, thread_id),
+        "instructions": identity_instructions(
+            actor_sub, trip_id, thread_id, trip=trip, focus=focus
+        ),
     }
 
 
 # ------------------------------------------------------------------ trip gate
 
-def require_actor_trip_access(actor_sub: str, trip_id: str, min_role: str = "follower") -> str:
+def require_actor_trip_access(actor_sub: str, trip_id: str, min_role: str = "follower"):
     """Validate the ACTING user has ``min_role`` on the named trip.
 
     The chat may reference a trip the caller cannot see — gate it like any
-    read: the resolved actor must hold a real crew role. Returns the role.
+    read: the resolved actor must hold a real crew role.
+
+    Returns the resolved ``Trip`` (not the role): callers that only want the
+    verdict ignore it, and the chat route hands it to ``build_run_body`` so the
+    agent can be TOLD which trip the thread is anchored to (#330) without a
+    second graph read.
     """
     trip = get_trip_by_id(trip_id.lower())
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     if trip.visibility == "public" and min_role == "follower":
-        return "follower"  # public trips are readable by anyone (role: none)
+        return trip  # public trips are readable by anyone (role: none)
     role = get_trip_role_for_user(trip_id.lower(), actor_sub)
     rank = {"follower": 1, "viewer": 2, "editor": 3, "owner": 4}
     if not role or rank.get(role, 0) < rank.get(min_role, 1):
@@ -1334,4 +1498,4 @@ def require_actor_trip_access(actor_sub: str, trip_id: str, min_role: str = "fol
             status_code=403,
             detail=f"You need the '{min_role}' role on this trip to chat about it",
         )
-    return role
+    return trip

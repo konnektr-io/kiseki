@@ -100,6 +100,13 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `POST` | `/api/files` | user | Upload files for the agent (inbox) — photos, videos and documents, each family streamed to disk under its own cap (64 MB / 1 GB / 32 MB) with a per-file `413` when over; `posterOf=<clip>` adds a video's poster frame. HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |
 | `POST` | `/api/files/promote` | user | Promote an inbox file into trip media / the right attachment point |
 
+`POST /api/chat` takes `{messages, threadId, turnKey?, cursor?, tripId?, focus?}`:
+`threadId` names the conversation (history lives agent-side, one thread per context), `turnKey`/`cursor`
+name one turn and where a reconnect resumes it, and the two CONTEXT anchors tell the agent what the
+conversation is about — `tripId` (gated at follower+) and `focus` (`{entity: day|section|block, id}`,
+the entity an "ask the agent about this" opened from, #330). Context anchors are not part of the
+turn's identity, so a reconnect addresses the same turn without repeating them.
+
 The agent's own trip writes use the same endpoints above, carrying the acting user's identity and
 therefore the acting user's role.
 
