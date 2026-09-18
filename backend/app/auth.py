@@ -127,6 +127,31 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+def authenticate_user(
+    authorization: str | None = None,
+    x_api_key: str | None = None,
+) -> dict[str, Any]:
+    """Validate EITHER credential — bearer JWT first, admin API key second.
+
+    The shared choke point (issue #324): ``get_current_user`` and the
+    trip-path gates in ``acl`` (which hand-rolled the bearer-prefix check and
+    so bypassed any credential added only to ``get_current_user``) all resolve
+    here. Bearer present → JWT validation (401 with reason on failure);
+    else a known ``X-API-Key`` → its synthetic service user; else 401.
+    No config check — callers needing the 503 do it before calling.
+    """
+    token = _extract_bearer(authorization)
+    if token is not None:
+        try:
+            return _validator.validate(token)
+        except AuthError as exc:
+            raise _unauthorized(str(exc)) from exc
+    key_name = resolve_api_key(x_api_key)
+    if key_name is not None:
+        return api_key_user(key_name)
+    raise _unauthorized("Missing bearer token")
+
+
 # ---------------------------------------------------------------------------
 # Admin API keys (issue #324)
 #
@@ -269,16 +294,7 @@ def get_current_user(
             status_code=503,
             detail="Authentication is not configured on this server",
         )
-    token = _extract_bearer(authorization)
-    if token is not None:
-        try:
-            return _validator.validate(token)
-        except AuthError as exc:
-            raise _unauthorized(str(exc)) from exc
-    key_name = resolve_api_key(x_api_key)
-    if key_name is not None:
-        return api_key_user(key_name)
-    raise _unauthorized("Missing bearer token")
+    return authenticate_user(authorization, x_api_key)
 
 
 # Module-level validator bound to the deployment config (env-overridable).

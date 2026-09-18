@@ -84,7 +84,13 @@ def server():
 
 
 def _run(server, *args: str) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ, KISEKI_TOKEN="test-token")
+    # Scrub an ambient KISEKI_API_KEY: _credential prefers the key over
+    # KISEKI_TOKEN by design (#324), so a key in the developer's shell would
+    # silently switch this test to the X-API-Key header and fail the Bearer
+    # assertion below. The test pins KISEKI_TOKEN, so it must own the full
+    # credential env.
+    env = {k: v for k, v in os.environ.items() if k != "KISEKI_API_KEY"}
+    env["KISEKI_TOKEN"] = "test-token"
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--base", server.base_url, *args],
         capture_output=True,

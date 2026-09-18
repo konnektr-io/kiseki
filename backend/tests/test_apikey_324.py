@@ -130,3 +130,77 @@ def test_require_user_token_refuses_api_key_like_m2m() -> None:
         require_user_token(api_key_user("agent"))
     assert exc.value.status_code == 403
     assert exc.value.detail == "Service principals cannot claim or follow trips"
+
+
+# ------------------------------------------------- trip-path gates (#324 fix)
+
+PIN_SUB = "google-oauth2|1234567890"
+
+
+@pytest.fixture
+def trip_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setattr(auth_module, "AUTH0_DOMAIN", TENANT)
+    monkeypatch.setattr(auth_module, "AUTH0_CLIENT_ID", CLIENT_ID)
+    monkeypatch.setattr(auth_module, "KISEKI_API_KEYS", KEYS_ENV)
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", PIN_SUB)
+    return TestClient(app)
+
+
+@pytest.fixture
+def owned_trip(monkeypatch: pytest.MonkeyPatch):
+    from app import store as store_mod
+
+    from fake_graph import FakeGraph
+    from app.graph.convert import graph_to_trip
+
+    g = FakeGraph("canada-2027.graph.anon.json")
+    g.add_user_role(g.root, PIN_SUB, "owner")
+    g.twin(g.root)["visibility"] = "private"  # the anon fixture trip is public; the agent's trips are not
+    monkeypatch.setattr(store_mod, "_graph_client", lambda: g)
+    yield graph_to_trip(g.fetch_graph(g.root))
+    store_mod._reset_store_cache()
+
+
+def _key() -> dict:
+    return {"X-API-Key": KEY}
+
+
+def test_trip_get_with_key_resolves_pin_owner(trip_client: TestClient, owned_trip) -> None:
+    resp = trip_client.get(f"/api/trips/{owned_trip.id}", headers=_key())
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.json()["myRole"] == "owner"
+
+
+def test_trip_get_with_key_and_no_pin_is_owner_fallback(
+    trip_client: TestClient, owned_trip, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No pin = unattended owner fallback — the exact M2M parity (#46)."""
+    monkeypatch.setattr(acl_module, "KISEKI_AGENT_ACT_AS", "")
+    resp = trip_client.get(f"/api/trips/{owned_trip.id}", headers=_key())
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.json()["myRole"] == "owner"
+
+
+def test_trip_get_with_unknown_key_is_401(trip_client: TestClient, owned_trip) -> None:
+    resp = trip_client.get(
+        f"/api/trips/{owned_trip.id}", headers={"X-API-Key": "ksk_nope"}
+    )
+    assert resp.status_code == 401
+
+
+def test_trip_put_with_key_writes_as_pin_owner(
+    trip_client: TestClient, owned_trip
+) -> None:
+    resp = trip_client.put(
+        f"/api/trips/{owned_trip.id}", headers=_key(), json={"title": "Key Title"}
+    )
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.json()["title"] == "Key Title"
+
+
+def test_trip_delete_with_key_then_gone(
+    trip_client: TestClient, owned_trip
+) -> None:
+    url = f"/api/trips/{owned_trip.id}"
+    assert trip_client.delete(url, headers=_key()).status_code == 204
+    assert trip_client.get(url, headers=_key()).status_code == 404
