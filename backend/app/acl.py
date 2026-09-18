@@ -54,23 +54,54 @@ def _is_agent_token(user: dict) -> bool:
 def _is_agent_credential(user: dict) -> bool:
     """Either service credential: the sanctioned agent M2M token OR an admin
     API key (issue #324). Both authenticate a service identity that never
-    appears in the graph and both resolve per-request identity the same way
-    (act-as header, then the static pin, then 401) with the same prohibitions.
+    appears in the graph. The M2M token may use the static pin when a request
+    names no act-as sub; an admin API key MUST always name one explicitly —
+    it has no pin or owner fallback.
     """
     return _is_agent_token(user) or bool(user.get("api_key"))
 
 
-def resolve_actor_sub(user: dict) -> str:
+def _request_act_as_sub(x_act_as_sub: str | None) -> str | None:
+    """The stripped request-scoped act-as sub, or None when absent."""
+    if x_act_as_sub and x_act_as_sub.strip():
+        return x_act_as_sub.strip()
+    return None
+
+
+def _require_api_key_act_as(x_act_as_sub: str | None) -> str:
+    """The impersonated user for an admin API-key call.
+
+    Kiseki agents have no graph identity of their own, so an API key never
+    acts as itself, as the static pin, or as an owner-level service
+    principal: every API-key call MUST name its acting user explicitly. The
+    resolved sub is the identity the backend forwards to the graph as
+    ``x-user-id``.
+    """
+    target = _request_act_as_sub(x_act_as_sub)
+    if not target:
+        raise HTTPException(
+            status_code=401,
+            detail="Admin API key requires X-Act-As-Sub for user-scoped routes",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return target
+
+
+def resolve_actor_sub(user: dict, x_act_as_sub: str | None = None) -> str:
     """The effective user sub for USER-SCOPED routes (my trips, /auth/me).
 
-    When the sanctioned agent M2M client acts AS a user (KISEKI_AGENT_ACT_AS,
-    the single-user interim pin), everything scoped by identity follows the
-    mapped user — never the client's own ``sub`` (``<client>@clients``).
-    Any other token keeps its own sub. Unattended agent mode (no act-as)
-    keeps the client sub: a service principal has no crew edges, so its
-    listings are empty by design; per-trip writes still work via
-    ``_agent_actor``'s owner fallback.
+    An admin API key MUST name its acting user explicitly
+    (``X-Act-As-Sub``): it has no pin or owner fallback. When the sanctioned
+    agent M2M client acts AS a user (KISEKI_AGENT_ACT_AS, the single-user
+    interim pin), everything scoped by identity follows the mapped user —
+    never the client's own ``sub`` (``<client>@clients``). Any other token
+    keeps its own sub. Unattended M2M mode (no act-as) keeps the client sub:
+    a service principal has no crew edges, so its listings are empty by
+    design; per-trip M2M writes still work via ``_agent_actor``'s owner
+    fallback.
     """
+    if user.get("api_key"):
+        return _require_api_key_act_as(x_act_as_sub)
     if _is_agent_credential(user) and KISEKI_AGENT_ACT_AS:
         return KISEKI_AGENT_ACT_AS
     return user["sub"]
@@ -102,9 +133,10 @@ def resolve_request_actor_sub(
     Rule (Niko, 2026-09-09): ALWAYS check the bearer token first; its sub is
     the actor UNLESS the credential is a full-access service credential
     (sanctioned agent M2M token or admin API key, issue #324) — then the
-    act-as sub comes from the request (``X-Act-As-Sub`` header), falling back
-    to the static ``KISEKI_AGENT_ACT_AS`` pin only when the request names no
-    sub (single-user interim, deprecated).
+    act-as sub comes from the request (``X-Act-As-Sub`` header). An admin API
+    key MUST name its acting user explicitly; the sanctioned M2M token falls
+    back to the static ``KISEKI_AGENT_ACT_AS`` pin only when the request
+    names no sub (single-user interim, deprecated).
 
     Mode 1 (UI): the end user's own Auth0 token → actor = token sub.
     Mode 2 (agent backend): service credential + request-scoped act-as sub
@@ -113,9 +145,12 @@ def resolve_request_actor_sub(
     """
     if not _is_agent_credential(user):
         return user["sub"]
+    if user.get("api_key"):
+        return _require_api_key_act_as(x_act_as_sub)
     # Service credential: act-as is REQUIRED for user-scoped work.
-    if x_act_as_sub and x_act_as_sub.strip():
-        return x_act_as_sub.strip()
+    target = _request_act_as_sub(x_act_as_sub)
+    if target:
+        return target
     if KISEKI_AGENT_ACT_AS:
         return KISEKI_AGENT_ACT_AS
     raise HTTPException(
@@ -128,12 +163,18 @@ def resolve_request_actor_sub(
 
 
 
-def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
+def _agent_actor(user: dict, trip_dtid: str, x_act_as_sub: str | None = None) -> dict | None:
     """Actor {sub, role} for a service credential (#46, extended #324).
 
     The agent NEVER appears in the graph — no User twin, no hasCrew edge.
 
-    Two modes:
+    An admin API key MUST name its acting user explicitly
+    (``X-Act-As-Sub``): it has neither the static pin nor the owner fallback.
+    Role = the request-scoped user's REAL crew role on this trip (resolved via
+    their hasCrew edge; never widened, None when the user has no access).
+    Attribution (x-user-id) is that user's sub.
+
+    The sanctioned M2M token keeps its two older modes:
     - ``KISEKI_AGENT_ACT_AS`` set (Niko's home profile only — deliberately
       never configured on the dedicated end-user profile): the agent acts AS
       that user. Role = the user's REAL crew role on this trip (resolved via
@@ -144,6 +185,12 @@ def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     """
     if not _is_agent_credential(user):
         return None
+    if user.get("api_key"):
+        target = _require_api_key_act_as(x_act_as_sub)
+        role = get_trip_role_for_user(trip_dtid, target)
+        if not role:
+            return None  # the impersonated user has no access → the agent has none
+        return {"sub": target, "role": role}
     if KISEKI_AGENT_ACT_AS:
         role = get_trip_role_for_user(trip_dtid, KISEKI_AGENT_ACT_AS)
         if not role:
@@ -152,13 +199,16 @@ def _agent_actor(user: dict, trip_dtid: str) -> dict | None:
     return {"sub": user.get("sub"), "role": "owner"}
 
 
-def _resolve_actor(user: dict, trip_dtid: str) -> dict | None:
+def _resolve_actor(user: dict, trip_dtid: str, x_act_as_sub: str | None = None) -> dict | None:
     """The acting identity: the token's own user (crew role via hasCrew) or,
-    for the sanctioned M2M client, the agent actor (act-as / owner fallback)."""
+    for a service credential, the agent actor (request-scoped act-as for API
+    keys; pin / owner fallback for the sanctioned M2M client)."""
+    if user.get("api_key"):
+        return _agent_actor(user, trip_dtid, x_act_as_sub)
     role = get_trip_role_for_user(trip_dtid, user["sub"])
     if role:
         return {"sub": user["sub"], "role": role}
-    return _agent_actor(user, trip_dtid)
+    return _agent_actor(user, trip_dtid, x_act_as_sub)
 
 
 def _role_ok(role: str | None, min_role: str) -> bool:
@@ -169,12 +219,14 @@ def authorize_trip_path(
     trip_id: str,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None),
+    x_act_as_sub: str | None = Header(default=None),
 ) -> str | None:
     """FastAPI dependency for GET /api/trips/{trip_id} (and booklet.pdf).
 
     Returns the caller's crew role (or None for anonymous on a public trip).
     Raises 401/403 for private trips without sufficient access, 404 if the
-    trip does not exist (so callers don't have to re-check).
+    trip does not exist (so callers don't have to re-check). Admin API-key
+    calls resolve through their request-scoped ``X-Act-As-Sub`` identity.
     """
     trip = get_trip_by_id(trip_id.lower())
     if trip is None:
@@ -187,7 +239,7 @@ def authorize_trip_path(
         if has_credential(authorization, x_api_key):
             try:
                 user = authenticate_user(authorization, x_api_key)
-                actor = _resolve_actor(user, trip_id.lower())
+                actor = _resolve_actor(user, trip_id.lower(), x_act_as_sub)
                 return actor["role"] if actor else None
             except HTTPException:
                 return None
@@ -201,7 +253,7 @@ def authorize_trip_path(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
-    actor = _resolve_actor(user, trip_id.lower())
+    actor = _resolve_actor(user, trip_id.lower(), x_act_as_sub)
     if not actor or not _role_ok(actor["role"], "follower"):
         raise HTTPException(
             status_code=403,
@@ -228,6 +280,7 @@ def require_trip_role(min_role: str):
         trip_id: str,
         authorization: str | None = Header(default=None),
         x_api_key: str | None = Header(default=None),
+        x_act_as_sub: str | None = Header(default=None),
     ) -> dict:
         if not has_credential(authorization, x_api_key):
             raise HTTPException(
@@ -236,20 +289,21 @@ def require_trip_role(min_role: str):
                 headers={"WWW-Authenticate": "Bearer"},
             )
         user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
-        actor = _resolve_actor(user, trip_id.lower())
+        actor = _resolve_actor(user, trip_id.lower(), x_act_as_sub)
         if not actor or not _role_ok(actor["role"], min_role):
             raise HTTPException(
                 status_code=403,
                 detail=f"You need the '{min_role}' role for this trip",
             )
-        # Actor carries the RESOLVED identity: the user's sub, the act-as
-        # user's sub, or the M2M client's sub — writes attribute accordingly.
+        # Actor carries the RESOLVED identity: the user's sub, the request-scoped
+        # act-as user's sub, or the sanctioned M2M client's sub — writes
+        # attribute accordingly.
         return actor
 
     return dependency
 
 
-def require_trip_owner(trip_id: str, authorization: str | None = Header(default=None), x_api_key: str | None = Header(default=None)) -> dict:
+def require_trip_owner(trip_id: str, authorization: str | None = Header(default=None), x_api_key: str | None = Header(default=None), x_act_as_sub: str | None = Header(default=None)) -> dict:
     """The DELETE /api/trips/{trip_id} gate (issue #163) — existence FIRST.
 
     Unlike ``require_trip_role`` (which gates on the crew role alone and lets
@@ -270,7 +324,7 @@ def require_trip_owner(trip_id: str, authorization: str | None = Header(default=
     user = authenticate_user(authorization, x_api_key)  # validates; 401 on invalid
     if get_trip_by_id(trip_id.lower()) is None:
         raise HTTPException(status_code=404, detail="Trip not found")
-    actor = _resolve_actor(user, trip_id.lower())
+    actor = _resolve_actor(user, trip_id.lower(), x_act_as_sub)
     if not actor or actor["role"] != "owner":
         raise HTTPException(
             status_code=403,

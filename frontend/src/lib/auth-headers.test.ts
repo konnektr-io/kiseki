@@ -15,6 +15,7 @@ import { authHeaders } from "./auth-headers";
 
 afterEach(() => {
   delete window.__KISEKI_API_KEY__;
+  delete window.__KISEKI_ACT_AS_SUB__;
 });
 
 describe("authHeaders", () => {
@@ -24,17 +25,31 @@ describe("authHeaders", () => {
 
   it("prefers an injected admin API key over the token", () => {
     window.__KISEKI_API_KEY__ = "ksk_probe";
-    expect(authHeaders("tok123")).toEqual({ "X-API-Key": "ksk_probe" });
+    window.__KISEKI_ACT_AS_SUB__ = "google-oauth2|probe-user";
+    expect(authHeaders("tok123")).toEqual({
+      "X-API-Key": "ksk_probe",
+      "X-Act-As-Sub": "google-oauth2|probe-user",
+    });
   });
 
   it("never sends both credentials when a key is injected", () => {
     window.__KISEKI_API_KEY__ = "ksk_probe";
+    window.__KISEKI_ACT_AS_SUB__ = "google-oauth2|probe-user";
     const headers = authHeaders("tok123");
     expect(headers.Authorization).toBeUndefined();
-    expect(Object.keys(headers)).toEqual(["X-API-Key"]);
+    expect(Object.keys(headers).sort()).toEqual(["X-API-Key", "X-Act-As-Sub"]);
   });
 
   it("works with no token at all when a key is injected", () => {
+    window.__KISEKI_API_KEY__ = "ksk_probe";
+    window.__KISEKI_ACT_AS_SUB__ = "google-oauth2|probe-user";
+    expect(authHeaders()).toEqual({
+      "X-API-Key": "ksk_probe",
+      "X-Act-As-Sub": "google-oauth2|probe-user",
+    });
+  });
+
+  it("sends the key alone when no act-as sub is injected", () => {
     window.__KISEKI_API_KEY__ = "ksk_probe";
     expect(authHeaders()).toEqual({ "X-API-Key": "ksk_probe" });
   });

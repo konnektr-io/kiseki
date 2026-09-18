@@ -89,7 +89,7 @@ def _run(server, *args: str) -> subprocess.CompletedProcess[str]:
     # silently switch this test to the X-API-Key header and fail the Bearer
     # assertion below. The test pins KISEKI_TOKEN, so it must own the full
     # credential env.
-    env = {k: v for k, v in os.environ.items() if k != "KISEKI_API_KEY"}
+    env = {k: v for k, v in os.environ.items() if k not in ("KISEKI_API_KEY", "KISEKI_ACT_AS_SUB")}
     env["KISEKI_TOKEN"] = "test-token"
     return subprocess.run(
         [sys.executable, str(SCRIPT), "--base", server.base_url, *args],

@@ -26,7 +26,8 @@ AGENTS_MD = REPO_ROOT / "AGENTS.md"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess[str]:
-    env = dict(os.environ, KISEKI_TOKEN="test-dummy-token")
+    env = {k: v for k, v in os.environ.items() if k not in ("KISEKI_API_KEY", "KISEKI_ACT_AS_SUB")}
+    env["KISEKI_TOKEN"] = "test-dummy-token"
     # Dead local base: if a case unexpectedly passes client-side validation it
     # fails fast on connect instead of reaching the real API.
     return subprocess.run(
@@ -44,6 +45,8 @@ def test_cli_advertises_create_trip() -> None:
     assert out.returncode == 0
     assert "create-trip" in out.stdout
     assert "--subtitle" in out.stdout
+    assert "--act-as" in out.stdout
+    assert "KISEKI_ACT_AS_SUB" in out.stdout
 
 
 def test_docstring_documents_canonical_fill_order_and_quoting_rule() -> None:

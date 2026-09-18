@@ -51,7 +51,7 @@ design; every service key stays server-side.
 | `GOOGLE_MAPS_API_KEY` | Place ratings/reviews/photos | Never sent to the browser; all access goes through `/api/places/*` (Google compliance: only storable fields are ever persisted). |
 | `KISEKI_HERMES_URL`, `KISEKI_HERMES_KEY` | The chat agent | Unset → `/api/chat` returns 503. |
 | `KISEKI_AGENT_CLIENT_ID`, `KISEKI_AGENT_ACT_AS` | Sanctioned agent machine-to-machine access | The agent never becomes a graph identity; it acts as a real user (interim single-user pin) or as an owner-level service principal. |
-| `KISEKI_API_KEYS` | Admin API keys (#324) | `name:sha256hex` pairs, comma-separated (only the digest is deployed; the plaintext lives in the agent profile `.env`s). Presented as `X-API-Key`, act-as-anyone via `X-Act-As-Sub` — quota-free, so agents never touch Auth0's metered M2M grants. Empty → no API-key auth. |
+| `KISEKI_API_KEYS` | Admin API keys (#324) | `name:sha256hex` pairs, comma-separated (only the digest is deployed; the plaintext lives in the agent profile `.env`s). Presented as `X-API-Key` with mandatory per-request `X-Act-As-Sub` — quota-free, so agents never touch Auth0's metered M2M grants. Empty → no API-key auth. |
 | `KISEKI_LISTEN_PORT`, `KISEKI_STATIC_DIR` | Runtime | Port (default 8000) and where the built SPA lives (default `app/static`). |
 | `KISEKI_TRICOUNT_CREDS_FILE`, `KISEKI_TRICOUNT_TTL` | TriCount expenses | Credentials are a public app id + RSA public key; a file pins a stable installation across restarts. |
 | `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | Analytics | Build-time only; analytics is a no-op with an empty key. |

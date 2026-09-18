@@ -21,7 +21,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "probe_trip_page.py"
 @pytest.fixture
 def probe(monkeypatch: pytest.MonkeyPatch):
     """The probe module, imported without touching the real environment."""
-    for var in ("PROBE_API_KEY", "KISEKI_API_KEY", "PROBE_TOKEN"):
+    for var in ("PROBE_API_KEY", "KISEKI_API_KEY", "PROBE_TOKEN", "PROBE_ACT_AS_SUB", "KISEKI_ACT_AS_SUB"):
         monkeypatch.delenv(var, raising=False)
     spec = importlib.util.spec_from_file_location("probe_trip_page", SCRIPT)
     assert spec and spec.loader
@@ -34,19 +34,29 @@ def probe(monkeypatch: pytest.MonkeyPatch):
 def test_key_wins_over_token(probe, monkeypatch: pytest.MonkeyPatch) -> None:
     """An ambient key must never be shadowed by a stale PROBE_TOKEN."""
     monkeypatch.setenv("PROBE_API_KEY", "ksk_from_probe")
+    monkeypatch.setenv("PROBE_ACT_AS_SUB", "google-oauth2|probe-user")
     monkeypatch.setenv("PROBE_TOKEN", "ey.stale.jwt")
-    assert probe.credential() == ("key", "ksk_from_probe")
+    assert probe.credential() == ("key", "ksk_from_probe", "google-oauth2|probe-user")
 
 
 def test_falls_back_to_profile_env_key(probe, monkeypatch: pytest.MonkeyPatch) -> None:
     """KISEKI_API_KEY in the profile .env is enough — no per-run export."""
     monkeypatch.setenv("KISEKI_API_KEY", "ksk_from_env")
-    assert probe.credential() == ("key", "ksk_from_env")
+    monkeypatch.setenv("KISEKI_ACT_AS_SUB", "google-oauth2|env-user")
+    assert probe.credential() == ("key", "ksk_from_env", "google-oauth2|env-user")
+
+
+def test_key_without_act_as_is_a_usage_error(probe, monkeypatch: pytest.MonkeyPatch) -> None:
+    """API-key probes MUST always impersonate a user."""
+    monkeypatch.setenv("PROBE_API_KEY", "ksk_from_probe")
+    with pytest.raises(SystemExit) as exc:
+        probe.credential()
+    assert exc.value.code == 2
 
 
 def test_token_still_supported_without_a_key(probe, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROBE_TOKEN", "ey.jwt")
-    assert probe.credential() == ("token", "ey.jwt")
+    assert probe.credential() == ("token", "ey.jwt", None)
 
 
 def test_no_credential_is_a_usage_error(probe) -> None:
@@ -56,6 +66,9 @@ def test_no_credential_is_a_usage_error(probe) -> None:
 
 
 def test_header_shape_per_credential(probe) -> None:
-    """Key → X-API-Key, token → Authorization. Never both (bearer-first)."""
-    assert probe.auth_header("key", "ksk_x") == {"X-API-Key": "ksk_x"}
+    """Key → X-API-Key plus mandatory X-Act-As-Sub; token → Authorization."""
+    assert probe.auth_header("key", "ksk_x", "google-oauth2|probe-user") == {
+        "X-API-Key": "ksk_x",
+        "X-Act-As-Sub": "google-oauth2|probe-user",
+    }
     assert probe.auth_header("token", "ey.jwt") == {"Authorization": "Bearer ey.jwt"}
