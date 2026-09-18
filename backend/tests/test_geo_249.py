@@ -52,11 +52,13 @@ def _mine_row(dtid=TRIP_MINE, places=None):
     }
 
 
-def _disc_row(dtid=TRIP_DISC, places=None, discoverable=True):
+def _disc_row(dtid=TRIP_DISC, places=None, discoverable=True,
+              visibility="public"):
     return {
         "dtId": dtid,
         "title": "A discoverable trip",
         "stage": "planned",
+        "visibility": visibility,
         "discoverable": discoverable,
         "places": places
         if places is not None
@@ -104,6 +106,11 @@ def test_discoverable_query_filters_and_carries_the_flag() -> None:
     """The flag rides along so Python can re-check it — never trusted to WHERE."""
     assert "t.discoverable = true" in graph_client_mod._Q_GEO_DISCOVERABLE
     assert "t.discoverable AS discoverable" in graph_client_mod._Q_GEO_DISCOVERABLE
+    # Same leak class as the feed stream-2 gate: `discoverable` alone is
+    # listed-by-default since #228, so the query filters public too and
+    # carries visibility for the Python re-check.
+    assert "t.visibility = 'public'" in graph_client_mod._Q_GEO_DISCOVERABLE
+    assert "t.visibility AS visibility" in graph_client_mod._Q_GEO_DISCOVERABLE
 
 
 # --------------------------------------------------------------------------
@@ -220,6 +227,26 @@ def test_merge_refuses_an_absent_flag(monkeypatch) -> None:
     assert c.list_geo_trips(SUB) == []
 
 
+def test_merge_refuses_a_private_but_discoverable_stranger(monkeypatch) -> None:
+    """The feed leak's map half: a private trip that is still `discoverable`
+    (the #228 default) pins NOBODY's map but its crew's — its anchor (first
+    located place) is location data, not a listing."""
+    c, _ = _client_with(
+        monkeypatch,
+        mine=[_mine_row()],
+        disc=[_disc_row(TRIP_HIDDEN, visibility="private", discoverable=True)],
+    )
+    assert [r["dtId"] for r in c.list_geo_trips(SUB)] == [TRIP_MINE]
+
+
+def test_merge_refuses_an_absent_visibility(monkeypatch) -> None:
+    """Fail closed on the second half too: no visibility flag, no pin."""
+    row = _disc_row(TRIP_HIDDEN)
+    del row["visibility"]
+    c, _ = _client_with(monkeypatch, disc=[row])
+    assert c.list_geo_trips(SUB) == []
+
+
 def test_merge_dedupes_mine_first(monkeypatch) -> None:
     """A discoverable trip the viewer is also crew on reads as mine, once."""
     c, _ = _client_with(
@@ -262,11 +289,12 @@ def test_the_write_client_inherits_the_read() -> None:
 # --------------------------------------------------------------------------
 
 
-def _anon(dtid, *, discoverable, places):
+def _anon(dtid, *, discoverable, places, visibility="public"):
     return SimpleNamespace(
         id=dtid,
         title="T",
         stage="planned",
+        visibility=visibility,
         discoverable=discoverable,
         locations=[SimpleNamespace(name=n, lat=la, lng=ln) for n, la, ln in places],
     )
@@ -277,9 +305,11 @@ def test_fallback_lists_discoverable_located_fixtures(monkeypatch) -> None:
         store_mod, "_anon_trips",
         lambda: [
             _anon(TRIP_DISC, discoverable=True, places=[("Chamonix", 45.9237, 6.8694)]),
-            # A discoverable PRIVATE trip is listable to an authenticated
-            # viewer — `discoverable` is the listing opt-in, not `public`.
-            _anon(TRIP_MINE, discoverable=True, places=[("Revelstoke", 50.9981, -118.1957)]),
+            # A discoverable PRIVATE trip pins nobody's map but its crew's —
+            # the fallback holds the same public-AND-listed rule as the graph
+            # path, so a dev box never shows a pin production would hide.
+            _anon(TRIP_MINE, discoverable=True, visibility="private",
+                  places=[("Revelstoke", 50.9981, -118.1957)]),
             _anon(TRIP_HIDDEN, discoverable=False, places=[("Hidden", 1.0, 2.0)]),
             _anon(TRIP_NOGEO, discoverable=True, places=[("Nowhere", None, None)]),
         ],
@@ -287,7 +317,6 @@ def test_fallback_lists_discoverable_located_fixtures(monkeypatch) -> None:
     rows = list_geo_trips(SUB)
     assert [(r["dtId"], r["origin"]) for r in rows] == [
         (TRIP_DISC, "discover"),
-        (TRIP_MINE, "discover"),
     ]
     assert rows[0]["anchor"] == {"lat": 45.9237, "lng": 6.8694, "name": "Chamonix"}
 

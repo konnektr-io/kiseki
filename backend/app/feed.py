@@ -420,8 +420,12 @@ def build_feed(
             # The listing rule (#196) lives HERE and not in the query: a
             # followed person's private trip must never surface in the feed —
             # and gating before the walk is also what keeps a private trip's
-            # items out of it.
-            if row.get("discoverable") is not True:
+            # items out of it. Both halves are required: `discoverable` has
+            # been listed-by-default since #228 (even on private trips), so
+            # it cannot stand in for the visibility check. Mirrors the
+            # showcase second lock (`_trip_card_from_row`): fail closed on
+            # both, so a row missing either flag is skipped, not listed.
+            if row.get("visibility") != "public" or row.get("discoverable") is not True:
                 continue
             # A trip I am already crew on is a stream-1 row: the same trip must
             # never be listed twice, and my own row wins — it carries the full
