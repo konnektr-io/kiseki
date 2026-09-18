@@ -95,4 +95,20 @@ describe("API key injected like a Playwright probe", () => {
     expect(sent[0].headers.Authorization).toBe("Bearer user-token");
     expect(sent[0].headers["X-API-Key"]).toBeUndefined();
   });
+
+  it("keeps the key-authenticated copy distinct from the anonymous one", async () => {
+    // An anonymous read omits `myRole`; serving it to a credentialled view
+    // would strip the caller's role for the session. The cache keys on
+    // "has ANY credential", so the key read must not satisfy the anon read.
+    window.__KISEKI_API_KEY__ = KEY;
+    const sent = stubFetch({ id: TRIP_ID, myRole: "owner" }, { id: TRIP_ID });
+
+    await fetchTrip(TRIP_ID); // cached as the credentialed copy
+    delete window.__KISEKI_API_KEY__; // same page, now anonymous
+    await fetchTrip(TRIP_ID);
+
+    expect(sent.length).toBe(2); // a real second read, not the credentialed one
+    expect(sent[1].headers.Authorization).toBeUndefined();
+    expect(sent[1].headers["X-API-Key"]).toBeUndefined();
+  });
 });

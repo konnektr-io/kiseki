@@ -1,4 +1,4 @@
-import { authHeaders } from "./auth-headers";
+import { authHeaders, hasCredential } from "./auth-headers";
 import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripGeo, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
@@ -54,7 +54,7 @@ export async function fetchTrip(param: string, accessToken?: string): Promise<Tr
   // public trip fetched anonymously comes back WITHOUT `myRole`, and serving
   // that to a later authenticated read would strip the caller's role for the
   // rest of the session (the owner-only join link keys off it).
-  const key = (id: string) => `${id}|${accessToken ? "auth" : "anon"}`;
+  const key = (id: string) => `${id}|${hasCredential(accessToken) ? "auth" : "anon"}`;
   const cached = tripCache.get(key(param));
   if (cached) return cached;
   const headers: Record<string, string> = {};

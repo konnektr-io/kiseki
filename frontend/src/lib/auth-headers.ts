@@ -18,3 +18,15 @@ export function authHeaders(accessToken?: string): Record<string, string> {
   if (key) return { "X-API-Key": key };
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
+
+/**
+ * Whether this session presents ANY credential (a bearer token or an injected
+ * admin key). The trip cache keys its copies on this rather than on the token
+ * alone, so a key-authenticated read is never served as the anonymous copy
+ * (nor the reverse): an anonymous `GET /api/trips/{id}` comes back WITHOUT
+ * `myRole`, and handing that to a credentialled view hides the editor chrome.
+ */
+export function hasCredential(accessToken?: string): boolean {
+  const key = typeof window === "undefined" ? undefined : window.__KISEKI_API_KEY__;
+  return Boolean(accessToken) || Boolean(key);
+}
