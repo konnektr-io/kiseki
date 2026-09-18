@@ -225,6 +225,70 @@ describe("KisekiChatTransport", () => {
     expect(await clean.reconnectToStream()).toBeNull();
   });
 
+  it("sends the entity focus with the turn (#330)", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl,
+      focus: { entity: "day", id: "day-2" },
+    });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    const body = JSON.parse(seen[0].init.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(body).toMatchObject({
+      tripId: "trip-1",
+      focus: { entity: "day", id: "day-2" },
+    });
+  });
+
+  it("omits the focus for a whole-trip chat, and re-scopes a live transport", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl,
+    });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    const first = JSON.parse(seen[0].init.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(first).not.toHaveProperty("focus");
+
+    // A second "ask the agent about this" while the drawer is open updates the
+    // SAME transport (no rebuild — an in-flight turn keeps its attach state),
+    // and the next submitted turn carries the new entity.
+    transport.setFocus({ entity: "block", id: "block-9" });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    const second = JSON.parse(seen[1].init.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(second).toMatchObject({ focus: { entity: "block", id: "block-9" } });
+
+    // …and clearing it goes back to a whole-trip turn.
+    transport.setFocus(null);
+    await readAll(await transport.sendMessages(sendOptions([])));
+    const third = JSON.parse(seen[2].init.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(third).not.toHaveProperty("focus");
+  });
+
   it("throws a ChatAuthError on 401 (never a blank)", async () => {
     const fetchImpl = (async () =>
       new Response(JSON.stringify({ detail: "Missing bearer token" }), {

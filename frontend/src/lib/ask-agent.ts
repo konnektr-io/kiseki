@@ -1,4 +1,5 @@
 import type { Block, Day, Trip, TripSection } from "./types";
+import type { ChatFocus, FocusEntity } from "./chat";
 
 /**
  * The "ask the agent about this" bridge (#296, phase 2) — the event + the
@@ -10,6 +11,10 @@ import type { Block, Day, Trip, TripSection } from "./types";
  * context (ids + current field values) pre-filled in the composer; the user
  * reads, edits and sends it like any other message.
  *
+ * Since #330 the entity is ALSO a request anchor (`focusOf`): the relay tells
+ * the agent which day/section/block the drawer is about, so the context
+ * survives the user rewriting the draft — or sending no draft at all.
+ *
  * Privacy: the DRAFT carries field values (that is the point — the agent
  * needs to see what the user sees), but it is transient composer state, never
  * logged. The edit-intent SIGNAL (phase 3, `lib/edit-intent.ts`) records
@@ -20,11 +25,21 @@ import type { Block, Day, Trip, TripSection } from "./types";
  *  `fields` names the values carried in the draft (for the intent log);
  *  `draft` is the pre-filled composer text. */
 export interface AskAgentContext {
-  entity: "day" | "section" | "block";
+  entity: FocusEntity;
   id: string;
   label: string;
   fields: string[];
   draft: string;
+}
+
+/** The request anchor for a context (#330): entity + id, nothing else.
+ *
+ * Deliberately not the label or the draft — the relay resolves the human
+ * label from the graph itself, so nothing a browser sends can write the
+ * agent's instructions. Returns null without a context (the plain trip chat).
+ */
+export function focusOf(ctx: AskAgentContext | null | undefined): ChatFocus | null {
+  return ctx ? { entity: ctx.entity, id: ctx.id } : null;
 }
 
 export const ASK_AGENT_EVENT = "kiseki:ask-agent";

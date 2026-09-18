@@ -4,7 +4,8 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib/api";
 import { isAuthConfigured } from "../lib/auth";
-import { ASK_AGENT_EVENT, type AskAgentContext } from "../lib/ask-agent";
+import { ASK_AGENT_EVENT, focusOf, type AskAgentContext } from "../lib/ask-agent";
+import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
@@ -96,7 +97,15 @@ export function TripLayout() {
   // `ASK_AGENT_EVENT` with the entity context; the drawer opens with that
   // context pre-filled in the composer. `key` remounts the prefill per ask so
   // asking about a second entity while the drawer is open re-scopes it.
-  const [chatPrefill, setChatPrefill] = useState<{ draft: string; label: string; key: number } | null>(null);
+  // `focus` is the same entity as a REQUEST anchor (#330) — sent with every
+  // turn, so the agent is told which day/section/block it is working on even
+  // when the user rewrites the draft.
+  const [chatPrefill, setChatPrefill] = useState<{
+    draft: string;
+    label: string;
+    key: number;
+    focus: ChatFocus | null;
+  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -258,6 +267,7 @@ export function TripLayout() {
         draft: detail.draft,
         label: detail.label,
         key: (prev?.key ?? 0) + 1,
+        focus: focusOf(detail),
       }));
       setChatOpen(true);
     };
@@ -477,6 +487,7 @@ export function TripLayout() {
             label="Trip chat"
             initialDraft={chatPrefill?.draft}
             prefillKey={chatPrefill?.key}
+            focus={chatPrefill?.focus ?? null}
             banner={
               chatPrefill && (
                 <p className="text-xs text-muted-foreground">
