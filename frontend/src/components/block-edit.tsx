@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Pencil, Trash2 } from "lucide-react";
 import { BlockView } from "./blocks";
 import type { BlockCardProps } from "./blocks";
-import { AskAgentButton } from "./ask-agent";
 import { Button } from "./ui";
 import { useTripState } from "./theme";
 import { useTripWrite } from "../lib/useTripWrite";
@@ -13,7 +12,6 @@ import {
   withBlockFields,
   withBlockItems,
 } from "../lib/editing";
-import { blockAskContext } from "../lib/ask-agent";
 import { deleteTripBlock, putContainerOrder, putTripBlock } from "../lib/api";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
 import type { Block, BlockKind, BlockStatus } from "../lib/types";
@@ -258,9 +256,6 @@ export function EditableBlockList({
                     <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 )}
-                {/* #296 — ask the agent about THIS block (ids + values
-                    pre-filled in the drawer; no hand-copying). */}
-                <AskAgentButton context={blockAskContext(trip, b, containerId)} />
               </div>
             )}
           </div>

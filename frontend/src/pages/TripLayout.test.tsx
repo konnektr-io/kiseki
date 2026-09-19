@@ -45,16 +45,16 @@ vi.mock("../lib/auth", () => ({
 }));
 
 // Heavy peripheral chrome: not the subject of these tests — except the drawer
-// ITSELF, which the #296 ask-agent bridge has to open pre-scoped. The probe
-// renders nothing until the layout actually opens it, so every existing
-// assertion (none of which open chat) is unaffected.
+// ITSELF, which the route-derived chat scope has to open with the right
+// invisible focus. The probe renders nothing until the layout actually opens
+// it, so every existing assertion (none of which open chat) is unaffected.
 vi.mock("../components/chat-panel", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {
-    ChatPopup: (props: { initialDraft?: string | null }) =>
+    ChatPopup: (props: { focus?: { entity: string; id: string } | null }) =>
       React.createElement("div", {
         "data-testid": "chat-drawer",
-        "data-draft": props.initialDraft ?? "",
+        "data-focus": props.focus ? `${props.focus.entity}:${props.focus.id}` : "",
       }),
   };
 });
@@ -123,6 +123,8 @@ function mount(initialEntry = `/t/${TRIP.id}`) {
           <Route path="/t/:tripId" element={<TripLayout />}>
             {/* App.tsx registers this child route the same way (#248). */}
             <Route path="settings" element={<SettingsPage />} />
+            {/* Day pages render inside the same layout shell (map surface). */}
+            <Route path="day/:dayIdx" element={<div data-testid="day-stub" />} />
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -256,27 +258,42 @@ describe("TripLayout", () => {
     expect(text()).toContain("Danger zone");
   });
 
-  it("an ask-agent event opens the drawer pre-scoped with the entity context (#296)", async () => {
-    const { ASK_AGENT_EVENT } = await import("../lib/ask-agent");
+  it("the header chat drawer carries the route's day as its invisible focus", async () => {
     mocks.fetchTrip.mockResolvedValue(TRIP); // owner
-    mount();
+    mount(`/t/${TRIP.id}/day/0`);
     await flush();
     // Drawer closed: the probe is absent.
     expect(container.querySelector('[data-testid="chat-drawer"]')).toBeNull();
 
-    const draft = "About Day 1 — “Arrival” (day_id=day-1):\n\n";
+    // Open the drawer from the header chat toggle (no per-surface button).
+    const toggle = container.querySelector('button[aria-label="Open chat"]');
+    expect(toggle, "the header chat toggle").not.toBeNull();
     await act(async () => {
-      window.dispatchEvent(
-        new CustomEvent(ASK_AGENT_EVENT, {
-          detail: { entity: "day", id: "day-1", label: "Day 1 — Arrival", fields: ["title"], draft },
-        }),
-      );
+      toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
     const drawer = container.querySelector('[data-testid="chat-drawer"]');
     expect(drawer, "the drawer opened").not.toBeNull();
-    expect(drawer!.getAttribute("data-draft")).toBe(draft);
+    expect(drawer!.getAttribute("data-focus")).toBe("day:day-1");
+    expect(uncaught).toEqual([]);
+  });
+
+  it("the header chat drawer off a day route is the whole-trip chat (no focus)", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount(`/t/${TRIP.id}`);
+    await flush();
+
+    const toggle = container.querySelector('button[aria-label="Open chat"]');
+    expect(toggle, "the header chat toggle").not.toBeNull();
+    await act(async () => {
+      toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    const drawer = container.querySelector('[data-testid="chat-drawer"]');
+    expect(drawer, "the drawer opened").not.toBeNull();
+    expect(drawer!.getAttribute("data-focus")).toBe("");
     expect(uncaught).toEqual([]);
   });
 });

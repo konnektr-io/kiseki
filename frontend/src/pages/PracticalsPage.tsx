@@ -8,14 +8,15 @@ import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
 import { putPracticalBlock, toggleTodoItem } from "../lib/api";
 import { splitCrew } from "../lib/crew";
-import { roleAtLeast, withPracticalBlock, withTodoDone } from "../lib/editing";
+import { withPracticalBlock, withTodoDone } from "../lib/editing";
+import { useCanEdit } from "../components/edit-mode";
 import { useTripWrite } from "../lib/useTripWrite";
 import { capture } from "../lib/posthog";
 import type { PracticalBlock } from "../lib/types";
 
 export function PracticalsPage() {  const trip = useTrip();
   const { tripId } = useParams();
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
   const { busy, error, run } = useTripWrite();
   const todos = trip.practical.todos ?? [];
   const links = trip.practical.links ?? [];
@@ -236,7 +237,7 @@ export function PracticalsPage() {  const trip = useTrip();
 function PracticalBlockSection({ block, index }: { block: PracticalBlock; index: number }) {
   const trip = useTrip();
   const { run, error } = useTripWrite();
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
 
   const save = (field: "title" | "body") => async (next: string) => {
     capture("trip_practical_block_updated", { field });

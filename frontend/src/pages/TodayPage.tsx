@@ -1,10 +1,10 @@
 import { Link, Navigate, useParams } from "react-router-dom";
 import { CalendarDays, Clock } from "lucide-react";
 import { useTrip } from "../components/theme";
+import { useCanEdit } from "../components/edit-mode";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay, humanizeDays, resolveToday } from "../lib/dates";
-import { roleAtLeast } from "../lib/editing";
 
 /**
  * Today surface — chrome, no-print.
@@ -153,7 +153,7 @@ export function TodayPage() {
 
       <DayBlocks
         blocks={day.blocks}
-        editable={roleAtLeast(trip.myRole, "editor")}
+        editable={useCanEdit()}
         containerId={day.id}
       />
 

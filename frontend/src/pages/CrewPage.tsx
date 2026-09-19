@@ -14,7 +14,8 @@ import {
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
 import { splitCrew } from "../lib/crew";
-import { roleAtLeast, withAddedCrew, withCrewMember, withRemovedCrew } from "../lib/editing";
+import { withAddedCrew, withCrewMember, withRemovedCrew } from "../lib/editing";
+import { useCanEdit } from "../components/edit-mode";
 import { useFollowing } from "../lib/following";
 import { useTripWrite } from "../lib/useTripWrite";
 import type { Person, ProfilePerson, Role } from "../lib/types";
@@ -386,7 +387,7 @@ export function CrewPage() {
   const [inviteCopied, setInviteCopied] = useState(false);
   const [adding, setAdding] = useState(false);
 
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
   const isOwner = trip.myRole === "owner";
   const hasPlaceholders = trip.crew.some((p) => !p.claimed);
   // A follower watches the trip; the crew is who is coming. Two sections —
@@ -551,7 +552,7 @@ export function CrewPage() {
                 <Pencil className="h-3.5 w-3.5" />
               </button>
             )}
-            {canRemove(p) && (
+            {canEdit && canRemove(p) && (
               <button
                 type="button"
                 className="no-print inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-destructive focus-visible:focus-ring disabled:opacity-40"
@@ -613,7 +614,7 @@ export function CrewPage() {
         <h1 className="text-2xl font-bold">Crew</h1>
         <div className="flex flex-wrap items-center gap-2">
           {addButton}
-          {isOwner && hasPlaceholders && (
+          {canEdit && isOwner && hasPlaceholders && (
             <Button
               variant="outline"
               size="sm"

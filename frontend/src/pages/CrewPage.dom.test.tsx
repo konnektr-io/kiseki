@@ -45,6 +45,7 @@ vi.mock("../lib/following", () => ({ useFollowing: mocks.useFollowing }));
 
 const { CrewPage } = await import("./CrewPage");
 const { TripProvider } = await import("../components/theme");
+const { EditModeProvider } = await import("../components/edit-mode");
 
 const OWNER: Person = { id: "google-oauth2|me", name: "Niko Owner", role: "owner", claimed: true };
 const ON_CREW: Person = {
@@ -85,9 +86,12 @@ function mount(myRole: string) {
   act(() => {
     root.render(
       <TripProvider trip={trip} apply={() => {}}>
-        <MemoryRouter>
-          <CrewPage />
-        </MemoryRouter>
+        {/* The add interaction lives behind edit mode — opt in like the menu toggle does. */}
+        <EditModeProvider tripId={trip.id} initial={true}>
+          <MemoryRouter>
+            <CrewPage />
+          </MemoryRouter>
+        </EditModeProvider>
       </TripProvider>,
     );
   });

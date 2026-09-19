@@ -4,13 +4,13 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { CalendarCheck, CalendarDays, Home, ListChecks, MessageCircle } from "lucide-react";
 import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib/api";
 import { isAuthConfigured } from "../lib/auth";
-import { ASK_AGENT_EVENT, focusOf, type AskAgentContext } from "../lib/ask-agent";
 import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
 import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
+import { EditModeProvider } from "../components/edit-mode";
 import { AppHeader, HEADER_CONTROL } from "../components/AppHeader";
 import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
@@ -93,19 +93,6 @@ export function TripLayout() {
   // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
   // surface stays mounted underneath so edits land visibly live.
   const [chatOpen, setChatOpen] = useState(false);
-  // #296 "ask the agent about this": a day/block/section button dispatches
-  // `ASK_AGENT_EVENT` with the entity context; the drawer opens with that
-  // context pre-filled in the composer. `key` remounts the prefill per ask so
-  // asking about a second entity while the drawer is open re-scopes it.
-  // `focus` is the same entity as a REQUEST anchor (#330) — sent with every
-  // turn, so the agent is told which day/section/block it is working on even
-  // when the user rewrites the draft.
-  const [chatPrefill, setChatPrefill] = useState<{
-    draft: string;
-    label: string;
-    key: number;
-    focus: ChatFocus | null;
-  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -256,24 +243,18 @@ export function TripLayout() {
     }
   }, [tripId, isAuthenticated]);
 
-  // #296 ask-agent bridge — kept ABOVE the early returns with the other
-  // hooks (#310). Opens the drawer pre-scoped; a second ask while the drawer
-  // is open bumps the key so the composer re-scopes instead of going stale.
-  useEffect(() => {
-    const onAsk = (e: Event) => {
-      const detail = (e as CustomEvent<AskAgentContext>).detail;
-      if (!detail?.draft) return;
-      setChatPrefill((prev) => ({
-        draft: detail.draft,
-        label: detail.label,
-        key: (prev?.key ?? 0) + 1,
-        focus: focusOf(detail),
-      }));
-      setChatOpen(true);
-    };
-    window.addEventListener(ASK_AGENT_EVENT, onAsk);
-    return () => window.removeEventListener(ASK_AGENT_EVENT, onAsk);
-  }, []);
+  // Route-derived agent scope (replaces the #296 per-surface "ask the agent
+  // about this" buttons): on a day page the drawer opens already knowing
+  // which day it is about — the invisible `focus` request anchor (#330), sent
+  // with every turn, never as visible chat text. Off-day routes are the
+  // whole-trip chat. A second navigation while the drawer is open re-scopes
+  // the next turn, because `focus` is pushed per turn, not per thread.
+  const routeDayIdx = (() => {
+    const m = pathname.match(new RegExp(`^/t/${tripId}/day/(\\d+)$`));
+    if (!m) return null;
+    const i = parseInt(m[1], 10);
+    return Number.isNaN(i) ? null : i;
+  })();
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
@@ -350,6 +331,19 @@ export function TripLayout() {
   const onMapSurface =
     pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
 
+  // The drawer scope for THIS route: the day the URL names (clamped into
+  // range — a stale /day/99 keeps the whole-trip chat, never a wrong day).
+  // Section/block granularity went away with the per-surface buttons; the day
+  // is what the route can prove, and the agent reads the day itself.
+  const routeDay =
+    routeDayIdx !== null && routeDayIdx >= 0 && routeDayIdx < trip.days.length
+      ? trip.days[routeDayIdx]
+      : undefined;
+  const routeFocus: ChatFocus | null = routeDay ? { entity: "day", id: routeDay.id } : null;
+  const routeScopeLabel = routeDay
+    ? `Day ${routeDayIdx! + 1} — ${routeDay.title || routeDay.date}`
+    : null;
+
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
     setPdfBusy(true);
@@ -396,6 +390,7 @@ export function TripLayout() {
 
   return (
     <TripProvider trip={trip} apply={setTrip}>
+      <EditModeProvider tripId={trip.id}>
       <div ref={rootRef} style={tripStyle(trip)} className="min-h-full">
         {/* The shared bar (#239): same geometry, same back affordance and the
             brand on every route. The trip keeps its own action cluster (chat +
@@ -485,14 +480,12 @@ export function TripLayout() {
               void reloadTrip();
             }}
             label="Trip chat"
-            initialDraft={chatPrefill?.draft}
-            prefillKey={chatPrefill?.key}
-            focus={chatPrefill?.focus ?? null}
+            focus={routeFocus}
             banner={
-              chatPrefill && (
+              routeScopeLabel && (
                 <p className="text-xs text-muted-foreground">
-                  Asking about <span className="font-medium text-foreground">{chatPrefill.label}</span>{" "}
-                  — check the draft below, then send.
+                  About <span className="font-medium text-foreground">{routeScopeLabel}</span> — the
+                  agent already has this day&apos;s context.
                 </p>
               )
             }
@@ -532,6 +525,7 @@ export function TripLayout() {
           );
         })()}
       </div>
+      </EditModeProvider>
     </TripProvider>
   );
 }
