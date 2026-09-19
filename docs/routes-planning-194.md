@@ -73,10 +73,26 @@ Answer (from citable public sources, no new integration):
   returns the named relations around the lake; each Waymarked Trails
   relation page carries mapped length, elevation profile, GPX download,
   and the OSM tags (`distance`, `roundtrip`, `osmc:symbol`). A live
-  Overpass probe from the sandbox was attempted during this spike and hit
-  an execution-approval block (no result, no conclusion drawn from it) —
-  re-running one guarded query is the only unfinished verification, and
-  it needs no code to do.
+  Overpass probe from the sandbox validated this shape: relations-only
+  query `@8 km` returned 2 (`Pipestone Loop Trails`, `Lake Louis Tram
+  Line`), `@15 km` returned 10 (mostly Lake O'Hara — access restricted).
+
+  Two findings the proxy seam must encode (no code change here, just the
+  reason a future endpoint is not a one-liner):
+  - **`sac_scale` ways**, e.g. `way["sac_scale"="mountain_hiking"]`, are
+    *not* `route=` relations — relations-only misses the headline trails.
+    A `@8 km` `way["sac_scale"](around)` probe returns 26, including
+    `Lake Agnes Trail`, `Plain of Six Glaciers Trail`, `Big Beehive` /
+    `Highline Trail`, `Fairview Lookout`. Any proxy that wants the named
+    hikes visible to hikers must query **relations AND `sac_scale` ways**
+    (or lean on Waymarked rendering, which folds both together).
+  - Overpass answers HTTP **406 without a proper `User-Agent`**; the
+    public API also rejects `Accept` it does not advertise. A production
+    proxy must send an identifying UA (e.g.
+    `Kiseki-route-proposal/1.0 (+https://kiseki.konnektr.io)`) and an
+    explicit `Accept: application/json`, and keep queries timeout-guarded
+    (synchronous Overpass turbo limits — ~25k elements) rather than ever
+    hitting it from the browser.
 
 So the data exists, it is reachable keyless, and the "no exact match"
 case — the case that decides the UI shape — is real and must be designed
