@@ -235,18 +235,29 @@ export function trackLegPaths(
 
 /**
  * The #290 headline split for a track card: riding-only distance beside the
- * full trace distance. Null when the payload carries no legs (nothing to
- * compare — the card then shows the plain total).
+ * full trace distance. Null when the payload carries no legs (pre-#290
+ * payloads) **or when the trace contains no lift** — the parser emits one
+ * `ride` leg covering the whole line when nothing classifies as a lift, so
+ * a legs-carrying payload is not the same thing as a split worth showing
+ * (#336: a planned hiking route printed "16.2 km ridden, 16.2 km tracked" —
+ * the same number twice, in ski vocabulary, on a walk). Null here means the
+ * card shows the plain total, which is the honest figure for any track with
+ * no lift in it.
+ *
+ * The split speaks about a COMPLETED day; the caller decides whether the
+ * activity happened (a planned route carries the same payload).
  */
 export function trackRideSplit(
   props: TrackProperties | undefined | null,
 ): { rideM: number; totalM: number; liftM: number; liftVerticalM: number } | null {
   if (!props || typeof props.rideDistanceM !== "number") return null;
   if (!props.legs?.length) return null;
-  return {
+  const split = {
     rideM: props.rideDistanceM,
     totalM: props.distanceM,
     liftM: props.liftDistanceM ?? Math.max(props.distanceM - props.rideDistanceM, 0),
     liftVerticalM: props.liftVerticalM ?? 0,
   };
+  if (!(split.liftM > 0)) return null;
+  return split;
 }
