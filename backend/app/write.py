@@ -1762,23 +1762,6 @@ def _sync_section_days(
             },
             x_user_id=x_user_id,
         )
-    # Keep the day twin's back-pointer in sync so day.section is always
-    # populated without a separate reset pass. Only rewrite newly-covered
-    # days to avoid churn; leaving an existing correct value untouched is
-    # cheaper and safer when other writers are active.
-    if new_indices - cur:
-        newly = sorted(new_indices - cur)
-        day_props = {
-            day_id_for[i]: _scalar_ops(
-                _twin(graph, day_id_for[i]) or {},
-                [("section", section_id)],
-            )
-            for i in newly
-            if (i in day_id_for)
-        }
-        for did, ops in day_props.items():
-            if ops:
-                client.update_twin_props(trip_dtid, did, ops, x_user_id=x_user_id)
     return list(first_last) if first_last is not None else []
 
 

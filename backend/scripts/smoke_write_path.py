@@ -101,6 +101,7 @@ def main() -> int:
         print("  aborting — cannot continue without a created block")
         return 1
     block_id = new_block["id"]
+    target_sec: dict | None = None  # day-range section under test (try/finally shared)
 
     try:
         # move day -> a section (hasBlock delete under day + upsert under section)
@@ -131,18 +132,25 @@ def main() -> int:
         else:
             print("  (skip) no section with locationRefs to exercise")
 
-        # --- 3. section day-range trim + restore (hasDay edges under a section) ---
+        # --- 3. section day-range trim + extend (hasDay edges under a section) ---
+        # issue #341: the extend path 500'd live while every recorded smoke run
+        # printed "(skip)" — the documented smoke trip's LAST section covers a
+        # single day. Prefer the last multi-day section, fall back to the first
+        # multi-day section anywhere; skip only when the trip has none.
         last_sec = trip["sections"][-1]
-        if last_sec["days"][1] > last_sec["days"][0]:
-            lo = last_sec["days"][0]
-            st, _ = _req("PUT", f"/api/trips/{tid}/sections/{last_sec['id']}",
+        multi = [s for s in trip["sections"]
+                 if len(s.get("days") or []) == 2 and s["days"][1] > s["days"][0]]
+        target_sec = last_sec if last_sec in multi else (multi[0] if multi else None)
+        if target_sec is not None:
+            lo = target_sec["days"][0]
+            st, _ = _req("PUT", f"/api/trips/{tid}/sections/{target_sec['id']}",
                          {"days": [lo, lo]})
             check("PUT /sections trim days (hasDay delete)", st == 200)
-            st, _ = _req("PUT", f"/api/trips/{tid}/sections/{last_sec['id']}",
+            st, _ = _req("PUT", f"/api/trips/{tid}/sections/{target_sec['id']}",
                          {"days": [lo, lo + 1]})
             check("PUT /sections extend days (hasDay upsert)", st == 200)
         else:
-            print("  (skip) last section covers a single day — nothing to trim")
+            print("  (skip) no multi-day section to trim/extend")
 
         # --- 4. editorial fields (#178): coverStats/stats via PUT trip, features ---
         orig_cover_stats = trip.get("coverStats") or []
@@ -178,11 +186,11 @@ def main() -> int:
                             {"locationRefs": orig_refs})
             s = next((x for x in doc3.get("sections", []) if x["id"] == section["id"]), {})
             check("cleanup: section refs restored", st == 200 and s.get("locationRefs") == orig_refs)
-        if last_sec["days"][1] > last_sec["days"][0]:
-            st, doc4 = _req("PUT", f"/api/trips/{tid}/sections/{last_sec['id']}",
-                            {"days": [last_sec["days"][0], last_sec["days"][1]]})
-            s = next((x for x in doc4.get("sections", []) if x["id"] == last_sec["id"]), {})
-            check("cleanup: section days restored", st == 200 and s.get("days") == last_sec["days"])
+        if target_sec is not None:
+            st, doc4 = _req("PUT", f"/api/trips/{tid}/sections/{target_sec['id']}",
+                            {"days": [target_sec["days"][0], target_sec["days"][1]]})
+            s = next((x for x in doc4.get("sections", []) if x["id"] == target_sec["id"]), {})
+            check("cleanup: section days restored", st == 200 and s.get("days") == target_sec["days"])
         st, doc7 = _req("PUT", f"/api/trips/{tid}/features",
                         {"features": [{"title": f["title"]} for f in trip.get("features", [])]})
         feats = [f["title"] for f in doc7.get("features", [])] if st == 200 else []

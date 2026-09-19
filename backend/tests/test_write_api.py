@@ -979,6 +979,48 @@ def test_section_days_trim_and_restore(client, rsa_keypair, graph) -> None:
     assert s["days"] == [12, 15]
 
 
+def test_section_days_extend_writes_no_day_section_pointer(client, rsa_keypair, graph) -> None:
+    """Regression for issue #341: extending a section's day range 500'd live.
+
+    ``_sync_section_days`` back-filled an undeclared ``section`` property on
+    every newly covered Day twin; the real graph rejects unmodelled
+    properties (FakeGraph does not), so CI stayed green while
+    ``PUT /sections`` with an extending range 500'd between the hasDay edge
+    writes and the section ``days`` property write (half-applied write).
+    The section↔day link lives on the hasDay edges alone — no Day twin may
+    gain a ``section`` key, and the ``days`` property must match the edge
+    coverage after the extend.
+    """
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    section = _section_by_days(trip.sections, [12, 15])
+    # trim first (delete path), then extend past the trimmed range (upsert path)
+    assert _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+                  json={"days": [12, 12]}).status_code == 200
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"days": [12, 14]})
+    assert r.status_code == 200
+    s = next(x for x in r.json()["sections"] if x["id"] == section.id)
+    assert s["days"] == [12, 14]
+    # no Day twin anywhere carries the undeclared back-pointer
+    for t in g.twins:
+        if g.kind(t.get("$dtId")) == "Day":
+            assert "section" not in t, f"Day {t.get('$dtId')} gained an undeclared 'section' property"
+    # edge coverage agrees with the days property
+    covered = sorted(
+        i for r_ in g.rels_from(section.id, "hasDay")
+        for i, d in enumerate(_trip_of(g).days)
+        if d.id == r_.get("$targetId")
+    )
+    assert covered == [12, 13, 14]
+    # restore
+    r = _authz(client, "put", f"/api/trips/{trip.id}/sections/{section.id}", token,
+               json={"days": [12, 15]})
+    assert r.status_code == 200
+    assert next(x for x in r.json()["sections"] if x["id"] == section.id)["days"] == [12, 15]
+
+
 def test_section_days_validation(client, rsa_keypair, graph) -> None:
     g = graph()
     trip = _trip_of(g)
