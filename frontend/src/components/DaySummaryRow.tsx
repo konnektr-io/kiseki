@@ -5,7 +5,8 @@ import { BlockGlyph, MetaChips } from "./blocks";
 import { TripMedia } from "./photos";
 import { classifyTransportMode } from "../lib/transport";
 import { formatDay } from "../lib/dates";
-import type { Block, Day } from "../lib/types";
+import { DayWeatherPill } from "./Weather";
+import type { Block, Day, TripLocation } from "../lib/types";
 /** Photo images referenced by a day's blocks (block `images` + `gallery` items),
  *  capped at 2 — the summary-density thumbnail strip. Map images are excluded:
  *  no maps inline in the itinerary list (DESIGN.md §7.5). */
@@ -43,6 +44,8 @@ export function DaySummaryRow({
   dayNo,
   isToday,
   active,
+  locations,
+  today,
 }: {
   day: Day;
   idx: number;
@@ -50,6 +53,11 @@ export function DaySummaryRow({
   isToday?: boolean;
   /** The day currently open in the day level (map surface, #92). */
   active?: boolean;
+  /** Registry places — resolves the day's powder pill coords (#334). */
+  locations?: TripLocation[];
+  /** Trip-local today (YYYY-MM-DD) — lets the day weather pill skip a request
+   *  for a date no forecast can cover (#334). */
+  today?: string;
 }) {
   const { tripId } = useParams();
   const thumbs = dayThumbnails(day);
@@ -82,8 +90,12 @@ export function DaySummaryRow({
               <span className="truncate">{title}</span>
               {isToday && <TodayPill />}
             </h4>
-            <p className="mt-1 text-xs tabular-nums text-muted-foreground">
-              {formatDay(day.date)} · {day.blocks.length} {day.blocks.length === 1 ? "item" : "items"}
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs tabular-nums text-muted-foreground">
+              <span>
+                {formatDay(day.date)} · {day.blocks.length}{" "}
+                {day.blocks.length === 1 ? "item" : "items"}
+              </span>
+              <DayWeatherPill day={day} locations={locations} today={today} />
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

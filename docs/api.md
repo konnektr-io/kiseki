@@ -146,6 +146,7 @@ therefore the acting user's role.
 | `GET` | `/api/places/search` | anon | Place search (proxied, key server-side) |
 | `GET` | `/api/places/details/{place_id}` | anon | Place details (rating, reviews, hours) |
 | `GET` | `/api/places/photo` | anon | Place photo bytes (proxied) |
+| `GET` | `/api/weather/forecast` | anon | Conditions/temperature/precipitation (plus snowfall + snowpack) for `lat`/`lng`/`days` — Open-Meteo, proxied, keyless; `{"available": false}` when upstream fails |
 | `GET` | `/api/trips/{trip_id}/booklet.pdf` | `follower+` / public | Print-ready A4 booklet |
 | `GET` | `/api/health` | anon | Liveness |
 

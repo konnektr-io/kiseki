@@ -104,6 +104,7 @@ from .write import (
 from .maps import resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, search_place, photo_by_name as place_photo_bytes
+from .weather import forecast as weather_forecast
 from .graph.client import SHOWCASE_LIMIT_DEFAULT, GraphWriteError, clamp_showcase_limit
 from .graph.convert import GraphNotFound
 from .media import (
@@ -2186,6 +2187,31 @@ def places_photo_endpoint(request: Request, ref: str = Query(..., min_length=1))
         media_type=content_type,
         headers={"Cache-Control": "private, max-age=900"},
     )
+
+
+@app.get("/api/weather/forecast")
+def weather_forecast_endpoint(
+    request: Request,
+    lat: float = Query(..., ge=-90, le=90),
+    lng: float = Query(..., ge=-180, le=180),
+    days: int = Query(7, ge=1, le=16),
+) -> dict:
+    """Live snow forecast for one point, via Open-Meteo (#334).
+
+    Same contract as the sibling ``/api/places/*`` proxies: no key to keep
+    server-side (Open-Meteo is keyless), a short-TTL in-process display
+    cache absorbs repeat mounts, and an out-of-range point / upstream
+    failure answers ``{"available": false}`` with HTTP 200 so cards render
+    nothing instead of breaking. Nothing weather-derived is persisted —
+    the documented weather fields are none (#15/#95 storage rule).
+
+    ``days`` caps at 16 — Open-Meteo's horizon. A trip date past the
+    returned ``daily`` window has no forecast; the UI renders nothing for
+    it (the honest empty state).
+    """
+    _rate_limit(request, "weather-forecast", 60)
+    got = weather_forecast(lat, lng, days)
+    return got if got else {"available": False}
 
 
 # Trip media (covers, gallery images) — referenced as /media/<trip_id>/<file>.
