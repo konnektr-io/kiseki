@@ -27,7 +27,7 @@ vi.mock("@auth0/auth0-react", () => ({
 
 import { TripProvider } from "../components/theme";
 import { EditModeProvider } from "../components/edit-mode";
-import type { Person, ProfilePerson, Trip } from "../lib/types";
+import type { Person, ProfilePerson, ReusablePlaceholder, Trip } from "../lib/types";
 import { AddCrewPanel, CrewPage } from "./CrewPage";
 
 function crewTrip(args: {
@@ -161,6 +161,8 @@ describe("Add crew from the people you follow (#198 follow-up)", () => {
     following?: ProfilePerson[];
     crewIds?: string[];
     loading?: boolean;
+    placeholders?: ReusablePlaceholder[];
+    loadingPlaceholders?: boolean;
   }): string {
     return renderToString(
       createElement(AddCrewPanel, {
@@ -169,6 +171,8 @@ describe("Add crew from the people you follow (#198 follow-up)", () => {
         following: args.following ?? FOLLOWING,
         crewIds: args.crewIds ?? ["google-oauth2|me"],
         loadingFollowing: args.loading ?? false,
+        placeholders: args.placeholders ?? [],
+        loadingPlaceholders: args.loadingPlaceholders ?? false,
         onAdd: async () => true,
         onClose: () => {},
       }),
@@ -221,6 +225,58 @@ describe("Add crew from the people you follow (#198 follow-up)", () => {
     // above the cap there is no search box at all — nothing to narrow
     const few = renderPanel({ following: FOLLOWING });
     expect(few).not.toContain('id="crew-add-search"');
+  });
+});
+
+describe("Linking a placeholder already on another trip (#322)", () => {
+  const PLACEHOLDERS: ReusablePlaceholder[] = [
+    {
+      personId: "bbbb1111-2222-4333-8444-555566667777",
+      name: "Nick Geelen",
+      trips: [{ id: "trip-iceland", title: "Iceland 2026", role: "viewer" }],
+    },
+  ];
+
+  function renderPanel(args: {
+    isOwner?: boolean;
+    placeholders?: ReusablePlaceholder[];
+    loadingPlaceholders?: boolean;
+  }): string {
+    return renderToString(
+      createElement(AddCrewPanel, {
+        busy: false,
+        isOwner: args.isOwner ?? true,
+        following: [],
+        crewIds: [],
+        loadingFollowing: false,
+        placeholders: args.placeholders ?? PLACEHOLDERS,
+        loadingPlaceholders: args.loadingPlaceholders ?? false,
+        onAdd: async () => true,
+        onClose: () => {},
+      }),
+    );
+  }
+
+  it("offers the placeholder WITH the trip it is already on", () => {
+    const html = renderPanel({});
+    expect(html).toContain("Already in one of your trips");
+    expect(html).toContain("Nick Geelen");
+    // the other trip is named — a bare name would look like a fresh duplicate
+    expect(html).toContain("Iceland 2026");
+  });
+
+  it("an editor never gets this picker either (the server is owner-only)", () => {
+    const html = renderPanel({ isOwner: false });
+    expect(html).not.toContain("Already in one of your trips");
+    expect(html).not.toContain("Nick Geelen");
+  });
+
+  it("says it is loading, and says so honestly when there is nothing to offer", () => {
+    // (apostrophes are HTML-escaped in the SSR output — match around them)
+    expect(renderPanel({ loadingPlaceholders: true }))
+      .toContain("Loading your other trips");
+    expect(renderPanel({ placeholders: [] }))
+      .toContain("Nobody unregistered is on your other trips");
   });
 });
 

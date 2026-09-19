@@ -278,7 +278,7 @@ Editable block fields shared across kinds (id/kind/order excluded).
 
 ### `CrewAdd`
 
-POST /crew body — two ways to add a crew member.
+POST /crew body — three ways to add a crew member.
 
 *extra=forbid — an unknown field is a 422*
 
@@ -289,6 +289,7 @@ POST /crew body — two ways to add a crew member.
 | `note` | str | NoneType | no | `null` |
 | `contact` | str | NoneType | no | `null` |
 | `sub` | str | NoneType | no | `null` |
+| `personId` | str | NoneType | no | `null` |
 
 ### `LocationsPut`
 

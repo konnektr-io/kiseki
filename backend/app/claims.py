@@ -24,12 +24,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .graph.convert import GraphNotFound, crew_edge_name, graph_to_trip
+from .graph.convert import GraphNotFound, graph_to_trip
 from .graph.client import PERSON_MODEL, USER_MODEL
 from .models import Trip
 from .store import get_graph_client
-
-ROLES = {"owner", "editor", "viewer", "follower"}
 
 
 class ClaimError(Exception):
@@ -62,6 +60,21 @@ def _find_crew_edge(graph: dict, trip_dtid: str, target_id: str) -> dict | None:
     return None
 
 
+def _find_person_edges(client, person_id: str) -> list[dict]:
+    """Every ``hasCrew`` edge pointing at ``person_id``, across ALL trips (#322).
+
+    The placeholder being claimed may be crew on more than one trip, so the
+    edge list — not the one trip the join link names — is the unit of work.
+    Falls back to an empty list when the graph client cannot answer; the
+    caller then refuses the claim rather than half-performing it.
+    """
+    getter = getattr(client, "crew_edges_for_person", None)
+    if not callable(getter):
+        return []
+    edges = getter(person_id)
+    return [e for e in edges if isinstance(e, dict)] if isinstance(edges, list) else []
+
+
 def trip_by_claim_token(claim_token: str) -> Trip | None:
     """Resolve a trip from its claim token (join-link read, anonymous)."""
     client = get_graph_client()
@@ -89,6 +102,14 @@ def claim_identity(
 
     Raises ``ClaimError`` on every expected failure; returns the rebuilt Trip
     (with the user on the crew) on success.
+
+    **The claim CASCADES across every trip the placeholder is crew on (#322).**
+    A placeholder is a real twin, so one person added to three trips before
+    signing in is ONE Person with three ``hasCrew`` edges, not three orphan
+    twins. Claiming through any one trip's join link therefore transfers all
+    three edges onto the account and retires the placeholder once — one join
+    link, all linked trips. Each trip keeps its own role / index / note, so a
+    placeholder who is an editor on one trip and a viewer on another keeps both.
     """
     client = get_graph_client()
     if client is None:
@@ -103,29 +124,24 @@ def claim_identity(
     person = _find_person(graph, person_id)
     if person is None:
         raise ClaimError(404, "Crew member not found")
-    edge = _find_crew_edge(graph, trip_dtid, person_id)
-    if edge is None:
+    # The invite authorizes claiming a person ON THIS TRIP. The cascade below
+    # then follows that person to their other trips — never the other way
+    # round, or a link for one trip could claim a stranger from another.
+    if _find_crew_edge(graph, trip_dtid, person_id) is None:
         raise ClaimError(409, "This crew member is already linked to an account")
     if _find_crew_edge(graph, trip_dtid, user_dtid) is not None:
         raise ClaimError(409, "You are already on this trip's crew")
 
-    role = edge.get("role") or "viewer"
-    if role not in ROLES:
-        role = "viewer"
-    index = edge.get("index")
-    index = index if isinstance(index, int) else 0
-    # Trip-relative note rides the edge too — carry it over to the User edge
-    # so claiming never drops it.
-    note = edge.get("note")
-    note = note if isinstance(note, str) else None
-    # The crew's OWN name rides the edge too (#196) — carry it over so a
-    # claim never renames the crew member to the account's name. An edge that
-    # stored the person's own opaque id carries no name at all (#213).
-    display_name = crew_edge_name(edge, person_id)
+    # Every trip this placeholder is crew on — the trip behind the join link
+    # plus any sibling trip the same placeholder was added to (#322).
+    edges = _find_person_edges(client, person_id)
+    if not edges:
+        raise ClaimError(503, "Could not read this crew member's trips")
 
     if not client.create_user_twin(user_dtid, profile):
         raise ClaimError(503, "Could not create your user identity")
-    if not client.claim_crew_person(trip_dtid, user_dtid, person_id, role, index, note, display_name):
+    result = client.claim_crew_person_cascade(user_dtid, person_id, edges)
+    if result is None:
         raise ClaimError(503, "Could not transfer your crew role")
 
     rebuilt = client.fetch_graph(trip_dtid)

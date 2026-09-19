@@ -17,8 +17,9 @@ import { splitCrew } from "../lib/crew";
 import { withAddedCrew, withCrewMember, withRemovedCrew } from "../lib/editing";
 import { useCanEdit } from "../components/edit-mode";
 import { useFollowing } from "../lib/following";
+import { useReusablePlaceholders } from "../lib/crew-placeholders";
 import { useTripWrite } from "../lib/useTripWrite";
-import type { Person, ProfilePerson, Role } from "../lib/types";
+import type { Person, ProfilePerson, ReusablePlaceholder, Role } from "../lib/types";
 
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
@@ -173,13 +174,18 @@ function FollowedChip({
  *
  *  Picking is an OWNER-only affordance, mirroring the server (attaching an
  *  existing account hands out access, so it is the owner's call — see
- *  `write.add_crew`). */
+ *  `write.add_crew`). Same gate, second source (#322): a placeholder already
+ *  crew on ANOTHER of the owner's trips. Linking it reuses the one Person twin,
+ *  so a single claim lands them on every linked trip instead of leaving one
+ *  orphan placeholder (and one invite link) per trip. */
 export function AddCrewPanel({
   busy,
   isOwner,
   following,
   crewIds,
   loadingFollowing,
+  placeholders,
+  loadingPlaceholders,
   onAdd,
   onClose,
 }: {
@@ -188,10 +194,13 @@ export function AddCrewPanel({
   following: ProfilePerson[];
   crewIds: string[];
   loadingFollowing: boolean;
+  placeholders: ReusablePlaceholder[];
+  loadingPlaceholders: boolean;
   onAdd: (body: AddCrewMemberBody) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [sub, setSub] = useState<string | undefined>(undefined);
+  const [personId, setPersonId] = useState<string | undefined>(undefined);
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("viewer");
   const [note, setNote] = useState("");
@@ -215,6 +224,7 @@ export function AddCrewPanel({
   const hiddenCount = matches.length - (shown.length - pinned.length);
 
   const pick = (person: ProfilePerson) => {
+    setPersonId(undefined);
     if (sub === person.sub) {
       setSub(undefined);
       setName("");
@@ -224,16 +234,32 @@ export function AddCrewPanel({
     setName(person.name);
   };
 
+  /** Link an existing placeholder (or unlink it). The two sources are
+   *  exclusive: an entry is either a known account or a shared placeholder,
+   *  never both — the server refuses `sub` + `personId` together (422). */
+  const pickPlaceholder = (p: ReusablePlaceholder) => {
+    setSub(undefined);
+    if (personId === p.personId) {
+      setPersonId(undefined);
+      setName("");
+      return;
+    }
+    setPersonId(p.personId);
+    setName(p.name);
+  };
+
   const submit = async () => {
     const trimmed = name.trim();
     if (!trimmed || busy) return;
     const body: AddCrewMemberBody = { name: trimmed, role };
     if (note.trim()) body.note = note.trim();
     if (sub) body.sub = sub;
+    else if (personId) body.personId = personId;
     else if (contact.trim()) body.contact = contact.trim();
     const ok = await onAdd(body);
     if (ok) {
       setSub(undefined);
+      setPersonId(undefined);
       setName("");
       setRole("viewer");
       setNote("");
@@ -300,10 +326,51 @@ export function AddCrewPanel({
           )}
         </div>
       )}
+      {isOwner && (
+        <div className="mb-3">
+          <p className={labelCls}>Already in one of your trips</p>
+          {loadingPlaceholders ? (
+            <p className="text-xs text-muted-foreground">Loading your other trips' crew…</p>
+          ) : placeholders.length ? (
+            <>
+              <div className="flex flex-wrap gap-1.5" data-crew-placeholders>
+                {placeholders.map((p) => (
+                  <button
+                    key={p.personId}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => pickPlaceholder(p)}
+                    aria-pressed={personId === p.personId}
+                    className={`flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                      personId === p.personId
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="max-w-[10rem] truncate">{p.name}</span>
+                    <span className="truncate opacity-70">
+                      {p.trips.map((t) => t.title || "Untitled trip").join(", ")}
+                    </span>
+                    {personId === p.personId && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                The same person, not a second one — their one invite link covers every trip
+                you add them to. The name and role below are this trip's own.
+              </p>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Nobody unregistered is on your other trips' crews.
+            </p>
+          )}
+        </div>
+      )}
       <div className="space-y-2.5">
         <div>
           <label className={labelCls} htmlFor="crew-add-name">
-            {sub ? "Name on this trip" : "Name"}
+            {sub || personId ? "Name on this trip" : "Name"}
           </label>
           <input
             id="crew-add-name"
@@ -349,6 +416,12 @@ export function AddCrewPanel({
           <p className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-foreground">
             They have an account, so this adds them straight to the crew — they can read
             the trip as soon as you save.
+          </p>
+        ) : personId ? (
+          <p className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs text-foreground">
+            Unclaimed placeholder: they still join this trip by claiming their invite, and
+            the same claim covers every trip they are already on. No contact here — it
+            belongs to the shared entry, not to this trip.
           </p>
         ) : (
           <div>
@@ -396,6 +469,13 @@ export function CrewPage() {
   const { members, followers } = splitCrew(trip.crew);
   // Only an owner who opened the panel triggers the follow-list read.
   const { people, loading } = useFollowing(user?.sub, isOwner && adding);
+  // …and the same gate for the OTHER source of an add (#322): the placeholders
+  // this owner's trips already have. Owner-only server-side, so the panel asks
+  // for it exactly when it can use it.
+  const { placeholders, loading: loadingPlaceholders } = useReusablePlaceholders(
+    trip.id,
+    isOwner && adding,
+  );
 
   const saveMember = async (person: Person, patch: { note?: string | null; role?: Role }) => {
     setEditingId(null);
@@ -407,10 +487,11 @@ export function CrewPage() {
 
   const addMember = async (body: AddCrewMemberBody): Promise<boolean> => {
     // Optimistic row — the canonical doc replaces it on success. An account
-    // add carries the real sub, so the row is already the right identity and
-    // renders as claimed (profile link included) before the round trip lands.
+    // add carries the real sub, and a linked placeholder (#322) the real
+    // Person id, so the row is already the right identity before the round
+    // trip lands (claimed only in the account case).
     const temp: Person = {
-      id: body.sub ?? `pending-${body.name}`,
+      id: body.sub ?? body.personId ?? `pending-${body.name}`,
       name: body.name,
       role: body.role,
       ...(body.note ? { note: body.note } : {}),
@@ -484,6 +565,8 @@ export function CrewPage() {
       following={people}
       crewIds={trip.crew.map((p) => p.id)}
       loadingFollowing={loading}
+      placeholders={placeholders}
+      loadingPlaceholders={loadingPlaceholders}
       onAdd={addMember}
       onClose={() => setAdding(false)}
     />

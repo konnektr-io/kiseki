@@ -299,7 +299,7 @@ class CrewPatch(_Strict):
 
 
 class CrewAdd(_Strict):
-    """POST /crew body — two ways to add a crew member.
+    """POST /crew body — three ways to add a crew member.
 
     Default: an unclaimed placeholder Person (they claim later via the invite,
     #6) — it grants nobody access until then.
@@ -310,6 +310,13 @@ class CrewAdd(_Strict):
     claim step). Owner-only, and only for an account the caller follows.
     ``name`` is still the trip-relative label; ``contact`` is refused (it
     belongs to their own profile, not to this trip).
+
+    With ``personId`` (#322): an UNCLAIMED placeholder that is already crew on
+    another trip the caller owns — the same human, one identity, so their
+    invite lands them on every linked trip at once. Owner-only, explicit and
+    id-based (never name-matched); ``contact`` is refused for the same reason
+    as ``sub``, only here the shared thing is the placeholder twin itself.
+    ``name`` is this trip's own label for them, as always.
     """
 
     name: str = Field(min_length=1)
@@ -317,6 +324,7 @@ class CrewAdd(_Strict):
     note: Optional[str] = None
     contact: Optional[str] = None
     sub: Optional[str] = None
+    personId: Optional[str] = None
 
 
 class LocationWrite(_Strict):
@@ -897,6 +905,24 @@ def delete_trip(trip_dtid: str, actor: dict) -> None:
     relationships = graph.get("relationships", [])
     twins = {t.get("$dtId"): t for t in graph.get("twins", [])}
 
+    # 0) Which crew placeholders SURVIVE this trip (#322)? A placeholder is a
+    #    shared twin — one Person, one hasCrew edge per trip — so it outlives
+    #    the trip whenever a SIBLING trip still crews them. Decided here, from
+    #    the live graph, BEFORE the sweep that removes this trip's edges: the
+    #    sibling edge is what answers the question, and by step 3 it is the
+    #    only thing left to read anyway. Deleting a still-crewed placeholder is
+    #    not merely wrong, it is REFUSED by the graph (a vertex with edges) —
+    #    which would 503 the delete after the whole trip was already swept.
+    shared_placeholders = {
+        dtid
+        for dtid, twin in twins.items()
+        if _model_kind(twin) == "Person"
+        and any(
+            e.get("tripId") != trip_dtid
+            for e in _person_crew_edges(client, dtid)
+        )
+    }
+
     # 1) Edges first — every edge SOURCED by a TRIP-SCOPED twin goes with the
     #    trip. #222: the bundle is wider than the trip (MAX_HOPS reachability
     #    finds the crew's User twins through hasCrew), so it also carries THEIR
@@ -935,12 +961,16 @@ def delete_trip(trip_dtid: str, actor: dict) -> None:
         if kind == "Person":
             continue  # crew-linked placeholders ride below, never via this loop
         client.delete_twin(trip_dtid, dtid, x_user_id=sub)
-    # Person twins here are crew placeholders (#6): identity-less twins whose
-    # whole meaning is this trip's crew — remove them (no crew graph is left
-    # behind; claimed users were User twins, handled above).
+    # Person twins here are crew placeholders (#6). Since #322 a placeholder can
+    # be SHARED across trips (one Person, one hasCrew edge per trip), so it goes
+    # only when THIS trip held its last crew edge — see ``shared_placeholders``
+    # above, decided before the sweep.
     for dtid, twin in twins.items():
-        if _model_kind(twin) == "Person":
-            client.delete_twin(trip_dtid, dtid, x_user_id=sub)
+        if _model_kind(twin) != "Person":
+            continue
+        if dtid in shared_placeholders:
+            continue  # still crew on another trip — the placeholder outlives this one
+        client.delete_twin(trip_dtid, dtid, x_user_id=sub)
 
     # The trip is gone — retire its cached reads (and the owner's trip list,
     # which no longer contains it).
@@ -2239,8 +2269,39 @@ def _next_crew_index(graph: dict, trip_dtid: str) -> int:
     return max(used) + 1 if used else 0
 
 
+def _person_crew_edges(client, person_id: str) -> list[dict]:
+    """Every trip a placeholder Person is crew on (#322).
+
+    A placeholder is a shared twin: one Person, one ``hasCrew`` edge per trip.
+    The trip-scoped bundle cannot answer "who else crews them" — the sibling
+    trip is outside this trip's closure — so this is a graph read. Returns an
+    empty list when the client cannot answer, which callers read as "no other
+    trip" (the pre-#322 world, where a placeholder belonged to one trip).
+    """
+    getter = getattr(client, "crew_edges_for_person", None)
+    if not callable(getter):
+        return []
+    edges = getter(person_id)
+    return [e for e in edges if isinstance(e, dict)] if isinstance(edges, list) else []
+
+
+def _owner_placeholders(client, user_dtid: str) -> list[dict]:
+    """Unclaimed placeholders on the trips ``user_dtid`` OWNS (#322).
+
+    Both the reuse picker and its authorization gate (see ``add_crew``): the
+    caller sees exactly the placeholders they are allowed to link. Empty list
+    when the client cannot answer — reuse then refuses rather than guessing.
+    """
+    getter = getattr(client, "placeholders_for_owner", None)
+    if not callable(getter):
+        return []
+    rows = getter(user_dtid)
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
 def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
-    """Add a crew member: an unclaimed placeholder, or an existing account.
+    """Add a crew member: an unclaimed placeholder, an existing account, or an
+    existing placeholder reused across trips.
 
     ``sub`` absent (#6): a Person twin + hasCrew edge they claim later through
     the invite — it grants nobody access until then, so editor+ may add one.
@@ -2251,6 +2312,17 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
     share the join link — so it is OWNER-only, and only for an account the
     caller already FOLLOWS: the follow graph is the picker's source, so no
     arbitrary ``sub`` can be attached to a trip.
+
+    ``personId`` present (#322): the SAME action, one step earlier in the
+    lifecycle — the entry attaches to a placeholder that is already crew on
+    another trip the caller owns, so the invitee claims ONE identity and the
+    claim cascade lands them on every linked trip. OWNER-only on this trip AND
+    the placeholder must sit on a trip the caller owns (``placeholders_for_owner``
+    is both the picker and the gate): linking two trips' crew means a claim
+    through either grants both, which is the owner's call on both sides.
+    Deliberately explicit and id-based — never name-matched, because a name is
+    a label two different people can share, and a wrong merge would hand a
+    stranger the other trip.
     """
     client = _client()
     graph = _fetch(client, trip_dtid)
@@ -2258,6 +2330,9 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
 
     if body.role == "owner" and actor["role"] != "owner":
         raise WriteError(403, "Only the trip owner can grant the owner role")
+
+    if body.sub and body.personId:
+        raise WriteError(422, "`sub` and `personId` are mutually exclusive")
 
     if body.sub:
         if actor["role"] != "owner":
@@ -2278,11 +2353,40 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
         if any(r.get("$targetId") == body.sub for r in _crew_edges(graph, trip_dtid)):
             raise WriteError(409, f"{body.name!r} is already on this trip's crew")
 
+    if body.personId:
+        if actor["role"] != "owner":
+            raise WriteError(
+                403, "Only the trip owner can link a placeholder from another trip"
+            )
+        if body.contact:
+            raise WriteError(
+                422,
+                "`contact` is not accepted with `personId` — that placeholder is "
+                "shared across trips, so its contact is not this trip's to edit",
+            )
+        if any(r.get("$targetId") == body.personId for r in _crew_edges(graph, trip_dtid)):
+            raise WriteError(409, f"{body.name!r} is already on this trip's crew")
+        owner_placeholders = [
+            p for p in _owner_placeholders(client, actor["sub"])
+            # Only an UNCLAIMED placeholder travels this path: a claimed twin is
+            # a real account and goes through `sub`'s follow-gated route.
+            if p.get("personModel") == PERSON_MODEL
+        ]
+        match = next(
+            (p for p in owner_placeholders if p.get("personId") == body.personId),
+            None,
+        )
+        if match is None:
+            # 404 when nothing on the caller's OWN trips matches: the id is
+            # either unknown to them or not theirs to reuse. Never widened to a
+            # probe of other people's trips.
+            raise WriteError(404, "Unknown placeholder on your trips")
+
     if body.name in _crew_names(graph, trip_dtid):
         raise WriteError(409, f"{body.name!r} is already on this trip's crew")
 
-    person_id = body.sub or _new_id()
-    if not body.sub:
+    person_id = body.sub or body.personId or _new_id()
+    if not body.sub and not body.personId:
         # Placeholder identity — the account (if any) is created at claim time.
         props: dict[str, Any] = {
             "$dtId": person_id,
@@ -2292,6 +2396,11 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
         if body.contact:
             props["contact"] = body.contact
         client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
+    # A reused placeholder (#322) is NOT re-upserted: its twin (and its name and
+    # contact) is shared with the trips that already crew it, so this trip only
+    # adds its own edge. The trip-relative label rides that edge's displayName
+    # below, which is exactly why one twin can be "Nick" on one trip and
+    # "Nicholas" on another.
 
     rel: dict[str, Any] = {
         "$relationshipId": _rel_id(trip_dtid, "hasCrew", person_id),
@@ -2315,9 +2424,61 @@ def add_crew(trip_dtid: str, actor: dict, body: CrewAdd) -> Trip:
     return _rebuild(client, trip_dtid)
 
 
+def reusable_placeholders(trip_dtid: str, actor: dict) -> dict:
+    """Placeholders the caller can LINK into this trip (#322).
+
+    Owner-only. The list is exactly what ``add_crew`` with ``personId``
+    accepts — placeholders already crew on another trip the caller OWNS, minus
+    anyone already on this crew — so the picker and the write gate cannot drift
+    apart: both read ``_owner_placeholders``.
+
+    Grouped per person (a placeholder on three trips is ONE entry listing the
+    three), with the other trips' titles so the picker can label the choice
+    ("Nick — also on Canada 2027") instead of offering a bare name that looks
+    like a duplicate of whatever the owner just typed.
+    """
+    if actor["role"] != "owner":
+        raise WriteError(403, "Only the trip owner can link a placeholder from another trip")
+    client = _client()
+    graph = _fetch(client, trip_dtid)
+    _trip_twin(graph, trip_dtid)  # presence check (404 when unknown)
+
+    on_this_crew = {
+        str(r.get("$targetId")) for r in _crew_edges(graph, trip_dtid)
+    }
+    grouped: dict[str, dict] = {}
+    for row in _owner_placeholders(client, actor["sub"]):
+        if row.get("personModel") != PERSON_MODEL:
+            continue  # a claimed account rides the `sub` path, not this one
+        if row.get("tripId") == trip_dtid:
+            continue  # already on THIS trip's crew — nothing to offer
+        person_id = str(row.get("personId") or "")
+        if not person_id or person_id in on_this_crew:
+            continue
+        entry = grouped.setdefault(person_id, {
+            "personId": person_id,
+            "name": (row.get("displayName") or row.get("name") or ""),
+            "trips": [],
+        })
+        if not entry["name"]:
+            entry["name"] = row.get("displayName") or row.get("name") or ""
+        if row.get("tripId") not in {t["id"] for t in entry["trips"]}:
+            entry["trips"].append({
+                "id": row.get("tripId"),
+                "title": row.get("tripTitle") or "",
+                "role": row.get("role") or "viewer",
+            })
+    placeholders = sorted(
+        grouped.values(), key=lambda p: (str(p["name"]).lower(), p["personId"])
+    )
+    return {"placeholders": placeholders}
+
+
 def remove_crew(trip_dtid: str, actor: dict, person_id: str) -> Trip:
-    """Owner-only: remove a crew member. Placeholder Person twins are deleted;
-    claimed User twins keep their identity, only the hasCrew edge goes."""
+    """Owner-only: remove a crew member. Placeholder Person twins are deleted
+    when this trip held their last crew edge; a placeholder still crewing
+    ANOTHER trip survives (#322, one Person serves every trip that added them),
+    and a claimed User twin always survives — only the crew edge goes."""
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -2328,7 +2489,12 @@ def remove_crew(trip_dtid: str, actor: dict, person_id: str) -> Trip:
         edge.get("$sourceId") or trip_dtid, edge["$relationshipId"], x_user_id=actor["sub"]
     )
     if _model_kind(twin) == "Person":
-        client.delete_twin(trip_dtid, person_id, x_user_id=actor["sub"])
+        others = [
+            e for e in _person_crew_edges(client, person_id)
+            if e.get("tripId") != trip_dtid
+        ]
+        if not others:
+            client.delete_twin(trip_dtid, person_id, x_user_id=actor["sub"])
     client.update_twin_props(
         trip_dtid, trip_dtid,
         _scalar_ops(root, [("updated", _today())]), x_user_id=actor["sub"],

@@ -17,6 +17,7 @@ from app import auth as auth_module
 from app import claims as claims_module
 from app.auth import Auth0JWTValidator
 from app.graph import client as graph_client_mod
+from app.graph.convert import crew_edge_name
 from app.main import app
 
 from conftest import CLIENT_ID, TENANT, _claims, _sign
@@ -73,10 +74,19 @@ def _to_dict(obj) -> dict:
 
 
 class _FakeSdk:
-    """SDK stand-in recording every write call."""
+    """SDK stand-in recording every write call.
 
-    def __init__(self) -> None:
+    ``rows`` is what ``query_twins`` answers with (the read methods parse the
+    first row), so a query-backed read can be tested without a graph.
+    """
+
+    def __init__(self, rows: list | None = None) -> None:
         self.calls: list[tuple] = []
+        self.rows: list = rows or []
+
+    def query_twins(self, query, query_parameters=None):
+        self.calls.append(("query", query, query_parameters))
+        return self.rows
 
     def upsert_digital_twin(self, dtid, twin):
         self.calls.append(("upsert_twin", dtid, _to_dict(twin)))
@@ -170,6 +180,150 @@ def test_claim_crew_person_omits_missing_note(sdk_client) -> None:
     assert "note" not in rel
 
 
+# ------------------------------------------- shared placeholders (#322)
+# A placeholder is a real twin, so one person added to several trips before
+# signing in is ONE Person with one hasCrew edge per trip — not one orphan
+# twin per trip. These cover the two reads/writes that model requires.
+
+TRIP_A = "aaaaaaaa-1111-4111-8111-111111111111"
+TRIP_B = "bbbbbbbb-2222-4222-8222-222222222222"
+TRIP_C = "cccccccc-3333-4333-8333-333333333333"
+CLAIM_USER = "google-oauth2|42"
+CLAIM_PERSON = "11111111-2222-4333-8444-555555555555"
+
+
+def _crew_edge(trip: str, role: str = "owner", index: int = 0) -> dict:
+    return {"tripId": trip, "role": role, "index": index, "note": None, "displayName": None}
+
+
+def test_crew_edges_for_person_parses_every_trip(sdk_client) -> None:
+    """The read behind the cascade: flat rows, one per trip, junk dropped."""
+    sdk_client._client.rows = [{"edges": [  # type: ignore[attr-defined]
+        [TRIP_A, "owner", 2, "Skis", "Nick", "dtmi:kiseki:travel:Person;1"],
+        [TRIP_B, "viewer", 0, None, None, "dtmi:kiseki:travel:Person;1"],
+        ["", "viewer", 0, None, None, ""],      # no trip id -> dropped
+        "nonsense",                              # not a row -> dropped
+    ]}]
+    edges = sdk_client.crew_edges_for_person(CLAIM_PERSON)
+    assert [e["tripId"] for e in edges] == [TRIP_A, TRIP_B]
+    assert edges[0] == {
+        "tripId": TRIP_A, "role": "owner", "index": 2, "note": "Skis",
+        "displayName": "Nick", "personModel": "dtmi:kiseki:travel:Person;1",
+    }
+    assert edges[1]["note"] is None and edges[1]["displayName"] is None
+
+
+def test_crew_edges_for_person_drops_an_opaque_id_label(sdk_client) -> None:
+    """#213 at the source: an edge whose displayName IS the person's own id
+    carries no name, so the cascade cannot promote an auth sub to a crew name."""
+    sdk_client._client.rows = [{"edges": [  # type: ignore[attr-defined]
+        [TRIP_A, "owner", 0, None, CLAIM_PERSON, "dtmi:kiseki:travel:Person;1"],
+    ]}]
+    assert sdk_client.crew_edges_for_person(CLAIM_PERSON)[0]["displayName"] is None
+
+
+def test_crew_edges_for_person_empty_without_a_graph(sdk_client, monkeypatch) -> None:
+    """A malformed id short-circuits BEFORE the query — never a graph call."""
+    assert sdk_client.crew_edges_for_person("not-a-uuid") == []
+    assert sdk_client.crew_edges_for_person("") == []
+    assert sdk_client._client.calls == []  # type: ignore[attr-defined]
+
+
+def test_crew_edges_for_person_survives_a_graph_error(sdk_client, monkeypatch) -> None:
+    """A failing read is an empty list, not an exception: the caller then
+    refuses the claim (503) instead of half-performing it."""
+    def _boom(*_a, **_k):
+        raise RuntimeError("graph down")
+
+    monkeypatch.setattr(sdk_client._client, "query_twins", _boom)  # type: ignore[attr-defined]
+    assert sdk_client.crew_edges_for_person(CLAIM_PERSON) == []
+
+
+def test_placeholders_for_owner_parses_rows(sdk_client) -> None:
+    """The picker's read: one row per (person, trip) edge, so the same
+    placeholder on three trips comes back three times — grouped by the caller."""
+    sdk_client._client.rows = [{"placeholders": [  # type: ignore[attr-defined]
+        [CLAIM_PERSON, "Nick", "dtmi:kiseki:travel:Person;1", TRIP_A, "Iceland 2026",
+         "viewer", 1, "Nicholas"],
+        "junk",
+    ]}]
+    assert sdk_client.placeholders_for_owner("google-oauth2|322-picker") == [{
+        "personId": CLAIM_PERSON, "name": "Nick",
+        "personModel": "dtmi:kiseki:travel:Person;1", "tripId": TRIP_A,
+        "tripTitle": "Iceland 2026", "role": "viewer", "index": 1,
+        "displayName": "Nicholas",
+    }]
+
+
+def test_claim_cascade_moves_every_trip_then_retires_the_placeholder(sdk_client, monkeypatch) -> None:
+    """#322: claiming a shared placeholder transfers EVERY trip's edge — each
+    keeping its own role/index — and deletes the placeholder LAST, because the
+    graph refuses deleting a vertex that still has edges."""
+    monkeypatch.setattr(sdk_client, "role_for_user_on_trip", lambda trip, user: None)
+
+    result = sdk_client.claim_crew_person_cascade(
+        CLAIM_USER, CLAIM_PERSON,
+        [_crew_edge(t, "viewer", i) for i, t in enumerate([TRIP_A, TRIP_B, TRIP_C])],
+    )
+
+    assert result == {"transferred": 3, "alreadyCrew": 0}
+    calls = sdk_client._client.calls  # type: ignore[attr-defined]
+    assert [c[0] for c in calls] == [
+        "upsert_rel", "delete_rel", "upsert_rel", "delete_rel", "upsert_rel",
+        "delete_rel", "delete_twin",
+    ]
+    assert calls[-1][1:] == (CLAIM_PERSON,)  # placeholder last, exactly once
+    for i, trip in enumerate([TRIP_A, TRIP_B, TRIP_C]):
+        _, src, rel_id, rel = calls[i * 2]
+        assert src == trip and rel_id == f"{trip}__hasCrew__{CLAIM_USER}"
+        assert rel["role"] == "viewer" and rel["index"] == i
+        assert calls[i * 2 + 1][1:] == (trip, f"{trip}__hasCrew__{CLAIM_PERSON}")
+
+
+def test_claim_cascade_never_overwrites_a_role_they_already_have(sdk_client, monkeypatch) -> None:
+    """A trip where they ALREADY hold a role keeps that edge (the claim neither
+    widens nor downgrades it) and only loses the placeholder's duplicate row —
+    one human must not render twice on a crew list."""
+    roles = {TRIP_A: None, TRIP_B: "owner"}
+    monkeypatch.setattr(sdk_client, "role_for_user_on_trip", lambda trip, user: roles.get(trip))
+
+    result = sdk_client.claim_crew_person_cascade(
+        CLAIM_USER, CLAIM_PERSON, [_crew_edge(TRIP_A), _crew_edge(TRIP_B)]
+    )
+
+    assert result == {"transferred": 1, "alreadyCrew": 1}
+    calls = sdk_client._client.calls  # type: ignore[attr-defined]
+    assert [c[0] for c in calls] == ["upsert_rel", "delete_rel", "delete_rel", "delete_twin"]
+    assert calls[0][1] == TRIP_A  # the role-less trip was the only write
+    assert calls[1][1:] == (TRIP_A, f"{TRIP_A}__hasCrew__{CLAIM_PERSON}")
+    assert calls[2][1:] == (TRIP_B, f"{TRIP_B}__hasCrew__{CLAIM_PERSON}")
+
+
+def test_claim_cascade_coerces_a_corrupt_edge(sdk_client, monkeypatch) -> None:
+    """Defensive on the way in: a row whose role/index did not survive storage
+    still yields the LEAST privilege (viewer, index 0) instead of a dropped
+    trip — silently losing a crew row is worse than a demoted one."""
+    monkeypatch.setattr(sdk_client, "role_for_user_on_trip", lambda trip, user: None)
+
+    assert sdk_client.claim_crew_person_cascade(
+        CLAIM_USER, CLAIM_PERSON,
+        [{"tripId": TRIP_A, "role": "superadmin", "index": "3"}],
+    ) == {"transferred": 1, "alreadyCrew": 0}
+    _, _, _, rel = sdk_client._client.calls[0]  # type: ignore[attr-defined]
+    assert rel["role"] == "viewer" and rel["index"] == 0
+
+
+def test_claim_cascade_rejects_bad_input(sdk_client) -> None:
+    """Same input contract as the single-trip form: an empty edge list or a
+    malformed id is refused outright (no writes), never a silent no-op claim."""
+    assert sdk_client.claim_crew_person_cascade(CLAIM_USER, CLAIM_PERSON, []) is None
+    assert sdk_client.claim_crew_person_cascade("bad'sub", CLAIM_PERSON,
+                                                [_crew_edge(TRIP_A)]) is None
+    assert sdk_client.claim_crew_person_cascade(CLAIM_USER, "not-a-uuid",
+                                                [_crew_edge(TRIP_A)]) is None
+    assert sdk_client._client.calls == []  # type: ignore[attr-defined]
+
+
 # ------------------------------------------------------------- claim service
 
 
@@ -180,7 +334,10 @@ class _StubClient:
         self.graph = graph
         self.claim_dtid = claim_dtid
         self.created_user: str | None = None
-        self.transfer: tuple | None = None
+        # One entry per transferred edge: (trip, user, person, role, index,
+        # note, displayName). #322 made the claim a CASCADE, so a claim can
+        # move several edges — a list, not the single tuple it used to be.
+        self.transfers: list[tuple] = []
         self.followed: tuple | None = None
 
     def is_enabled(self) -> bool:
@@ -198,9 +355,34 @@ class _StubClient:
 
     def role_for_user_on_trip(self, trip, user):
         for r in self.graph["relationships"]:
-            if r["$relationshipName"] == "hasCrew" and r["$targetId"] == user:
+            if (r["$relationshipName"] == "hasCrew" and r["$targetId"] == user
+                    and r["$sourceId"] == trip):
                 return r.get("role")
         return None
+
+    def crew_edges_for_person(self, person_dtid: str) -> list[dict]:
+        """Every hasCrew edge at this person — the cascade's input (#322).
+
+        ``displayName`` goes through ``crew_edge_name`` exactly as the live
+        client's read does, so the cascade is never handed an opaque id to
+        carry over as a crew name (#213).
+        """
+        return [
+            {
+                "tripId": r["$sourceId"],
+                "role": r.get("role", "viewer"),
+                "index": r.get("index", 0),
+                "note": r.get("note"),
+                "displayName": crew_edge_name(r, person_dtid),
+                "personModel": next(
+                    (t.get("$metadata", {}).get("$model", "")
+                     for t in self.graph["twins"] if t["$dtId"] == r["$targetId"]),
+                    "",
+                ),
+            }
+            for r in self.graph["relationships"]
+            if r["$relationshipName"] == "hasCrew" and r["$targetId"] == person_dtid
+        ]
 
     def follow_trip(self, trip, user, profile) -> bool:
         self.followed = (trip, user)
@@ -224,11 +406,40 @@ class _StubClient:
         )
         return True
 
-    def claim_crew_person(self, trip, user, person, role, index, note=None, display_name=None) -> bool:
-        self.transfer = (trip, user, person, role, index, note, display_name)
-        self.graph["twins"] = [
-            t for t in self.graph["twins"] if t["$dtId"] != person
-        ]
+    def claim_crew_person_cascade(self, user, person, edges) -> dict | None:
+        """Mirror the client's cascade (#322): every edge moves, then the
+        placeholder twin is retired. A trip where the user ALREADY has a role
+        keeps that edge and only loses the placeholder's duplicate row."""
+        if not edges:
+            return None
+        transferred = 0
+        already_crew = 0
+        for edge in edges:
+            trip = edge["tripId"]
+            if self.role_for_user_on_trip(trip, user) is None:
+                new_edge: dict = {
+                    "$sourceId": trip, "$relationshipName": "hasCrew",
+                    "$targetId": user, "role": edge.get("role") or "viewer",
+                    "index": edge.get("index") if isinstance(edge.get("index"), int) else 0,
+                }
+                if isinstance(edge.get("note"), str):
+                    new_edge["note"] = edge["note"]
+                if isinstance(edge.get("displayName"), str):
+                    new_edge["displayName"] = edge["displayName"]
+                self.graph["relationships"].append(new_edge)
+                self.transfers.append((
+                    trip, user, person, new_edge["role"], new_edge["index"],
+                    edge.get("note"), edge.get("displayName"),
+                ))
+                transferred += 1
+            else:
+                already_crew += 1
+            self.graph["relationships"] = [
+                r for r in self.graph["relationships"]
+                if not (r["$targetId"] == person and r["$relationshipName"] == "hasCrew"
+                        and r["$sourceId"] == trip)
+            ]
+        self.graph["twins"] = [t for t in self.graph["twins"] if t["$dtId"] != person]
         self.graph["twins"].append(
             {
                 "$dtId": user,
@@ -238,20 +449,7 @@ class _StubClient:
                 "displayName": "Niko Raes",
             }
         )
-        self.graph["relationships"] = [
-            r for r in self.graph["relationships"]
-            if not (r["$targetId"] == person and r["$relationshipName"] == "hasCrew")
-        ]
-        new_edge: dict = (
-            {"$sourceId": trip, "$relationshipName": "hasCrew",
-             "$targetId": user, "role": role, "index": index}
-        )
-        if note is not None:
-            new_edge["note"] = note
-        if display_name is not None:
-            new_edge["displayName"] = display_name
-        self.graph["relationships"].append(new_edge)
-        return True
+        return {"transferred": transferred, "alreadyCrew": already_crew}
 
 
 @pytest.fixture
@@ -268,7 +466,8 @@ def test_claim_identity_success(stub: _StubClient) -> None:
     trip_model = claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
 
     assert stub.created_user == "google-oauth2|42"
-    trip_dtid, user, p, role, index, note, display_name = stub.transfer  # type: ignore[misc]
+    assert len(stub.transfers) == 1  # the fixture placeholders are single-trip
+    trip_dtid, user, p, role, index, note, display_name = stub.transfers[0]
     assert trip_dtid == trip and user == "google-oauth2|42" and p == person
     assert role == "owner"
     assert note is None  # anon fixture crew carry no notes
@@ -290,9 +489,61 @@ def test_claim_never_carries_an_opaque_id_over_as_the_crew_name(stub: _StubClien
 
     trip_model = claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
 
-    assert stub.transfer is not None
-    assert stub.transfer[-1] is None  # no displayName rode over
+    assert stub.transfers
+    assert stub.transfers[0][-1] is None  # no displayName rode over
     assert all(c.name != person for c in trip_model.crew)
+
+
+def test_claim_cascades_to_every_trip_crewing_the_placeholder(stub: _StubClient) -> None:
+    """#322: one placeholder, two trips, ONE join link. Claiming through either
+    transfers every edge — each trip keeping its OWN role — and retires the
+    placeholder once, so no trip is left pointing at a deleted twin."""
+    person = _person_id(stub.graph, "Niko Raes")
+    trip = stub.graph["$dtId"]
+    other = "dddddddd-4444-4444-8444-444444444444"
+    stub.graph["twins"].append({
+        "$dtId": other,
+        "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+        "title": "Iceland 2026",
+    })
+    stub.graph["relationships"].append({
+        "$sourceId": other, "$relationshipName": "hasCrew", "$targetId": person,
+        "role": "viewer", "index": 1,
+    })
+
+    claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
+
+    assert stub.created_user == "google-oauth2|42"
+    assert {t[0]: t[3] for t in stub.transfers} == {trip: "owner", other: "viewer"}
+    assert all(t["$dtId"] != person for t in stub.graph["twins"])
+    assert not [r for r in stub.graph["relationships"] if r["$targetId"] == person]
+
+
+def test_claim_refuses_a_placeholder_from_another_trip(stub: _StubClient) -> None:
+    """The invite authorizes claiming a person ON THIS TRIP; the cascade then
+    follows the person out to their other trips — never the reverse, or a link
+    for one trip would claim a stranger who is only crew somewhere else."""
+    person = _person_id(stub.graph, "Niko Raes")
+    other = "dddddddd-4444-4444-8444-444444444444"
+    stub.graph["twins"].append({
+        "$dtId": other,
+        "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+        "title": "Iceland 2026",
+    })
+    # the placeholder is crew on the SIBLING only — no edge from this trip
+    stub.graph["relationships"] = [
+        r for r in stub.graph["relationships"]
+        if not (r["$targetId"] == person and r["$relationshipName"] == "hasCrew")
+    ]
+    stub.graph["relationships"].append({
+        "$sourceId": other, "$relationshipName": "hasCrew", "$targetId": person,
+        "role": "viewer", "index": 1,
+    })
+
+    with pytest.raises(claims_module.ClaimError) as ei:
+        claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
+    assert ei.value.status == 409
+    assert stub.transfers == []  # nothing transferred anywhere
 
 
 def test_claim_identity_unknown_claim_token(stub: _StubClient) -> None:
@@ -316,7 +567,7 @@ def test_claim_identity_person_already_claimed(stub: _StubClient) -> None:
     with pytest.raises(claims_module.ClaimError) as ei:
         claims_module.claim_identity(CLAIM_TOKEN, person, "google-oauth2|42", PROFILE)
     assert ei.value.status == 409
-    assert stub.transfer is None
+    assert stub.transfers == []
 
 
 def test_claim_identity_already_crew(stub: _StubClient) -> None:
