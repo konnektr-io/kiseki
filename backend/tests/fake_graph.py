@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from app.graph.client import GraphWriteError
+from app.graph.convert import crew_edge_name
 
 _MOCKS = Path(__file__).resolve().parent.parent / "data" / "mocks"
 
@@ -214,13 +215,49 @@ class FakeGraph:
         is the point: the store/converter must treat a truthy Trip-less
         bundle as "absent" (→ 404), and with the old ``return None`` the
         tests never exercised that path (prod 500'd on it).
+
+        The bundle is a CLOSURE, not the whole store: the live read walks
+        ``MAX_HOPS`` outgoing hops from the trip (``_hop_chain``, #267), so
+        another trip's twins are NOT in it — a distinction that only shows up
+        once a store holds two trips (#322 shares crew twins across trips, and
+        a delete must not sweep a sibling's edges).
         """
         t = self.twin(trip_dtid)
         if t is None or self.kind(trip_dtid) != "Trip":
             return {"$dtId": trip_dtid, "twins": [], "relationships": []}
-        bundle = self._bundle()
-        bundle["$dtId"] = trip_dtid
-        return bundle
+        twin_ids, edges = self._closure(trip_dtid)
+        return {
+            "$dtId": trip_dtid,
+            "twins": copy.deepcopy([tw for tw in self.twins if tw.get("$dtId") in twin_ids]),
+            "relationships": copy.deepcopy(edges),
+        }
+
+    def _closure(self, root: str, max_hops: int = 3) -> tuple[set[str], list[dict]]:
+        """Twin ids within ``max_hops`` OUTGOING hops of ``root`` + the edges
+        between them — the live closure read's exact walk.
+
+        ``max_hops`` defaults to ``client.MAX_HOPS``; the literal is used so
+        importing the client module is not required to build a double.
+        """
+        reachable = {root}
+        frontier = {root}
+        for _ in range(max_hops):
+            nxt = {
+                str(r.get("$targetId"))
+                for r in self.rels
+                if r.get("$sourceId") in frontier and r.get("$targetId")
+            } - reachable
+            if not nxt:
+                break
+            reachable |= nxt
+            frontier = nxt
+        known = {t.get("$dtId") for t in self.twins}
+        keep = reachable & known
+        edges = [
+            r for r in self.rels
+            if r.get("$sourceId") in keep and r.get("$targetId") in keep
+        ]
+        return keep, edges
 
     def fetch_feed_bundle(self, trip_dtid: str) -> dict | None:
         """The feed's narrow read (#264): days + their blocks, nothing else.
@@ -298,47 +335,120 @@ class FakeGraph:
                     return t["$dtId"]
         return None
 
+    def crew_edges_for_person(self, person_dtid: str) -> list[dict]:
+        """Every hasCrew edge pointing at one Person twin (#322)."""
+        out: list[dict] = []
+        twin = self.twin(person_dtid)
+        model = ((twin or {}).get("$metadata") or {}).get("$model", "")
+        for r in self.rels:
+            if r.get("$relationshipName") != "hasCrew":
+                continue
+            if r.get("$targetId") != person_dtid:
+                continue
+            out.append({
+                "tripId": r.get("$sourceId"),
+                "role": r.get("role", "viewer"),
+                "index": r.get("index", 0),
+                "note": r.get("note"),
+                # Same #213 rule the live client applies at this read.
+                "displayName": crew_edge_name(r, person_dtid),
+                "personModel": model,
+            })
+        return out
+
+    def placeholders_for_owner(self, user_dtid: str) -> list[dict]:
+        """Placeholders on the trips this user OWNS (#322 picker + gate)."""
+        owned = [
+            str(r.get("$sourceId") or "")
+            for r in self.rels
+            if r.get("$relationshipName") == "hasCrew"
+            and r.get("$targetId") == user_dtid
+            and r.get("role") == "owner"
+        ]
+        out: list[dict] = []
+        for trip_dtid in owned:
+            trip = self.twin(trip_dtid)
+            for r in self.rels_from(trip_dtid, "hasCrew"):
+                person = self.twin(r.get("$targetId", ""))
+                if person is None:
+                    continue
+                out.append({
+                    "personId": person["$dtId"],
+                    "name": person.get("name", ""),
+                    "personModel": (person.get("$metadata") or {}).get("$model", ""),
+                    "tripId": trip_dtid,
+                    "tripTitle": (trip or {}).get("title", ""),
+                    "role": r.get("role", "viewer"),
+                    "index": r.get("index", 0),
+                    # Same #213 rule the live client applies at this read.
+                    "displayName": crew_edge_name(r, person["$dtId"]),
+                })
+        return out
+
+    def claim_crew_person_cascade(self, user_dtid: str, person_dtid: str,
+                                  edges: list[dict]) -> dict | None:
+        """Mirror the real cascade (#322): every edge moves, then the
+        placeholder goes. A trip where the user already has a role keeps its
+        own edge and only loses the placeholder's duplicate row."""
+        if not edges:
+            return None
+        transferred = 0
+        already_crew = 0
+        for edge in edges:
+            trip_dtid = str(edge.get("tripId") or "")
+            if self.twin(trip_dtid) is None:
+                continue
+            old = next(
+                (r for r in self.rels
+                 if r.get("$sourceId") == trip_dtid
+                 and r.get("$relationshipName") == "hasCrew"
+                 and r.get("$targetId") == person_dtid),
+                None,
+            )
+            if old is None:
+                continue
+            existing = self.role_for_user_on_trip(trip_dtid, user_dtid)
+            if existing is None:
+                edge_props: dict = {
+                    "$relationshipId": f"{trip_dtid}__hasCrew__{user_dtid}",
+                    "$sourceId": trip_dtid,
+                    "$relationshipName": "hasCrew",
+                    "$targetId": user_dtid,
+                    "role": edge.get("role") or "viewer",
+                    "index": edge.get("index") if isinstance(edge.get("index"), int) else 0,
+                }
+                if isinstance(edge.get("note"), str):
+                    edge_props["note"] = edge["note"]
+                if isinstance(edge.get("displayName"), str) and edge["displayName"]:
+                    edge_props["displayName"] = edge["displayName"]
+                prior = self.rel(edge_props["$relationshipId"])
+                if prior is not None:
+                    self.rels.remove(prior)
+                self.rels.append(edge_props)
+                transferred += 1
+            else:
+                already_crew += 1
+            self.rels.remove(old)
+        # Edges are gone; the placeholder twin can go (the double refuses a
+        # twin delete while any edge remains — same rule as the live server).
+        person = self.twin(person_dtid)
+        if person is not None:
+            touching = [r for r in self.rels
+                        if r.get("$sourceId") == person_dtid or r.get("$targetId") == person_dtid]
+            if touching:
+                return None
+            self.twins.remove(person)
+        return {"transferred": transferred, "alreadyCrew": already_crew}
+
     def claim_crew_person(self, trip_dtid: str, user_dtid: str, person_dtid: str,
                           role: str, index: int, note: str | None = None,
                           display_name: str | None = None) -> bool:
-        """Mirror the real ``claim_crew_person`` (#6 + #196): upsert the
-        trip->User hasCrew edge (same role + index + note + displayName as the
-        placeholder's), delete the old trip->Person edge, then delete the
-        placeholder node (edges first — the server refuses non-cascade
-        deletes, like ``delete_twin`` above)."""
-        old = next(
-            (r for r in self.rels
-             if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "hasCrew"
-             and r.get("$targetId") == person_dtid),
-            None,
-        )
-        if old is None:
-            return False
-        edge: dict = {
-            "$relationshipId": f"{trip_dtid}__hasCrew__{user_dtid}",
-            "$sourceId": trip_dtid,
-            "$relationshipName": "hasCrew",
-            "$targetId": user_dtid,
-            "role": role,
-            "index": index,
-        }
-        if note is not None:
-            edge["note"] = note
-        if display_name:
-            edge["displayName"] = display_name
-        existing = self.rel(edge["$relationshipId"])
-        if existing is not None:
-            self.rels.remove(existing)
-        self.rels.append(edge)
-        self.rels.remove(old)
-        # The placeholder goes with the claim; a claimed User twin is global.
-        # Edges are gone first so the no-cascade guard below stays quiet.
-        self.rels = [r for r in self.rels
-                     if not (r.get("$sourceId") == person_dtid or r.get("$targetId") == person_dtid)]
-        person = self.twin(person_dtid)
-        if person is not None:
-            self.twins.remove(person)
-        return True
+        """Mirror the single-trip claim primitive (#6 + #196)."""
+        result = self.claim_crew_person_cascade(user_dtid, person_dtid, [{
+            "tripId": trip_dtid, "role": role, "index": index,
+            "note": note, "displayName": display_name,
+        }])
+        return result is not None
     def revert_crew_person(self, trip_dtid: str, user_dtid: str, person_dtid: str,
                            name: str, role: str, index: int, note: str | None = None,
                            display_name: str | None = None) -> bool:

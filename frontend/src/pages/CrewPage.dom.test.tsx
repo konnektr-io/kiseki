@@ -23,6 +23,7 @@ import type { Person, Trip } from "../lib/types";
 const mocks = vi.hoisted(() => ({
   addCrewMember: vi.fn(),
   useFollowing: vi.fn(),
+  useReusablePlaceholders: vi.fn(),
 }));
 
 vi.mock("@auth0/auth0-react", () => ({
@@ -42,6 +43,10 @@ vi.mock("../lib/api", async () => {
 });
 
 vi.mock("../lib/following", () => ({ useFollowing: mocks.useFollowing }));
+
+vi.mock("../lib/crew-placeholders", () => ({
+  useReusablePlaceholders: mocks.useReusablePlaceholders,
+}));
 
 const { CrewPage } = await import("./CrewPage");
 const { TripProvider } = await import("../components/theme");
@@ -120,6 +125,7 @@ async function openPanel() {
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   mocks.useFollowing.mockReturnValue({ people: FOLLOWING, loading: false });
+  mocks.useReusablePlaceholders.mockReturnValue({ placeholders: [], loading: false });
   mocks.addCrewMember.mockResolvedValue(crewTrip("owner"));
 });
 
@@ -239,5 +245,91 @@ describe("CrewPage add-from-following (#198 follow-up)", () => {
     // …and still only the pinned selection is offered
     expect(chips()).toHaveLength(1);
     expect(container.querySelector<HTMLInputElement>("#crew-add-name")?.value).toBe("Person 3");
+  });
+});
+
+describe("CrewPage link-a-shared-placeholder (#322)", () => {
+  const REUSABLE = [
+    {
+      personId: "bbbb1111-2222-4333-8444-555566667777",
+      name: "Nick Geelen",
+      trips: [{ id: "t2", title: "Iceland 2026", role: "viewer" as const }],
+    },
+  ];
+
+  it("links the placeholder already on another trip — id in the POST, no contact", async () => {
+    mocks.useReusablePlaceholders.mockReturnValue({ placeholders: REUSABLE, loading: false });
+    mount("owner");
+    await openPanel();
+
+    // the read is gated exactly like the follow list: owner + open panel
+    expect(mocks.useReusablePlaceholders).toHaveBeenCalledWith("t1", true);
+
+    const chip = Array.from(container.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Nick Geelen"))!;
+    expect(chip).toBeDefined();
+    expect(chip.textContent).toContain("Iceland 2026"); // where they already are
+    act(() => {
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    // the label is prefilled and editable — it is THIS trip's own name
+    expect(container.querySelector<HTMLInputElement>("#crew-add-name")?.value).toBe("Nick Geelen");
+    expect(container.textContent).toContain("Name on this trip");
+    expect(container.textContent).toContain("covers every trip they are already on");
+    // the twin is shared, so its contact is not this trip's to set
+    expect(container.querySelector("#crew-add-contact")).toBeNull();
+
+    act(() => {
+      button("Add")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    expect(mocks.addCrewMember).toHaveBeenCalledWith(
+      "t1",
+      { name: "Nick Geelen", role: "viewer", personId: "bbbb1111-2222-4333-8444-555566667777" },
+      "test-token",
+    );
+  });
+
+  it("an editor never loads the reuse list", async () => {
+    mount("editor");
+    await openPanel();
+
+    expect(mocks.useReusablePlaceholders).toHaveBeenCalledWith("t1", false);
+    expect(container.textContent).not.toContain("Already in one of your trips");
+    expect(container.querySelector("#crew-add-contact")).not.toBeNull();
+  });
+
+  it("picking a followed account clears the linked placeholder (they are exclusive)", async () => {
+    mocks.useReusablePlaceholders.mockReturnValue({ placeholders: REUSABLE, loading: false });
+    mount("owner");
+    await openPanel();
+
+    const chip = (text: string) =>
+      Array.from(container.querySelectorAll("button[aria-pressed]"))
+        .find((b) => b.textContent?.includes(text))!;
+
+    act(() => {
+      chip("Nick Geelen").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+    act(() => {
+      chip("Frieda Friend").dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    act(() => {
+      button("Add")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await flush();
+
+    // the account wins, and `personId` is gone — the server 422s on both
+    expect(mocks.addCrewMember).toHaveBeenCalledWith(
+      "t1",
+      { name: "Frieda Friend", role: "viewer", sub: "google-oauth2|frieda" },
+      "test-token",
+    );
   });
 });

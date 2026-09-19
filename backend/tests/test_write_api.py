@@ -1291,6 +1291,208 @@ def test_add_crew_placeholder_still_grants_nothing(client, rsa_keypair, graph) -
     assert g.role_for_user_on_trip(trip.id, SUB) == "editor"  # only the caller's own edge
 
 
+# --------------------------------------------- crew: one placeholder, many trips
+# #322. An unregistered person added to several trips used to become one orphan
+# Person twin PER trip, each with its own join link. Now a placeholder is a
+# shared twin — one Person, one hasCrew edge per trip — so the crew lists agree
+# on who they are, one invite claims them everywhere, and the twin is retired
+# only when the LAST trip lets go.
+SIBLING_TRIP = "aaaa1111-2222-4333-8444-555566667777"
+PLACEHOLDER = "bbbb1111-2222-4333-8444-555566667777"
+
+
+def _sibling_trip(g: FakeGraph, title: str = "Iceland 2026") -> str:
+    """A SECOND trip the test user OWNS — the sibling side of #322."""
+    g.twins.append({
+        "$dtId": SIBLING_TRIP,
+        "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+        "title": title,
+    })
+    g.add_user_role(SIBLING_TRIP, SUB, "owner")
+    return SIBLING_TRIP
+
+
+def _placeholder_on(g: FakeGraph, trip_dtid: str, name: str = "Nick Geelen",
+                    role: str = "viewer") -> str:
+    """An unclaimed Person crewed on one trip — a shared placeholder's other end."""
+    g.twins.append({
+        "$dtId": PLACEHOLDER,
+        "$metadata": {"$model": "dtmi:kiseki:travel:Person;1"},
+        "name": name,
+    })
+    g.rels.append({
+        "$relationshipId": f"{trip_dtid}__hasCrew__{PLACEHOLDER}",
+        "$sourceId": trip_dtid,
+        "$relationshipName": "hasCrew",
+        "$targetId": PLACEHOLDER,
+        "role": role,
+        "index": 0,
+    })
+    return PLACEHOLDER
+
+
+def test_link_a_placeholder_from_another_trip(client, rsa_keypair, graph) -> None:
+    """The reuse path: the SAME Person twin joins a second trip — no second
+    placeholder, and the trip gets its own label/role for them (#322)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g)
+    person = _placeholder_on(g, other, name="Nick")
+    before = len(g.twins)
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token, json={
+        "name": "Nicholas", "role": "editor", "personId": person,
+    })
+    assert r.status_code == 201, r.text[:300]
+    entry = next(c for c in r.json()["crew"] if c["id"] == person)
+    assert entry["name"] == "Nicholas"   # this trip's own label rides the edge
+    assert entry["role"] == "editor"
+    assert entry["claimed"] is False     # still unclaimed: grants nothing yet
+    # No twin was minted — the one Person now serves both trips.
+    assert len(g.twins) == before
+    assert {r["$sourceId"] for r in g.rels if r["$targetId"] == person} == {other, trip.id}
+
+
+def test_link_placeholder_is_owner_only(client, rsa_keypair, graph) -> None:
+    """Linking makes a future claim span both trips, so — like attaching an
+    account — it is the owner's call, not an editor's."""
+    g = graph(role="editor")
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g)
+    other  # sibling owned by SUB (the same human), editor only on THIS trip
+    person = _placeholder_on(g, other)
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Nicholas", "personId": person})
+    assert r.status_code == 403
+    assert g.role_for_user_on_trip(trip.id, person) is None  # nothing written
+
+
+def test_link_placeholder_must_sit_on_a_trip_you_own(client, rsa_keypair, graph) -> None:
+    """The gate is ownership of the placeholder's trip, and an id that fails it
+    is a 404 — never a probe that reveals a stranger's crew (#322)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    stranger = "cccc1111-2222-4333-8444-555566667777"
+    g.twins.append({
+        "$dtId": stranger,
+        "$metadata": {"$model": "dtmi:kiseki:travel:Trip;1"},
+        "title": "Someone Else's Trip",
+    })
+    g.add_user_role(stranger, "google-oauth2|somebody-else", "owner")
+    person = _placeholder_on(g, stranger)
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+               json={"name": "Nicholas", "personId": person})
+    assert r.status_code == 404
+    assert g.role_for_user_on_trip(trip.id, person) is None
+
+
+def test_link_placeholder_refuses_contact_duplicates_and_sub(client, rsa_keypair, graph) -> None:
+    """`contact` rides the shared twin (not this trip's to set, 422), the id
+    cannot be both ``sub`` and ``personId`` (422), and a placeholder already on
+    this crew is a 409 like any other duplicate."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g)
+    person = _placeholder_on(g, other)
+
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token, json={
+        "name": "Nicholas", "personId": person, "contact": "+32 470 00 00 00",
+    }).status_code == 422
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token, json={
+        "name": "Nicholas", "personId": person, "sub": "google-oauth2|whoever",
+    }).status_code == 422
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+                  json={"name": "Nicholas", "personId": person}).status_code == 201
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+                  json={"name": "Nicholas", "personId": person}).status_code == 409
+
+
+def test_reusable_placeholders_endpoint(client, rsa_keypair, graph) -> None:
+    """The picker: the owner's other trips' placeholders, each labelled with
+    where they already are (so a bare name can't look like a fresh duplicate)."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g, title="Iceland 2026")
+    person = _placeholder_on(g, other, name="Nick")
+    url = f"/api/trips/{trip.id}/crew/placeholders"
+
+    r = client.get(url, headers=_auth(token))
+    assert r.status_code == 200, r.text[:300]
+    (entry,) = r.json()["placeholders"]
+    assert entry["personId"] == person
+    assert entry["name"] == "Nick"
+    assert entry["trips"] == [{"id": other, "title": "Iceland 2026", "role": "viewer"}]
+
+    # once they are on THIS crew there is nothing left to offer
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+                  json={"name": "Nick", "personId": person}).status_code == 201
+    assert client.get(url, headers=_auth(token)).json()["placeholders"] == []
+
+    # an editor cannot see the reuse list at all (the gate mirrors add_crew)
+    g.add_user_role(trip.id, SUB, "editor")
+    assert client.get(url, headers=_auth(token)).status_code == 403
+
+
+def test_remove_crew_keeps_a_placeholder_another_trip_needs(client, rsa_keypair, graph) -> None:
+    """#322: dropping a shared placeholder from ONE trip must not delete the
+    twin while another trip's crew list still renders them."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g)
+    person = _placeholder_on(g, other)
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+                  json={"name": "Nick", "personId": person}).status_code == 201
+
+    r = client.delete(f"/api/trips/{trip.id}/crew/{person}", headers=_auth(token))
+    assert r.status_code == 200, r.text[:300]
+    assert all(c["id"] != person for c in r.json()["crew"])
+    assert g.twin(person) is not None                       # the twin survives
+    assert g.role_for_user_on_trip(other, person) == "viewer"  # sibling row intact
+    assert g.kind(person) == "Person"
+
+
+def test_delete_trip_keeps_a_placeholder_another_trip_needs(client, rsa_keypair, graph) -> None:
+    """Deleting the trip that linked a shared placeholder leaves the twin (and
+    the sibling's crew row) alone — otherwise the whole trip is swept and THEN
+    the twin delete is refused, a 503 on an already-destroyed trip."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    other = _sibling_trip(g)
+    person = _placeholder_on(g, other)
+    assert _authz(client, "post", f"/api/trips/{trip.id}/crew", token,
+                  json={"name": "Nick", "personId": person}).status_code == 201
+
+    r = client.delete(f"/api/trips/{other}", headers=_auth(token))
+    assert r.status_code in (200, 204), r.text[:300]
+    assert g.twin(person) is not None                      # still crew on THIS trip
+    assert g.role_for_user_on_trip(trip.id, person) is not None
+
+
+def test_placeholder_still_dies_with_its_last_trip(client, rsa_keypair, graph) -> None:
+    """The pre-#322 behaviour holds for a placeholder no other trip crews: the
+    last trip to release them takes the twin with it."""
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    url = f"/api/trips/{trip.id}/crew"
+    r = _authz(client, "post", url, token, json={"name": "Solo Placeholder"})
+    assert r.status_code == 201, r.text[:300]
+    person = next(c for c in r.json()["crew"] if c["name"] == "Solo Placeholder")["id"]
+
+    r = client.delete(f"{url}/{person}", headers=_auth(token))
+    assert r.status_code == 200, r.text[:300]
+    assert g.twin(person) is None  # no other trip crewed them -> twin retired
+
+
 # ---------------------------------------------------------------- agent identity
 # The agent has NO identity in the graph (no User twin, no hasCrew edge).
 # User-initiated writes present the acting user's token. The sanctioned M2M
