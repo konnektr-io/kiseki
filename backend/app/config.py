@@ -77,7 +77,11 @@ PUBLIC_BASE_URL = os.environ.get("KISEKI_PUBLIC_BASE_URL", "https://kiseki.konne
 # and a JWE cannot be verified by the backend. The audience must match an API
 # created in the tenant (identifier https://kiseki.konnektr.io/api) and the
 # SPA's authorizationParams.audience (frontend/src/lib/auth.ts).
-AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "dev-zv5urb33g0msy7bc.eu.auth0.com")
+# The tenant's CUSTOM domain, not the raw `*.eu.auth0.com` host: every token
+# the SPA obtains carries `iss: https://<custom-domain>/` and the validator
+# below builds the expected issuer from this value. Keep it in lockstep with
+# the frontend's baked default (frontend/src/lib/auth.ts).
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "auth.konnektr.io")
 AUTH0_CLIENT_ID = os.environ.get("AUTH0_CLIENT_ID", "jbMyX3scNHkECOF1lNJTOovXe8fOBmiq")
 AUTH0_AUDIENCE = os.environ.get(
     "AUTH0_AUDIENCE", "https://kiseki.konnektr.io"

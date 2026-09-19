@@ -5,7 +5,7 @@ import json, os, sys, urllib.request, ssl
 ctx = ssl.create_default_context()
 CLIENT_ID = os.environ["KISEKI_AGENT_CLIENT_ID"]
 CLIENT_SECRET = os.environ["KISEKI_AGENT_CLIENT_SECRET"]
-AUTH0_DOMAIN = "dev-zv5urb33g0msy7bc.eu.auth0.com"
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "auth.konnektr.io")
 AUDIENCE = "https://kiseki.konnektr.io"
 BASE_URL = "https://kiseki.konnektr.io"
 ACT_AS = "google-oauth2|100613034256980569871"

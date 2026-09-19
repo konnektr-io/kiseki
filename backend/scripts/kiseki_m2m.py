@@ -34,7 +34,10 @@ except ImportError:  # pragma: no cover - non-POSIX host; the lock is a nicety
 
 CLIENT_ID = os.environ.get("KISEKI_AGENT_CLIENT_ID", "")
 CLIENT_SECRET = os.environ.get("KISEKI_AGENT_CLIENT_SECRET", "")
-AUTH0_DOMAIN = "dev-zv5urb33g0msy7bc.eu.auth0.com"
+# The custom domain (not the raw tenant host): a token minted at the tenant
+# host carries that host as `iss` and the backend — which validates the custom
+# domain — rejects it.
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "auth.konnektr.io")
 AUDIENCE = "https://kiseki.konnektr.io"
 BASE_URL = "https://kiseki.konnektr.io"
 
