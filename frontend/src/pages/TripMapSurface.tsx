@@ -5,15 +5,14 @@ import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
 import { ItineraryList } from "../components/ItineraryList";
 import { InlineField } from "../components/inline-edit";
-import { AskAgentButton } from "../components/ask-agent";
 import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
-import { dayAskContext } from "../lib/ask-agent";
 import { sectionIndexForDay } from "../lib/sections";
-import { roleAtLeast, withDayFields } from "../lib/editing";
+import { withDayFields } from "../lib/editing";
+import { useCanEdit } from "../components/edit-mode";
 import { putTripDay } from "../lib/api";
 import { useTripWrite } from "../lib/useTripWrite";
 import { capture } from "../lib/posthog";
@@ -287,7 +286,7 @@ function DayRail({
   const day = trip.days[dayIdx];
   const letters = surface.letters;
   const { run, error } = useTripWrite();
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
 
   const saveDayField = (field: "title" | "notes") => async (next: string) => {
     capture("trip_day_updated", { field });
@@ -335,11 +334,6 @@ function DayRail({
           <div className="mt-3">
             <MetaChips meta={day.meta} />
           </div>
-          {/* #296 — ask the agent about THIS day: opens the trip drawer with
-              the day's ids + current values pre-filled, no hand-copying. */}
-          <div className="mt-3">
-            <AskAgentButton context={dayAskContext(trip, dayIdx)} variant="full" />
-          </div>
         </div>
 
         {/* #296 — day notes fix inline too (markdown, like everywhere else).
@@ -365,7 +359,7 @@ function DayRail({
 
         <DayBlocks
           blocks={day.blocks}
-          editable={roleAtLeast(trip.myRole, "editor")}
+          editable={canEdit}
           containerId={day.id}
           letters={letters}
           cardProps={cardProps}

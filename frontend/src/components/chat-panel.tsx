@@ -120,9 +120,10 @@ interface ChatPanelProps {
   onTurnComplete?: () => void;
   onClose?: () => void;
   className?: string;
-  /** #296 ask-agent prefill: entity context (ids + current values) placed in
-   *  the composer. `prefillKey` bumps per ask so a second ask while the
-   *  drawer is open re-scopes the draft instead of going stale. */
+  /** Composer prefill seam: entity context placed in the composer.
+   *  `prefillKey` bumps per prefill so a second one while the drawer is open
+   *  re-scopes the draft instead of going stale. (The trip drawer no longer
+   *  prefills — the route-derived `focus` below covers the scope invisibly.) */
   initialDraft?: string | null;
   prefillKey?: number;
   /** #330: the day/section/block this drawer is about, sent with every turn
@@ -379,12 +380,12 @@ function ChatThread({
   };
 
   const [draft, setDraft] = useState(initialDraft ?? "");
-  // #296 ask-agent re-scope: the drawer stays mounted while the user asks
-  // about a second entity, so a bumped `prefillKey` re-scopes the composer.
-  // The context lands FIRST (it is what the request is about); anything the
-  // user already typed is kept below it. The includes-guard covers the mount
+  // Prefill re-scope: the drawer stays mounted across prefills, so a bumped
+  // `prefillKey` re-scopes the composer. The context lands FIRST (it is what
+  // the request is about); anything the user already typed is kept below it.
+  // The includes-guard covers the mount
   // case too (useState already applied the same draft) and makes a repeated
-  // ask idempotent instead of stacking the context twice.
+  // prefill idempotent instead of stacking the context twice.
   const lastPrefillKey = useRef(prefillKey);
   useEffect(() => {
     if (!initialDraft || prefillKey === lastPrefillKey.current) return;

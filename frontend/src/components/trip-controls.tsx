@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { EllipsisVertical, FileDown, Settings } from "lucide-react";
+import { EllipsisVertical, FileDown, Pencil, Settings } from "lucide-react";
 import { useTripState } from "./theme";
+import { useEditMode } from "./edit-mode";
 import { roleAtLeast } from "../lib/editing";
 
 /**
@@ -10,14 +11,19 @@ import { roleAtLeast } from "../lib/editing";
  * what is per-visit or per-app:
  *
  *   everyone      → Booklet PDF
+ *   editor+       → Edit mode toggle (reading/editor split — the surfaces
+ *                   read clean until an editor opts into the pencils,
+ *                   ghost buttons and block chrome for this trip)
  *   editor+       → Trip settings  →  /t/<id>/settings
  *
  * Everything that configures the TRIP (stage, theme, sharing, the crew invite
  * links, the TriCount connection, delete) moved to that page — the menu had
  * grown into a scrolling panel of eight unrelated rows, most of them settings.
- * The row is a LINK, not an action: the page is the single home for trip-level
- * settings, and hiding the row for a viewer/follower is presentation only —
- * the page and the server both gate on the same editor+ rule.
+ * The settings row is a LINK, not an action: the page is the single home for
+ * trip-level settings, and hiding the row for a viewer/follower is
+ * presentation only — the page and the server both gate on the same editor+
+ * rule. (The settings page itself stays ungated: it IS the edit home, reached
+ * explicitly — edit mode only quiets the surfaces that are read first.)
  */
 export function TripActionsMenu({
   pdfBusy = false,
@@ -31,6 +37,7 @@ export function TripActionsMenu({
   const rootRef = useRef<HTMLDivElement>(null);
 
   const canEdit = roleAtLeast(trip.myRole, "editor");
+  const { editMode, setEditMode } = useEditMode();
 
   // Close on outside click or Escape while open.
   useEffect(() => {
@@ -86,6 +93,24 @@ export function TripActionsMenu({
             <FileDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             <span aria-live="polite">{pdfBusy ? "Preparing booklet…" : "Download booklet PDF"}</span>
           </button>
+
+          {/* Edit mode — editor+ (reading/editor split: the surfaces read
+              clean until an editor opts into the chrome for this trip) */}
+          {canEdit && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={editMode}
+              className={item}
+              onClick={() => setEditMode(!editMode)}
+            >
+              <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span>Edit mode</span>
+              <span className="ml-auto text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {editMode ? "On" : "Off"}
+              </span>
+            </button>
+          )}
 
           {/* Trip settings — editor+ (the page's own gate is the same rule) */}
           {canEdit && (

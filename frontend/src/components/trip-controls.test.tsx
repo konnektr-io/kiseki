@@ -3,11 +3,12 @@
  * The header's overflow menu after #248.
  *
  * The menu is now the thin end of the header: what is per-visit (the booklet
- * PDF, for every role) plus a LINK to the trip settings page for editor+.
- * Everything else it used to hold — stage, theme, sharing, the join/follow
- * links, the TriCount connect, delete — moved to `/t/<id>/settings`, and this
- * file pins that they are gone from here: a regression that re-grows the menu
- * would show up as one of those rows reappearing.
+ * PDF, for every role), the per-trip Edit mode toggle for editor+, plus a
+ * LINK to the trip settings page for editor+. Everything else it used to
+ * hold — stage, theme, sharing, the join/follow links, the TriCount connect,
+ * delete — moved to `/t/<id>/settings`, and this file pins that they are gone
+ * from here: a regression that re-grows the menu would show up as one of
+ * those rows reappearing.
  *
  * The menu renders a router `<Link>`, so these mount into a real DOM inside a
  * MemoryRouter (the closed SSR render cannot show an open menu — pitfall 16's
@@ -29,6 +30,7 @@ vi.mock("@auth0/auth0-react", () => ({
 
 const { TripActionsMenu } = await import("./trip-controls");
 const { TripProvider } = await import("./theme");
+const { EditModeProvider } = await import("./edit-mode");
 
 function tripWithRole(role: string | undefined): Trip {
   return {
@@ -49,16 +51,18 @@ function tripWithRole(role: string | undefined): Trip {
 let container: HTMLDivElement;
 let root: Root | null = null;
 
-function mount(role: string | undefined, onDownloadPdf: () => void = () => {}) {
+function mount(role: string | undefined, onDownloadPdf: () => void = () => {}, editMode?: boolean) {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
     root!.render(
       <TripProvider trip={tripWithRole(role)} apply={() => {}}>
-        <MemoryRouter>
-          <TripActionsMenu onDownloadPdf={onDownloadPdf} />
-        </MemoryRouter>
+        <EditModeProvider tripId="t-248" initial={editMode}>
+          <MemoryRouter>
+            <TripActionsMenu onDownloadPdf={onDownloadPdf} />
+          </MemoryRouter>
+        </EditModeProvider>
       </TripProvider>,
     );
   });
@@ -74,6 +78,18 @@ function openMenu() {
 
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  // jsdom here has no localStorage (opaque origin) — the edit-mode toggle
+  // persists per trip, so give it a Map-backed store per test.
+  const store = new Map<string, string>();
+  Object.defineProperty(window, "localStorage", {
+    value: {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => void store.set(k, String(v)),
+      removeItem: (k: string) => void store.delete(k),
+      clear: () => store.clear(),
+    },
+    configurable: true,
+  });
 });
 
 afterEach(() => {
@@ -82,6 +98,7 @@ afterEach(() => {
     root = null;
   }
   container?.remove();
+  window.localStorage?.clear();
   vi.clearAllMocks();
 });
 
@@ -159,5 +176,34 @@ describe("TripActionsMenu after #248", () => {
     });
     expect(onDownloadPdf).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[role="menu"]')).toBeNull();
+  });
+
+  it("editor+: the menu offers the Edit mode toggle, off until opted in", () => {
+    mount("owner", () => {}, false);
+    openMenu();
+    const toggle = container.querySelector('button[role="menuitemcheckbox"]');
+    expect(toggle, "the Edit mode row renders").not.toBeNull();
+    expect(toggle!.textContent).toContain("Edit mode");
+    expect(toggle!.textContent).toContain("Off");
+    expect(toggle!.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("toggling edit mode flips the switch and persists it per trip", () => {
+    mount("owner", () => {}, false);
+    openMenu();
+    const toggle = container.querySelector('button[role="menuitemcheckbox"]') as HTMLButtonElement;
+    act(() => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(toggle.textContent).toContain("On");
+    expect(window.localStorage.getItem("kiseki:edit-mode:t-248")).toBe("1");
+  });
+
+  it("viewer: no Edit mode row in the menu", () => {
+    mount("viewer");
+    openMenu();
+    expect(container.querySelector('button[role="menuitemcheckbox"]')).toBeNull();
+    expect(container.textContent).not.toContain("Edit mode");
   });
 });

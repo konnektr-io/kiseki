@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Users } from "lucide-react";
 import { useTrip } from "../components/theme";
+import { useCanEdit } from "../components/edit-mode";
 import { Button, Card, Separator, StageBadge } from "../components/ui";
 import { InlineField } from "../components/inline-edit";
 import { TripMedia } from "../components/photos";
@@ -10,7 +11,7 @@ import { Markdown } from "../lib/markdown";
 import { formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
 import { splitCrew } from "../lib/crew";
-import { roleAtLeast, withTripFields } from "../lib/editing";
+import { withTripFields } from "../lib/editing";
 import { useTripWrite } from "../lib/useTripWrite";
 import { putTrip } from "../lib/api";
 import { capture } from "../lib/posthog";
@@ -161,7 +162,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 function HeroTitleEdit() {
   const trip = useTrip();
   const { run, error } = useTripWrite();
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
   return (
     <InlineField
       value={trip.title}
@@ -189,7 +190,7 @@ function HeroTitleEdit() {
 function HeroSubtitleEdit() {
   const trip = useTrip();
   const { run, error } = useTripWrite();
-  const canEdit = roleAtLeast(trip.myRole, "editor");
+  const canEdit = useCanEdit();
   return (
     <InlineField
       value={trip.subtitle ?? ""}

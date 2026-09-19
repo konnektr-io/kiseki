@@ -31,6 +31,7 @@ vi.mock("../lib/api", async () => {
 
 import { PracticalsPage } from "./PracticalsPage";
 import { TripProvider } from "../components/theme";
+import { EditModeProvider } from "../components/edit-mode";
 import * as api from "../lib/api";
 import type { Trip } from "../lib/types";
 
@@ -175,32 +176,36 @@ describe("practicals page — inline block edit (#296)", () => {
     { title: "Money & tipping", body: "Cash at the gates" },
   ];
 
-  function Harness({ role }: { role: string }) {
+  function Harness({ role, editMode }: { role: string; editMode: boolean }) {
     const [trip, setTrip] = useState(tripWith({ blocks }, role));
     return createElement(TripProvider, {
       trip,
       apply: setTrip,
-      children: createElement(
-        MemoryRouter,
-        { initialEntries: ["/t/t-231/practical"] },
-        createElement(
-          Routes,
-          null,
-          createElement(Route, {
-            path: "/t/:tripId/practical",
-            element: createElement(PracticalsPage),
-          }),
+      children: createElement(EditModeProvider, {
+        tripId: "t-231",
+        initial: editMode,
+        children: createElement(
+          MemoryRouter,
+          { initialEntries: ["/t/t-231/practical"] },
+          createElement(
+            Routes,
+            null,
+            createElement(Route, {
+              path: "/t/:tripId/practical",
+              element: createElement(PracticalsPage),
+            }),
+          ),
         ),
-      ),
+      }),
     });
   }
 
-  async function mountInteractive(role: string) {
+  async function mountInteractive(role: string, editMode = false) {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     await act(async () => {
-      root!.render(createElement(Harness, { role }));
+      root!.render(createElement(Harness, { role, editMode }));
     });
   }
 
@@ -242,7 +247,7 @@ describe("practicals page — inline block edit (#296)", () => {
           },
         }) as unknown as Trip,
       );
-    await mountInteractive("editor");
+    await mountInteractive("editor", true);
     const pencil = container!.querySelector(
       'button[aria-label="Edit Practical section body"]',
     ) as HTMLButtonElement;
@@ -264,6 +269,16 @@ describe("practicals page — inline block edit (#296)", () => {
     expect(putSpy).toHaveBeenCalledWith("t-231", 0, { body: "Cards everywhere now" }, "test-token");
     // The canonical doc landed: the new body reads back on the page.
     expect(container!.textContent).toContain("Cards everywhere now");
+  });
+
+  it("editor with edit mode OFF reads: no pencil, no request", async () => {
+    const putSpy = vi.spyOn(api, "putPracticalBlock");
+    await mountInteractive("editor", false);
+    await flush();
+    expect(container!.textContent).toMatch(/Money &(amp;)? tipping/);
+    expect(container!.textContent).toContain("Cash at the gates");
+    expect(container!.querySelectorAll("button").length).toBe(0);
+    expect(putSpy).not.toHaveBeenCalled();
   });
 
   it("viewer: block content renders with no edit chrome and no request", async () => {
