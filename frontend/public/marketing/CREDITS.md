@@ -8,6 +8,7 @@ trip they appear in is fiction written for the page.
 |---|---|---|
 | `hero.jpg` | a skier on a powder slope | the owner's Canada trip imagery — declared rights-free |
 | `closing.jpg` | Machu Picchu and the Andes | the owner's Chile–Peru trip imagery — declared rights-free |
+| `login-machu-picchu.jpg` | the Universal Login page background | **derived from `closing.jpg`** (same photograph, same licence): upscaled to 3008px, given a muted editorial grade, then re-cropped to 16:9 (2392×1344). Never referenced by the app itself — it is the URL configured in Auth0 → Branding → Universal Login → Page background |
 | `day-garden.jpg` | a Tokyo garden pond and footbridge | the owner's *Urban Legends & Neon Dreams* imagery — an entirely fictional trip |
 | `day-alley.jpg` | a lantern-lit Tokyo alley at night | as above |
 | `day-rain.jpg` | a rainy Tokyo crossing under umbrellas | as above |

@@ -171,7 +171,7 @@ Auth0 domain/client id and the PostHog ingest key, both public by design).
 |---|---|
 | `KISEKI_GRAPH_URL`, `KISEKI_GRAPH_TOKEN` | Konnektr Graph endpoint + token (unset → anonymised sample trips) |
 | `KISEKI_S3_ENDPOINT`, `KISEKI_S3_BUCKET`, `KISEKI_S3_ACCESS_KEY`, `KISEKI_S3_SECRET_KEY` | Garage/S3 media backend (`KISEKI_S3_REGION` optional; absent → local media dir) |
-| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | SPA token validation; the audience must match the API identifier |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | SPA token validation; `AUTH0_DOMAIN` is the custom domain (`auth.konnektr.io`) and must match the frontend's baked default — the backend derives the expected `iss` from it |
 | `HERE_ACCESS_KEY_ID`, `HERE_ACCESS_KEY_SECRET` | HERE Routing v8 (absent → routes simply don't render) |
 | `GOOGLE_MAPS_API_KEY` | Google Places overlay (never sent to the browser) |
 | `KISEKI_HERMES_URL`, `KISEKI_HERMES_KEY` | Agent endpoint for chat (absent → `/api/chat` 503s) |

@@ -44,7 +44,7 @@ design; every service key stays server-side.
 |---|---|---|
 | `KISEKI_GRAPH_URL`, `KISEKI_GRAPH_TOKEN` | Real trips | Unset → the app serves the committed anonymised samples. Point at the in-cluster graph API service. |
 | `KISEKI_S3_ENDPOINT`, `KISEKI_S3_BUCKET`, `KISEKI_S3_ACCESS_KEY`, `KISEKI_S3_SECRET_KEY` | Trip media | With these four set → S3/Garage store; otherwise a local `data/assets` dir is used if it exists (dev). `KISEKI_S3_REGION` defaults to `us-east-1`. The bucket is private; `/media/...` is the only reader. |
-| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | Login | `AUTH0_AUDIENCE` must match an API identifier in the tenant, or the issued token is a JWE the backend cannot verify. The frontend mirrors all three via `VITE_AUTH0_*` at build time. |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_AUDIENCE` | Login | `AUTH0_DOMAIN` is the tenant's **custom domain** (`auth.konnektr.io`) and must equal the frontend's baked default: the backend builds the expected `iss` as `https://<AUTH0_DOMAIN>/`, so changing one without the other 401s every protected call. `AUTH0_AUDIENCE` must match an API identifier in the tenant, or the issued token is a JWE the backend cannot verify. The frontend mirrors all three via `VITE_AUTH0_*` at build time. |
 | `KISEKI_ASSETS_DIR`, `KISEKI_STATIC_DIR`, `KISEKI_TRIPS_DIR` | Local paths | Where a local media dir, the built SPA and the authoring `trip.json` files live. |
 | `GOOGLE_PLACES_URL`, `HERE_ROUTES_URL`, `HERE_TOKEN_ENDPOINT_URL` | Overrides | Point the external integrations at a test double; the defaults are the real endpoints. |
 | `HERE_ACCESS_KEY_ID`, `HERE_ACCESS_KEY_SECRET` | Driving routes + live drive times | Unset → legs render without route geometry. |

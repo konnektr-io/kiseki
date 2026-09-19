@@ -5,9 +5,15 @@
  * so they are baked in as defaults — the single source of truth for the Kiseki
  * Auth0 app. `VITE_AUTH0_*` overrides exist for local dev against another
  * tenant. No secrets live here (SPA apps authenticate with PKCE, no secret).
+ *
+ * The domain is the tenant's CUSTOM domain (`auth.konnektr.io`), not the raw
+ * `*.eu.auth0.com` tenant host: tokens issued through a custom domain carry
+ * `iss: https://<custom-domain>/`, so this value and the backend's AUTH0_DOMAIN
+ * (backend/app/config.py builds the expected issuer from it) must be the SAME
+ * host. Changing one without the other rejects every token.
  */
 export const AUTH0_DOMAIN =
-  import.meta.env.VITE_AUTH0_DOMAIN ?? "dev-zv5urb33g0msy7bc.eu.auth0.com";
+  import.meta.env.VITE_AUTH0_DOMAIN ?? "auth.konnektr.io";
 
 export const AUTH0_CLIENT_ID =
   import.meta.env.VITE_AUTH0_CLIENT_ID ?? "jbMyX3scNHkECOF1lNJTOovXe8fOBmiq";
