@@ -5,7 +5,7 @@ import { BlockGlyph, MetaChips } from "./blocks";
 import { TripMedia } from "./photos";
 import { classifyTransportMode } from "../lib/transport";
 import { formatDay } from "../lib/dates";
-import { DaySnowPill } from "./WeatherSnow";
+import { DayWeatherPill } from "./Weather";
 import type { Block, Day, TripLocation } from "../lib/types";
 /** Photo images referenced by a day's blocks (block `images` + `gallery` items),
  *  capped at 2 — the summary-density thumbnail strip. Map images are excluded:
@@ -91,7 +91,7 @@ export function DaySummaryRow({
                 {formatDay(day.date)} · {day.blocks.length}{" "}
                 {day.blocks.length === 1 ? "item" : "items"}
               </span>
-              <DaySnowPill day={day} locations={locations} />
+              <DayWeatherPill day={day} locations={locations} />
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
