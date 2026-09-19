@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from "vitest";
  */
 vi.mock("../components/MapView", () => ({ MapView: () => null, TripMap: () => null }));
 
-import { OverviewPage } from "./OverviewPage";
+import { OverviewPage, statValueClass } from "./OverviewPage";
 import { TripProvider } from "../components/theme";
 import type { Trip } from "../lib/types";
 
@@ -263,5 +263,48 @@ describe("OverviewPage crew vs followers (#315)", () => {
     ] as Trip["crew"]);
     expect(html).not.toContain("#followers");
     expect(html).not.toContain("follower");
+  });
+});
+
+/* Overview stat strip — agent-written values sometimes arrive as sentences
+ * (Georgia 2028: "BRUSSELS -> BATUMI - ONE STOP, THEN ~3H BY ROAD"), and the
+ * old strip rendered every value at text-3xl/4xl, so one long value stretched
+ * its cell into a huge box. The font now steps down with length and the cell
+ * clamps + wraps; short numbers stay heroic. */
+describe("OverviewPage stat strip (long values)", () => {
+  it("keeps short numbers heroic, steps medium values down, shrinks sentences", () => {
+    expect(statValueClass("16")).toContain("text-3xl");
+    expect(statValueClass("2,025 m")).toContain("text-3xl");
+    expect(statValueClass("5–7 h/day in the cat")).toContain("text-xl");
+    expect(statValueClass("BRUSSELS -> BATUMI - ONE STOP, THEN ~3H BY ROAD")).toContain("text-sm");
+    expect(statValueClass("BRUSSELS -> BATUMI - ONE STOP, THEN ~3H BY ROAD")).not.toContain("text-3xl");
+  });
+
+  it("renders every stat value clamped and wrapped", () => {
+    const trip = {
+      id: "t1",
+      slug: "test",
+      title: "Georgia 2028",
+      stage: "planned",
+      crew: [],
+      days: [],
+      sections: [],
+      locations: [],
+      practical: {},
+      stats: [
+        { label: "Journey", value: "BRUSSELS -> BATUMI - ONE STOP, THEN ~3H BY ROAD" },
+        { label: "Days", value: "8" },
+      ],
+    } as unknown as Trip;
+    const html = renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(MemoryRouter, null, createElement(OverviewPage)),
+      }),
+    );
+    expect(html).toContain("BRUSSELS");
+    expect(html).toContain("line-clamp-3");
+    expect(html).toContain("break-words");
   });
 });

@@ -152,8 +152,8 @@ class TripSection(BaseModel):
 class Stat(BaseModel):
     """An 'at a glance' stat row, e.g. 16 DAYS · 12 LIFTS."""
 
-    label: str = Field(..., description="Stat label, e.g. 'Days'.")
-    value: str = Field(..., description="Stat value, e.g. '16'.")
+    label: str = Field(..., description="Stat label, e.g. 'Days'. Keep to 1-2 words.")
+    value: str = Field(..., description="Stat value, e.g. '16'. Keep SHORT: a number + unit (1-4 words, ~20 chars max — '2,366 m', '5–7 h/day', '6–12'). The overview renders it BIG; sentences blow the cell up. Put journey explanations in summary/features, not here.")
 
 
 class FeatureCard(BaseModel):
