@@ -7,6 +7,7 @@ import {
   weatherKind,
   weatherLabel,
   weatherReadout,
+  withinForecastWindow,
   type WeatherDay,
 } from "./weather-live";
 import type { Day, TripLocation } from "./types";
@@ -145,6 +146,29 @@ describe("weatherReadout — general by default, snow only when it means somethi
     expect(
       weatherReadout({ ...w({ date: "x" }), wmo: null, tmax_c: null, tmin_c: null, precip_prob: null }),
     ).toBeNull();
+  });
+});
+
+describe("withinForecastWindow", () => {
+  const today = "2027-02-15";
+  it("accepts a date inside the 16-day horizon", () => {
+    expect(withinForecastWindow("2027-02-20", today)).toBe(true);
+    expect(withinForecastWindow("2027-03-01", today)).toBe(true); // day 14
+    expect(withinForecastWindow(today, today)).toBe(true); // trip day today
+  });
+  it("rejects a date past the horizon (no request worth making)", () => {
+    expect(withinForecastWindow("2027-03-03", today)).toBe(false); // day 16
+    expect(withinForecastWindow("2027-08-01", today)).toBe(false);
+  });
+  it("tolerates one day of clock/timezone skew", () => {
+    expect(withinForecastWindow("2027-02-14", today)).toBe(true);
+    expect(withinForecastWindow("2027-02-13", today)).toBe(false);
+  });
+  it("fails closed on junk", () => {
+    expect(withinForecastWindow("", today)).toBe(false);
+    expect(withinForecastWindow(null, today)).toBe(false);
+    expect(withinForecastWindow("2027-02-20", "")).toBe(false);
+    expect(withinForecastWindow("not-a-date", today)).toBe(false);
   });
 });
 

@@ -130,6 +130,26 @@ export function dayCoords(
   return null;
 }
 
+/** True when a trip date can possibly carry a forecast, relative to today.
+ *
+ *  A trip planned months out (every real kiseki trip today) has no forecast
+ *  for ANY of its days, so asking is pure waste — the day pill uses this to
+ *  skip the request entirely rather than fetch a window that cannot contain
+ *  the date. ±1 day of slack absorbs the device clock/locale being a day off
+ *  the trip's own day, which cannot matter for a 16-day horizon. */
+export function withinForecastWindow(
+  date: string | null | undefined,
+  today: string,
+  days = 16,
+): boolean {
+  if (!date || !today) return false;
+  const d = Date.parse(`${date}T12:00:00Z`);
+  const t = Date.parse(`${today}T12:00:00Z`);
+  if (Number.isNaN(d) || Number.isNaN(t)) return false;
+  const diffDays = (d - t) / 86_400_000;
+  return diffDays >= -1 && diffDays <= days - 1;
+}
+
 /** Condition family — drives the icon and the label. Snow-family codes
  *  double as the "is there snow to report" test. */
 export type WeatherKind = "clear" | "cloud" | "rain" | "snow" | "storm" | "fog" | "unknown";

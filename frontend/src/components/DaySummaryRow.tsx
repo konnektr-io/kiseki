@@ -45,6 +45,7 @@ export function DaySummaryRow({
   isToday,
   active,
   locations,
+  today,
 }: {
   day: Day;
   idx: number;
@@ -54,6 +55,9 @@ export function DaySummaryRow({
   active?: boolean;
   /** Registry places — resolves the day's powder pill coords (#334). */
   locations?: TripLocation[];
+  /** Trip-local today (YYYY-MM-DD) — lets the day weather pill skip a request
+   *  for a date no forecast can cover (#334). */
+  today?: string;
 }) {
   const { tripId } = useParams();
   const thumbs = dayThumbnails(day);
@@ -91,7 +95,7 @@ export function DaySummaryRow({
                 {formatDay(day.date)} · {day.blocks.length}{" "}
                 {day.blocks.length === 1 ? "item" : "items"}
               </span>
-              <DayWeatherPill day={day} locations={locations} />
+              <DayWeatherPill day={day} locations={locations} today={today} />
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">

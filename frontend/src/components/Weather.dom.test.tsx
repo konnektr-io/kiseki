@@ -56,6 +56,9 @@ const locations: TripLocation[] = [
   { name: "Revelstoke", lat: 51.0785, lng: -115.7765 },
 ];
 
+/** Pinned trip-local today — the forecast-window guard is judged against it. */
+const TODAY = "2027-02-15";
+
 function dayOn(date: string): Day {
   return {
     id: "d1",
@@ -78,7 +81,7 @@ async function mountRow(day: Day, locs: TripLocation[] | undefined = locations):
         <Routes>
           <Route
             path="/t/:tripId/itinerary"
-            element={<DaySummaryRow day={day} idx={0} dayNo={1} locations={locs} />}
+            element={<DaySummaryRow day={day} idx={0} dayNo={1} locations={locs} today={TODAY} />}
           />
         </Routes>
       </MemoryRouter>,
@@ -131,13 +134,13 @@ describe("weather pill in a real mount", () => {
   });
 
   it("adds NOTHING to the row for a day outside the 16-day window", async () => {
-    // Months out: the request happens (the coords are in the registry) and
-    // the forecast simply has no entry — the row must be indistinguishable
-    // from a row with no weather at all.
+    // Months out: no forecast can cover the date, so the pill neither asks
+    // (no request) nor renders — the row must be indistinguishable from a
+    // row with no weather at all.
     await mountRow(dayOn("2027-08-01"));
     const withCoordsNoForecast = container.innerHTML;
-    expect(sent.length).toBe(1); // the fetch is issued…
-    expect(weatherNodes()).toEqual([]); // …and renders nothing at all
+    expect(sent).toEqual([]); // the request is never even issued…
+    expect(weatherNodes()).toEqual([]); // …and nothing renders
     // No weather wrapper, no reserved box: the pill's class never appears.
     expect(container.querySelectorAll(".no-print").length).toBe(0);
     // Byte-for-byte identical DOM to the same row with no registry coords at

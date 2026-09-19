@@ -47,6 +47,10 @@ function render(el: ReactElement): string {
   return renderToString(el);
 }
 
+/** The trip-local "today" the pill is judged against — pinned so the
+ *  forecast-window guard is deterministic in tests. */
+const TODAY = "2027-02-15";
+
 /** Render the real itinerary row on a trip route (it reads `useParams`). */
 function renderRow(day: Day, locations?: TripLocation[]): string {
   return renderToString(
@@ -58,7 +62,7 @@ function renderRow(day: Day, locations?: TripLocation[]): string {
         null,
         createElement(Route, {
           path: "/t/:tripId/itinerary",
-          element: createElement(DaySummaryRow, { day, idx: 0, dayNo: 1, locations }),
+          element: createElement(DaySummaryRow, { day, idx: 0, dayNo: 1, locations, today: TODAY }),
         }),
       ),
     ),
@@ -111,25 +115,31 @@ function dayOn(date: string): Day {
 
 describe("DayWeatherPill", () => {
   it("renders the day's conditions, temp and precip for a date inside the window", () => {
-    const html = render(createElement(DayWeatherPill, { day: dayOn("2027-02-21"), locations }));
+    const html = render(
+      createElement(DayWeatherPill, { day: dayOn("2027-02-21"), locations, today: TODAY }),
+    );
     expect(html).toContain("9°");
     expect(html).toContain("5%");
     expect(html).toContain("Open-Meteo");
   });
   it("shows the snow figure on a powder day", () => {
-    const html = render(createElement(DayWeatherPill, { day: dayOn("2027-02-20"), locations }));
+    const html = render(
+      createElement(DayWeatherPill, { day: dayOn("2027-02-20"), locations, today: TODAY }),
+    );
     expect(html).toContain("12 cm");
     expect(html).toContain("90%");
   });
   it("renders nothing when the day floats free of the registry", () => {
     const free = { ...dayOn("2027-02-21"), blocks: [{ kind: "note", title: "Rest" }] } as unknown as Day;
-    expect(render(createElement(DayWeatherPill, { day: free, locations }))).toBe("");
+    expect(render(createElement(DayWeatherPill, { day: free, locations, today: TODAY }))).toBe("");
   });
 });
 
 describe("no forecast = no space (outside the 16-day window)", () => {
   it("the pill itself renders no markup at all", () => {
-    expect(render(createElement(DayWeatherPill, { day: dayOn("2027-08-01"), locations }))).toBe("");
+    expect(
+      render(createElement(DayWeatherPill, { day: dayOn("2027-08-01"), locations, today: TODAY })),
+    ).toBe("");
   });
   it("the itinerary row is BYTE-IDENTICAL to the row without weather", () => {
     // Trip dates months out (every real kiseki trip today) must leave the

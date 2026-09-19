@@ -312,6 +312,7 @@ export function ItineraryList({
                       isToday={item.day.date === todayIso}
                       active={activeDayIdx === item.idx}
                       locations={trip.locations}
+                      today={todayIso}
                     />
                   ),
                 )}
@@ -388,6 +389,7 @@ export function ItineraryList({
               isToday={day.date === todayIso}
               active={activeDayIdx === idx}
               locations={trip.locations}
+              today={todayIso}
             />
           ))}
         </div>

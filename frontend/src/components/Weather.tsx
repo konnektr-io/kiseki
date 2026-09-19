@@ -6,10 +6,12 @@ import {
   shortDay,
   useWeatherDaily,
   weatherReadout,
+  withinForecastWindow,
   type WeatherKind,
   type WeatherReadout,
 } from "../lib/weather-live";
 import type { Day, TripLocation } from "../lib/types";
+import { tripTodayIso } from "../lib/dates";
 
 /** Condition icon — one icon per family, so the same glyph means the same
  *  thing in the location strip and on a day row. */
@@ -115,15 +117,32 @@ export function WeatherStrip({ lat, lng }: { lat?: number | null; lng?: number |
  * forecast for that exact date. **Outside the forecast window it renders
  * NOTHING AT ALL** — no placeholder, no reserved box (a null child is not a
  * DOM node, so the row keeps its exact previous layout; pinned by
- * `Weather.test.tsx`).
+ * `Weather.test.tsx` / `Weather.dom.test.tsx`) — and it does not even ASK:
+ * a day beyond the 16-day horizon has no forecast to fetch, so the request
+ * is skipped outright (a trip planned months out makes no weather call at
+ * all).
  *
  * Web-only (`no-print`), a non-interactive span so it can sit inside the day
  * row's link.
  */
-export function DayWeatherPill({ day, locations }: { day: Day; locations?: TripLocation[] }) {
+export function DayWeatherPill({
+  day,
+  locations,
+  today,
+}: {
+  day: Day;
+  locations?: TripLocation[];
+  /** Trip-local today (YYYY-MM-DD) — the caller already derives it for the
+   *  today pill; falls back to the device date. */
+  today?: string;
+}) {
   const coords = dayCoords(day, locations);
-  const daily = useWeatherDaily(coords?.lat, coords?.lng, 7);
-  if (!coords) return null;
+  const todayIso = today ?? tripTodayIso({});
+  const inWindow = withinForecastWindow(day?.date, todayIso);
+  // Coords are withheld when the date cannot be forecast — the hook then
+  // fetches nothing at all.
+  const daily = useWeatherDaily(inWindow ? coords?.lat : null, inWindow ? coords?.lng : null, 7);
+  if (!coords || !inWindow) return null;
   const match = dayWeather(daily, day.date);
   const r = weatherReadout(match);
   if (!r) return null;
