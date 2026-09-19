@@ -203,4 +203,31 @@ describe("trackRideSplit (#290)", () => {
       trackRideSplit({ distanceM: 100, ascentM: 0, pointCount: 4 }),
     ).toBeNull();
   });
+  it("is null when the trace has no lift (#336 — a hike or a planned route)", () => {
+    // The parser emits ONE `ride` leg covering the whole line when nothing
+    // classifies as a lift, so a legs-carrying payload is not a split: the
+    // live Little Switzerland hike (status: planned, #194) reported
+    // "16.2 km ridden, 16.2 km tracked" — the same number twice.
+    expect(
+      trackRideSplit({
+        distanceM: 16233.3,
+        ascentM: 265,
+        pointCount: 400,
+        rideDistanceM: 16233.3,
+        liftDistanceM: 0,
+        liftVerticalM: 0,
+        legs: [{ type: "ride", startIndex: 0, endIndex: 399, distanceM: 16233.3, ascentM: 265 }],
+      }),
+    ).toBeNull();
+    // …and stays null when only the legs carry the "no lift" story.
+    expect(
+      trackRideSplit({
+        distanceM: 5000,
+        ascentM: 100,
+        pointCount: 100,
+        rideDistanceM: 5000,
+        legs: [{ type: "ride", startIndex: 0, endIndex: 99, distanceM: 5000, ascentM: 100 }],
+      }),
+    ).toBeNull();
+  });
 });

@@ -541,7 +541,7 @@ function ActivityBlock({
               <Markdown>{b.description}</Markdown>
             </div>
           )}
-          {b.track && <TrackCard track={b.track} />}
+          {b.track && <TrackCard track={b.track} status={b.status} />}
           <Links links={shown} />
         </div>
       </div>
