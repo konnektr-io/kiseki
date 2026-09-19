@@ -258,6 +258,32 @@ describe("TripLayout", () => {
     expect(text()).toContain("Danger zone");
   });
 
+  it("on a day route the header back control goes up one level to the itinerary", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount(`/t/${TRIP.id}/day/0`);
+    await flush();
+
+    expect(uncaught).toEqual([]);
+    const back = container.querySelector('a[aria-label="Back to the itinerary"]');
+    expect(back, "the day-level way up").not.toBeNull();
+    expect(back!.getAttribute("href")).toBe(`/t/${TRIP.id}/itinerary`);
+    expect(
+      container.querySelector('a[aria-label="Back to all trips"]'),
+      "no landing shortcut on a day page",
+    ).toBeNull();
+  });
+
+  it("off a day route the header back control still goes home", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // owner
+    mount(`/t/${TRIP.id}`);
+    await flush();
+
+    expect(uncaught).toEqual([]);
+    const back = container.querySelector('a[aria-label="Back to all trips"]');
+    expect(back, "the trip-level way home").not.toBeNull();
+    expect(back!.getAttribute("href")).toBe("/");
+  });
+
   it("the header chat drawer carries the route's day as its invisible focus", async () => {
     mocks.fetchTrip.mockResolvedValue(TRIP); // owner
     mount(`/t/${TRIP.id}/day/0`);

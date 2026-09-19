@@ -399,10 +399,18 @@ export function TripLayout() {
             On a phone the brand yields to the trip name (`hideBrandOnPhone`):
             the title is user content the traveler came to read, and with the
             badge + controls beside it the app name squeezed it to an ellipsis
-            at 360–430px. The round control already covers the way home. */}
+            at 360–430px. The round control already covers the way home.
+            Two levels only (DESIGN.md §7.5): on a day page the round control
+            goes UP one level to the itinerary, not all the way home — the
+            day's parent is the scan view, and the inner surface back button
+            already points there. */}
         <AppHeader
           ref={headerRef}
-          home={{ to: "/", label: "Back to all trips" }}
+          home={
+            onDayPage
+              ? { to: `/t/${tripId}/itinerary`, label: "Back to the itinerary" }
+              : { to: "/", label: "Back to all trips" }
+          }
           hideBrandOnPhone
           title={trip.title}
           badge={<StageBadge stage={trip.stage} />}

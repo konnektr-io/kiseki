@@ -275,10 +275,11 @@ function DayRail({
   scrollRootRef?: React.RefObject<HTMLElement | null>;
   /** Phone sheet only: the prev/up/next bar rides INSIDE the scroll flow. */
   sheetNav?: boolean;
-  /** Phone sheet at `full` only (#109): pin the bar to the sheet's bottom
-   *  edge (sticky). At `half` it stays in flow — scrolling down to reach the
-   *  nav is the intended behavior there (it would eat too much of the small
-   *  sheet otherwise), and the correctly-sized body makes it reachable. */
+  /** Phone sheet (#109, sticky-at-all-detents follow-up): pin the bar to the
+   *  sheet's floor (sticky) at EVERY detent, like the itinerary's sticky
+   *  chapter bars — day→day hopping without scrolling to the content's end
+   *  first. The ~70px it costs at `half` is the trade the in-flow-only
+   *  variant tried to avoid; flipping days back and forth won. */
   sheetSticky?: boolean;
 }) {
   const trip = useTrip();
@@ -310,7 +311,11 @@ function DayRail({
   });
 
   return (
-    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined} className="flex h-full flex-col">
+    /* Fix-B root (see skill): `min-h-full` so the column always reaches the
+       sheet floor AND grows with long days — a fixed `h-full` would cap the
+       sticky wrapper's range at one viewport and the bar would ride up with
+       the scroll on exactly the long days this bar exists for. */
+    <div ref={scrollRootRef as React.Ref<HTMLDivElement> | undefined} className="flex min-h-full flex-col">
       <div className="space-y-5 pb-2">
         <div>
           <p className="kicker tabular-nums">
@@ -366,13 +371,11 @@ function DayRail({
         />
       </div>
       {sheetNav && (
-        /* #109: at `full` the WRAPPER is sticky so the bar lifts to the sheet
-           floor even with short content or slight overflow (a bar-sized
+        /* The WRAPPER is sticky so the bar sits on the sheet floor at every
+           detent, even with short content or slight overflow (a bar-sized
            wrapper would pin the inner bar to its flow position forever —
-           measured 35px below the floor). At `half` the bar stays IN FLOW:
-           scrolling down to reach the nav is the intended behavior there
-           (pinned would eat ~70px of the small sheet), and the visible-region
-           body fix makes the flow position reachable. */
+           measured 35px below the floor). Short content → `mt-auto` parks it
+           at the fold; overflowing content → it pins during the scroll. */
         <div className={sheetSticky ? "sticky bottom-0 mt-auto" : "mt-auto"}>
           <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} variant="sheet" />
         </div>
@@ -691,7 +694,7 @@ export function TripMapSurface() {
       onCardTap={tapCard}
       scrollRootRef={listRef}
       sheetNav={surfaceMode === "sheet"}
-      sheetSticky={surfaceMode === "sheet" && detent === "full"}
+      sheetSticky={surfaceMode === "sheet"}
     />
   ) : (
     /* Scan level: the itinerary list stays mounted whether or not a place is
