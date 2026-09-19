@@ -13,6 +13,7 @@ import {
   TripAccessError,
   addCrewMember,
   clearTripCache,
+  fetchReusablePlaceholders,
   fetchTrip,
   refetchTrip,
   removeCrewMember,
@@ -160,5 +161,53 @@ describe("crew writes (#198)", () => {
     expect(sent[0].method).toBe("DELETE");
     expect(sent[0].url).toBe(`/api/trips/${TRIP_ID}/crew/person-1`);
     expect(sent[0].auth).toBe("Bearer tok-123");
+  });
+
+  it("addCrewMember sends personId when linking a shared placeholder (#322)", async () => {
+    const sent = stubWrite(crewDoc);
+    await addCrewMember(
+      TRIP_ID,
+      { name: "Nicholas", role: "editor", personId: "person-shared" },
+      "tok-123",
+    );
+    expect(JSON.parse(sent[0].body ?? "{}")).toEqual({
+      name: "Nicholas",
+      role: "editor",
+      personId: "person-shared",
+    });
+  });
+
+  it("fetchReusablePlaceholders reads the reuse picker for this trip (#322)", async () => {
+    const sent: Array<{ method?: string; url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: { method?: string; headers?: Record<string, string> }) => {
+        sent.push({ method: init?.method, url, auth: init?.headers?.Authorization });
+        return {
+          ok: true,
+          json: async () => ({
+            placeholders: [
+              {
+                personId: "person-shared",
+                name: "Nick Geelen",
+                trips: [{ id: "t2", title: "Iceland 2026", role: "viewer" }],
+              },
+            ],
+          }),
+        } as unknown as Response;
+      }),
+    );
+
+    const list = await fetchReusablePlaceholders(TRIP_ID, "tok-123");
+    expect(sent[0].method).toBe("GET");
+    expect(sent[0].url).toBe(`/api/trips/${TRIP_ID}/crew/placeholders`);
+    expect(sent[0].auth).toBe("Bearer tok-123");
+    expect(list).toEqual([
+      {
+        personId: "person-shared",
+        name: "Nick Geelen",
+        trips: [{ id: "t2", title: "Iceland 2026", role: "viewer" }],
+      },
+    ]);
   });
 });

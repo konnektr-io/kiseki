@@ -326,6 +326,23 @@ export interface ProfilePerson {
   isSelf?: boolean;
 }
 
+/** One trip a reusable crew placeholder is already on (#322). */
+export interface ReusablePlaceholderTrip {
+  id: string;
+  title: string;
+  role: Role;
+}
+
+/** An unclaimed placeholder the owner may LINK into another of their trips
+ *  (#322) — one Person twin, so a single claim lands them on every trip.
+ *  `name` is the label their other trip gave them; the picker renders the
+ *  trips alongside it so two people with one name are never conflated. */
+export interface ReusablePlaceholder {
+  personId: string;
+  name: string;
+  trips: ReusablePlaceholderTrip[];
+}
+
 /** Drill-in list: `count` is the TRUE total; `people` is capped at 200
  *  entries — when count exceeds the list, the UI must say so honestly. */
 export interface PeopleList {

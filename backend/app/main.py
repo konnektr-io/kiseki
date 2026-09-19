@@ -1742,6 +1742,22 @@ def patch_crew(
     return _public_trip(trip, my_role=actor["role"])
 
 
+@app.get("/api/trips/{trip_id}/crew/placeholders")
+def trip_crew_placeholders(
+    trip_id: str,
+    actor: dict = Depends(require_trip_role("owner")),
+) -> dict:
+    """Placeholders the caller can link into THIS trip (#322).
+
+    Owner-only, like the join link and the account-add path: linking a
+    placeholder means a later claim through either trip grants both, so it is
+    the owner's decision on both sides. The list is exactly what
+    ``POST /crew {"personId": …}`` accepts — placeholders already crew on
+    another trip the caller OWNS, minus anyone already on this crew.
+    """
+    return write_svc.reusable_placeholders(trip_dtid=trip_id.lower(), actor=actor)
+
+
 @app.post("/api/trips/{trip_id}/crew", status_code=201)
 def post_crew(
     trip_id: str,
@@ -1750,13 +1766,16 @@ def post_crew(
 ) -> dict:
     """Add a crew member (editor+).
 
-    Two modes, both in ``CrewAdd``: a placeholder Person they claim later via
-    the invite (default), or an account that already exists on Kiseki — pass
-    its ``sub`` to attach the crew entry to that account directly (#198
-    follow-up: "add someone I follow" — no fake person, no join link). The
-    account path grants access the moment it lands, so it is OWNER-only and
-    only accepts an account the caller already follows (both enforced in the
-    write service, 403).
+    Three modes, all in ``CrewAdd``: a placeholder Person they claim later via
+    the invite (default); an account that already exists on Kiseki — pass its
+    ``sub`` to attach the crew entry to that account directly (#198 follow-up:
+    "add someone I follow" — no fake person, no join link); or an UNCLAIMED
+    placeholder that is already crew on another trip the caller owns — pass its
+    ``personId`` (#322) so the same person is one identity across trips and a
+    single claim lands them on all of them. The account path grants access the
+    moment it lands, and the reuse path makes a future claim span trips, so
+    both are OWNER-only (enforced in the write service, 403); the account path
+    additionally requires that the caller already follows them.
     """
     trip = _write(write_svc.add_crew, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])

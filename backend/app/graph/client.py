@@ -51,6 +51,7 @@ from functools import wraps
 from typing import Any, Callable, Optional
 
 from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
+from app.graph.convert import crew_edge_name
 
 # In-process TTL cache for the hot graph reads. Trip content changes rarely
 # (content updates re-seed or kubectl-cp), and every SPA page load otherwise
@@ -109,7 +110,11 @@ def _clear_graph_cache() -> None:
 # is trip-keyed — omitting it would leave an edited trip's feed rows stale for
 # up to its full TTL.
 _CREW_CACHED_READS = {"fetch_graph", "role_for_user_on_trip", "list_trips_for_user",
-                      "fetch_feed_bundle", "list_geo_trips"}
+                      "fetch_feed_bundle", "list_geo_trips",
+                      # The reuse picker (#322) is keyed by the OWNER and lists
+                      # what their trips' crew looks like — a crew write on any
+                      # of those trips changes it, so it must not outlive one.
+                      "placeholders_for_owner"}
 # Token lookups are keyed by the SECRET, not the trip id — a rotation or a
 # revoke must therefore retire them by token value (#197). Crew writes
 # deliberately leave them cached (a claim/link write doesn't change what a
@@ -482,6 +487,43 @@ _Q_FOLLOWING_OF = """
 MATCH (u:Twin)-[r:follows]->(t:Twin)
 WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT t.`$dtId`) AS following
+"""
+
+# --- shared crew placeholders (#322) --------------------------------------
+# One placeholder Person can be crew on SEVERAL trips (the hasCrew edge is
+# trip-sourced, so the same Person twin is a legal target from any number of
+# trips). Two reads serve that model, and both are id-scoped — never a
+# name lookup, because a name is a self-asserted label, not an identity.
+#
+# Every hasCrew edge that points at ONE Person twin, as a flat row
+# [tripId, role, index, note, displayName, personModel]. Drives (a) the claim
+# cascade — claiming the placeholder transfers ALL of these, not just the trip
+# the join link names — and (b) the guard that stops ``remove_crew`` /
+# ``delete_trip`` from deleting a placeholder another trip still needs. The
+# person's model rides along so the caller can tell a placeholder (Person) from
+# a claimed account (User) in Python rather than trusting the WHERE clause.
+# `$pid` is a bound parameter.
+_Q_CREW_EDGES_FOR_PERSON = """
+MATCH (t:Twin)-[crew:hasCrew]->(p:Twin)
+WHERE p.`$dtId` = $pid
+RETURN collect(DISTINCT [t.`$dtId`, crew.role, crew.index, crew.note,
+                         crew.displayName, p.`$metadata`.`$model`]) AS edges
+"""
+
+# The unclaimed placeholders already on the trips a user OWNS — the Crew
+# page's "already in one of your trips" picker AND the authorization source
+# for reusing one (#322). Ownership is the gate, not merely a role: reusing a
+# placeholder makes a later claim through THIS trip grant the other trip too,
+# so the decision belongs to the person who owns both (see ``write.add_crew``).
+# Rows: [personId, personName, personModel, tripId, tripTitle, role, index,
+# displayName]. `$uid` is a bound parameter.
+_Q_PLACEHOLDERS_FOR_OWNER = """
+MATCH (t:Twin)-[mine:hasCrew]->(u:Twin)
+WHERE u.`$dtId` = $uid AND mine.role = 'owner'
+MATCH (t)-[crew:hasCrew]->(p:Twin)
+RETURN collect(DISTINCT [p.`$dtId`, p.name, p.`$metadata`.`$model`,
+                         t.`$dtId`, t.title, crew.role, crew.index,
+                         crew.displayName]) AS placeholders
 """
 
 # --- the feed's own read (#264) -------------------------------------------
@@ -1012,15 +1054,18 @@ class GraphReadClient:
         note: Optional[str] = None,
         display_name: Optional[str] = None,
     ) -> bool:
-        """Transfer a trip's ``hasCrew`` edge from a placeholder Person to the
-        User twin, then retire the placeholder (issue #6).
+        """Transfer ONE trip's ``hasCrew`` edge from a placeholder Person to
+        the User twin, then retire the placeholder (issue #6).
 
-        Upserts the trip->User edge (same ``role`` + ``index`` + ``note`` +
-        ``displayName`` as the placeholder's), deletes the old trip->Person
-        edge, and deletes the placeholder node itself — the placeholder is
-        gone once claimed. ``displayName`` (#196) is the crew's OWN name for
-        this trip: carried over so a claim never renames the crew member to
-        the account's name.
+        The single-trip form of :meth:`claim_crew_person_cascade`, kept for the
+        one-edge case (a placeholder that belongs to exactly one trip): same
+        upsert-User-edge / delete-Person-edge / delete-placeholder sequence.
+        The claim FLOW uses the cascade — a placeholder can now be crew on
+        several trips (#322), and this one would leave the siblings orphaned.
+
+        Strict on its inputs (a malformed role/index/note is refused outright,
+        not coerced): this is the primitive callers reach for directly, and a
+        silent coercion there would write a bad edge instead of refusing it.
         """
         if not (self.is_enabled() and _DTID_RE.match(trip_dtid or "")
                 and _USER_RE.match(user_dtid or "") and _DTID_RE.match(person_dtid or "")):
@@ -1031,33 +1076,131 @@ class GraphReadClient:
             return False
         if display_name is not None and not isinstance(display_name, str):
             return False
+        ok = self._claim_crew_edges(
+            user_dtid, person_dtid,
+            [{"tripId": trip_dtid, "role": role, "index": index,
+              "note": note, "displayName": display_name}],
+            check_existing=False,
+        )
+        return ok is not None
+
+    def claim_crew_person_cascade(
+        self,
+        user_dtid: str,
+        person_dtid: str,
+        edges: list[dict],
+    ) -> dict | None:
+        """Claim a SHARED placeholder: transfer EVERY trip's ``hasCrew`` edge
+        onto the User twin, then retire the placeholder (#322).
+
+        ``edges`` is the output of :meth:`crew_edges_for_person` — one entry per
+        trip the placeholder is crew on. Each transfer keeps that trip's own
+        role / index / note / displayName (a placeholder can be an editor on
+        one trip and a viewer on another; the claim must not flatten that), and
+        the placeholder twin is deleted LAST, once no edge points at it.
+
+        A trip where the caller ALREADY holds a crew role is not overwritten:
+        their existing edge stays exactly as it is (the claim neither widens
+        nor downgrades a role the person already had) and only the placeholder's
+        duplicate row is removed — otherwise one human would render twice on
+        that trip's crew list.
+
+        Returns ``{"transferred": n, "alreadyCrew": m}``, or ``None`` when the
+        write failed — the caller surfaces that as a 503 rather than reporting
+        a silent partial claim.
+        """
+        return self._claim_crew_edges(user_dtid, person_dtid, edges, check_existing=True)
+
+    def _claim_crew_edges(
+        self,
+        user_dtid: str,
+        person_dtid: str,
+        edges: list[dict],
+        *,
+        check_existing: bool,
+    ) -> dict | None:
+        """Shared body of the two claim forms. Edges first, placeholder last.
+
+        ``check_existing`` is what the multi-trip cascade needs and the
+        single-trip form does not: before overwriting a sibling trip's role it
+        re-reads the CURRENT graph (the ACL's earlier lookup memoized a miss)
+        and leaves an existing edge alone. The single-trip path historically
+        skipped that check — the route already refuses a caller who is on this
+        crew — and its call sequence is pinned by tests, so it stays lean.
+        """
+        if not (self.is_enabled() and _USER_RE.match(user_dtid or "")
+                and _DTID_RE.match(person_dtid or "")):
+            return None
+        if not edges:
+            return None
         try:
             from konnektr_graph import BasicRelationship
 
-            rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
-            props: dict[str, Any] = {
-                "$relationshipId": rel_id,
-                "$sourceId": trip_dtid,
-                "$relationshipName": "hasCrew",
-                "$targetId": user_dtid,
-                "role": role,
-                "index": index,
-            }
-            if note is not None:
-                props["note"] = note
-            if display_name:
-                props["displayName"] = display_name
-            rel = BasicRelationship.from_dict(props)
-            self._client.upsert_relationship(trip_dtid, rel_id, rel)  # type: ignore[union-attr]
-            self._client.delete_relationship(  # type: ignore[union-attr]
-                trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
-            )
+            transferred = 0
+            already_crew = 0
+            for edge in edges:
+                trip_dtid = str(edge.get("tripId") or "")
+                role = edge.get("role")
+                index = edge.get("index")
+                if not _DTID_RE.match(trip_dtid):
+                    continue
+                if role not in {"owner", "editor", "viewer", "follower"}:
+                    role = "viewer"
+                if not isinstance(index, int):
+                    index = 0
+                note = edge.get("note")
+                if not isinstance(note, str):
+                    note = None
+                display_name = edge.get("displayName")
+                if not isinstance(display_name, str):
+                    display_name = None
+                existing = (
+                    self._fresh_role_on_trip(trip_dtid, user_dtid)
+                    if check_existing else None
+                )
+                if existing is None:
+                    rel_id = f"{trip_dtid}__hasCrew__{user_dtid}"
+                    props: dict[str, Any] = {
+                        "$relationshipId": rel_id,
+                        "$sourceId": trip_dtid,
+                        "$relationshipName": "hasCrew",
+                        "$targetId": user_dtid,
+                        "role": role,
+                        "index": index,
+                    }
+                    if note is not None:
+                        props["note"] = note
+                    if display_name:
+                        props["displayName"] = display_name
+                    self._client.upsert_relationship(  # type: ignore[union-attr]
+                        trip_dtid, rel_id, BasicRelationship.from_dict(props)
+                    )
+                    transferred += 1
+                else:
+                    already_crew += 1
+                # Either way the placeholder's row goes: it is the same human,
+                # and a second row would render them twice.
+                self._client.delete_relationship(  # type: ignore[union-attr]
+                    trip_dtid, f"{trip_dtid}__hasCrew__{person_dtid}"
+                )
+                _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
+            # Only now: the placeholder has no incident edges left. The graph
+            # server does not cascade, so deleting it earlier would refuse.
             self._client.delete_digital_twin(person_dtid)  # type: ignore[union-attr]
-            _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
-            return True
+            return {"transferred": transferred, "alreadyCrew": already_crew}
         except Exception as exc:
             print(f"[kiseki] graph claim transfer({person_dtid}) failed: {exc}")
-            return False
+            return None
+
+    def _fresh_role_on_trip(self, trip_dtid: str, user_dtid: str) -> Optional[str]:
+        """``role_for_user_on_trip`` with this trip's cache entry retired first.
+
+        The ACL looked the role up on the way in and memoized a MISS; acting on
+        that stale miss is exactly how the cascade would clobber a role the
+        person already holds on a sibling trip.
+        """
+        _invalidate_graph_cache(trip_dtid=trip_dtid, user_dtid=user_dtid)
+        return self.role_for_user_on_trip(trip_dtid, user_dtid)
 
     def revert_crew_person(
         self,
@@ -1222,6 +1365,103 @@ class GraphReadClient:
     # Person->person social graph: one-directional, no approval, no
     # reciprocity. Following a person grants NO trip access — visibility still
     # gates every trip read (phase B asserts this; the edge is social only).
+
+    # ------------------------------------------- shared crew placeholders (#322)
+    def crew_edges_for_person(self, person_dtid: str) -> list[dict]:
+        """Every ``hasCrew`` edge that points at ONE Person twin (#322).
+
+        Rows are flat dicts (``tripId`` / ``role`` / ``index`` / ``note`` /
+        ``displayName`` / ``personModel``), assembled in Python from the list
+        shape the query returns. Empty list when the graph is disabled, the id
+        is malformed, or nothing points at it.
+
+        This is the read behind the claim CASCADE: a placeholder shared by
+        several trips has one edge per trip, and a claim must move all of them.
+        """
+        if not self.is_enabled() or not _DTID_RE.match(person_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_CREW_EDGES_FOR_PERSON, query_parameters={"pid": person_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph crew edges for({person_dtid}) failed: {exc}")
+            return []
+        raw = (rows[0] or {}).get("edges") or [] if rows else []
+        out: list[dict] = []
+        for row in raw:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            trip_id, role, index, note, display_name, model = (
+                list(row) + [None] * 6
+            )[:6]
+            if not trip_id:
+                continue
+            out.append({
+                "tripId": trip_id,
+                "role": role if isinstance(role, str) else "viewer",
+                "index": index if isinstance(index, int) else 0,
+                "note": note if isinstance(note, str) else None,
+                # #213: an edge that stored the person's own opaque id in
+                # displayName carries NO label. Sanitized here, at the single
+                # read that feeds the claim cascade, so every claim path gets
+                # the same answer a trip render does — the cascade must not
+                # promote an auth sub to a crew name (#196).
+                "displayName": crew_edge_name({"displayName": display_name}, person_dtid)
+                if isinstance(display_name, str) else None,
+                "personModel": model if isinstance(model, str) else "",
+            })
+        return out
+
+    @_cached_graph
+    def placeholders_for_owner(self, user_dtid: str) -> list[dict]:
+        """Unclaimed placeholders on the trips ``user_dtid`` OWNS (#322).
+
+        The picker's source AND the authorization gate for reusing one: an
+        owner may reuse a placeholder that already sits on a trip they own, so
+        the future claim decision stays with the person who owns both trips.
+        ``personModel`` rides along so the caller can keep placeholders
+        (Person) apart from claimed accounts (User) — reusing a User twin is
+        the *other* path (``add_crew`` with ``sub``), gated on following them.
+
+        Rows: one dict per (person, trip) edge, de-duplicated by the query.
+        """
+        if not self.is_enabled() or not _USER_RE.match(user_dtid or ""):
+            return []
+        try:
+            rows = list(
+                self._client.query_twins(  # type: ignore[union-attr]
+                    _Q_PLACEHOLDERS_FOR_OWNER, query_parameters={"uid": user_dtid}
+                )
+            )
+        except Exception as exc:
+            print(f"[kiseki] graph placeholders for({user_dtid}) failed: {exc}")
+            return []
+        raw = (rows[0] or {}).get("placeholders") or [] if rows else []
+        out: list[dict] = []
+        for row in raw:
+            if not isinstance(row, (list, tuple)) or len(row) < 5:
+                continue
+            (person_id, person_name, model, trip_id, trip_title,
+             role, index, display_name) = (list(row) + [None] * 8)[:8]
+            if not person_id or not trip_id:
+                continue
+            out.append({
+                "personId": person_id,
+                "name": person_name if isinstance(person_name, str) else "",
+                "personModel": model if isinstance(model, str) else "",
+                "tripId": trip_id,
+                "tripTitle": trip_title if isinstance(trip_title, str) else "",
+                "role": role if isinstance(role, str) else "viewer",
+                "index": index if isinstance(index, int) else 0,
+                # The picker LABELS the choice with this, so it needs the same
+                # #213 rule as a crew row: an opaque-id displayName is no name.
+                "displayName": crew_edge_name({"displayName": display_name}, person_id)
+                if isinstance(display_name, str) else None,
+            })
+        return out
 
     def follow_user(self, actor_dtid: str, target_dtid: str) -> bool:
         """Upsert the ``follows`` relationship ``{actor} → {target}`` (#196).

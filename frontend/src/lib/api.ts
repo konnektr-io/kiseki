@@ -1,5 +1,5 @@
 import { authHeaders, hasCredential } from "./auth-headers";
-import type { FeedDoc, PeopleList, Role, ShowcaseTrip, Trip, TripGeo, TripSummary, TricountSnapshot, UserProfile } from "./types";
+import type { FeedDoc, PeopleList, ReusablePlaceholder, Role, ShowcaseTrip, Trip, TripGeo, TripSummary, TricountSnapshot, UserProfile } from "./types";
 
 /**
  * Single trip route since #64: /api/trips/{tripId} (visibility-gated).
@@ -428,6 +428,26 @@ export interface AddCrewMemberBody {
    *  follow-up). Owner-only server-side, and only for someone the caller
    *  follows; `contact` is refused with it (their profile owns it). */
   sub?: string;
+  /** Link an UNCLAIMED placeholder that is already crew on another trip the
+   *  caller owns (#322) instead of minting a second one for the same person.
+   *  Owner-only server-side, id-based only (never name-matched), and `contact`
+   *  is refused with it — the twin is shared, so it is not this trip's to
+   *  edit. The name/role/note are THIS trip's own. */
+  personId?: string;
+}
+
+/** The placeholders the caller may link into this trip (#322) — owner-only,
+ *  one entry per person, each listing the trips they are already on. */
+export async function fetchReusablePlaceholders(
+  tripId: string,
+  accessToken: string,
+): Promise<ReusablePlaceholder[]> {
+  const body = await profileRequest<{ placeholders: ReusablePlaceholder[] }>(
+    "GET",
+    `/api/trips/${encodeURIComponent(tripId)}/crew/placeholders`,
+    accessToken,
+  );
+  return body.placeholders ?? [];
 }
 
 /** Add a crew member (editor+ for a placeholder; `sub` is owner-only on the
