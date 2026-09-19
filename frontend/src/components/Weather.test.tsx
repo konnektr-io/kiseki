@@ -32,6 +32,12 @@ vi.mock("../lib/place-live", () => ({
   usePlaceLive: () => null,
 }));
 
+// The block tree reads the auth context for its editor branch (blocks.test.tsx
+// pattern) — the weather wiring under test is auth-agnostic.
+vi.mock("@auth0/auth0-react", () => ({
+  useAuth0: () => ({ isAuthenticated: false, isLoading: false }),
+}));
+
 // The itinerary row renders through `./blocks` (glyph + meta chips), whose
 // card tree embeds `MapView` → maplibre-gl + maplibre-contour, which don't
 // resolve under node-env vitest. Maps are irrelevant to the weather pill
@@ -40,8 +46,10 @@ vi.mock("./MapView", () => ({ MapView: () => null, TripMap: () => null }));
 
 import { DayWeatherPill, WeatherStrip } from "./Weather";
 import { DaySummaryRow } from "./DaySummaryRow";
+import { DayBlocks } from "./blocks";
+import { TripProvider } from "./theme";
 import { PlaceFacts } from "./PlaceFacts";
-import type { Day, TripLocation } from "../lib/types";
+import type { Block, Day, Trip, TripLocation } from "../lib/types";
 
 function render(el: ReactElement): string {
   return renderToString(el);
@@ -161,14 +169,94 @@ describe("no forecast = no space (outside the 16-day window)", () => {
 });
 
 describe("PlaceFacts weather integration", () => {
-  it("a located place gains the weather strip; an unlocated one stays silent", () => {
-    const located = render(
+  it("only renders the strip when the CALLER says a forecast can cover the trip", () => {
+    const place = { name: "Sunshine Village", lat: 51.0785, lng: -115.7765 };
+    const shown = render(createElement(PlaceFacts, { place, showWeather: true }));
+    expect(shown).toContain("Weather by");
+    // Default (and a far-out trip) = no strip, no request, no space.
+    expect(render(createElement(PlaceFacts, { place }))).not.toContain("Weather by");
+    expect(render(createElement(PlaceFacts, { place, showWeather: false }))).not.toContain("Weather by");
+  });
+  it("a coords-only place with weather on renders ONLY the strip", () => {
+    // The block call sites widen their guard for exactly this case: a mapped
+    // resort with no place metadata yet still shows this week's conditions.
+    const html = render(
+      createElement(PlaceFacts, { place: { name: "Revelstoke", lat: 51, lng: -118 }, showWeather: true }),
+    );
+    expect(html).toContain("Weather by");
+    expect(html).not.toContain("Open in Google Maps");
+  });
+  it("weather on but no coords renders nothing (never an empty box)", () => {
+    expect(render(createElement(PlaceFacts, { place: { name: "Somewhere" }, showWeather: true }))).toBe("");
+  });
+  it("a placed trip far out gets no strip even with facts present", () => {
+    const html = render(
       createElement(PlaceFacts, {
-        place: { name: "Sunshine Village", lat: 51.0785, lng: -115.7765 },
+        place: { name: "Sunshine Village", lat: 51.0785, lng: -115.7765, placeId: "ChIJx" },
       }),
     );
-    expect(located).toContain("Weather by");
-    const bare = render(createElement(PlaceFacts, { place: { name: "Somewhere" } }));
-    expect(bare).not.toContain("Weather by");
+    expect(html).toContain("Open in Google Maps");
+    expect(html).not.toContain("Weather by");
+  });
+});
+
+/* The real call site: a block card on a day view. This is the wiring that a
+ * component-only test cannot prove — the guard lives in `blocks.tsx`, and a
+ * missed `showWeather` there is invisible everywhere else (the "data shipped
+ * without UI" class of defect). The trip's own dates decide. */
+describe("block card wiring (the guard lives in blocks.tsx)", () => {
+  const activity: Block = {
+    id: "b1",
+    kind: "activity",
+    title: "Ski day",
+    location: "Revelstoke",
+    order: 0,
+  } as unknown as Block;
+
+  function renderCard(tripDates: { startDate?: string; endDate?: string }): string {
+    const trip = {
+      id: "t1",
+      slug: "test",
+      title: "Test trip",
+      stage: "booked",
+      myRole: "viewer",
+      ...tripDates,
+      locations: [{ name: "Revelstoke", lat: 51.0785, lng: -115.7765 }], // coords only, no facts
+      days: [],
+    } as unknown as Trip;
+    return renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(
+          MemoryRouter,
+          { initialEntries: ["/t/t1/day/0"] },
+          createElement(DayBlocks, { blocks: [activity] } as never),
+        ),
+      }),
+    );
+  }
+
+  /** The guard reads the REAL clock (no `now` injection at the call site), so
+   *  the fixture dates are relative to today — a hardcoded "near" date would
+   *  silently become far-out as the calendar moves. */
+  function isoIn(days: number): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  it("an in-window trip shows the weather strip on a coords-only place", () => {
+    const html = renderCard({ startDate: isoIn(5), endDate: isoIn(12) });
+    expect(html).toContain("Weather by");
+  });
+  it("a trip happening right now shows it too (ongoing overlap)", () => {
+    const html = renderCard({ startDate: isoIn(-5), endDate: isoIn(9) });
+    expect(html).toContain("Weather by");
+  });
+  it("a far-out trip shows no weather at all — not even the PlaceFacts wrapper", () => {
+    const html = renderCard({ startDate: isoIn(200), endDate: isoIn(214) });
+    expect(html).not.toContain("Weather by");
+    expect(html).not.toContain("Open in Google Maps"); // no facts, no strip → nothing
   });
 });

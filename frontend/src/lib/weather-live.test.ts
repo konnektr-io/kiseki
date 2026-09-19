@@ -3,6 +3,7 @@ import {
   dayCoords,
   dayWeather,
   shortDay,
+  tripInForecastWindow,
   weatherForecastUrl,
   weatherKind,
   weatherLabel,
@@ -169,6 +170,43 @@ describe("withinForecastWindow", () => {
     expect(withinForecastWindow(null, today)).toBe(false);
     expect(withinForecastWindow("2027-02-20", "")).toBe(false);
     expect(withinForecastWindow("not-a-date", today)).toBe(false);
+  });
+});
+
+describe("tripInForecastWindow — the gate for the location strip", () => {
+  const now = new Date("2027-02-15T09:00:00Z");
+  const trip = (startDate?: string, endDate?: string, timezone?: string) => ({
+    startDate,
+    endDate,
+    timezone,
+  });
+  it("true while the trip is inside the window", () => {
+    expect(tripInForecastWindow(trip("2027-02-18", "2027-02-26"), now)).toBe(true);
+    expect(tripInForecastWindow(trip("2027-02-15", "2027-02-15"), now)).toBe(true); // today
+  });
+  it("true for a long trip that has already started but is still on", () => {
+    expect(tripInForecastWindow(trip("2027-01-20", "2027-03-05"), now)).toBe(true);
+  });
+  it("false months out — a far-out trip gets no weather readout at all", () => {
+    expect(tripInForecastWindow(trip("2027-08-01", "2027-08-14"), now)).toBe(false);
+  });
+  it("false once the trip is well past", () => {
+    expect(tripInForecastWindow(trip("2026-12-01", "2026-12-10"), now)).toBe(false);
+  });
+  it("fails closed without dates", () => {
+    expect(tripInForecastWindow(trip(undefined, undefined), now)).toBe(false);
+  });
+  it("accepts a one-sided range", () => {
+    expect(tripInForecastWindow(trip(undefined, "2027-02-20"), now)).toBe(true);
+    expect(tripInForecastWindow(trip("2027-08-01", undefined), now)).toBe(false);
+  });
+  it("resolves 'today' in the trip's own timezone", () => {
+    // 2027-02-15T22:30Z is already the 16th in Tokyo and still the 15th in UTC.
+    // From Tokyo's 16th the 02 Mar start sits exactly on the 15-day horizon;
+    // from UTC's 15th it is a day past it.
+    const late = new Date("2027-02-15T22:30:00Z");
+    expect(tripInForecastWindow(trip("2027-03-02", "2027-03-04", "Asia/Tokyo"), late, 15)).toBe(true);
+    expect(tripInForecastWindow(trip("2027-03-02", "2027-03-04", "UTC"), late, 15)).toBe(false);
   });
 });
 

@@ -198,11 +198,16 @@ export function PlaceFacts({
   place,
   blockLinks,
   reviewsQuiet = false,
+  showWeather = false,
 }: {
   place: TripLocation;
   blockLinks?: { label: string; url: string }[];
   /** Collapse the review snippets — set for a `done` block. */
   reviewsQuiet?: boolean;
+  /** Render the live weather strip (#334) — the caller sets this only when a
+   *  forecast can actually cover the trip (`tripInForecastWindow`), so a trip
+   *  months out never spends a request or a pixel on it. */
+  showWeather?: boolean;
 }) {
   const live = usePlaceLive(place.placeId);
   const hasLive = !!live && (live.rating != null || (live.reviews?.length ?? 0) > 0 || !!live.photos?.some((p) => p.name));
@@ -211,7 +216,9 @@ export function PlaceFacts({
   // enriched is exactly the ski case). It renders null while loading or
   // absent, so returning it directly adds no wrapper margin either way.
   const weather =
-    place.lat != null && place.lng != null ? <WeatherStrip lat={place.lat} lng={place.lng} /> : null;
+    showWeather && place.lat != null && place.lng != null ? (
+      <WeatherStrip lat={place.lat} lng={place.lng} />
+    ) : null;
   if (!placeHasFacts(place) && !hasLive) return weather;
   // A block link pointing at the same site as the registry's website makes
   // the facts Website chip redundant — the bottom links row already has it.
@@ -258,7 +265,9 @@ export function PlaceFacts({
             ))}
           </ul>
         )}
-        {place.lat != null && place.lng != null && <WeatherStrip lat={place.lat} lng={place.lng} />}
+        {showWeather && place.lat != null && place.lng != null && (
+          <WeatherStrip lat={place.lat} lng={place.lng} />
+        )}
         {live?.rating != null && !reviewsQuiet && (
           <div className="flex flex-wrap items-center gap-1.5 text-sm">
             <Stars rating={live.rating} />

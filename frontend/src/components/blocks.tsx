@@ -5,6 +5,7 @@ import { findLocation, markerNumber } from "../lib/maps";
 import { gmapsDirectionsUrl, gmapsSearchUrl } from "../lib/gmaps";
 import { useLiveDirections } from "../lib/directions";
 import { matchTitlePlace } from "../lib/day-surface";
+import { tripInForecastWindow } from "../lib/weather-live";
 import { PlaceFacts, placeHasFacts } from "./PlaceFacts";
 import {
   BedDouble,
@@ -509,6 +510,7 @@ function ActivityBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
+  const showWeather = tripInForecastWindow(trip);
   // The links-row Maps entry is redundant once the block resolves to a
   // registry place — PlaceFacts renders the canonical place_id deep link.
   // Unresolved blocks keep their own location/placeId fallback link.
@@ -526,8 +528,13 @@ function ActivityBlock({
             {b.cost != null && <Cost cost={b.cost} currency={b.currency} />}
             <StatusChip status={b.status} />
           </div>
-          {place && placeHasFacts(place) && (
-            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          {place && (placeHasFacts(place) || (showWeather && place.lat != null)) && (
+            <PlaceFacts
+              place={place}
+              blockLinks={shown}
+              reviewsQuiet={b.status === "done"}
+              showWeather={showWeather}
+            />
           )}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
@@ -553,6 +560,7 @@ function LodgingBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
+  const showWeather = tripInForecastWindow(trip);
   // Same Maps-link dedupe as ActivityBlock (PlaceFacts owns the canonical
   // deep link once the block resolves) — booking CTAs stay first.
   const gm = place ? null : mapsLink(b, place);
@@ -567,8 +575,13 @@ function LodgingBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Lodging"}</h4>
           </div>
-          {place && placeHasFacts(place) && (
-            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          {place && (placeHasFacts(place) || (showWeather && place.lat != null)) && (
+            <PlaceFacts
+              place={place}
+              blockLinks={shown}
+              reviewsQuiet={b.status === "done"}
+              showWeather={showWeather}
+            />
           )}
           {b.description && (
             <div className="mt-1 text-sm leading-relaxed text-muted-foreground">
@@ -599,6 +612,7 @@ function MealBlock({
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
+  const showWeather = tripInForecastWindow(trip);
   // Same Maps-link dedupe as ActivityBlock — PlaceFacts owns the canonical
   // deep link once the block resolves.
   const gm = place ? null : mapsLink(b, place);
@@ -613,8 +627,13 @@ function MealBlock({
             {letter && <LetterBadge letter={letter} />}
             <h4 className="font-heading text-base font-semibold">{b.title ?? "Meal"}</h4>
           </div>
-          {place && placeHasFacts(place) && (
-            <PlaceFacts place={place} blockLinks={shown} reviewsQuiet={b.status === "done"} />
+          {place && (placeHasFacts(place) || (showWeather && place.lat != null)) && (
+            <PlaceFacts
+              place={place}
+              blockLinks={shown}
+              reviewsQuiet={b.status === "done"}
+              showWeather={showWeather}
+            />
           )}
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
           <Links links={shown} />

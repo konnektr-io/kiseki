@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { Day, TripLocation } from "./types";
+import { tripTodayIso } from "./dates";
+import type { Day, Trip, TripLocation } from "./types";
 
 /**
  * Live weather overlay (#334) — Open-Meteo forecast behind the backend
@@ -148,6 +149,33 @@ export function withinForecastWindow(
   if (Number.isNaN(d) || Number.isNaN(t)) return false;
   const diffDays = (d - t) / 86_400_000;
   return diffDays >= -1 && diffDays <= days - 1;
+}
+
+/** True when ANY of the trip's own dates falls inside the forecast window —
+ *  i.e. when a weather readout is about the trip rather than about a random
+ *  week months before it. The location strip gates on this (a far-out trip's
+ *  "current conditions there" is noise, and costs a request per place).
+ *
+ *  This is an OVERLAP test against the window `[today − 1, today + days − 1]`,
+ *  not an endpoint check: a three-week trip that started last week has both
+ *  endpoints outside a 16-day window and still very much wants the forecast.
+ *
+ *  Fails closed: no dates at all means no forecast is worth showing. */
+export function tripInForecastWindow(
+  trip: Pick<Trip, "startDate" | "endDate" | "timezone">,
+  now: Date = new Date(),
+  days = 16,
+): boolean {
+  const today = tripTodayIso(trip, now);
+  const start = trip.startDate ?? trip.endDate;
+  const end = trip.endDate ?? trip.startDate;
+  if (!start || !end) return false;
+  const t = Date.parse(`${today}T12:00:00Z`);
+  const s = Date.parse(`${start}T12:00:00Z`);
+  const e = Date.parse(`${end}T12:00:00Z`);
+  if (Number.isNaN(t) || Number.isNaN(s) || Number.isNaN(e)) return false;
+  const day = 86_400_000;
+  return s <= t + (days - 1) * day && e >= t - day;
 }
 
 /** Condition family — drives the icon and the label. Snow-family codes
