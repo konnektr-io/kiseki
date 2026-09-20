@@ -1190,6 +1190,18 @@ def test_identity_instructions_forbid_all_plumbing_narration() -> None:
         assert "tokens, M2M, minting, act-as, credentials" in text
 
 
+def test_identity_instructions_unanchored_ask_for_trip_link_on_create() -> None:
+    """The unanchored envelope must tell the agent to end a creation turn with
+    the new trip's `/t/<id>` link: the landing detects fresh trips from those
+    links, and a turn that ends without one leaves the trip invisible until a
+    hard refresh."""
+    text = chat_module.identity_instructions(OTHER_SUB, None)
+    assert "/t/<trip-id>" in text
+    # anchored threads already know their trip — the instruction belongs to
+    # the unanchored (planning) shape only
+    assert "/t/<trip-id>" not in chat_module.identity_instructions(OTHER_SUB, TRIP)
+
+
 def test_scrub_jwt_redacts_complete_tokens() -> None:
     jwt = (
         "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."

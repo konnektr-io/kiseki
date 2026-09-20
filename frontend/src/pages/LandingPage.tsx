@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowRight, Check, Layers, MapPin, MessageCircle, Plus, Ticket } from "lucide-react";
@@ -35,6 +35,7 @@ import {
   type TripOrigin,
 } from "../lib/home";
 import { homePinsFromGeo, homeRowId } from "../lib/home-geo";
+import { adoptThreadId, chatContextKey, loadThreadId } from "../lib/chat";
 import { sortShowcaseTrips } from "../lib/marketing";
 import { prefersReducedMotion } from "../lib/maps";
 import { usePageTitle } from "../lib/seo";
@@ -711,6 +712,7 @@ function AuthenticatedLanding() {
     isAuthenticated,
     getAccessTokenSilently,
     loginWithRedirect,
+    user,
   } = useAuth0();
   const [trips, setTrips] = useState<TripSummary[] | null>(null);
   const [feed, setFeed] = useState<FeedEntry[] | null>(null);
@@ -760,6 +762,62 @@ function AuthenticatedLanding() {
   const [months, setMonths] = useState<readonly number[]>([]);
   const [originSel, setOriginSel] = useState<"all" | "mine" | "following">("all");
   const [vis, setVis] = useState<readonly Visibility[]>([]);
+
+  const userSub = user?.sub ?? null;
+  // Fresh-trip detection for the landing chat: the agent creates the empty
+  // trip first and fills it over a long turn, but the turn's final text does
+  // not always carry the /t/<id> link the popup watches for — so the grid
+  // below never refetched and the trip stayed invisible until a hard
+  // refresh. A cheap trips-only re-read after every completed landing turn
+  // (plus a slow poll while the chat is open, so the skeleton card appears
+  // mid-build) closes that gap: any id the grid did not know yet becomes
+  // the "Open trip" banner.
+  const tripsRef = useRef<TripSummary[] | null>(null);
+  tripsRef.current = trips;
+  // Set once the landing chat has been opened this visit — a novel trip id
+  // is then the agent's doing, not a share landing from elsewhere.
+  const chatUsedRef = useRef(false);
+  const refreshTrips = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      const token = await getAccessTokenSilently();
+      const fresh = await fetchMyTrips(token);
+      const known = new Set((tripsRef.current ?? []).map((t) => t.dtId));
+      const novel = fresh.filter((t) => !known.has(t.dtId));
+      setTrips(fresh);
+      if (novel.length > 0 && chatUsedRef.current) {
+        setCreatedTripId(novel[novel.length - 1].dtId);
+      }
+    } catch {
+      // soft: the grid keeps what it has; the next refresh retries
+    }
+  }, [isAuthenticated, getAccessTokenSilently]);
+  const handleLandingTurnComplete = useCallback(() => {
+    chatUsedRef.current = true;
+    void refreshTrips();
+  }, [refreshTrips]);
+  const handleOpenChat = useCallback(() => {
+    chatUsedRef.current = true;
+    setChatOpen(true);
+  }, []);
+  // While the landing chat is open the agent may be building for many
+  // minutes: poll the cheap trip list so the new card surfaces mid-build.
+  useEffect(() => {
+    if (!chatOpen || !isAuthenticated) return;
+    const timer = window.setInterval(() => {
+      void refreshTrips();
+    }, 20000);
+    return () => window.clearInterval(timer);
+  }, [chatOpen, isAuthenticated, refreshTrips]);
+  /** Opening the fresh trip carries the landing thread into its slot, so the
+   *  trip drawer continues the planning conversation (same Hermes session:
+   *  history intact, a still-running turn attachable) instead of starting a
+   *  blank thread that has never heard of the trip. */
+  const handleOpenCreatedTrip = useCallback(() => {
+    if (!createdTripId) return;
+    const landingThread = loadThreadId(chatContextKey(), userSub);
+    if (landingThread) adoptThreadId(chatContextKey(createdTripId), landingThread, userSub);
+  }, [createdTripId, userSub]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1131,7 +1189,7 @@ function AuthenticatedLanding() {
       selectedDtId={selectedDtId}
       flashDtId={flashDtId}
       chatOpen={chatOpen}
-      onOpenChat={() => setChatOpen(true)}
+      onOpenChat={handleOpenChat}
       onRetry={() => setAttempt((n) => n + 1)}
       onSignInAgain={() =>
         loginWithRedirect({ appState: { returnTo: window.location.pathname } })
@@ -1157,11 +1215,13 @@ function AuthenticatedLanding() {
         // The new trip exists now — refetch so its card appears above.
         setAttempt((n) => n + 1);
       }}
+      onTurnComplete={handleLandingTurnComplete}
       label="Kiseki assistant"
       banner={
         createdTripId ? (
           <Link
             to={`/t/${createdTripId}`}
+            onClick={handleOpenCreatedTrip}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90"
           >
             Open your new trip

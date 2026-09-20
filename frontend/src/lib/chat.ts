@@ -92,6 +92,30 @@ export function newThreadId(context: string, userSub?: string | null): string {
   return id;
 }
 
+/**
+ * Carry a thread into another context's slot (opening a trip created on the
+ * landing keeps the SAME thread, so the trip drawer continues the planning
+ * conversation — history intact, a still-running turn attachable — instead of
+ * starting over on a fresh thread).
+ */
+export function adoptThreadId(
+  context: string,
+  threadId: string,
+  userSub?: string | null,
+): void {
+  if (!threadId) return;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(
+        THREADS_KEY,
+        JSON.stringify({ ...readThreads(), [threadSlot(context, userSub)]: threadId }),
+      );
+    }
+  } catch {
+    // persistence is a convenience — a chat without it still works
+  }
+}
+
 /** Backend `ChatMessage` shape (`backend/app/chat.py`): content is a plain
  *  string or an array of `{type: "text", text}` / `{type: "image_url",
  *  image_url: {url}}` parts. Unknown part shapes are rejected upstream (400). */

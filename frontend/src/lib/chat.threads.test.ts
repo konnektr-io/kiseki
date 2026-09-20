@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { loadThreadId, newThreadId } from "./chat";
+import { adoptThreadId, loadThreadId, newThreadId } from "./chat";
 
 const NIKO = "google-oauth2|niko";
 const NEWBIE = "auth0|new-user-1";
@@ -68,5 +68,27 @@ describe("per-user thread slots", () => {
     expect(loadThreadId("general")).toBe(id);
     // …but that legacy slot is invisible to signed-in lookups
     expect(loadThreadId("general", NIKO)).toBeNull();
+  });
+});
+
+describe("adoptThreadId (landing → trip handoff)", () => {
+  it("carries the landing thread into the new trip's slot", () => {
+    const landingThread = newThreadId("general", NIKO);
+    adoptThreadId("trip-9", landingThread, NIKO);
+    expect(loadThreadId("trip-9", NIKO)).toBe(landingThread);
+    // the landing slot keeps pointing at the same thread
+    expect(loadThreadId("general", NIKO)).toBe(landingThread);
+  });
+
+  it("never crosses users when adopting", () => {
+    const landingThread = newThreadId("general", NIKO);
+    adoptThreadId("trip-9", landingThread, NEWBIE);
+    expect(loadThreadId("trip-9", NEWBIE)).toBe(landingThread);
+    expect(loadThreadId("trip-9", NIKO)).toBeNull();
+  });
+
+  it("is a no-op without a thread id (SSR-safe, nothing stored)", () => {
+    adoptThreadId("trip-9", "", NIKO);
+    expect(loadThreadId("trip-9", NIKO)).toBeNull();
   });
 });

@@ -837,7 +837,11 @@ def identity_instructions(
             "No trip is anchored to this thread yet. The user may ask about "
             "an existing trip (list THIS user's trips, then read the one they "
             "mean) or ask you to help PLAN a NEW trip — research freely, but "
-            "never write trip content until the user anchors one."
+            "never write trip content until the user anchors one. "
+            "When you create a new trip in this thread, end the turn with its "
+            "`/t/<trip-id>` link (the id the create call returned) so the app "
+            "can offer it — the link is how the new trip surfaces, so it must "
+            "not be dropped even when the turn ends mid-build."
         )
     head = (
         "You are the Kiseki trip-content agent. The person you are helping "
