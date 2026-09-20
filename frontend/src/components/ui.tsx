@@ -129,6 +129,20 @@ export function StageBadge({ stage, className = "" }: { stage: Stage; className?
       </span>
     );
   }
+  if (stage === "planned") {
+    // §5.3: planned = solid but muted — quiet grey fill, between the
+    // provisional outlines and the confident booked/live fills.
+    return (
+      <span
+        className={twMerge(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-muted text-muted-foreground shadow-floating",
+          className,
+        )}
+      >
+        {STAGE_LABELS[stage]}
+      </span>
+    );
+  }
   return (
     <Badge
       variant="outline"
