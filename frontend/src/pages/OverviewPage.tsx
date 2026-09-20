@@ -256,9 +256,10 @@ export function OverviewPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/40 to-black/20" />
         <div className="relative flex min-h-[280px] flex-col justify-end p-5 md:min-h-[360px] md:p-8">
           <div className="flex flex-wrap items-center gap-2">
-            {/* the floating recipe is StageBadge's own now — only the text
-                colour needs forcing against the cover photo */}
-            <StageBadge stage={trip.stage} className="text-foreground" />
+            {/* StageBadge owns a readable pairing per stage (solid fills carry
+                their own foregrounds) — no colour override: forcing
+                text-foreground here painted near-black text on the teal fill. */}
+            <StageBadge stage={trip.stage} />
             <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums text-white/80">
               <CalendarDays className="h-3.5 w-3.5" />
               {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}
