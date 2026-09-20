@@ -182,26 +182,37 @@ export function BlockSummaryRow({
 }
 
 /** A group of consecutive days rendered as ONE itinerary card (`fold` on the
- *  section — display-only). Unlike DaySummaryRow it is NOT a link: there is no
- *  single day page to open. Number badge shows the trip-day range (e.g. 7–9),
- *  the date row the span, and blocks are the union across the folded days in
- *  (day, order) sequence. */
+ *  section — display-only; the days themselves still exist and keep their day
+ *  pages). The card body links to the FIRST folded day (same scan → day
+ *  contract as DaySummaryRow), and a per-day nav below it links each folded
+ *  day to its own day page — the two asks in Niko's review, without nested
+ *  anchors (the links are siblings, never parents of each other). Number badge
+ *  shows the trip-day range (e.g. 7–9), the date row the span, and blocks are
+ *  the union across the folded days in (day, order) sequence. */
 export function FoldedDayCard({
   days,
+  indices,
   title,
   startNo,
   isToday,
   active,
+  activeDayIdx,
 }: {
   days: Day[];
+  /** 0-based trip-day index for each entry in `days` — the per-day targets. */
+  indices: number[];
   title: string;
   /** Trip-day number of the first folded day (array position + 1). */
   startNo: number;
   isToday?: boolean;
   active?: boolean;
+  /** The day currently open in the day level — highlights its pill + card. */
+  activeDayIdx?: number | null | undefined;
 }) {
+  const { tripId } = useParams();
   const first = days[0];
   const last = days[days.length - 1];
+  const firstIdx = indices[0] ?? startNo - 1;
   const thumbs = days.flatMap(dayThumbnails).slice(0, 2);
   const blocks = days
     .flatMap((d, di) => d.blocks.map((b) => ({ di, b })))
@@ -214,16 +225,21 @@ export function FoldedDayCard({
     .filter((m, i, arr) => arr.findIndex((x) => x.label === m.label) === i);
   const itemCount = blocks.length;
   const dayRange = days.length > 1 ? `${startNo}–${startNo + days.length - 1}` : String(startNo);
+  const cardActive = active || (activeDayIdx != null && indices.includes(activeDayIdx));
 
   return (
     <article
       data-today={isToday ? "true" : undefined}
       data-day-idx={String(startNo - 1)}
       className={`overflow-hidden rounded-xl border bg-card shadow-card ${
-        isToday ? "border-primary ring-1 ring-primary/30" : active ? "border-primary/60" : "border-border"
+        isToday ? "border-primary ring-1 ring-primary/30" : cardActive ? "border-primary/60" : "border-border"
       }`}
     >
-      <div className="block p-3">
+      <Link
+        to={`/t/${tripId}/day/${firstIdx}`}
+        aria-label={`Days ${dayRange}: ${title} — open day ${startNo}`}
+        className="block p-3 transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
         <div className="flex items-center gap-3">
           <div className="flex w-14 shrink-0 flex-col items-center rounded-lg bg-muted py-1.5">
             <span className="font-display text-base leading-none tabular-nums text-foreground">{dayRange}</span>
@@ -285,7 +301,39 @@ export function FoldedDayCard({
             ))}
           </div>
         ) : null}
-      </div>
+
+        <span className="mt-2.5 inline-flex items-center gap-1 text-sm font-medium text-accent">
+          Open day {startNo} <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+        </span>
+      </Link>
+      {/* Per-day targets — siblings of the card link above, never nested
+          inside it. Screen-only: the booklet prints the summary, not nav. */}
+      <nav aria-label={`Days in ${title}`} className="no-print border-t border-border px-3 py-2.5">
+        <ul className="flex flex-wrap gap-1.5">
+          {days.map((d, k) => {
+            const idx = indices[k] ?? startNo - 1 + k;
+            const dayNo = idx + 1;
+            const isActiveDay = activeDayIdx === idx;
+            return (
+              <li key={d.id ?? idx}>
+                <Link
+                  to={`/t/${tripId}/day/${idx}`}
+                  aria-label={`Day ${dayNo}: ${d.title || formatDay(d.date)}`}
+                  aria-current={isActiveDay ? "page" : undefined}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                    isActiveDay
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-muted/40 text-foreground hover:border-primary/40 hover:bg-muted"
+                  }`}
+                >
+                  Day {dayNo}
+                  <span className="font-normal text-muted-foreground">{formatDay(d.date).split(" ")[0]}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
     </article>
   );
 }
