@@ -73,6 +73,7 @@ export function EditableBlockList({
   containerId,
   letters,
   cardProps,
+  date,
 }: {
   blocks: Block[];
   /** The day twin id whose block list this is — the block-order target. */
@@ -81,6 +82,8 @@ export function EditableBlockList({
    *  BlockView so editors on the map surface keep the tap↔card wiring. */
   letters?: Map<string, string>;
   cardProps?: (b: Block) => BlockCardProps;
+  /** The day's ISO date — pins each block's weather strip to that day. */
+  date?: string;
 }) {
   const { trip } = useTripState();
   const { busy, error, run } = useTripWrite();
@@ -97,7 +100,7 @@ export function EditableBlockList({
     return (
       <div className="space-y-2.5">
         {sorted.map((b) => (
-          <BlockView key={b.id} block={b} letter={letters?.get(b.id)} cardProps={cardProps?.(b)} />
+          <BlockView key={b.id} block={b} letter={letters?.get(b.id)} cardProps={cardProps?.(b)} date={date} />
         ))}
       </div>
     );
@@ -180,6 +183,7 @@ export function EditableBlockList({
                 }
                 letter={letters?.get(b.id)}
                 cardProps={cardProps?.(b)}
+                date={date}
               />
             )}
             {!isEditing && (

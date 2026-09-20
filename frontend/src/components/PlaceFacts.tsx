@@ -199,6 +199,7 @@ export function PlaceFacts({
   blockLinks,
   reviewsQuiet = false,
   showWeather = false,
+  date,
 }: {
   place: TripLocation;
   blockLinks?: { label: string; url: string }[];
@@ -208,6 +209,9 @@ export function PlaceFacts({
    *  forecast can actually cover the trip (`tripInForecastWindow`), so a trip
    *  months out never spends a request or a pixel on it. */
   showWeather?: boolean;
+  /** The day's ISO date — set on day views so the strip shows only that
+   *  day's chip instead of the five-day strip. */
+  date?: string;
 }) {
   const live = usePlaceLive(place.placeId);
   const hasLive = !!live && (live.rating != null || (live.reviews?.length ?? 0) > 0 || !!live.photos?.some((p) => p.name));
@@ -217,7 +221,7 @@ export function PlaceFacts({
   // absent, so returning it directly adds no wrapper margin either way.
   const weather =
     showWeather && place.lat != null && place.lng != null ? (
-      <WeatherStrip lat={place.lat} lng={place.lng} />
+      <WeatherStrip lat={place.lat} lng={place.lng} onlyDate={date} />
     ) : null;
   if (!placeHasFacts(place) && !hasLive) return weather;
   // A block link pointing at the same site as the registry's website makes
@@ -266,7 +270,7 @@ export function PlaceFacts({
           </ul>
         )}
         {showWeather && place.lat != null && place.lng != null && (
-          <WeatherStrip lat={place.lat} lng={place.lng} />
+          <WeatherStrip lat={place.lat} lng={place.lng} onlyDate={date} />
         )}
         {live?.rating != null && !reviewsQuiet && (
           <div className="flex flex-wrap items-center gap-1.5 text-sm">

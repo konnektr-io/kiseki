@@ -5,7 +5,8 @@ import { findLocation, markerNumber } from "../lib/maps";
 import { gmapsDirectionsUrl, gmapsSearchUrl } from "../lib/gmaps";
 import { useLiveDirections } from "../lib/directions";
 import { matchTitlePlace } from "../lib/day-surface";
-import { tripInForecastWindow } from "../lib/weather-live";
+import { tripInForecastWindow, withinForecastWindow } from "../lib/weather-live";
+import { tripTodayIso } from "../lib/dates";
 import { PlaceFacts, placeHasFacts } from "./PlaceFacts";
 import {
   BedDouble,
@@ -503,14 +504,18 @@ function ActivityBlock({
   b,
   letter,
   cardProps,
+  date,
 }: {
   b: Block;
   letter?: string;
   cardProps?: BlockCardProps;
+  /** The day's ISO date — pins the weather strip to that day's chip. */
+  date?: string;
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const showWeather = tripInForecastWindow(trip);
+  const showWeather =
+    tripInForecastWindow(trip) && (!date || withinForecastWindow(date, tripTodayIso(trip)));
   // The links-row Maps entry is redundant once the block resolves to a
   // registry place — PlaceFacts renders the canonical place_id deep link.
   // Unresolved blocks keep their own location/placeId fallback link.
@@ -534,6 +539,7 @@ function ActivityBlock({
               blockLinks={shown}
               reviewsQuiet={b.status === "done"}
               showWeather={showWeather}
+              date={date}
             />
           )}
           {b.description && (
@@ -553,14 +559,18 @@ function LodgingBlock({
   b,
   letter,
   cardProps,
+  date,
 }: {
   b: Block;
   letter?: string;
   cardProps?: BlockCardProps;
+  /** The day's ISO date — pins the weather strip to that day's chip. */
+  date?: string;
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const showWeather = tripInForecastWindow(trip);
+  const showWeather =
+    tripInForecastWindow(trip) && (!date || withinForecastWindow(date, tripTodayIso(trip)));
   // Same Maps-link dedupe as ActivityBlock (PlaceFacts owns the canonical
   // deep link once the block resolves) — booking CTAs stay first.
   const gm = place ? null : mapsLink(b, place);
@@ -581,6 +591,7 @@ function LodgingBlock({
               blockLinks={shown}
               reviewsQuiet={b.status === "done"}
               showWeather={showWeather}
+              date={date}
             />
           )}
           {b.description && (
@@ -605,14 +616,18 @@ function MealBlock({
   b,
   letter,
   cardProps,
+  date,
 }: {
   b: Block;
   letter?: string;
   cardProps?: BlockCardProps;
+  /** The day's ISO date — pins the weather strip to that day's chip. */
+  date?: string;
 }) {
   const trip = useTrip();
   const place = resolveBlockPlace(trip, b);
-  const showWeather = tripInForecastWindow(trip);
+  const showWeather =
+    tripInForecastWindow(trip) && (!date || withinForecastWindow(date, tripTodayIso(trip)));
   // Same Maps-link dedupe as ActivityBlock — PlaceFacts owns the canonical
   // deep link once the block resolves.
   const gm = place ? null : mapsLink(b, place);
@@ -633,6 +648,7 @@ function MealBlock({
               blockLinks={shown}
               reviewsQuiet={b.status === "done"}
               showWeather={showWeather}
+              date={date}
             />
           )}
           {b.description && <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{b.description}</p>}
@@ -818,6 +834,7 @@ export function BlockView({
   onToggleItem,
   letter,
   cardProps,
+  date,
 }: {
   block: Block;
   /** Interactive affordances (currently: todo-item checkboxes). */
@@ -827,16 +844,18 @@ export function BlockView({
   letter?: string;
   /** Map-surface card hooks (data-block-id, tap↔card click). */
   cardProps?: BlockCardProps;
+  /** The day's ISO date — pins the weather strip to that day's chip. */
+  date?: string;
 }) {
   switch (block.kind) {
     case "transport":
       return <TransportBlock b={block} letter={letter} cardProps={cardProps} />;
     case "activity":
-      return <ActivityBlock b={block} letter={letter} cardProps={cardProps} />;
+      return <ActivityBlock b={block} letter={letter} cardProps={cardProps} date={date} />;
     case "lodging":
-      return <LodgingBlock b={block} letter={letter} cardProps={cardProps} />;
+      return <LodgingBlock b={block} letter={letter} cardProps={cardProps} date={date} />;
     case "meal":
-      return <MealBlock b={block} letter={letter} cardProps={cardProps} />;
+      return <MealBlock b={block} letter={letter} cardProps={cardProps} date={date} />;
     case "todo":
       return <TodoBlock b={block} editable={editable} onToggleItem={onToggleItem} />;
     case "note":
@@ -860,6 +879,7 @@ export function DayBlocks({
   containerId,
   letters,
   cardProps,
+  date,
 }: {
   blocks: Block[];
   /** Editor mode (issue #46): inline chrome per block. Requires the owning
@@ -872,6 +892,8 @@ export function DayBlocks({
   letters?: Map<string, string>;
   /** Map-surface card hooks, per block (tap↔card). */
   cardProps?: (b: Block) => BlockCardProps;
+  /** The day's ISO date — pins each block's weather strip to that day. */
+  date?: string;
 }) {
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
@@ -882,6 +904,7 @@ export function DayBlocks({
         containerId={containerId}
         letters={letters}
         cardProps={cardProps}
+        date={date}
       />
     );
   }
@@ -895,6 +918,7 @@ export function DayBlocks({
             block={b}
             letter={letters?.get(b.id)}
             cardProps={cardProps?.(b)}
+            date={date}
           />
         ))}
     </div>

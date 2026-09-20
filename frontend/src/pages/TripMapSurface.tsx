@@ -368,6 +368,7 @@ function DayRail({
           containerId={day.id}
           letters={letters}
           cardProps={cardProps}
+          date={day.date}
         />
       </div>
       {sheetNav && (

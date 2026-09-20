@@ -155,6 +155,7 @@ export function TodayPage() {
         blocks={day.blocks}
         editable={useCanEdit()}
         containerId={day.id}
+        date={day.date}
       />
 
       <div className="flex flex-wrap gap-2 pt-2">

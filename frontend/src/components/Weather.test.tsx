@@ -106,6 +106,20 @@ describe("WeatherStrip", () => {
     hookState.current = null;
     expect(render(createElement(WeatherStrip, { lat: 51.0785, lng: -115.7765 }))).toBe("");
   });
+  it("onlyDate pins the strip to a single day (day view)", () => {
+    const html = render(
+      createElement(WeatherStrip, { lat: 51.0785, lng: -115.7765, onlyDate: "2027-02-21" }),
+    );
+    expect(html).toContain("9°");
+    expect(html).toContain("5%");
+    expect(html).not.toContain("12 cm"); // the powder token of 02-20 stays out
+    expect(html).toContain("Weather by");
+  });
+  it("onlyDate with no matching forecast renders nothing", () => {
+    expect(
+      render(createElement(WeatherStrip, { lat: 51.0785, lng: -115.7765, onlyDate: "2027-08-01" })),
+    ).toBe("");
+  });
 });
 
 const locations: TripLocation[] = [
@@ -198,6 +212,13 @@ describe("PlaceFacts weather integration", () => {
     expect(html).toContain("Open in Google Maps");
     expect(html).not.toContain("Weather by");
   });
+  it("with date set, the strip shows only that day's chip (day view)", () => {
+    const place = { name: "Sunshine Village", lat: 51.0785, lng: -115.7765 };
+    const html = render(createElement(PlaceFacts, { place, showWeather: true, date: "2027-02-21" }));
+    expect(html).toContain("Weather by");
+    expect(html).toContain("9°");
+    expect(html).not.toContain("12 cm"); // the powder token of 02-20 stays out
+  });
 });
 
 /* The real call site: a block card on a day view. This is the wiring that a
@@ -258,5 +279,44 @@ describe("block card wiring (the guard lives in blocks.tsx)", () => {
     const html = renderCard({ startDate: isoIn(200), endDate: isoIn(214) });
     expect(html).not.toContain("Weather by");
     expect(html).not.toContain("Open in Google Maps"); // no facts, no strip → nothing
+  });
+  it("a day view shows only that day's chip, not the five-day strip", () => {
+    const dayA = isoIn(5);
+    const dayB = isoIn(6);
+    hookState.current = [
+      { date: dayA, wmo: 0, tmax_c: 9.1, tmin_c: -2.5, snowfall_cm: 0, precip_prob: 5, snow_depth_m: 0 },
+      { date: dayB, wmo: 63, tmax_c: 15, tmin_c: 6, snowfall_cm: 0, precip_prob: 70, snow_depth_m: 0 },
+    ];
+    const trip = {
+      id: "t1",
+      slug: "test",
+      title: "Test trip",
+      stage: "booked",
+      myRole: "viewer",
+      startDate: isoIn(5),
+      endDate: isoIn(12),
+      locations: [{ name: "Revelstoke", lat: 51.0785, lng: -115.7765 }], // coords only, no facts
+      days: [],
+    } as unknown as Trip;
+    const renderDay = (date?: string) =>
+      renderToString(
+        createElement(TripProvider, {
+          trip,
+          apply: () => {},
+          children: createElement(
+            MemoryRouter,
+            { initialEntries: ["/t/t1/day/0"] },
+            createElement(DayBlocks, { blocks: [activity], date } as never),
+          ),
+        }),
+      );
+    const single = renderDay(dayA);
+    expect(single).toContain("Weather by");
+    expect(single).toContain("5%");
+    expect(single).not.toContain("70%");
+    // Without the day pin (legacy call sites) the full strip still renders.
+    const full = renderDay(undefined);
+    expect(full).toContain("5%");
+    expect(full).toContain("70%");
   });
 });
