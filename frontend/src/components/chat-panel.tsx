@@ -96,17 +96,63 @@ export function chatOutage(args: {
  * Chat panel (issue #9 / M4) — Chrome surface (`no-print`): the conversation
  * with the Kiseki trip-content agent. User bubbles right, agent left,
  * streamed markdown with inline trip images, an anchored-only attach button
- * (paperclip — only when `tripId` is set), and a composer (Enter sends,
- * Shift+Enter keeps the newline).
+ * (paperclip — only when `tripId` is set), and a composer (Enter sends on
+ * hardware keyboards, Shift+Enter keeps the newline; on touch devices Enter
+ * is the newline and the Send button sends).
  *
  * Mounts: the landing "Kiseki assistant" section (general chat, no tripId)
  * and the in-trip chat drawer (tripId bound). Both are guarded by
  * `isAuthenticated` — there is no anonymous chat.
+ *
+ * Composer Enter behaviour: plain Enter sends on hardware keyboards
+ * (Shift+Enter keeps the newline); on touch devices Enter IS the newline key
+ * and the Send button — or Cmd/Ctrl+Enter — sends instead.
  */
+
+/**
+ * Whether a plain Enter in the chat composer sends the draft.
+ *
+ * Desktop keyboards have Shift+Enter for a newline, so plain Enter sends.
+ * Phone/tablet software keyboards have no Shift+Enter — Enter IS the newline
+ * key — so Enter-to-send made multiline messages impossible there. On a
+ * coarse-primary-pointer device plain Enter inserts the newline and the Send
+ * button (or Cmd/Ctrl+Enter with a hardware keyboard) sends instead.
+ *
+ * `matchMedia('(pointer: coarse)')` reads the PRIMARY input, so a
+ * touchscreen laptop still reports a fine primary pointer and keeps
+ * Enter-to-send — only phones/tablets take the newline path.
+ *
+ * Exported for the jsdom composer tests.
+ */
+export function composerSendsOnEnter(e: {
+  shiftKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}): boolean {
+  if (e.shiftKey) return false;
+  // Explicit send shortcut on every device — including hardware keyboards
+  // attached to a phone/tablet.
+  if (e.ctrlKey || e.metaKey) return true;
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function"
+  ) {
+    try {
+      if (
+        window.matchMedia("(pointer: coarse)").matches &&
+        !window.matchMedia("(pointer: fine)").matches
+      )
+        return false;
+    } catch {
+      // No matchMedia — fall through to desktop behaviour.
+    }
+  }
+  return true;
+}
 
 /** Bare `/media/…` URLs the agent emits as plain text become inline images.
  *  Already-linked ones (`![alt](/media/…)`) are left alone. */
-const BARE_MEDIA_RE = /(?<!\]\()(\/media\/[A-Za-z0-9/_.~%-]+)/g;
+const BARE_MEDIA_RE = /(?<!\]\()(\/media\/[A-Za-z0-9\/_.~%-]+)/g;
 
 export function withInlineMediaImages(text: string): string {
   return text.replace(BARE_MEDIA_RE, "![attached image]($1)");
@@ -806,15 +852,28 @@ function ChatThread({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
+            if (e.key !== "Enter") return;
+            // IME composition (CJK input, mobile autocomplete): Enter picks
+            // the candidate — never send mid-composition.
+            if (
+              (e.nativeEvent as KeyboardEvent | undefined)?.isComposing ||
+              e.keyCode === 229
+            )
+              return;
+            // Touch devices have no Shift+Enter, so Enter is the newline key
+            // there — the Send button (or Cmd/Ctrl+Enter) sends instead.
+            if (!composerSendsOnEnter(e)) return;
+            e.preventDefault();
+            void send();
           }}
           placeholder={
             tripId ? "Ask about this trip…" : "Ask, or say “create a trip”…"
           }
           aria-label="Chat message"
+          // Virtual keyboards label the return key from this: the touch
+          // composer treats Enter as a newline, so it must read "return",
+          // never "send". Hardware keyboards ignore it.
+          enterKeyHint="enter"
           rows={1}
           disabled={busy}
           className="max-h-32 min-h-[44px] flex-1 resize-none overflow-y-hidden rounded-md border border-border bg-background px-3 py-2.5 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus-visible:focus-ring disabled:opacity-50"
