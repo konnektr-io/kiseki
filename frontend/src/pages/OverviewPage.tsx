@@ -187,6 +187,25 @@ function HeroTitleEdit() {
   );
 }
 
+/**
+ * Overview stat values are agent-written and sometimes arrive as sentences
+ * ("Brussels → Batumi, one stop, then ~3h by road"). The strip renders them
+ * BIG, so a long value blows its cell up. Two guards: the cell clamps + wraps
+ * whatever arrives (this file), and the write path tells the agent to keep
+ * values short (models.py `Stat`, api_write.py recipe). Either guard alone
+ * holds the layout; together they hold the design.
+ *
+ * Font steps down with length so short numbers stay heroic while sentences
+ * shrink instead of stretching the row. `min-w-0` lets the grid track win
+ * over a long unbreakable token; `break-words` wraps it.
+ */
+export function statValueClass(value: string) {
+  const len = value.length;
+  if (len <= 10) return "font-display text-3xl leading-none tracking-wide tabular-nums text-foreground md:text-4xl";
+  if (len <= 24) return "font-display text-xl leading-tight tracking-wide text-foreground md:text-2xl";
+  return "text-sm font-semibold leading-snug text-foreground md:text-base";
+}
+
 function HeroSubtitleEdit() {
   const trip = useTrip();
   const { run, error } = useTripWrite();
@@ -252,12 +271,14 @@ export function OverviewPage() {
         </div>
       </div>
 
-      {/* at a glance */}
+      {/* at a glance — values are agent-written and sometimes long, so the
+          cell clamps + wraps and the font steps down with length (see
+          statValueClass above) instead of stretching the row. */}
       {trip.stats?.length ? (
         <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border md:grid-cols-6">
           {trip.stats.map((s) => (
-            <div key={s.label} className="bg-card px-3 py-4 text-center">
-              <p className="font-display text-3xl leading-none tracking-wide tabular-nums text-foreground md:text-4xl">
+            <div key={s.label} className="flex min-w-0 flex-col justify-center bg-card px-3 py-4 text-center">
+              <p className={`${statValueClass(s.value)} line-clamp-3 break-words text-balance`}>
                 {s.value}
               </p>
               <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">

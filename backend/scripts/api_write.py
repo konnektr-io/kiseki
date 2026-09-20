@@ -61,7 +61,9 @@ this order:
 
 1. create-trip --title "…" [--subtitle "…"]      POST /api/trips (201)
 2. PUT /api/trips/<trip_id>                      scalars via --json/--file
-   (incl. coverStats lines + stats [{label,value}] rows, issue #178)
+   (incl. coverStats lines + stats [{label,value}] rows, issue #178;
+   stats values stay SHORT — a number + unit, ~20 chars max, e.g. '2,366 m';
+   sentences belong in summary/features, the overview renders values BIG)
 3. PUT /api/trips/<trip_id>/locations            full-array replace
    (or PATCH …/locations for named upserts)
 4. PUT /api/trips/<trip_id>/features             editorial overview cards
