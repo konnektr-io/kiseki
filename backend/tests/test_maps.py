@@ -126,3 +126,37 @@ def test_route_legs_without_a_token_never_calls_here(monkeypatch):
     monkeypatch.setattr(maps_mod, "route_leg_v8", boom)
     legs = maps_mod.route_legs([("A", 1.0, 2.0), ("B", 3.0, 4.0)], "")
     assert len(legs) == 1 and legs[0]["road"] is False
+
+
+def test_route_legs_echo_mode_on_every_leg(monkeypatch):
+    """#357 slice 3A (E1): each leg carries its declared mode back.
+
+    Additive only — `road` stays the authoritative road/not-road signal and
+    every previously asserted field is unchanged.
+    """
+    legs = _legs_with_stub(
+        monkeypatch,
+        points=[(38.5, -120.2), (40.7, -120.95)],
+        modes=["drive", None],
+    )
+    assert [leg["mode"] for leg in legs] == ["drive", None]
+    assert all(leg["road"] for leg in legs)
+
+
+def test_route_legs_echo_mode_on_skipped_and_fallback_legs(monkeypatch):
+    from app import maps as maps_mod
+
+    def failing_leg(a, b, token, *, transport_mode="car"):
+        raise AssertionError(f"HERE was called for a flight leg: {a[0]}→{b[0]}")
+
+    monkeypatch.setattr(maps_mod, "route_leg_v8", failing_leg)
+    places = [("Santiago", -33.4, -70.6), ("Cusco", -13.5, -72.0)]
+    legs = maps_mod.route_legs(places, "k", modes=["ferry"])
+    assert len(legs) == 1
+    assert legs[0]["road"] is False
+    assert legs[0]["mode"] == "ferry"
+
+    # Routing down (no points) still echoes the declared mode.
+    fallback = _legs_with_stub(monkeypatch, points=None, modes=["train", None])
+    assert [leg["mode"] for leg in fallback] == ["train", None]
+    assert all(leg["road"] is False for leg in fallback)
