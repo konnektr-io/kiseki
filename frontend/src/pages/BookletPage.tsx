@@ -2,7 +2,8 @@ import { useTrip } from "../components/theme";
 import { DayBlocks, BlockGlyph } from "../components/blocks";
 import { TripMedia } from "../components/photos";
 import { TripMap } from "../components/MapView";
-import { locatedPlaces, markerNumber, findLocation } from "../lib/maps";
+import { markerNumber, findLocation } from "../lib/maps";
+import { journeyOrder, returnsToStart } from "../lib/route-surface";
 import { tripTracks } from "../lib/tracks";
 import { classifyTransportMode } from "../lib/transport";
 import { Markdown } from "../lib/markdown";
@@ -25,15 +26,18 @@ function SectionHeading({ title, part, range }: { title: string; part?: string; 
 
 function FeatureBlock({ f }: { f: Feature }) {
   const trip = useTrip();
-  const all = locatedPlaces(trip);
+  // Same chain the overview card maps (see OverviewPage FeatureCard): the
+  // booklet prints through the same TripMap, so it must not plot excursions
+  // as numbered stops either.
+  const chain = journeyOrder(trip);
   return (
     <div className="mb-5 break-inside-avoid">
       <p className="kicker mb-1">{f.kicker || "Feature"}</p>
       <h3 className="font-heading text-xl font-semibold uppercase tracking-wide text-foreground">{f.title}</h3>
 
-      {f.map && all.length >= 2 ? (
+      {f.map && chain.length >= 2 ? (
         <div className="mt-3">
-          <TripMap places={all.map((l) => l.name)} loop tracks={tripTracks(trip)} />
+          <TripMap places={chain.map((l) => l.name)} loop={returnsToStart(trip)} tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

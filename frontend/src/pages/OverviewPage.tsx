@@ -16,14 +16,18 @@ import { useTripWrite } from "../lib/useTripWrite";
 import { putTrip } from "../lib/api";
 import { capture } from "../lib/posthog";
 import { TripMap } from "../components/MapView";
-import { locatedPlaces } from "../lib/maps";
+import { journeyOrder, returnsToStart } from "../lib/route-surface";
 import { tripTracks } from "../lib/tracks";
 import type { Feature } from "../lib/types";
 
 function FeatureCard({ feature: f }: { feature: Feature }) {
   const trip = useTrip();
   const [open, setOpen] = useState(false);
-  const all = locatedPlaces(trip);
+  // The feature map mirrors the itinerary surface: the re-base chain in
+  // journey order with the derived loop (#91). Registry venues (hotels,
+  // restaurants) are excursions — plotting every located place here drew
+  // them as numbered chain stops with a phantom closing leg.
+  const chain = journeyOrder(trip);
   return (
     <Card className="overflow-hidden p-5">
       <p className="kicker mb-1">{f.kicker || "Feature"}</p>
@@ -31,9 +35,9 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
         {f.title}
       </h3>
 
-      {f.map && all.length >= 2 ? (
+      {f.map && chain.length >= 2 ? (
         <div className="mt-3 print:hidden">
-          <TripMap places={all.map((l) => l.name)} loop tracks={tripTracks(trip)} />
+          <TripMap places={chain.map((l) => l.name)} loop={returnsToStart(trip)} tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

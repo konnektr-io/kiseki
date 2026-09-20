@@ -6,7 +6,17 @@ import { describe, expect, it, vi } from "vitest";
 /* #254 — the booklet is the printing surface, so a roadbook's practicalities
  * have to survive the trip to paper: each titled block renders as heading +
  * prose inside "Key info". MapLibre is the only heavy peripheral in here. */
-vi.mock("../components/MapView", () => ({ TripMap: () => null }));
+const { bookletMapCalls } = vi.hoisted(() => ({
+  bookletMapCalls: [] as { places: string[]; loop: boolean }[],
+}));
+
+vi.mock("../components/MapView", () => ({
+  MapView: () => null,
+  TripMap: (props: { places: string[]; loop?: boolean }) => {
+    bookletMapCalls.push({ places: props.places, loop: props.loop ?? false });
+    return null;
+  },
+}));
 
 import { BookletPage } from "./BookletPage";
 import { TripProvider } from "../components/theme";
@@ -137,5 +147,71 @@ describe("booklet — the group is the crew, never the followers (#315)", () => 
     expect(html).not.toContain("Sam Follower");
     // …and with nothing else practical to say, no empty Key info section either
     expect(html).not.toContain("Key info");
+  });
+});
+
+/* Same contract as the overview's feature map (see OverviewPage.test.tsx):
+ * the booklet prints through the same TripMap, so its feature map plots the
+ * itinerary's re-base chain — venue/excursion pins must not become numbered
+ * stops on paper either. */
+describe("booklet — feature map matches the itinerary chain", () => {
+  it("plots the stop chain only, with the derived (open) loop", () => {
+    const trip = {
+      id: "t-chain",
+      slug: "test",
+      title: "Powder Highway",
+      stage: "booked",
+      visibility: "private",
+      myRole: "owner",
+      crew: [],
+      practical: {},
+      locations: [
+        { name: "Banff", lat: 51.1784, lng: -115.5708 },
+        { name: "Revelstoke", lat: 50.9981, lng: -118.1957 },
+        { name: "Rogers Pass", lat: 51.3019, lng: -117.5167 },
+        { name: "Banff Inn", lat: 51.1838, lng: -115.5623 },
+      ],
+      sections: [
+        { id: "s1", title: "Arrival", days: [0, 1], locationRefs: ["Banff"] },
+        { id: "s2", title: "Revelstoke", days: [2, 3], locationRefs: ["Revelstoke"] },
+      ],
+      days: [
+        {
+          date: "2027-02-15",
+          title: "Arrive",
+          blocks: [
+            { kind: "transport", mode: "flight", title: "Fly to Banff", to: "Banff" },
+            { kind: "lodging", title: "Check in", location: "Banff Inn" },
+          ],
+        },
+        { date: "2027-02-16", title: "Ski", blocks: [] },
+        {
+          date: "2027-02-17",
+          title: "Drive west",
+          blocks: [{ kind: "transport", mode: "drive", from: "Banff", to: "Revelstoke" }],
+        },
+        {
+          date: "2027-02-18",
+          title: "Tour the pass",
+          blocks: [{ kind: "activity", title: "Tour Rogers Pass", location: "Rogers Pass" }],
+        },
+      ],
+      features: [{ kicker: "Route", title: "One loop", map: true }],
+    } as unknown as Trip;
+    bookletMapCalls.length = 0;
+    renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(BookletPage),
+      }),
+    );
+    // The stub observes every render pass (the legacy prerenderer may retry
+    // a pass); every pass must carry the chain contract.
+    expect(bookletMapCalls.length).toBeGreaterThanOrEqual(1);
+    for (const call of bookletMapCalls) {
+      expect(call.places).toEqual(["Banff", "Revelstoke"]);
+      expect(call.loop).toBe(false);
+    }
   });
 });
