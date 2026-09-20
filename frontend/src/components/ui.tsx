@@ -110,11 +110,42 @@ export const STATUS_LABELS: Record<BlockStatus, string> = {
 };
 
 export function StageBadge({ stage, className = "" }: { stage: Stage; className?: string }) {
-  const variant =
-    stage === "booked" ? "accent" : stage === "live" ? "default" : ("outline" as const);
+  // DESIGN.md §5.3: booked = filled accent, live = primary. These are SOLID
+  // fills, deliberately NOT the Badge soft variants (bg-accent/10): the wash
+  // sorts AFTER .floating in the built stylesheet, so it won the cascade and
+  // the photo showed straight through — dark-teal text on bare imagery. One
+  // background source per branch, never two competing ones.
+  if (stage === "booked" || stage === "live") {
+    const solid = stage === "booked" ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground";
+    return (
+      <span
+        className={twMerge(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shadow-floating",
+          solid,
+          className,
+        )}
+      >
+        {STAGE_LABELS[stage]}
+      </span>
+    );
+  }
+  if (stage === "planned") {
+    // §5.3: planned = solid but muted — quiet grey fill, between the
+    // provisional outlines and the confident booked/live fills.
+    return (
+      <span
+        className={twMerge(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-muted text-muted-foreground shadow-floating",
+          className,
+        )}
+      >
+        {STAGE_LABELS[stage]}
+      </span>
+    );
+  }
   return (
     <Badge
-      variant={variant}
+      variant="outline"
       className={twMerge(
         // The badge always sits on top of imagery (cover photos, card
         // headers), so it takes the full floating recipe rather than the
