@@ -7,15 +7,21 @@ import {
   CHROME_PADDING,
   fetchRouteLegs,
   findLocation,
+  formatMapLabel,
   hasWebGL2,
   locatedPlaces,
+  makeMapLabelElement,
+  MAP_LABEL_PIN_OFFSET_PX,
+  MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
   markerPinClass,
+  pinScaleAtZoom,
   resolveMapStyle,
   ROUTE_BODY_WIDTH,
   ROUTE_CASING_OPACITY,
   ROUTE_CASING_WIDTH,
   ROUTE_NONROAD,
+  selectMapLabels,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
@@ -152,6 +158,18 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         }
 
         map = new lib.Map(mapOpts);
+        // Zoom-scaled pins (#357 slice 2): the visible dot shrinks toward
+        // ~22px at journey zoom through --pin-scale; the 44px hit target
+        // never moves. Below the collision zoom the label layer drops
+        // (pins stay, labels go).
+        const syncZoom = () => {
+          if (!map || !ref.current) return;
+          const z = map.getZoom() ?? 0;
+          ref.current.style.setProperty("--pin-scale", String(pinScaleAtZoom(z)));
+          ref.current.classList.toggle("map-labels-off", z < MAP_LABEL_ZOOM_FLOOR);
+        };
+        map.on("zoom", syncZoom);
+        syncZoom();
         // Compact thumbnails don't need the full nav chrome — keep it for
         // regular route maps.
         if (!compact) {
@@ -190,14 +208,17 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           // pin is per-trip for free and no colour is written in JS at all.
           // Compact thumbnails keep the same pin but the container is shorter —
           // the hit target still applies for touch.
-          el.className = "grid h-11 w-11 place-items-center";
+          el.className = "route-pin grid h-11 w-11 place-items-center";
           el.setAttribute("aria-hidden", "true");
           el.title = l.name;
           const pin = document.createElement("span");
           // Stage-aware pin (DESIGN.md §8.3): one class map in lib/maps.ts, so
           // the card maps, the surface and the booklet (#37, same component)
-          // cannot drift apart. No colour is written in JS.
-          pin.className = markerPinClass(trip, l);
+          // cannot drift apart. No colour is written in JS. `route-pin-dot`
+          // puts it under the zoom-scaled pin grammar (.map-pin-scaled on the
+          // container) — MapView has no selection/dimming, so only the scale
+          // applies here.
+          pin.className = `route-pin-dot ${markerPinClass(trip, l)}`;
           pin.textContent = String(n);
           el.appendChild(pin);
           new lib.Marker({ element: el }).setLngLat([l.lng!, l.lat!]).addTo(map!);
@@ -212,12 +233,44 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
+        ensureLabels();
 
         // Elevation first, so the route and markers added below land ON TOP of
         // the hillshade rather than under it (#38). Deliberately not awaited
         // for the route's sake — a slow DEM must not hold up the line the map
         // exists to draw.
         void addTerrain(map, lib, mapStyle.terrain);
+
+        // On-map labels (#357 slice 2): numbered pills below their pins, in
+        // our own vocabulary. Single-pin thumbnails skip them (the card names
+        // the place). The drive-time chip below is DOM chrome above the
+        // canvas, so a label can never cover it; labels are
+        // pointer-events-none and never intercept.
+        const labelMarkers: import("maplibre-gl").Marker[] = [];
+        const ensureLabels = () => {
+          if (cancelled || !map || single || compact) return;
+          if (labelMarkers.length) return;
+          const names = selectMapLabels(
+            located.map((l) => l.name),
+            null,
+            map.getZoom() ?? 0,
+          );
+          for (const name of names) {
+            const loc = located.find((l) => l.name === name);
+            if (!loc) continue;
+            const el = makeMapLabelElement(formatMapLabel(markerNumber(trip, loc), loc.name));
+            labelMarkers.push(
+              new lib.Marker({
+                element: el,
+                anchor: "top",
+                offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+              })
+                .setLngLat([loc.lng!, loc.lat!])
+                .addTo(map),
+            );
+          }
+        };
+        map.on("zoomend", ensureLabels);
 
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
         // and every recorded track in parallel — a failed track fetch degrades
@@ -479,7 +532,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         data-maplibre
         role="img"
         aria-label={`Map of the route: ${places.join(" to ")}`}
-        className={`${heightClass} overflow-hidden rounded-lg border border-border`}
+        className={`map-pin-scaled ${heightClass} overflow-hidden rounded-lg border border-border`}
       />
       {!ready && (
         // Themed skeleton while the style loads (DESIGN.md §8.5).
