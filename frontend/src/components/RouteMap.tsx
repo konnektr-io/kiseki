@@ -11,6 +11,9 @@ import {
   markerPinClass,
   prefersReducedMotion,
   resolveMapStyle,
+  ROUTE_BODY_WIDTH,
+  ROUTE_CASING_OPACITY,
+  ROUTE_CASING_WIDTH,
   type MapPadding,
   type RouteLeg,
 } from "../lib/maps";
@@ -495,15 +498,10 @@ export function RouteMap({
         ["!", ["get", "road"]],
         ["==", ["get", "state"], "provisional"],
       ];
-      const width: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
-        "match",
-        ["get", "state"],
-        "booked",
-        4.5,
-        "planned",
-        3.5,
-        3,
-      ];
+      // Route weight is the ONE shared grammar in lib/maps.ts (#357): the
+      // body interpolates with zoom, the casing stays at ~1.6× the body.
+      // Stage still speaks through dash + opacity (provisional dashed and
+      // dim, booked solid) — width no longer varies by stage.
       const opacity: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
         "match",
         ["get", "state"],
@@ -541,14 +539,14 @@ export function RouteMap({
             paint: s.body
               ? {
                   "line-color": colors.route,
-                  "line-width": width,
+                  "line-width": ROUTE_BODY_WIDTH,
                   "line-opacity": opacity,
                   ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                 }
               : {
                   "line-color": colors.routeCasing,
-                  "line-width": s.dashed ? 6 : 7.5,
-                  "line-opacity": s.dashed ? 0.7 : 0.9,
+                  "line-width": ROUTE_CASING_WIDTH,
+                  "line-opacity": s.dashed ? 0.7 : ROUTE_CASING_OPACITY,
                   ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                 },
           } as Parameters<MapLibreMap["addLayer"]>[0],
@@ -679,13 +677,13 @@ export function RouteMap({
               paint: s.body
                 ? {
                     "line-color": colors.route,
-                    "line-width": 4,
+                    "line-width": ROUTE_BODY_WIDTH,
                     "line-opacity": s.dashed ? 0.75 : 1,
                     ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                   }
                 : {
                     "line-color": colors.routeCasing,
-                    "line-width": s.dashed ? 6 : 7,
+                    "line-width": ROUTE_CASING_WIDTH,
                     "line-opacity": s.dashed ? 0.6 : 0.9,
                     ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                   },

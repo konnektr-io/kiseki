@@ -140,6 +140,96 @@ export function applyBasemapTint(map: TintableMap, tint: PresetMapStyle["tint"])
   }
 }
 
+/**
+ * The route line grammar, in ONE place (#357 slice 1).
+ *
+ * Every route line on every surface — `MapView` (screen AND the booklet, #37),
+ * `RouteMap` (scan + day levels), `LandingMap` (the marketing example) and the
+ * recorded-track layers that inherit the route weight (#193/#290) — reads its
+ * widths from these stops. A hand-written `line-width` literal anywhere else
+ * is drift; grep for `line-width` should show only these definitions and
+ * references to them (plus the contour width in `lib/terrain.ts`, which is a
+ * different grammar — relief shading, not the trip's line).
+ *
+ * Body: 2 → 2.5 → 3 → 4 px across zoom 0 → 4 → 8 → 12. At journey zoom the
+ * route is lighter than the basemap's own road network; at day zoom it is a
+ * deliberate line, not a hairline. Casing stays (it is what keeps the route
+ * legible over same-coloured roads, §8.4) at ~1.6× the body, softening from
+ * 0.9 to 0.55 opacity as the camera pulls out. Non-road legs (flights,
+ * ferries — `road: false`) are 2 px at 0.35 opacity, dash [2, 3].
+ */
+export const ROUTE_WIDTH_STOPS: Array<[zoom: number, width: number]> = [
+  [0, 2],
+  [4, 2.5],
+  [8, 3],
+  [12, 4],
+];
+
+/** Casing width stops — ~1.6× the body at every zoom. */
+export const ROUTE_CASING_WIDTH_STOPS: Array<[zoom: number, width: number]> = ROUTE_WIDTH_STOPS.map(
+  ([zoom, width]) => [zoom, Math.round(width * 1.6 * 10) / 10] as [number, number],
+);
+
+/** Casing opacity fades 0.9 → 0.55 from zoom 0 to zoom 12. */
+export const ROUTE_CASING_OPACITY_STOPS: Array<[zoom: number, opacity: number]> = [
+  [0, 0.9],
+  [12, 0.55],
+];
+
+/** Non-road (`road: false`) legs: thin, dim, dashed — never a road. */
+export const ROUTE_NONROAD = {
+  width: 2,
+  opacity: 0.35,
+  dasharray: [2, 3],
+} as const;
+
+/** Linear interpolation of a stop table at a zoom — the JS mirror of the
+ *  MapLibre `interpolate` expressions below, so tests can pin the table
+ *  without evaluating an expression. Clamped at both ends. */
+export function interpolateStops(stops: Array<readonly [number, number]>, zoom: number): number {
+  if (zoom <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) {
+    if (zoom <= stops[i][0]) {
+      const [z0, v0] = stops[i - 1];
+      const [z1, v1] = stops[i];
+      return v0 + ((v1 - v0) * (zoom - z0)) / (z1 - z0);
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/** The route body width at a zoom (JS mirror, pinned by test). */
+export function routeWidthAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_WIDTH_STOPS, zoom);
+}
+
+/** The route casing width at a zoom (JS mirror, pinned by test). */
+export function routeCasingWidthAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_CASING_WIDTH_STOPS, zoom);
+}
+
+/** The route casing opacity at a zoom (JS mirror, pinned by test). */
+export function routeCasingOpacityAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_CASING_OPACITY_STOPS, zoom);
+}
+
+function stopsToExpression(
+  stops: Array<readonly [number, number]>,
+): import("maplibre-gl").DataDrivenPropertyValueSpecification<number> {
+  const args: (number | string)[] = [];
+  for (const [zoom, value] of stops) args.push(zoom, value);
+  return ["interpolate", ["linear"], ["zoom"], ...args] as import("maplibre-gl").DataDrivenPropertyValueSpecification<number>;
+}
+
+/** MapLibre `line-width` value for the route body — zoom interpolation. */
+export const ROUTE_BODY_WIDTH = stopsToExpression(ROUTE_WIDTH_STOPS);
+
+/** MapLibre `line-width` value for the route casing — ~1.6× the body. */
+export const ROUTE_CASING_WIDTH = stopsToExpression(ROUTE_CASING_WIDTH_STOPS);
+
+/** MapLibre `line-opacity` value for the route casing — 0.9 → 0.55. */
+export const ROUTE_CASING_OPACITY = stopsToExpression(ROUTE_CASING_OPACITY_STOPS);
+
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {
   from: string;

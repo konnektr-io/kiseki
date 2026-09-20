@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { hasWebGL2, MAP_STYLE_URL, pinClassForStage } from "../lib/maps";
+import { hasWebGL2, MAP_STYLE_URL, pinClassForStage, ROUTE_BODY_WIDTH, ROUTE_CASING_OPACITY, ROUTE_CASING_WIDTH } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { mapColors } from "../lib/tokens";
 
@@ -182,14 +182,14 @@ export function LandingMap({
           type: "line",
           source: "landing-route",
           layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": colors.routeCasing, "line-width": 6, "line-opacity": 0.35 },
+          paint: { "line-color": colors.routeCasing, "line-width": ROUTE_CASING_WIDTH, "line-opacity": ROUTE_CASING_OPACITY },
         });
         map.addLayer({
           id: "landing-route-line",
           type: "line",
           source: "landing-route",
           layout: { "line-cap": "round", "line-join": "round" },
-          paint: { "line-color": colors.route, "line-width": 3 },
+          paint: { "line-color": colors.route, "line-width": ROUTE_BODY_WIDTH },
         });
 
         if (!cancelled) {

@@ -10,6 +10,14 @@ import {
   markerPinClass,
   OPENFREEMAP_STYLES,
   resolveMapStyle,
+  routeCasingOpacityAtZoom,
+  routeCasingWidthAtZoom,
+  ROUTE_BODY_WIDTH,
+  ROUTE_CASING_OPACITY,
+  ROUTE_CASING_WIDTH,
+  ROUTE_NONROAD,
+  routeWidthAtZoom,
+  ROUTE_WIDTH_STOPS,
   type TintableMap,
 } from "./maps";
 import type { Trip } from "./types";
@@ -267,5 +275,65 @@ describe("markerPinClass", () => {
     for (const s of ["idea", "planned", "booked", "live", "archive"] as const) {
       expect(pin(s)).not.toMatch(/#[0-9a-fA-F]{3,6}/);
     }
+  });
+});
+
+describe("route weight (#357 slice 1)", () => {
+  it("pins the body interpolation table: 2/2.5/3/4 px at zoom 0/4/8/12", () => {
+    expect(ROUTE_WIDTH_STOPS).toEqual([
+      [0, 2],
+      [4, 2.5],
+      [8, 3],
+      [12, 4],
+    ]);
+    expect(routeWidthAtZoom(0)).toBe(2);
+    expect(routeWidthAtZoom(4)).toBe(2.5);
+    expect(routeWidthAtZoom(8)).toBe(3);
+    expect(routeWidthAtZoom(12)).toBe(4);
+  });
+
+  it("interpolates linearly between stops and clamps at the ends", () => {
+    expect(routeWidthAtZoom(2)).toBeCloseTo(2.25, 5);
+    expect(routeWidthAtZoom(6)).toBeCloseTo(2.75, 5);
+    expect(routeWidthAtZoom(10)).toBeCloseTo(3.5, 5);
+    expect(routeWidthAtZoom(-3)).toBe(2);
+    expect(routeWidthAtZoom(20)).toBe(4);
+  });
+
+  it("keeps the casing at ~1.6x the body, softening 0.9 to 0.55", () => {
+    for (const z of [0, 2, 4, 6, 8, 10, 12]) {
+      expect(routeCasingWidthAtZoom(z)).toBeCloseTo(routeWidthAtZoom(z) * 1.6, 5);
+    }
+    expect(routeCasingOpacityAtZoom(0)).toBe(0.9);
+    expect(routeCasingOpacityAtZoom(12)).toBe(0.55);
+    expect(routeCasingOpacityAtZoom(6)).toBeCloseTo(0.725, 5);
+  });
+
+  it("draws non-road legs thin, dim and dashed", () => {
+    expect(ROUTE_NONROAD.width).toBe(2);
+    expect(ROUTE_NONROAD.opacity).toBe(0.35);
+    expect([...ROUTE_NONROAD.dasharray]).toEqual([2, 3]);
+  });
+
+  it("exposes zoom interpolations as MapLibre expressions", () => {
+    for (const expr of [ROUTE_BODY_WIDTH, ROUTE_CASING_WIDTH, ROUTE_CASING_OPACITY]) {
+      const raw = expr as unknown as unknown[];
+      expect(raw[0]).toBe("interpolate");
+      expect(raw[1]).toEqual(["linear"]);
+      expect(raw[2]).toEqual(["zoom"]);
+    }
+    expect(ROUTE_BODY_WIDTH as unknown as unknown[]).toEqual([
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      0,
+      2,
+      4,
+      2.5,
+      8,
+      3,
+      12,
+      4,
+    ]);
   });
 });

@@ -12,6 +12,10 @@ import {
   markerNumber,
   markerPinClass,
   resolveMapStyle,
+  ROUTE_BODY_WIDTH,
+  ROUTE_CASING_OPACITY,
+  ROUTE_CASING_WIDTH,
+  ROUTE_NONROAD,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
@@ -298,7 +302,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
               source: "route",
               filter: road,
               layout: { "line-cap": "round", "line-join": "round" },
-              paint: { "line-color": colors.routeCasing, "line-width": 7, "line-opacity": 0.9 },
+              paint: { "line-color": colors.routeCasing, "line-width": ROUTE_CASING_WIDTH, "line-opacity": ROUTE_CASING_OPACITY },
             },
             firstSymbol,
           );
@@ -309,7 +313,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
               source: "route",
               filter: road,
               layout: { "line-cap": "round", "line-join": "round" },
-              paint: { "line-color": colors.route, "line-width": 4 },
+              paint: { "line-color": colors.route, "line-width": ROUTE_BODY_WIDTH },
             },
             firstSymbol,
           );
@@ -324,9 +328,9 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
               layout: { "line-cap": "round", "line-join": "round" },
               paint: {
                 "line-color": colors.route,
-                "line-width": 2.5,
-                "line-opacity": 0.5,
-                "line-dasharray": [2, 2.5],
+                "line-width": ROUTE_NONROAD.width,
+                "line-opacity": ROUTE_NONROAD.opacity,
+                "line-dasharray": [...ROUTE_NONROAD.dasharray],
               },
             },
             firstSymbol,
@@ -389,13 +393,13 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
                 paint: layer.body
                   ? {
                       "line-color": colors.route,
-                      "line-width": 4,
+                      "line-width": ROUTE_BODY_WIDTH,
                       "line-opacity": layer.dashed ? 0.75 : 1,
                       ...(layer.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                     }
                   : {
                       "line-color": colors.routeCasing,
-                      "line-width": layer.dashed ? 6 : 7,
+                      "line-width": ROUTE_CASING_WIDTH,
                       "line-opacity": layer.dashed ? 0.6 : 0.9,
                       ...(layer.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                     },
