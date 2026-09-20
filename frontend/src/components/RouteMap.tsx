@@ -570,11 +570,11 @@ export function RouteMap({
     const addGlyphLayer = (source: string, layerId: string, legs: LegFeature[]) => {
       if (!glyphModesRef.current.length) return;
       const registered = new Set(glyphModesRef.current);
-      const features: LegGlyphFeature[] = legs.flatMap((f) =>
-        f.glyph != null && registered.has(f.glyph)
-          ? legGlyphPoints(f.coordinates).map((coordinates) => ({ mode: f.glyph, coordinates }))
-          : [],
-      );
+      const features: LegGlyphFeature[] = legs.flatMap((f) => {
+        const mode = f.glyph;
+        if (mode == null || !registered.has(mode)) return [];
+        return legGlyphPoints(f.coordinates).map((coordinates) => ({ mode, coordinates }));
+      });
       if (!features.length) return;
       const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
       addLegGlyphLayer(map, source, layerId, features, firstSymbol);
