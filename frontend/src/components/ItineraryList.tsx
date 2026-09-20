@@ -244,6 +244,7 @@ export function ItineraryList({
             ? {
                 kind: "fold" as const,
                 title: item.title,
+                indices: item.indices,
                 days: item.indices
                   .map((idx) => trip.days[idx])
                   .filter((d): d is Day => Boolean(d)),
@@ -299,9 +300,12 @@ export function ItineraryList({
                     <FoldedDayCard
                       key={`fold-${item.startNo}`}
                       days={item.days}
+                      indices={item.indices}
                       title={item.title}
                       startNo={item.startNo}
                       isToday={item.days.some((d) => d.date === todayIso)}
+                      active={activeDayIdx != null && item.indices.includes(activeDayIdx)}
+                      activeDayIdx={activeDayIdx}
                     />
                   ) : (
                     <DaySummaryRow
