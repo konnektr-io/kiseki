@@ -6,14 +6,20 @@ import { useTrip } from "./theme";
 import {
   applyBasemapTint,
   fetchRouteLegs,
+  formatMapLabel,
   hasWebGL2,
+  makeMapLabelElement,
+  MAP_LABEL_PIN_OFFSET_PX,
+  MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
   markerPinClass,
+  pinScaleAtZoom,
   prefersReducedMotion,
   resolveMapStyle,
   ROUTE_BODY_WIDTH,
   ROUTE_CASING_OPACITY,
   ROUTE_CASING_WIDTH,
+  selectMapLabels,
   type MapPadding,
   type RouteLeg,
 } from "../lib/maps";
@@ -132,6 +138,13 @@ export function RouteMap({
   onBlockTapRef.current = onBlockTap;
   const paddingRef = useRef(padding);
   paddingRef.current = padding;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  /** On-map label markers, owned by the level build + selection rebuilds. */
+  const labelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Rebuild the label layer for a selected place — assigned by the level
+   *  effect (it owns the level's place list), called by selection + zoom. */
+  const rebuildLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
 
   const isDay = day != null;
 
@@ -311,6 +324,23 @@ export function RouteMap({
         mapRef.current = map;
 
         map.addControl(new lib.NavigationControl({ showCompass: true, visualizePitch: true }), "top-left");
+        // Zoom-scaled pins (#357 slice 2): --pin-scale shrinks the visible
+        // dot toward ~22px at journey zoom; the 44px hit target never moves.
+        // Below the collision zoom the label layer drops (pins stay).
+        const syncZoom = () => {
+          if (!map || !ref.current) return;
+          const z = map.getZoom() ?? 0;
+          ref.current.style.setProperty("--pin-scale", String(pinScaleAtZoom(z)));
+          ref.current.classList.toggle("map-labels-off", z < MAP_LABEL_ZOOM_FLOOR);
+        };
+        map.on("zoom", syncZoom);
+        syncZoom();
+        // Zoomed in from below the floor with no labels built: build them now.
+        map.on("zoomend", () => {
+          if (labelMarkersRef.current.length === 0) {
+            rebuildLabelsRef.current?.(selectedRef.current?.name ?? null);
+          }
+        });
         const syncOriented = () => {
           if (!map || !ref.current) return;
           ref.current.classList.toggle("map-oriented", map.getBearing() !== 0 || map.getPitch() !== 0);
@@ -470,6 +500,30 @@ export function RouteMap({
       el.addEventListener("click", () => onBlockTapRef.current(blockId));
     };
 
+    /** On-map labels (#357 slice 2): numbered pills below their pins, at
+     *  most ~8, selected first, none below the collision zoom. Excursions
+     *  take no label (no ordinal — the label vocabulary is numbered). */
+    const buildLabels = (byName: Map<string, TripLocation>, selectedName: string | null) => {
+      for (const m of labelMarkersRef.current) m.remove();
+      labelMarkersRef.current = [];
+      const names = selectMapLabels([...byName.keys()], selectedName, map.getZoom() ?? 0);
+      for (const name of names) {
+        const loc = byName.get(name);
+        if (!loc || loc.lng == null || loc.lat == null) continue;
+        const el = makeMapLabelElement(formatMapLabel(markerNumber(trip, loc), loc.name));
+        if (name === selectedName) el.classList.add("is-selected");
+        labelMarkersRef.current.push(
+          new lib.Marker({
+            element: el,
+            anchor: "top",
+            offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+          })
+            .setLngLat([loc.lng, loc.lat])
+            .addTo(map),
+        );
+      }
+    };
+
     /** Cased line layers for the level's legs — the §8.4 grammar. */
     const addLineLayers = (source: string, legs: LegFeature[]) => {
       map.addSource(source, {
@@ -569,6 +623,9 @@ export function RouteMap({
         const el = addPin(loc, true);
         el.addEventListener("click", () => onSelectRef.current(loc));
       });
+      const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
+      buildLabels(scanByName, selectedRef.current?.name ?? null);
+      rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
       if (legsData != null && legsData.length) addLineLayers("journey", legsData);
       journeyRef.current.stops.forEach(extend);
       journeyRef.current.excursions.forEach(extend);
@@ -600,6 +657,12 @@ export function RouteMap({
           addChip(m.blockIds[0], m.letter, m.place);
         }
       }
+      const dayByName = new Map<string, TripLocation>();
+      for (const m of surface.markers) {
+        if (m.role === "place" && !dayByName.has(m.place.name)) dayByName.set(m.place.name, m.place);
+      }
+      buildLabels(dayByName, null);
+      rebuildLabelsRef.current = (sel) => buildLabels(dayByName, sel);
       if (surface.legs.length) {
         // #104: real road geometry when the backend gave it; while the fetch
         // is in flight the straight pair draws (the fit must not wait on the
@@ -738,6 +801,9 @@ export function RouteMap({
       // Tear down THIS build's content: the markers it added and the layers
       // on its own sources. Runs before the next build and on unmount.
       markers.forEach((m) => m.remove());
+      for (const m of labelMarkersRef.current) m.remove();
+      labelMarkersRef.current = [];
+      rebuildLabelsRef.current = null;
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -760,6 +826,9 @@ export function RouteMap({
       markersRef.current.forEach((el, name) => {
         el.classList.toggle("is-selected", selected?.name === name);
       });
+      // The selected pin's label always wins — rebuild the capped layer
+      // around the new selection (pins themselves only change classes).
+      rebuildLabelsRef.current?.(selected?.name ?? null);
     } else {
       container.classList.toggle("route-map-focused", !!activeBlock);
       markersRef.current.forEach((el, id) => {
@@ -839,7 +908,7 @@ export function RouteMap({
 
   return (
     <>
-      <div ref={ref} className="h-full w-full" />
+      <div ref={ref} className="map-pin-scaled h-full w-full" />
       {!ready && (
         // Themed skeleton while the style loads (§8.5) — never an empty grey box.
         <div className="pointer-events-none absolute inset-0 animate-pulse bg-muted" aria-hidden="true" />

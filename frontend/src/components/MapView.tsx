@@ -233,7 +233,6 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
 
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
-        ensureLabels();
 
         // Elevation first, so the route and markers added below land ON TOP of
         // the hillshade rather than under it (#38). Deliberately not awaited
@@ -271,6 +270,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           }
         };
         map.on("zoomend", ensureLabels);
+        ensureLabels();
 
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
         // and every recorded track in parallel — a failed track fetch degrades
