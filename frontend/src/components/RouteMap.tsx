@@ -26,6 +26,15 @@ import {
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { greatCircle, legModes, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
+import {
+  addLegGlyphLayer,
+  classifiedGlyphMode,
+  legGlyphMode,
+  legGlyphPoints,
+  registerLegGlyphs,
+  type LegGlyphFeature,
+} from "../lib/leg-glyphs";
+import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -39,6 +48,8 @@ interface LegFeature {
   coordinates: [number, number][];
   stage: string;
   road: boolean;
+  /** Transport glyph for the leg, if its data declares one (#357 slice 3B). */
+  glyph: TransportMode | null;
 }
 
 /**
@@ -142,6 +153,9 @@ export function RouteMap({
   selectedRef.current = selected;
   /** On-map label markers, owned by the level build + selection rebuilds. */
   const labelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Transport sprite modes registered on the map (mount effect) — levels
+   *  only add sources + layers on top. */
+  const glyphModesRef = useRef<TransportMode[]>([]);
   /** Rebuild the label layer for a selected place — assigned by the level
    *  effect (it owns the level's place list), called by selection + zoom. */
   const rebuildLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
@@ -226,6 +240,10 @@ export function RouteMap({
                     hit != null
                       ? resolveLegCoordinates(hit)
                       : greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
+                  glyph: legGlyphMode({
+                    road: hit?.road ?? false,
+                    mode: classifiedGlyphMode(l.block),
+                  }),
                 } satisfies LegFeature,
               ] as const;
             }),
@@ -364,6 +382,15 @@ export function RouteMap({
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
 
+        // Transport glyph sprites (#357 slice 3B) — registered once per map
+        // instance; levels only add sources + layers. A failed registration
+        // draws the route glyph-less, never broken.
+        try {
+          glyphModesRef.current = await registerLegGlyphs(map, mapColors(map.getContainer()));
+        } catch {
+          glyphModesRef.current = [];
+        }
+
         // Elevation first, so the route lands ON TOP of the hillshade (#38).
         // Deliberately not awaited — a slow DEM must not hold up the line the
         // surface exists to draw.
@@ -403,6 +430,12 @@ export function RouteMap({
                       hit != null
                         ? resolveLegCoordinates(hit)
                         : greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
+                    // Glyph mode is the leg's own data, classified (#357
+                    // slice 3B) — geometry never decides.
+                    glyph: legGlyphMode({
+                      road: hit?.road ?? false,
+                      mode: classifiedGlyphMode(leg.block),
+                    }),
                   };
                 });
           setLegsData(resolved);
@@ -423,6 +456,7 @@ export function RouteMap({
       libRef.current = null;
       markersRef.current = new Map();
       chipPosRef.current = new Map();
+      glyphModesRef.current = [];
       fitJourneyRef.current = null;
       fitDayRef.current = null;
       setReady(false);
@@ -530,6 +564,24 @@ export function RouteMap({
       }
     };
 
+    /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
+     *  above the route, below the basemap's labels. Glyph-less legs
+     *  contribute nothing; a level with no declared modes draws no layer. */
+    const addGlyphLayer = (source: string, layerId: string, legs: LegFeature[]) => {
+      if (!glyphModesRef.current.length) return;
+      const registered = new Set(glyphModesRef.current);
+      const features: LegGlyphFeature[] = legs.flatMap((f) =>
+        f.glyph != null && registered.has(f.glyph)
+          ? legGlyphPoints(f.coordinates).map((coordinates) => ({ mode: f.glyph, coordinates }))
+          : [],
+      );
+      if (!features.length) return;
+      const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+      addLegGlyphLayer(map, source, layerId, features, firstSymbol);
+      addedSources.push(source);
+      addedLayers.push(layerId);
+    };
+
     /** Cased line layers for the level's legs — the §8.4 grammar. */
     const addLineLayers = (source: string, legs: LegFeature[]) => {
       map.addSource(source, {
@@ -633,6 +685,7 @@ export function RouteMap({
       buildLabels(scanByName, selectedRef.current?.name ?? null);
       rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
       if (legsData != null && legsData.length) addLineLayers("journey", legsData);
+      addGlyphLayer("journey-glyphs", "journey-glyphs", legsData ?? []);
       journeyRef.current.stops.forEach(extend);
       journeyRef.current.excursions.forEach(extend);
       (legsData ?? []).forEach((l) => l.coordinates.forEach((c) => bounds.extend(c)));
@@ -671,32 +724,33 @@ export function RouteMap({
       rebuildLabelsRef.current = (sel) => buildLabels(dayByName, sel);
       if (surface.legs.length) {
         // #104: real road geometry when the backend gave it; while the fetch
-        // is in flight the straight pair draws (the fit must not wait on the
-        // network). A leg whose hit came back non-road — or the whole fetch
-        // unusable — draws its straight pair DASHED (the `road:false` branch
-        // in `addLineLayers`), so a straight line never poses as a road.
+        // is in flight the great-circle arc draws (the fit must not wait on
+        // the network). A leg whose hit came back non-road — or the whole fetch
+        // unusable — draws its arc DASHED (the `road:false` branch
+        // in `addLineLayers`), so a curve never poses as a road.
         const geo = dayLegsData;
-        addLineLayers(
-          "day",
-          surface.legs.map((l) => {
-            const hit = geo?.get(`${l.from.name}>${l.to.name}`);
-            return {
-              // Non-road draws the great-circle arc, never a straight
-              // screen-space line (#357 slice 3A).
-              coordinates:
-                hit && hit.road
-                  ? hit.coordinates
-                  : greatCircle(
-                      [l.from.lng!, l.from.lat!],
-                      [l.to.lng!, l.to.lat!],
-                    ),
-              stage: l.stage,
-              // road=true only when REAL geometry is in hand — everything
-              // else (fallback pair, provisional leg, fetch miss) dashes.
-              road: !!hit && hit.road && l.stage !== "provisional",
-            };
-          }),
-        );
+        const dayLegs: LegFeature[] = surface.legs.map((l) => {
+          const hit = geo?.get(`${l.from.name}>${l.to.name}`);
+          // road=true only when REAL geometry is in hand — everything
+          // else (fallback pair, provisional leg, fetch miss) dashes.
+          const road = !!hit && hit.road && l.stage !== "provisional";
+          return {
+            // Non-road draws the great-circle arc, never a straight
+            // screen-space line (#357 slice 3A).
+            coordinates:
+              hit && hit.road
+                ? hit.coordinates
+                : greatCircle(
+                    [l.from.lng!, l.from.lat!],
+                    [l.to.lng!, l.to.lat!],
+                  ),
+            stage: l.stage,
+            road,
+            glyph: legGlyphMode({ road, mode: classifiedGlyphMode(l.block) }),
+          };
+        });
+        addLineLayers("day", dayLegs);
+        addGlyphLayer("day-glyphs", "day-glyphs", dayLegs);
       }
       // Recorded tracks (#193, #290): the shape of the day as cased lines in
       // the trip route colour (§8.4 — wide casing under a narrower body, solid

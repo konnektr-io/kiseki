@@ -25,7 +25,16 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { legModes, resolveLegCoordinates } from "../lib/route-surface";
+import { legBlock, legModes, resolveLegCoordinates } from "../lib/route-surface";
+import {
+  addLegGlyphLayer,
+  classifiedGlyphMode,
+  legGlyphMode,
+  legGlyphPoints,
+  registerLegGlyphs,
+  validGlyphMode,
+  type LegGlyphFeature,
+} from "../lib/leg-glyphs";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
@@ -400,6 +409,35 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           refit(true);
 
           if (legs.length === 1 && showLiveTime && legs[0].duration) setLiveTime(legs[0].duration);
+
+          // Transport glyphs (#357 slice 3B): plane/train/ferry/car at ¼+¾
+          // of each declared leg, from the SAME sprites both surfaces share.
+          // Mode is data-only (the leg's transport block classified, else the
+          // echoed mode); a road leg never wears a flight glyph. Registered
+          // BEFORE the idle handshake below so the booklet (#37) waits for
+          // the glyph layer like every other layer.
+          const glyphFeatures: LegGlyphFeature[] = legs.flatMap((leg) => {
+            const fromLoc = findLocation(trip, leg.from);
+            const toLoc = findLocation(trip, leg.to);
+            const block = fromLoc && toLoc ? legBlock(trip, fromLoc, toLoc) : undefined;
+            const glyph = legGlyphMode({
+              road: leg.road,
+              mode: block ? classifiedGlyphMode(block) : validGlyphMode(leg.mode),
+            });
+            if (!glyph) return [];
+            return legGlyphPoints(resolveLegCoordinates(leg)).map((coordinates) => ({
+              mode: glyph,
+              coordinates,
+            }));
+          });
+          if (glyphFeatures.length) {
+            try {
+              await registerLegGlyphs(map, colors);
+              addLegGlyphLayer(map, "route-glyphs", "route-glyphs", glyphFeatures, firstSymbol);
+            } catch {
+              // A glyph-less route, never a broken map.
+            }
+          }
         } else if (!single) {
           // Multi-pin with no route geometry (route fetch failed or map source
           // unconfigured): still re-fit on the settled container so markers
