@@ -75,7 +75,7 @@ vi.mock("../components/SplitView", () => ({
 }));
 
 const net = vi.hoisted(() => ({
-  trips: "ok" as "ok" | "fail" | "empty" | "no-live" | "follower",
+  trips: "ok" as "ok" | "fail" | "empty" | "no-live" | "follower" | "follower-only",
   feed: "ok" as "ok" | "fail" | "empty",
   showcase: "ok" as "ok" | "fail" | "empty" | "mine-only",
   geo: "empty" as "ok" | "empty" | "fail",
@@ -164,6 +164,9 @@ vi.stubGlobal(
       if (net.trips === "empty") return { ok: true, json: async () => ({ trips: [] }) };
       if (net.trips === "follower") {
         return { ok: true, json: async () => ({ trips: [...TRIPS, FOLLOWED_TRIP] }) };
+      }
+      if (net.trips === "follower-only") {
+        return { ok: true, json: async () => ({ trips: [FOLLOWED_TRIP] }) };
       }
       if (net.trips === "no-live") {
         return { ok: true, json: async () => ({ trips: TRIPS.filter((t) => t.stage !== "live") }) };
@@ -761,11 +764,10 @@ describe("a brand-new account on the canvas", () => {
       b.textContent?.includes("Plan a trip"),
     )!;
     expect(plan).toBeTruthy();
-    // …and the header launcher, which used to hide until the first trip.
-    const ask = [...el.querySelectorAll("button")].find((b) =>
-      b.textContent?.includes("Ask Kiseki"),
-    )!;
-    expect(ask).toBeTruthy();
+    // …and the header chat toggle — the agent's generic door, same slot as
+    // the in-trip chat.
+    const toggle = el.querySelector('header button[aria-label="Open chat"]');
+    expect(toggle).toBeTruthy();
     // The sheet header points at the discovery pins, not a "0 trips" count.
     expect(el.querySelector('[data-testid="sheet-header"]')!.textContent).toContain(
       "to discover on the map",
@@ -779,7 +781,39 @@ describe("a brand-new account on the canvas", () => {
     expect(el.querySelector("[data-home-map]")).toBeNull();
     expect(el.textContent).toContain("No trips yet");
     expect(el.textContent).toContain("Trips worth a look");
-    // The agent CTA survives the collapse too.
-    expect(el.textContent).toContain("Ask Kiseki");
+    // The agent doors survive the collapse too: header toggle + card button.
+    expect(el.querySelector('header button[aria-label="Open chat"]')).toBeTruthy();
+    expect(el.textContent).toContain("Plan a trip");
+  });
+});
+
+describe("creation stays visible on populated homes (#347)", () => {
+  it("keeps a Plan-a-trip action on Your trips next to the header toggle", async () => {
+    const el = await mount();
+    // One generic door (header toggle) plus one intent-framed action — never
+    // two labelled buttons to the same chat.
+    expect(el.textContent).not.toContain("Ask Kiseki");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    const plan = [...yours.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Plan a trip"),
+    );
+    expect(plan).toBeTruthy();
+    expect(plan?.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(el.querySelector('header button[aria-label="Open chat"]')).toBeTruthy();
+  });
+
+  it("keeps both doors on a follow-only home, where the empty card never renders", async () => {
+    net.trips = "follower-only";
+    const el = await mount();
+    // The reported shape: trips is non-empty (a followed trip), so the "No
+    // trips yet" card is gone — creation must still be one tap away.
+    expect(el.textContent).not.toContain("No trips yet");
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    expect(yours.textContent).toContain("Trips you plan or join will land here.");
+    const plan = [...yours.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Plan a trip"),
+    );
+    expect(plan).toBeTruthy();
+    expect(el.querySelector('header button[aria-label="Open chat"]')).toBeTruthy();
   });
 });
