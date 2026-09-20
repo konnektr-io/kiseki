@@ -502,3 +502,22 @@ export function greatCircle(
   }
   return out;
 }
+
+/**
+ * Drawable coordinates for a fetched route leg — the ONE shared helper both
+ * map surfaces use (#357 slice 3A, the §8.4 promise).
+ *
+ * A `road: true` leg draws the backend's geometry (real roads). A
+ * `road: false` leg (flight/ferry) draws the great-circle arc between its
+ * endpoints — never the straight screen-space line the backend ships (a
+ * Europe→Tokyo flight drawn flat reads as a mistake). The `road` flag is
+ * authoritative; geometry never decides.
+ */
+export function resolveLegCoordinates(leg: {
+  road: boolean;
+  geometry: { type: "LineString"; coordinates: [number, number][] };
+}): [number, number][] {
+  const coords = leg.geometry.coordinates;
+  if (leg.road || coords.length < 2) return coords;
+  return greatCircle(coords[0], coords[coords.length - 1]);
+}

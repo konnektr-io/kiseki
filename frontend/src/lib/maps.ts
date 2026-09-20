@@ -140,12 +140,183 @@ export function applyBasemapTint(map: TintableMap, tint: PresetMapStyle["tint"])
   }
 }
 
+/**
+ * The route line grammar, in ONE place (#357 slice 1).
+ *
+ * Every route line on every surface — `MapView` (screen AND the booklet, #37),
+ * `RouteMap` (scan + day levels), `LandingMap` (the marketing example) and the
+ * recorded-track layers that inherit the route weight (#193/#290) — reads its
+ * widths from these stops. A hand-written `line-width` literal anywhere else
+ * is drift; grep for `line-width` should show only these definitions and
+ * references to them (plus the contour width in `lib/terrain.ts`, which is a
+ * different grammar — relief shading, not the trip's line).
+ *
+ * Body: 2 → 2.5 → 3 → 4 px across zoom 0 → 4 → 8 → 12. At journey zoom the
+ * route is lighter than the basemap's own road network; at day zoom it is a
+ * deliberate line, not a hairline. Casing stays (it is what keeps the route
+ * legible over same-coloured roads, §8.4) at ~1.6× the body, softening from
+ * 0.9 to 0.55 opacity as the camera pulls out. Non-road legs (flights,
+ * ferries — `road: false`) are 2 px at 0.35 opacity, dash [2, 3].
+ */
+export const ROUTE_WIDTH_STOPS: Array<[zoom: number, width: number]> = [
+  [0, 2],
+  [4, 2.5],
+  [8, 3],
+  [12, 4],
+];
+
+/** Casing width stops — ~1.6× the body at every zoom. */
+export const ROUTE_CASING_WIDTH_STOPS: Array<[zoom: number, width: number]> = ROUTE_WIDTH_STOPS.map(
+  ([zoom, width]) => [zoom, Math.round(width * 1.6 * 10) / 10] as [number, number],
+);
+
+/** Casing opacity fades 0.9 → 0.55 from zoom 0 to zoom 12. */
+export const ROUTE_CASING_OPACITY_STOPS: Array<[zoom: number, opacity: number]> = [
+  [0, 0.9],
+  [12, 0.55],
+];
+
+/** Non-road (`road: false`) legs: thin, dim, dashed — never a road. */
+export const ROUTE_NONROAD = {
+  width: 2,
+  opacity: 0.35,
+  dasharray: [2, 3],
+} as const;
+
+/** Linear interpolation of a stop table at a zoom — the JS mirror of the
+ *  MapLibre `interpolate` expressions below, so tests can pin the table
+ *  without evaluating an expression. Clamped at both ends. */
+export function interpolateStops(stops: Array<readonly [number, number]>, zoom: number): number {
+  if (zoom <= stops[0][0]) return stops[0][1];
+  for (let i = 1; i < stops.length; i++) {
+    if (zoom <= stops[i][0]) {
+      const [z0, v0] = stops[i - 1];
+      const [z1, v1] = stops[i];
+      return v0 + ((v1 - v0) * (zoom - z0)) / (z1 - z0);
+    }
+  }
+  return stops[stops.length - 1][1];
+}
+
+/** The route body width at a zoom (JS mirror, pinned by test). */
+export function routeWidthAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_WIDTH_STOPS, zoom);
+}
+
+/** The route casing width at a zoom (JS mirror, pinned by test). */
+export function routeCasingWidthAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_CASING_WIDTH_STOPS, zoom);
+}
+
+/** The route casing opacity at a zoom (JS mirror, pinned by test). */
+export function routeCasingOpacityAtZoom(zoom: number): number {
+  return interpolateStops(ROUTE_CASING_OPACITY_STOPS, zoom);
+}
+
+function stopsToExpression(
+  stops: Array<readonly [number, number]>,
+): import("maplibre-gl").DataDrivenPropertyValueSpecification<number> {
+  const args: (number | string)[] = [];
+  for (const [zoom, value] of stops) args.push(zoom, value);
+  return ["interpolate", ["linear"], ["zoom"], ...args] as import("maplibre-gl").DataDrivenPropertyValueSpecification<number>;
+}
+
+/** MapLibre `line-width` value for the route body — zoom interpolation. */
+export const ROUTE_BODY_WIDTH = stopsToExpression(ROUTE_WIDTH_STOPS);
+
+/** MapLibre `line-width` value for the route casing — ~1.6× the body. */
+export const ROUTE_CASING_WIDTH = stopsToExpression(ROUTE_CASING_WIDTH_STOPS);
+
+/** MapLibre `line-opacity` value for the route casing — 0.9 → 0.55. */
+export const ROUTE_CASING_OPACITY = stopsToExpression(ROUTE_CASING_OPACITY_STOPS);
+
+/**
+ * Pin weight, in ONE place (#357 slice 2).
+ *
+ * The visible dot is 28px at day zoom and ~22px at journey zoom — the ordinal
+ * stays on every pin and the 44px hit target never moves. The pin element
+ * keeps its day-zoom size (`h-7 w-7` in `pinClassForStage`) and the map
+ * container scales it through `--pin-scale`, which the map's zoom listener
+ * writes on every zoom change (`.map-pin-scaled` in index.css composes the
+ * scale with the selection/spy raises, so `is-selected`,
+ * `route-map-focused` and `route-spy-active` keep working at any size).
+ * Excursion diamonds ride the same variable: 20px → ~16px at journey zoom.
+ */
+export const PIN_SCALE_STOPS: Array<[zoom: number, scale: number]> = [
+  [5, 22 / 28],
+  [9, 1],
+];
+
+/** The pin scale at a zoom (clamped): ~0.786 at journey zoom, 1 by day zoom. */
+export function pinScaleAtZoom(zoom: number): number {
+  return interpolateStops(PIN_SCALE_STOPS, zoom);
+}
+
+/**
+ * On-map labels, our way (#357 slice 2): the place name in our own
+ * vocabulary (`bg-surface/90` + `text-foreground` + the §2.4 floating
+ * recipe, `font-heading`, numbered prefix like `3 · Healesville`), rendered
+ * as DOM markers BELOW their pin so a label can never cover it.
+ *
+ * Deterministic display rule (pure — pinned by test):
+ * - at most MAX labels (default 8);
+ * - the selected pin is always labelled (moved first, never capped out);
+ * - below the collision zoom the layer disappears entirely — the pins stay,
+ *   the labels go (a half-rendered label layer is worse than none).
+ *
+ * The drive-time chip is DOM chrome painted ABOVE the map canvas, so a label
+ * can never cover it; labels are `pointer-events-none` and never intercept.
+ */
+export const MAP_LABEL_MAX = 8;
+/** Below this zoom pins collide — keep the pins, drop the labels. */
+export const MAP_LABEL_ZOOM_FLOOR = 2;
+/** Label pill offset below its pin, in px (the 44px hit box ends at +22). */
+export const MAP_LABEL_PIN_OFFSET_PX = 26;
+
+export function selectMapLabels(
+  names: string[],
+  selected: string | null,
+  zoom: number,
+  max = MAP_LABEL_MAX,
+): string[] {
+  if (zoom < MAP_LABEL_ZOOM_FLOOR || names.length === 0) return [];
+  const ordered = [...names];
+  if (selected) {
+    const i = ordered.indexOf(selected);
+    if (i > 0) {
+      ordered.splice(i, 1);
+      ordered.unshift(selected);
+    } else if (i < 0) {
+      ordered.unshift(selected);
+    }
+  }
+  return ordered.slice(0, max);
+}
+
+/** `3 · Healesville` — the label and the pin can never read as two places. */
+export function formatMapLabel(ordinal: number, name: string): string {
+  return `${ordinal} · ${name}`;
+}
+
+/** The DOM pill for an on-map label — browser-only (call inside effects). */
+export function makeMapLabelElement(text: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "map-place-label";
+  el.setAttribute("aria-hidden", "true");
+  el.textContent = text;
+  return el;
+}
+
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {
   from: string;
   to: string;
   /** false = no road route (a flight/ferry leg) — drawn dashed, not solid. */
   road: boolean;
+  /** The declared transport mode echoed back by the server (#357 E1) —
+   *  additive only. `road` stays the authoritative road/not-road signal;
+   *  never infer a glyph from the geometry. */
+  mode?: string | null;
   /** Live `duration_in_traffic` text, e.g. "1 hour 35 mins". */
   duration: string | null;
   distance: string | null;

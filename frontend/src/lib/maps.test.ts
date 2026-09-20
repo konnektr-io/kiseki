@@ -3,13 +3,27 @@ import {
   applyBasemapTint,
   CHROME_PADDING,
   clampPadding,
+  fetchRouteLegs,
   findLocation,
+  formatMapLabel,
   locationStage,
+  MAP_LABEL_MAX,
+  MAP_LABEL_ZOOM_FLOOR,
   MAP_STYLE_URL,
   markerNumber,
   markerPinClass,
   OPENFREEMAP_STYLES,
+  pinScaleAtZoom,
   resolveMapStyle,
+  routeCasingOpacityAtZoom,
+  routeCasingWidthAtZoom,
+  ROUTE_BODY_WIDTH,
+  ROUTE_CASING_OPACITY,
+  ROUTE_CASING_WIDTH,
+  ROUTE_NONROAD,
+  routeWidthAtZoom,
+  ROUTE_WIDTH_STOPS,
+  selectMapLabels,
   type TintableMap,
 } from "./maps";
 import type { Trip } from "./types";
@@ -266,6 +280,156 @@ describe("markerPinClass", () => {
   it("never writes a colour in JS — utilities off tokens only", () => {
     for (const s of ["idea", "planned", "booked", "live", "archive"] as const) {
       expect(pin(s)).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+    }
+  });
+});
+
+describe("route weight (#357 slice 1)", () => {
+  it("pins the body interpolation table: 2/2.5/3/4 px at zoom 0/4/8/12", () => {
+    expect(ROUTE_WIDTH_STOPS).toEqual([
+      [0, 2],
+      [4, 2.5],
+      [8, 3],
+      [12, 4],
+    ]);
+    expect(routeWidthAtZoom(0)).toBe(2);
+    expect(routeWidthAtZoom(4)).toBe(2.5);
+    expect(routeWidthAtZoom(8)).toBe(3);
+    expect(routeWidthAtZoom(12)).toBe(4);
+  });
+
+  it("interpolates linearly between stops and clamps at the ends", () => {
+    expect(routeWidthAtZoom(2)).toBeCloseTo(2.25, 5);
+    expect(routeWidthAtZoom(6)).toBeCloseTo(2.75, 5);
+    expect(routeWidthAtZoom(10)).toBeCloseTo(3.5, 5);
+    expect(routeWidthAtZoom(-3)).toBe(2);
+    expect(routeWidthAtZoom(20)).toBe(4);
+  });
+
+  it("keeps the casing at ~1.6x the body, softening 0.9 to 0.55", () => {
+    for (const z of [0, 2, 4, 6, 8, 10, 12]) {
+      expect(routeCasingWidthAtZoom(z)).toBeCloseTo(routeWidthAtZoom(z) * 1.6, 5);
+    }
+    expect(routeCasingOpacityAtZoom(0)).toBe(0.9);
+    expect(routeCasingOpacityAtZoom(12)).toBe(0.55);
+    expect(routeCasingOpacityAtZoom(6)).toBeCloseTo(0.725, 5);
+  });
+
+  it("draws non-road legs thin, dim and dashed", () => {
+    expect(ROUTE_NONROAD.width).toBe(2);
+    expect(ROUTE_NONROAD.opacity).toBe(0.35);
+    expect([...ROUTE_NONROAD.dasharray]).toEqual([2, 3]);
+  });
+
+  it("exposes zoom interpolations as MapLibre expressions", () => {
+    for (const expr of [ROUTE_BODY_WIDTH, ROUTE_CASING_WIDTH, ROUTE_CASING_OPACITY]) {
+      const raw = expr as unknown as unknown[];
+      expect(raw[0]).toBe("interpolate");
+      expect(raw[1]).toEqual(["linear"]);
+      expect(raw[2]).toEqual(["zoom"]);
+    }
+    expect(ROUTE_BODY_WIDTH as unknown as unknown[]).toEqual([
+      "interpolate",
+      ["linear"],
+      ["zoom"],
+      0,
+      2,
+      4,
+      2.5,
+      8,
+      3,
+      12,
+      4,
+    ]);
+  });
+});
+
+describe("pin scale (#357 slice 2)", () => {
+  it("is ~22/28 at journey zoom and 1 by day zoom", () => {
+    expect(pinScaleAtZoom(5)).toBeCloseTo(22 / 28, 5);
+    expect(pinScaleAtZoom(9)).toBe(1);
+    expect(pinScaleAtZoom(0)).toBeCloseTo(22 / 28, 5);
+    expect(pinScaleAtZoom(14)).toBe(1);
+  });
+
+  it("interpolates linearly between journey and day zoom", () => {
+    expect(pinScaleAtZoom(7)).toBeCloseTo((22 / 28 + 1) / 2, 5);
+  });
+
+  it("keeps the ordinal and the hit target in the class map (size comes from CSS)", () => {
+    // The markup size is unchanged — `.map-pin-scaled` scales the visible
+    // dot only, so the 44px target (h-11 w-11 on the button) never moves.
+    const booked =
+      "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card border border-marker-fg bg-marker text-marker-fg";
+    const t = { stage: "booked", locations: [{ name: "X", alias: [] }], days: [] } as unknown as Trip;
+    expect(markerPinClass(t, t.locations![0])).toBe(booked);
+  });
+});
+
+describe("on-map labels (#357 slice 2)", () => {
+  const city = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+
+  it("caps at about 8 labels in registry order", () => {
+    expect(selectMapLabels(city, null, 6)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(selectMapLabels(city, null, 6).length).toBeLessThanOrEqual(MAP_LABEL_MAX);
+  });
+
+  it("the selected pin always wins, even past the cap", () => {
+    expect(selectMapLabels(city, "L", 6)[0]).toBe("L");
+    expect(selectMapLabels(city, "L", 6)).toHaveLength(MAP_LABEL_MAX);
+    expect(selectMapLabels(["A", "B"], "B", 6)).toEqual(["B", "A"]);
+  });
+
+  it("drops the whole layer below the collision zoom — pins stay, labels go", () => {
+    expect(selectMapLabels(city, null, MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectMapLabels(city, "A", 1)).toEqual([]);
+    expect(selectMapLabels(city, null, MAP_LABEL_ZOOM_FLOOR)).not.toEqual([]);
+  });
+
+  it("dense-city fixture: 12 stops at day zoom label 8 with the selected first", () => {
+    const labels = selectMapLabels(city, "G", 11);
+    expect(labels).toHaveLength(8);
+    expect(labels[0]).toBe("G");
+  });
+
+  it("3-continent fixture: the same trip far out labels nothing", () => {
+    expect(selectMapLabels(city, "G", 1.2)).toEqual([]);
+  });
+
+  it("numbers the prefix like the pin so label and pin read as one place", () => {
+    expect(formatMapLabel(3, "Healesville")).toBe("3 · Healesville");
+  });
+});
+
+describe("fetchRouteLegs (#357 slice 3A: E1)", () => {
+  it("preserves the server-echoed mode on each leg", async () => {
+    const legs = [
+      {
+        from: "A",
+        to: "B",
+        road: false,
+        mode: "flight",
+        duration: null,
+        distance: null,
+        geometry: { type: "LineString", coordinates: [[0, 0], [1, 1]] },
+      },
+    ];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ legs }), { status: 200 })) as typeof fetch;
+    try {
+      const t = {
+        id: "tid",
+        locations: [
+          { name: "A", alias: [], lat: 0, lng: 0 },
+          { name: "B", alias: [], lat: 1, lng: 1 },
+        ],
+      } as unknown as Trip;
+      const out = await fetchRouteLegs(t, ["A", "B"]);
+      expect(out?.[0].mode).toBe("flight");
+      expect(out?.[0].road).toBe(false);
+    } finally {
+      globalThis.fetch = orig;
     }
   });
 });

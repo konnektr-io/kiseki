@@ -8,17 +8,21 @@ import {
   isRegistryScaffold,
   journeyOrder,
   legBlock,
+  legModes,
   legStage,
   locationsInText,
   LEG_STAGE_LABELS,
   placeDays,
   placeRole,
+  resolveLegCoordinates,
   returnsToStart,
   stageToLegStage,
   tripExcursions,
   tripJourney,
 } from "./route-surface";
 import type { Block, Day, Trip, TripLocation } from "./types";
+import MapViewSrc from "../components/MapView.tsx?raw";
+import RouteMapSrc from "../components/RouteMap.tsx?raw";
 
 const loc = (name: string, lat: number, lng: number, alias: string[] = []): TripLocation => ({
   name,
@@ -724,6 +728,92 @@ describe("greatCircle", () => {
       [5, 50],
       [5, 50],
     ]);
+  });
+});
+
+describe("resolveLegCoordinates (#357 slice 3A: the §8.4 promise)", () => {
+  const roadLeg = {
+    road: true,
+    geometry: {
+      type: "LineString" as const,
+      coordinates: [
+        [-115.5, 51.1],
+        [-116.0, 51.0],
+        [-118.1, 51.0],
+      ] as [number, number][],
+    },
+  };
+  const flightLeg = {
+    road: false,
+    mode: "flight",
+    geometry: {
+      type: "LineString" as const,
+      coordinates: [
+        [-70.6, -33.4],
+        [-72.0, -13.5],
+      ] as [number, number][],
+    },
+  };
+
+  it("passes a road leg's backend geometry through untouched", () => {
+    expect(resolveLegCoordinates(roadLeg)).toBe(roadLeg.geometry.coordinates);
+  });
+
+  it("curves a road:false leg through greatCircle, never straight", () => {
+    const coords = resolveLegCoordinates(flightLeg);
+    expect(coords).toEqual(greatCircle([-70.6, -33.4], [-72.0, -13.5]));
+    expect(coords.length).toBeGreaterThan(2);
+  });
+
+  it("the road flag is authoritative — a flight-looking road leg stays a road", () => {
+    const farRoad = {
+      road: true,
+      geometry: {
+        type: "LineString" as const,
+        coordinates: [
+          [-70.6, -33.4],
+          [-72.0, -13.5],
+        ] as [number, number][],
+      },
+    };
+    expect(resolveLegCoordinates(farRoad)).toBe(farRoad.geometry.coordinates);
+  });
+
+  it("passes degenerate geometry through rather than curving one point", () => {
+    const single = {
+      road: false,
+      geometry: { type: "LineString" as const, coordinates: [[1, 2]] as [number, number][] },
+    };
+    expect(resolveLegCoordinates(single)).toBe(single.geometry.coordinates);
+  });
+
+  it("both surfaces draw through the shared helper (no second implementation)", () => {
+    // Source-level pin: a straight backend line for road:false must not
+    // reappear in either surface outside resolveLegCoordinates.
+    expect(MapViewSrc).toContain("resolveLegCoordinates");
+    expect(RouteMapSrc).toContain("resolveLegCoordinates");
+    expect(RouteMapSrc.match(/resolveLegCoordinates/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("legModes comes only from data — Block.mode, never geometry", () => {
+    // A flight-declared pair and an undeclared pair over IDENTICAL
+    // coordinates classify differently: geometry never decides.
+    const a = loc("Here", 1, 2);
+    const b = loc("There", 3, 4);
+    const flight: Trip = {
+      days: [
+        dayAt(0, "out", [
+          { kind: "transport", mode: "flight", from: "Here", to: "There" } as Block,
+        ]),
+      ],
+      locations: [a, b],
+    } as unknown as Trip;
+    const plain: Trip = {
+      days: [],
+      locations: [a, b],
+    } as unknown as Trip;
+    expect(legModes(flight, ["Here", "There"], false)).toEqual(["flight"]);
+    expect(legModes(plain, ["Here", "There"], false)).toEqual([undefined]);
   });
 });
 

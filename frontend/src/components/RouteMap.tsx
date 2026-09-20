@@ -6,17 +6,35 @@ import { useTrip } from "./theme";
 import {
   applyBasemapTint,
   fetchRouteLegs,
+  formatMapLabel,
   hasWebGL2,
+  makeMapLabelElement,
+  MAP_LABEL_PIN_OFFSET_PX,
+  MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
   markerPinClass,
+  pinScaleAtZoom,
   prefersReducedMotion,
   resolveMapStyle,
+  ROUTE_BODY_WIDTH,
+  ROUTE_CASING_OPACITY,
+  ROUTE_CASING_WIDTH,
+  selectMapLabels,
   type MapPadding,
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { greatCircle, legModes, placeRole, type Journey } from "../lib/route-surface";
+import { greatCircle, legModes, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
+import {
+  addLegGlyphLayer,
+  classifiedGlyphMode,
+  legGlyphMode,
+  legGlyphPoints,
+  registerLegGlyphs,
+  type LegGlyphFeature,
+} from "../lib/leg-glyphs";
+import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -30,6 +48,8 @@ interface LegFeature {
   coordinates: [number, number][];
   stage: string;
   road: boolean;
+  /** Transport glyph for the leg, if its data declares one (#357 slice 3B). */
+  glyph: TransportMode | null;
 }
 
 /**
@@ -129,6 +149,16 @@ export function RouteMap({
   onBlockTapRef.current = onBlockTap;
   const paddingRef = useRef(padding);
   paddingRef.current = padding;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  /** On-map label markers, owned by the level build + selection rebuilds. */
+  const labelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Transport sprite modes registered on the map (mount effect) — levels
+   *  only add sources + layers on top. */
+  const glyphModesRef = useRef<TransportMode[]>([]);
+  /** Rebuild the label layer for a selected place — assigned by the level
+   *  effect (it owns the level's place list), called by selection + zoom. */
+  const rebuildLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
 
   const isDay = day != null;
 
@@ -204,9 +234,16 @@ export function RouteMap({
                 {
                   stage: l.stage,
                   road: hit?.road ?? false,
+                  // A road:false hit draws the §8.4 great-circle arc, never
+                  // the straight backend line (#357 slice 3A).
                   coordinates:
-                    (hit?.geometry.coordinates as [number, number][]) ??
-                    greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
+                    hit != null
+                      ? resolveLegCoordinates(hit)
+                      : greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
+                  glyph: legGlyphMode({
+                    road: hit?.road ?? false,
+                    mode: classifiedGlyphMode(l.block),
+                  }),
                 } satisfies LegFeature,
               ] as const;
             }),
@@ -308,6 +345,23 @@ export function RouteMap({
         mapRef.current = map;
 
         map.addControl(new lib.NavigationControl({ showCompass: true, visualizePitch: true }), "top-left");
+        // Zoom-scaled pins (#357 slice 2): --pin-scale shrinks the visible
+        // dot toward ~22px at journey zoom; the 44px hit target never moves.
+        // Below the collision zoom the label layer drops (pins stay).
+        const syncZoom = () => {
+          if (!map || !ref.current) return;
+          const z = map.getZoom() ?? 0;
+          ref.current.style.setProperty("--pin-scale", String(pinScaleAtZoom(z)));
+          ref.current.classList.toggle("map-labels-off", z < MAP_LABEL_ZOOM_FLOOR);
+        };
+        map.on("zoom", syncZoom);
+        syncZoom();
+        // Zoomed in from below the floor with no labels built: build them now.
+        map.on("zoomend", () => {
+          if (labelMarkersRef.current.length === 0) {
+            rebuildLabelsRef.current?.(selectedRef.current?.name ?? null);
+          }
+        });
         const syncOriented = () => {
           if (!map || !ref.current) return;
           ref.current.classList.toggle("map-oriented", map.getBearing() !== 0 || map.getPitch() !== 0);
@@ -327,6 +381,15 @@ export function RouteMap({
 
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
+
+        // Transport glyph sprites (#357 slice 3B) — registered once per map
+        // instance; levels only add sources + layers. A failed registration
+        // draws the route glyph-less, never broken.
+        try {
+          glyphModesRef.current = await registerLegGlyphs(map, mapColors(map.getContainer()));
+        } catch {
+          glyphModesRef.current = [];
+        }
 
         // Elevation first, so the route lands ON TOP of the hillshade (#38).
         // Deliberately not awaited — a slow DEM must not hold up the line the
@@ -361,9 +424,18 @@ export function RouteMap({
                   return {
                     stage: leg.stage,
                     road: hit?.road ?? false,
+                    // A road:false hit draws the §8.4 great-circle arc, never
+                    // the straight backend line (#357 slice 3A).
                     coordinates:
-                      (hit?.geometry.coordinates as [number, number][]) ??
-                      greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
+                      hit != null
+                        ? resolveLegCoordinates(hit)
+                        : greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
+                    // Glyph mode is the leg's own data, classified (#357
+                    // slice 3B) — geometry never decides.
+                    glyph: legGlyphMode({
+                      road: hit?.road ?? false,
+                      mode: classifiedGlyphMode(leg.block),
+                    }),
                   };
                 });
           setLegsData(resolved);
@@ -384,6 +456,7 @@ export function RouteMap({
       libRef.current = null;
       markersRef.current = new Map();
       chipPosRef.current = new Map();
+      glyphModesRef.current = [];
       fitJourneyRef.current = null;
       fitDayRef.current = null;
       setReady(false);
@@ -467,6 +540,48 @@ export function RouteMap({
       el.addEventListener("click", () => onBlockTapRef.current(blockId));
     };
 
+    /** On-map labels (#357 slice 2): numbered pills below their pins, at
+     *  most ~8, selected first, none below the collision zoom. Excursions
+     *  take no label (no ordinal — the label vocabulary is numbered). */
+    const buildLabels = (byName: Map<string, TripLocation>, selectedName: string | null) => {
+      for (const m of labelMarkersRef.current) m.remove();
+      labelMarkersRef.current = [];
+      const names = selectMapLabels([...byName.keys()], selectedName, map.getZoom() ?? 0);
+      for (const name of names) {
+        const loc = byName.get(name);
+        if (!loc || loc.lng == null || loc.lat == null) continue;
+        const el = makeMapLabelElement(formatMapLabel(markerNumber(trip, loc), loc.name));
+        if (name === selectedName) el.classList.add("is-selected");
+        labelMarkersRef.current.push(
+          new lib.Marker({
+            element: el,
+            anchor: "top",
+            offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+          })
+            .setLngLat([loc.lng, loc.lat])
+            .addTo(map),
+        );
+      }
+    };
+
+    /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
+     *  above the route, below the basemap's labels. Glyph-less legs
+     *  contribute nothing; a level with no declared modes draws no layer. */
+    const addGlyphLayer = (source: string, layerId: string, legs: LegFeature[]) => {
+      if (!glyphModesRef.current.length) return;
+      const registered = new Set(glyphModesRef.current);
+      const features: LegGlyphFeature[] = legs.flatMap((f) => {
+        const mode = f.glyph;
+        if (mode == null || !registered.has(mode)) return [];
+        return legGlyphPoints(f.coordinates).map((coordinates) => ({ mode, coordinates }));
+      });
+      if (!features.length) return;
+      const firstSymbol = map.getStyle().layers?.find((l) => l.type === "symbol")?.id;
+      addLegGlyphLayer(map, source, layerId, features, firstSymbol);
+      addedSources.push(source);
+      addedLayers.push(layerId);
+    };
+
     /** Cased line layers for the level's legs — the §8.4 grammar. */
     const addLineLayers = (source: string, legs: LegFeature[]) => {
       map.addSource(source, {
@@ -495,15 +610,10 @@ export function RouteMap({
         ["!", ["get", "road"]],
         ["==", ["get", "state"], "provisional"],
       ];
-      const width: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
-        "match",
-        ["get", "state"],
-        "booked",
-        4.5,
-        "planned",
-        3.5,
-        3,
-      ];
+      // Route weight is the ONE shared grammar in lib/maps.ts (#357): the
+      // body interpolates with zoom, the casing stays at ~1.6× the body.
+      // Stage still speaks through dash + opacity (provisional dashed and
+      // dim, booked solid) — width no longer varies by stage.
       const opacity: import("maplibre-gl").DataDrivenPropertyValueSpecification<number> = [
         "match",
         ["get", "state"],
@@ -541,14 +651,14 @@ export function RouteMap({
             paint: s.body
               ? {
                   "line-color": colors.route,
-                  "line-width": width,
+                  "line-width": ROUTE_BODY_WIDTH,
                   "line-opacity": opacity,
                   ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                 }
               : {
                   "line-color": colors.routeCasing,
-                  "line-width": s.dashed ? 6 : 7.5,
-                  "line-opacity": s.dashed ? 0.7 : 0.9,
+                  "line-width": ROUTE_CASING_WIDTH,
+                  "line-opacity": s.dashed ? 0.7 : ROUTE_CASING_OPACITY,
                   ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                 },
           } as Parameters<MapLibreMap["addLayer"]>[0],
@@ -571,7 +681,11 @@ export function RouteMap({
         const el = addPin(loc, true);
         el.addEventListener("click", () => onSelectRef.current(loc));
       });
+      const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
+      buildLabels(scanByName, selectedRef.current?.name ?? null);
+      rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
       if (legsData != null && legsData.length) addLineLayers("journey", legsData);
+      addGlyphLayer("journey-glyphs", "journey-glyphs", legsData ?? []);
       journeyRef.current.stops.forEach(extend);
       journeyRef.current.excursions.forEach(extend);
       (legsData ?? []).forEach((l) => l.coordinates.forEach((c) => bounds.extend(c)));
@@ -602,32 +716,41 @@ export function RouteMap({
           addChip(m.blockIds[0], m.letter, m.place);
         }
       }
+      const dayByName = new Map<string, TripLocation>();
+      for (const m of surface.markers) {
+        if (m.role === "place" && !dayByName.has(m.place.name)) dayByName.set(m.place.name, m.place);
+      }
+      buildLabels(dayByName, null);
+      rebuildLabelsRef.current = (sel) => buildLabels(dayByName, sel);
       if (surface.legs.length) {
         // #104: real road geometry when the backend gave it; while the fetch
-        // is in flight the straight pair draws (the fit must not wait on the
-        // network). A leg whose hit came back non-road — or the whole fetch
-        // unusable — draws its straight pair DASHED (the `road:false` branch
-        // in `addLineLayers`), so a straight line never poses as a road.
+        // is in flight the great-circle arc draws (the fit must not wait on
+        // the network). A leg whose hit came back non-road — or the whole fetch
+        // unusable — draws its arc DASHED (the `road:false` branch
+        // in `addLineLayers`), so a curve never poses as a road.
         const geo = dayLegsData;
-        addLineLayers(
-          "day",
-          surface.legs.map((l) => {
-            const hit = geo?.get(`${l.from.name}>${l.to.name}`);
-            return {
-              coordinates:
-                hit && hit.road
-                  ? hit.coordinates
-                  : ([
-                      [l.from.lng!, l.from.lat!],
-                      [l.to.lng!, l.to.lat!],
-                    ] as [number, number][]),
-              stage: l.stage,
-              // road=true only when REAL geometry is in hand — everything
-              // else (fallback pair, provisional leg, fetch miss) dashes.
-              road: !!hit && hit.road && l.stage !== "provisional",
-            };
-          }),
-        );
+        const dayLegs: LegFeature[] = surface.legs.map((l) => {
+          const hit = geo?.get(`${l.from.name}>${l.to.name}`);
+          // road=true only when REAL geometry is in hand — everything
+          // else (fallback pair, provisional leg, fetch miss) dashes.
+          const road = !!hit && hit.road && l.stage !== "provisional";
+          return {
+            // Non-road draws the great-circle arc, never a straight
+            // screen-space line (#357 slice 3A).
+            coordinates:
+              hit && hit.road
+                ? hit.coordinates
+                : greatCircle(
+                    [l.from.lng!, l.from.lat!],
+                    [l.to.lng!, l.to.lat!],
+                  ),
+            stage: l.stage,
+            road,
+            glyph: legGlyphMode({ road, mode: classifiedGlyphMode(l.block) }),
+          };
+        });
+        addLineLayers("day", dayLegs);
+        addGlyphLayer("day-glyphs", "day-glyphs", dayLegs);
       }
       // Recorded tracks (#193, #290): the shape of the day as cased lines in
       // the trip route colour (§8.4 — wide casing under a narrower body, solid
@@ -679,13 +802,13 @@ export function RouteMap({
               paint: s.body
                 ? {
                     "line-color": colors.route,
-                    "line-width": 4,
+                    "line-width": ROUTE_BODY_WIDTH,
                     "line-opacity": s.dashed ? 0.75 : 1,
                     ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                   }
                 : {
                     "line-color": colors.routeCasing,
-                    "line-width": s.dashed ? 6 : 7,
+                    "line-width": ROUTE_CASING_WIDTH,
                     "line-opacity": s.dashed ? 0.6 : 0.9,
                     ...(s.dashed ? { "line-dasharray": [2, 2.2] } : {}),
                   },
@@ -740,6 +863,9 @@ export function RouteMap({
       // Tear down THIS build's content: the markers it added and the layers
       // on its own sources. Runs before the next build and on unmount.
       markers.forEach((m) => m.remove());
+      for (const m of labelMarkersRef.current) m.remove();
+      labelMarkersRef.current = [];
+      rebuildLabelsRef.current = null;
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -762,6 +888,9 @@ export function RouteMap({
       markersRef.current.forEach((el, name) => {
         el.classList.toggle("is-selected", selected?.name === name);
       });
+      // The selected pin's label always wins — rebuild the capped layer
+      // around the new selection (pins themselves only change classes).
+      rebuildLabelsRef.current?.(selected?.name ?? null);
     } else {
       container.classList.toggle("route-map-focused", !!activeBlock);
       markersRef.current.forEach((el, id) => {
@@ -841,7 +970,7 @@ export function RouteMap({
 
   return (
     <>
-      <div ref={ref} className="h-full w-full" />
+      <div ref={ref} className="map-pin-scaled h-full w-full" />
       {!ready && (
         // Themed skeleton while the style loads (§8.5) — never an empty grey box.
         <div className="pointer-events-none absolute inset-0 animate-pulse bg-muted" aria-hidden="true" />

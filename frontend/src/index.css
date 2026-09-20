@@ -426,8 +426,56 @@ h4 {
   border-color: var(--color-accent);
 }
 
-/* Minimap suppression (#92): inside the map surface the day panel sits right
-   beside the live map, so the per-block mini maps are redundant chrome —
+/* Zoom-scaled pins + on-map labels (#357 slice 2).
+ *
+ *  The pin keeps its day-zoom size in the markup (`h-7 w-7`) and shrinks
+ *  toward ~22px at journey zoom through `--pin-scale`, which the map writes
+ *  on every zoom change. The 44px hit target is untouched — only the visible
+ *  dot scales. Every raise composes with the scale (plain `scale(1.15)`
+ *  would pop the pin back to full size on select), so selection, dimming
+ *  and scroll-spy read exactly as before, smaller. Scoped to
+ *  `.map-pin-scaled` containers (MapView + RouteMap) — the landing example
+ *  keeps today's pins. */
+.map-pin-scaled {
+  --pin-scale: 0.786;
+}
+.map-pin-scaled .route-pin-dot {
+  transform: scale(var(--pin-scale));
+}
+.map-pin-scaled .route-pin.is-selected .route-pin-dot {
+  transform: scale(calc(var(--pin-scale) * 1.15));
+}
+.map-pin-scaled .route-pin-dot-excursion {
+  transform: scale(var(--pin-scale));
+}
+.map-pin-scaled .route-pin-excursion.is-selected .route-pin-dot-excursion {
+  transform: scale(calc(var(--pin-scale) * 1.25));
+}
+.map-pin-scaled.route-spy-active .route-pin.is-spy .route-pin-dot {
+  transform: scale(calc(var(--pin-scale) * 1.12));
+}
+
+/* On-map place labels (#357 slice 2): the place name in our own vocabulary —
+ *  the §2.4 floating recipe on `bg-surface/90` with `text-foreground`,
+ *  `font-heading`, and a numbered prefix so the label and the pin can never
+ *  read as two places. DOM markers below their pin (never covering it),
+ *  `pointer-events-none` (never intercepting), and the drive-time chip is DOM
+ *  chrome above the canvas (never covered). Below the collision zoom the
+ *  whole layer drops via `map-labels-off` — pins stay, labels go. */
+.map-place-label {
+  @apply pointer-events-none rounded-full border border-border/60 bg-surface/90 px-2 py-0.5 font-heading text-[11px] font-semibold whitespace-nowrap text-foreground tabular-nums backdrop-blur-md shadow-[0_2px_12px_rgb(0_0_0/0.12)];
+}
+.map-place-label.is-selected {
+  @apply border-accent;
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 2px 12px rgb(0 0 0 / 0.12);
+}
+.map-labels-off .map-place-label {
+  display: none;
+}
+
+/* Minimap suppression (#92): inside the map surface the day panel sits right   beside the live map, so the per-block mini maps are redundant chrome —
    hidden by a surface-scoped rule (not a print rule) and the booklet keeps
    them. The `h-24` strip stays in the DOM for layout stability of the non-
    map contexts that share the component. */

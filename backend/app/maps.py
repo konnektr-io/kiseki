@@ -67,6 +67,11 @@ def route_legs(
     and the leg comes back ``road: False`` with straight geometry — no
     road query, no misleading car route along the highway for a leg
     that is a flight or ferry.
+
+    Every leg echoes its declared ``mode`` back (additive, #357) so the
+    client can style a leg by transport type. ``road`` stays the
+    authoritative road/not-road signal — a reader must never infer the
+    glyph from the geometry.
     """
     pairs = [(places[i], places[i + 1]) for i in range(len(places) - 1)]
     if loop and len(places) >= 2:
@@ -81,6 +86,7 @@ def route_legs(
                     "from": a[0],
                     "to": b[0],
                     "road": False,
+                    "mode": mode,
                     "duration": None,
                     "distance": None,
                     "geometry": {"type": "LineString", "coordinates": [[a[2], a[1]], [b[2], b[1]]]},
@@ -100,6 +106,7 @@ def route_legs(
                 "from": a[0],
                 "to": b[0],
                 "road": road,
+                "mode": mode,
                 "duration": hit["duration"],
                 "distance": hit["distance"],
                 "geometry": {"type": "LineString", "coordinates": coords},

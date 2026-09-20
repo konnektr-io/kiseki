@@ -652,9 +652,19 @@ idea.** Formalize it:
 - Ordinal inside the pin; `primary` fill; white foreground; hairline outline so it survives on both
   snow and forest.
 - **Stage-aware** (§5.3): outline for `idea`/`options`, filled for `booked`.
-- Visual size ~28px, **hit target 44px** (transparent padding).
+- Visible size **28px at day zoom, ~22px at journey zoom** (2026-09, #357): the pin keeps its
+  day-zoom size in the markup and shrinks through `--pin-scale` (`pinScaleAtZoom` in
+  `lib/maps.ts` — 22/28 at zoom ≤ 5, 1 at zoom ≥ 9), composed with the selection/spy raises so
+  they read identically at any size. Excursion diamonds ride the same variable (20px → ~16px).
+  **Hit target stays 44px** (transparent padding) at every zoom.
 - Selected: scale 1.15 + accent ring. Non-focused day: 45% opacity, never hidden.
 - Cluster below the zoom where pins collide; the cluster shows a count, not a number range.
+- **On-map labels** (2026-09, #357): numbered pills (`3 · Healesville`) below their pins, in the
+  trip's own vocabulary — `bg-surface/90` + `text-foreground` + the §2.4 floating recipe,
+  `font-heading` — so the label and the pin can never read as two places. Deterministic display
+  rule (`selectMapLabels`, pinned by test): at most 8 labels, the selected pin always wins, and
+  below zoom 2 the whole layer drops while the pins stay. Labels are `pointer-events-none`;
+  the drive-time chip is DOM chrome above the canvas, so a label can never cover it.
 
 **Two marker roles (2026-09, #90/#92).** The numbered pin stays the *place* marker — stays,
 gateways and journey stops — on every surface, print included. The **day level** of the map
@@ -667,11 +677,27 @@ activity role, styled as secondary markers.
 
 ### 8.4 Routes
 
-- **Draw every line twice**: a wide casing (contrast colour, ~7px) under a narrower body (~4px,
-  `--color-route`). Without casing, a route disappears over roads of similar colour. This is the
-  single highest-value cartographic trick available.
-- Per-mode: drive = solid; train = solid + dot pattern; ferry/flight = dashed, drawn as a
-  **great-circle arc**, not a straight screen-space line.
+- **Draw every line twice**: a casing (contrast colour) under a narrower body (`--color-route`).
+  Without casing, a route disappears over roads of similar colour. This is the
+  single highest-value cartographic trick available. Both widths interpolate with zoom from
+  **one exported constant** (`ROUTE_WIDTH` in `lib/maps.ts`, 2026-09 #357 — read by `MapView`
+  on screen and in the booklet, `RouteMap`, `LandingMap`, and the recorded-track layers, so no
+  second opinion can drift): body 2 → 2.5 → 3 → 4 px across zoom 0 → 4 → 8 → 12, casing ~1.6×
+  the body fading 0.9 → 0.55 opacity. Non-road legs (flights/ferries) draw 2 px at 0.35
+  opacity, dash `[2, 3]`.
+- Per-mode: drive/train = solid; ferry/flight = dashed, drawn as a **great-circle arc**
+  (`resolveLegCoordinates` in `lib/route-surface.ts`, used by both surfaces — a `road: false`
+  leg is never a straight screen-space line), never a car route for a plane. The old
+  "train = solid + dot pattern" distinction is **not implemented** and the sentence is
+  re-scoped to say so: mode reads from the glyph, not the dash (next point). Width no longer
+  varies by stage — stage speaks through dash + opacity only (§5.3).
+- **Transport glyphs** (2026-09, #357): each declared leg carries two small mode glyphs
+  (plane/train/ferry/car — BlockGlyph's shapes and classifier) at ¼ and ¾ along the drawn
+  line; short legs (< 15 km) draw none. Sprites are data-URI SVGs registered with
+  `map.addImage` (the OpenFreeMap styles ship no sprite sheet). Mode comes only from data
+  (`Block.mode` + `classifyTransportMode`, echoed back per leg by `GET /api/maps/route` under
+  E1); `road: true` stays authoritative — a road route is never dressed as a flight glyph.
+  The glyph layer renders through the same `MapView`, so the booklet prints it.
 - Unbooked legs are dashed and lower-opacity regardless of mode (§5.3 again).
 - Route colour comes from `--color-route`, which comes from the trip preset, read off the DOM by
   `lib/tokens.ts` (a canvas renderer takes strings, not classes). The `#1e3a8a` is dead — no hex
