@@ -134,7 +134,11 @@ discoverable pins as its map — the "No trips yet" card and its Plan-a-trip
 button sit in the sheet above them, the header keeps the round chat toggle
 (the in-trip control in the same slot), and Your trips keeps a permanent
 Plan-a-trip action — so creation stays visible on populated homes too,
-including follow-only ones where the empty card never renders (#347). The
+including follow-only ones where the empty card never renders (#347): a
+Plan-a-trip open rotates the landing thread first (the popup's own New-chat
+button does the same on an open thread), so a second trip idea never lands
+in the previous planning conversation, while the header toggle reopens the
+existing thread (#351). The
 shelf below is the same `DiscoverBand` as the populated home, with
 **Follow** on every card, which is the first and only UI for
 `followPublicTrip` (#197's endpoint had no caller until now).

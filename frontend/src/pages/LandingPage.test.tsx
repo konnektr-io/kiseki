@@ -787,6 +787,87 @@ describe("a brand-new account on the canvas", () => {
   });
 });
 
+describe("plan-a-trip starts a new chat (#351)", () => {
+  const THREADS_KEY = "kiseki.chat.threads.v1";
+
+  function stubStorage() {
+    // An own-property shadow (removed in afterEach), NOT stubGlobal: the
+    // module-level fetch stub is also a stubGlobal, and unstubAllGlobals
+    // would remove it too — silently breaking every suite below this one.
+    const data = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      value: {
+        getItem: (k: string) => (data.has(k) ? data.get(k)! : null),
+        setItem: (k: string, v: string) => {
+          data.set(k, String(v));
+        },
+        removeItem: (k: string) => {
+          data.delete(k);
+        },
+        clear: () => data.clear(),
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  function seedThread(id: string) {
+    window.localStorage.setItem(THREADS_KEY, JSON.stringify({ general: id }));
+  }
+
+  function storedThread(): string | null {
+    try {
+      const parsed = JSON.parse(
+        window.localStorage.getItem(THREADS_KEY) ?? "{}",
+      ) as unknown;
+      return typeof (parsed as Record<string, unknown>).general === "string"
+        ? ((parsed as Record<string, string>).general ?? null)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  beforeEach(() => {
+    stubStorage();
+  });
+
+  afterEach(() => {
+    delete (window as unknown as Record<string, unknown>).localStorage;
+  });
+
+  it("rotates the landing thread when Plan-a-trip opens the chat", async () => {
+    seedThread("thread-old");
+    const el = await mount();
+    const yours = el.querySelector('section[aria-label="Your trips"]')!;
+    const plan = [...yours.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Plan a trip"),
+    ) as HTMLElement;
+    await act(async () => {
+      plan.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    // A fresh thread id was persisted for the general slot…
+    expect(storedThread()).toBeTruthy();
+    expect(storedThread()).not.toBe("thread-old");
+    // …and the popup opened on it.
+    expect(el.textContent).toContain("Kiseki assistant");
+  });
+
+  it("reopens the existing thread from the header toggle", async () => {
+    seedThread("thread-old");
+    const el = await mount();
+    const toggle = el.querySelector(
+      'header button[aria-label="Open chat"]',
+    ) as HTMLElement;
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    // No rotation: the continued conversation resumes.
+    expect(storedThread()).toBe("thread-old");
+    expect(el.textContent).toContain("Kiseki assistant");
+  });
+});
+
 describe("creation stays visible on populated homes (#347)", () => {
   it("keeps a Plan-a-trip action on Your trips next to the header toggle", async () => {
     const el = await mount();

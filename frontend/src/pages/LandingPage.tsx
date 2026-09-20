@@ -35,7 +35,7 @@ import {
   type TripOrigin,
 } from "../lib/home";
 import { homePinsFromGeo, homeRowId } from "../lib/home-geo";
-import { adoptThreadId, chatContextKey, loadThreadId } from "../lib/chat";
+import { adoptThreadId, chatContextKey, loadThreadId, newThreadId } from "../lib/chat";
 import { sortShowcaseTrips } from "../lib/marketing";
 import { prefersReducedMotion } from "../lib/maps";
 import { usePageTitle } from "../lib/seo";
@@ -439,7 +439,7 @@ function HomeBands({
   selectedDtId,
   flashDtId,
   chatOpen,
-  onOpenChat,
+  onPlanTrip,
   onRetry,
   onSignInAgain,
   followedIds,
@@ -468,7 +468,8 @@ function HomeBands({
   selectedDtId: string | null;
   flashDtId: string | null;
   chatOpen: boolean;
-  onOpenChat: () => void;
+  /** Plan-a-trip: rotate to a fresh landing thread, then open (#351). */
+  onPlanTrip: () => void;
   onRetry: () => void;
   onSignInAgain: () => void;
   /** Trips followed in THIS session — the chip's optimistic "Following". */
@@ -543,7 +544,7 @@ function HomeBands({
               below, and its owner's updates land in your feed.
             </p>
             <Button
-              onClick={onOpenChat}
+              onClick={onPlanTrip}
               aria-haspopup="dialog"
               aria-expanded={chatOpen}
               className="mt-5"
@@ -598,7 +599,7 @@ function HomeBands({
                  Updates band uses for "Open the feed". */
               <button
                 type="button"
-                onClick={onOpenChat}
+                onClick={onPlanTrip}
                 aria-haspopup="dialog"
                 aria-expanded={chatOpen}
                 title="Plan a new trip with the Kiseki assistant"
@@ -759,6 +760,9 @@ function AuthenticatedLanding() {
   // empty state when they don't. Attachments attach to the user's inbox
   // (there is no trip yet); the agent promotes them once it creates one.
   const [chatOpen, setChatOpen] = useState(false);
+  // Bumped by every Plan-a-trip open (#351): the popup below is keyed on it,
+  // so opening while it is already open still remounts onto the fresh thread.
+  const [chatFresh, setChatFresh] = useState(0);
   const [query, setQuery] = useState("");
   const [stages, setStages] = useState<readonly Stage[]>([]);
   // Rich facets (#249 slice 4, reviewed): month/season from startDate,
@@ -803,10 +807,17 @@ function AuthenticatedLanding() {
     chatUsedRef.current = true;
     void refreshTrips();
   }, [refreshTrips]);
-  const handleOpenChat = useCallback(() => {
+  // Plan-a-trip CTAs always start a NEW chat (#351): rotate the landing
+  // thread first — the same mechanism as the popup's own New-chat button
+  // (persist a fresh id, remount onto it) — then open on it. A second trip
+  // idea must never land in the previous planning conversation. The header
+  // toggle below keeps the current reopen/continue behaviour.
+  const handlePlanTrip = useCallback(() => {
+    newThreadId(chatContextKey(), userSub);
+    setChatFresh((n) => n + 1);
     chatUsedRef.current = true;
     setChatOpen(true);
-  }, []);
+  }, [userSub]);
   // Header chat toggle — the trip's chat control in the same slot (round
   // control beside the account chip): the agent's generic door on the
   // signed-in home, so it survives the bands scrolling away (#347). A
@@ -1204,7 +1215,7 @@ function AuthenticatedLanding() {
       selectedDtId={selectedDtId}
       flashDtId={flashDtId}
       chatOpen={chatOpen}
-      onOpenChat={handleOpenChat}
+      onPlanTrip={handlePlanTrip}
       onRetry={() => setAttempt((n) => n + 1)}
       onSignInAgain={() =>
         loginWithRedirect({ appState: { returnTo: window.location.pathname } })
@@ -1249,6 +1260,7 @@ function AuthenticatedLanding() {
   // grid refetches.
   const chat = chatOpen && (
     <ChatPopup
+      key={chatFresh}
       onClose={() => setChatOpen(false)}
       onTripCreated={(id) => {
         setCreatedTripId(id);
