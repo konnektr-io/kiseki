@@ -25,7 +25,7 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { greatCircle, legModes, placeRole, type Journey } from "../lib/route-surface";
+import { greatCircle, legModes, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
@@ -220,9 +220,12 @@ export function RouteMap({
                 {
                   stage: l.stage,
                   road: hit?.road ?? false,
+                  // A road:false hit draws the §8.4 great-circle arc, never
+                  // the straight backend line (#357 slice 3A).
                   coordinates:
-                    (hit?.geometry.coordinates as [number, number][]) ??
-                    greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
+                    hit != null
+                      ? resolveLegCoordinates(hit)
+                      : greatCircle([l.from.lng!, l.from.lat!], [l.to.lng!, l.to.lat!]),
                 } satisfies LegFeature,
               ] as const;
             }),
@@ -394,9 +397,12 @@ export function RouteMap({
                   return {
                     stage: leg.stage,
                     road: hit?.road ?? false,
+                    // A road:false hit draws the §8.4 great-circle arc, never
+                    // the straight backend line (#357 slice 3A).
                     coordinates:
-                      (hit?.geometry.coordinates as [number, number][]) ??
-                      greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
+                      hit != null
+                        ? resolveLegCoordinates(hit)
+                        : greatCircle([leg.from.lng!, leg.from.lat!], [leg.to.lng!, leg.to.lat!]),
                   };
                 });
           setLegsData(resolved);
@@ -675,13 +681,15 @@ export function RouteMap({
           surface.legs.map((l) => {
             const hit = geo?.get(`${l.from.name}>${l.to.name}`);
             return {
+              // Non-road draws the great-circle arc, never a straight
+              // screen-space line (#357 slice 3A).
               coordinates:
                 hit && hit.road
                   ? hit.coordinates
-                  : ([
+                  : greatCircle(
                       [l.from.lng!, l.from.lat!],
                       [l.to.lng!, l.to.lat!],
-                    ] as [number, number][]),
+                    ),
               stage: l.stage,
               // road=true only when REAL geometry is in hand — everything
               // else (fallback pair, provisional leg, fetch miss) dashes.

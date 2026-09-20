@@ -25,7 +25,7 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { legModes } from "../lib/route-surface";
+import { legModes, resolveLegCoordinates } from "../lib/route-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
@@ -304,7 +304,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           const full = new lib.LngLatBounds();
           located.forEach((l) => full.extend([l.lng!, l.lat!]));
           if (includeRoute && legs) {
-            legs.forEach((leg) => leg.geometry.coordinates.forEach((c) => full.extend(c)));
+            legs.forEach((leg) => resolveLegCoordinates(leg).forEach((c) => full.extend(c)));
           }
           // The day's extent INCLUDES the track (#193, #290) — a traverse
           // swings well outside its pins, exactly like a road route does, and
@@ -328,15 +328,21 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         };
 
         if (legs?.length) {
+          // Non-road legs draw the §8.4 great-circle arc, never the straight
+          // screen-space line the backend ships (#357 slice 3A).
+          const features = legs.map((leg) => ({
+            type: "Feature" as const,
+            properties: { road: leg.road },
+            geometry: {
+              type: "LineString" as const,
+              coordinates: resolveLegCoordinates(leg),
+            },
+          }));
           map.addSource("route", {
             type: "geojson",
             data: {
               type: "FeatureCollection",
-              features: legs.map((leg) => ({
-                type: "Feature" as const,
-                properties: { road: leg.road },
-                geometry: leg.geometry,
-              })),
+              features,
             },
           });
 

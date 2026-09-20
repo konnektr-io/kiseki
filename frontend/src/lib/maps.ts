@@ -313,6 +313,10 @@ export interface RouteLeg {
   to: string;
   /** false = no road route (a flight/ferry leg) — drawn dashed, not solid. */
   road: boolean;
+  /** The declared transport mode echoed back by the server (#357 E1) —
+   *  additive only. `road` stays the authoritative road/not-road signal;
+   *  never infer a glyph from the geometry. */
+  mode?: string | null;
   /** Live `duration_in_traffic` text, e.g. "1 hour 35 mins". */
   duration: string | null;
   distance: string | null;

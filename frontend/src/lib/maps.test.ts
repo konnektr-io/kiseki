@@ -3,6 +3,7 @@ import {
   applyBasemapTint,
   CHROME_PADDING,
   clampPadding,
+  fetchRouteLegs,
   findLocation,
   formatMapLabel,
   locationStage,
@@ -397,5 +398,38 @@ describe("on-map labels (#357 slice 2)", () => {
 
   it("numbers the prefix like the pin so label and pin read as one place", () => {
     expect(formatMapLabel(3, "Healesville")).toBe("3 · Healesville");
+  });
+});
+
+describe("fetchRouteLegs (#357 slice 3A: E1)", () => {
+  it("preserves the server-echoed mode on each leg", async () => {
+    const legs = [
+      {
+        from: "A",
+        to: "B",
+        road: false,
+        mode: "flight",
+        duration: null,
+        distance: null,
+        geometry: { type: "LineString", coordinates: [[0, 0], [1, 1]] },
+      },
+    ];
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ legs }), { status: 200 })) as typeof fetch;
+    try {
+      const t = {
+        id: "tid",
+        locations: [
+          { name: "A", alias: [], lat: 0, lng: 0 },
+          { name: "B", alias: [], lat: 1, lng: 1 },
+        ],
+      } as unknown as Trip;
+      const out = await fetchRouteLegs(t, ["A", "B"]);
+      expect(out?.[0].mode).toBe("flight");
+      expect(out?.[0].road).toBe(false);
+    } finally {
+      globalThis.fetch = orig;
+    }
   });
 });
