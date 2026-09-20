@@ -19,7 +19,17 @@ import { describe, expect, it, vi } from "vitest";
  * under node-env vitest, so it is stubbed — the conditional under test
  * touches none of its internals (same pattern as blocks.test.tsx).
  */
-vi.mock("../components/MapView", () => ({ MapView: () => null, TripMap: () => null }));
+const { tripMapCalls } = vi.hoisted(() => ({
+  tripMapCalls: [] as { places: string[]; loop: boolean }[],
+}));
+
+vi.mock("../components/MapView", () => ({
+  MapView: () => null,
+  TripMap: (props: { places: string[]; loop?: boolean }) => {
+    tripMapCalls.push({ places: props.places, loop: props.loop ?? false });
+    return null;
+  },
+}));
 
 import { OverviewPage, statValueClass } from "./OverviewPage";
 import { TripProvider } from "../components/theme";
@@ -306,5 +316,74 @@ describe("OverviewPage stat strip (long values)", () => {
     expect(html).toContain("BRUSSELS");
     expect(html).toContain("line-clamp-3");
     expect(html).toContain("break-words");
+  });
+});
+
+/* Feature map mirrors the itinerary surface: the re-base chain in journey
+ * order with the derived loop — never every located place. Canada-2027 grew
+ * hotel + restaurant venue pins in the registry and the overview's "One
+ * loop" card started drawing them as numbered chain stops (with a hardcoded
+ * closing leg), while the itinerary surface correctly kept them as
+ * excursions. The stubbed TripMap records the props it was given. */
+describe("OverviewPage feature map matches the itinerary chain", () => {
+  const CHAIN_TRIP = {
+    id: "t-chain",
+    slug: "test",
+    title: "Powder Highway",
+    stage: "booked",
+    crew: [],
+    practical: {},
+    locations: [
+      { name: "Banff", lat: 51.1784, lng: -115.5708 },
+      { name: "Revelstoke", lat: 50.9981, lng: -118.1957 },
+      { name: "Rogers Pass", lat: 51.3019, lng: -117.5167 },
+      { name: "Banff Inn", lat: 51.1838, lng: -115.5623 },
+      { name: "Bear Street Tavern", lat: 51.1774, lng: -115.5726 },
+    ],
+    sections: [
+      { id: "s1", title: "Arrival", days: [0, 1], locationRefs: ["Banff"] },
+      { id: "s2", title: "Revelstoke", days: [2, 3], locationRefs: ["Revelstoke"] },
+    ],
+    days: [
+      {
+        date: "2027-02-15",
+        title: "Arrive",
+        blocks: [
+          { kind: "transport", mode: "flight", title: "Fly to Banff", to: "Banff" },
+          { kind: "lodging", title: "Check in", location: "Banff Inn" },
+          { kind: "meal", title: "Dinner", location: "Bear Street Tavern" },
+        ],
+      },
+      { date: "2027-02-16", title: "Ski", blocks: [] },
+      {
+        date: "2027-02-17",
+        title: "Drive west",
+        blocks: [{ kind: "transport", mode: "drive", from: "Banff", to: "Revelstoke" }],
+      },
+      {
+        date: "2027-02-18",
+        title: "Tour the pass",
+        blocks: [{ kind: "activity", title: "Tour Rogers Pass", location: "Rogers Pass" }],
+      },
+    ],
+    features: [{ kicker: "Route", title: "One loop", map: true }],
+  } as unknown as Trip;
+
+  it("plots the stop chain only, with the derived (open) loop", () => {
+    tripMapCalls.length = 0;
+    renderToString(
+      createElement(TripProvider, {
+        trip: CHAIN_TRIP,
+        apply: () => {},
+        children: createElement(MemoryRouter, null, createElement(OverviewPage)),
+      }),
+    );
+    expect(tripMapCalls).toHaveLength(1);
+    // The re-base stops in journey order — the hotel, the restaurant and
+    // the toured pass are excursions, never chain stops.
+    expect(tripMapCalls[0].places).toEqual(["Banff", "Revelstoke"]);
+    // Two stops never close the loop (returnsToStart needs 3+ chain stops
+    // on 4+ days) — no phantom leg home.
+    expect(tripMapCalls[0].loop).toBe(false);
   });
 });
