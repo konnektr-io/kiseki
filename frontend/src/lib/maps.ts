@@ -230,6 +230,83 @@ export const ROUTE_CASING_WIDTH = stopsToExpression(ROUTE_CASING_WIDTH_STOPS);
 /** MapLibre `line-opacity` value for the route casing — 0.9 → 0.55. */
 export const ROUTE_CASING_OPACITY = stopsToExpression(ROUTE_CASING_OPACITY_STOPS);
 
+/**
+ * Pin weight, in ONE place (#357 slice 2).
+ *
+ * The visible dot is 28px at day zoom and ~22px at journey zoom — the ordinal
+ * stays on every pin and the 44px hit target never moves. The pin element
+ * keeps its day-zoom size (`h-7 w-7` in `pinClassForStage`) and the map
+ * container scales it through `--pin-scale`, which the map's zoom listener
+ * writes on every zoom change (`.map-pin-scaled` in index.css composes the
+ * scale with the selection/spy raises, so `is-selected`,
+ * `route-map-focused` and `route-spy-active` keep working at any size).
+ * Excursion diamonds ride the same variable: 20px → ~16px at journey zoom.
+ */
+export const PIN_SCALE_STOPS: Array<[zoom: number, scale: number]> = [
+  [5, 22 / 28],
+  [9, 1],
+];
+
+/** The pin scale at a zoom (clamped): ~0.786 at journey zoom, 1 by day zoom. */
+export function pinScaleAtZoom(zoom: number): number {
+  return interpolateStops(PIN_SCALE_STOPS, zoom);
+}
+
+/**
+ * On-map labels, our way (#357 slice 2): the place name in our own
+ * vocabulary (`bg-surface/90` + `text-foreground` + the §2.4 floating
+ * recipe, `font-heading`, numbered prefix like `3 · Healesville`), rendered
+ * as DOM markers BELOW their pin so a label can never cover it.
+ *
+ * Deterministic display rule (pure — pinned by test):
+ * - at most MAX labels (default 8);
+ * - the selected pin is always labelled (moved first, never capped out);
+ * - below the collision zoom the layer disappears entirely — the pins stay,
+ *   the labels go (a half-rendered label layer is worse than none).
+ *
+ * The drive-time chip is DOM chrome painted ABOVE the map canvas, so a label
+ * can never cover it; labels are `pointer-events-none` and never intercept.
+ */
+export const MAP_LABEL_MAX = 8;
+/** Below this zoom pins collide — keep the pins, drop the labels. */
+export const MAP_LABEL_ZOOM_FLOOR = 2;
+/** Label pill offset below its pin, in px (the 44px hit box ends at +22). */
+export const MAP_LABEL_PIN_OFFSET_PX = 26;
+
+export function selectMapLabels(
+  names: string[],
+  selected: string | null,
+  zoom: number,
+  max = MAP_LABEL_MAX,
+): string[] {
+  if (zoom < MAP_LABEL_ZOOM_FLOOR || names.length === 0) return [];
+  const ordered = [...names];
+  if (selected) {
+    const i = ordered.indexOf(selected);
+    if (i > 0) {
+      ordered.splice(i, 1);
+      ordered.unshift(selected);
+    } else if (i < 0) {
+      ordered.unshift(selected);
+    }
+  }
+  return ordered.slice(0, max);
+}
+
+/** `3 · Healesville` — the label and the pin can never read as two places. */
+export function formatMapLabel(ordinal: number, name: string): string {
+  return `${ordinal} · ${name}`;
+}
+
+/** The DOM pill for an on-map label — browser-only (call inside effects). */
+export function makeMapLabelElement(text: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "map-place-label";
+  el.setAttribute("aria-hidden", "true");
+  el.textContent = text;
+  return el;
+}
+
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {
   from: string;

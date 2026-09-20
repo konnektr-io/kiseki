@@ -4,11 +4,15 @@ import {
   CHROME_PADDING,
   clampPadding,
   findLocation,
+  formatMapLabel,
   locationStage,
+  MAP_LABEL_MAX,
+  MAP_LABEL_ZOOM_FLOOR,
   MAP_STYLE_URL,
   markerNumber,
   markerPinClass,
   OPENFREEMAP_STYLES,
+  pinScaleAtZoom,
   resolveMapStyle,
   routeCasingOpacityAtZoom,
   routeCasingWidthAtZoom,
@@ -18,6 +22,7 @@ import {
   ROUTE_NONROAD,
   routeWidthAtZoom,
   ROUTE_WIDTH_STOPS,
+  selectMapLabels,
   type TintableMap,
 } from "./maps";
 import type { Trip } from "./types";
@@ -335,5 +340,62 @@ describe("route weight (#357 slice 1)", () => {
       12,
       4,
     ]);
+  });
+});
+
+describe("pin scale (#357 slice 2)", () => {
+  it("is ~22/28 at journey zoom and 1 by day zoom", () => {
+    expect(pinScaleAtZoom(5)).toBeCloseTo(22 / 28, 5);
+    expect(pinScaleAtZoom(9)).toBe(1);
+    expect(pinScaleAtZoom(0)).toBeCloseTo(22 / 28, 5);
+    expect(pinScaleAtZoom(14)).toBe(1);
+  });
+
+  it("interpolates linearly between journey and day zoom", () => {
+    expect(pinScaleAtZoom(7)).toBeCloseTo((22 / 28 + 1) / 2, 5);
+  });
+
+  it("keeps the ordinal and the hit target in the class map (size comes from CSS)", () => {
+    // The markup size is unchanged — `.map-pin-scaled` scales the visible
+    // dot only, so the 44px target (h-11 w-11 on the button) never moves.
+    const booked =
+      "grid h-7 w-7 place-items-center rounded-full text-[12px] font-bold leading-none shadow-card border border-marker-fg bg-marker text-marker-fg";
+    const t = { stage: "booked", locations: [{ name: "X", alias: [] }], days: [] } as unknown as Trip;
+    expect(markerPinClass(t, t.locations![0])).toBe(booked);
+  });
+});
+
+describe("on-map labels (#357 slice 2)", () => {
+  const city = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"];
+
+  it("caps at about 8 labels in registry order", () => {
+    expect(selectMapLabels(city, null, 6)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H"]);
+    expect(selectMapLabels(city, null, 6).length).toBeLessThanOrEqual(MAP_LABEL_MAX);
+  });
+
+  it("the selected pin always wins, even past the cap", () => {
+    expect(selectMapLabels(city, "L", 6)[0]).toBe("L");
+    expect(selectMapLabels(city, "L", 6)).toHaveLength(MAP_LABEL_MAX);
+    expect(selectMapLabels(["A", "B"], "B", 6)).toEqual(["B", "A"]);
+  });
+
+  it("drops the whole layer below the collision zoom — pins stay, labels go", () => {
+    expect(selectMapLabels(city, null, MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectMapLabels(city, "A", 1)).toEqual([]);
+    expect(selectMapLabels(city, null, MAP_LABEL_ZOOM_FLOOR)).not.toEqual([]);
+  });
+
+  it("dense-city fixture: 12 stops at day zoom label 8 with the selected first", () => {
+    const labels = selectMapLabels(city, "G", 11);
+    expect(labels).toHaveLength(8);
+    expect(labels[0]).toBe("G");
+  });
+
+  it("3-continent fixture: the same trip far out labels nothing", () => {
+    expect(selectMapLabels(city, "G", 1.2)).toEqual([]);
+  });
+
+  it("numbers the prefix like the pin so label and pin read as one place", () => {
+    expect(formatMapLabel(3, "Healesville")).toBe("3 · Healesville");
   });
 });
