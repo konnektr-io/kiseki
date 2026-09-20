@@ -39,6 +39,14 @@ import { Link } from "react-router-dom";
 export const HEADER_CONTROL =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground focus-visible:focus-ring md:h-8 md:w-8";
 
+/**
+ * Open-state twin of `HEADER_CONTROL`: same round geometry, colours flipped.
+ * Shared by the trip's chat toggle and the home's — one object, two slots
+ * (#347).
+ */
+export const HEADER_CONTROL_ACTIVE =
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/60 bg-primary text-primary-foreground transition-colors focus-visible:focus-ring md:h-8 md:w-8";
+
 /** The bar's single row: full width, one line, never wrapped. */
 const HEADER_ROW =
   "flex w-full flex-nowrap items-center gap-2 px-4 py-2 md:gap-3 md:py-2.5";

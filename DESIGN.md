@@ -131,8 +131,11 @@ trip, and a `live` trip also carries a **Today** link, because the day it is on
 right now is the surface you want (§7.5's live swap). And an account with no
 trips yet is never a dead end: it renders on the SAME canvas, with the
 discoverable pins as its map — the "No trips yet" card and its Plan-a-trip
-button sit in the sheet above them, the header keeps its Ask Kiseki launcher,
-and the shelf below is the same `DiscoverBand` as the populated home, with
+button sit in the sheet above them, the header keeps the round chat toggle
+(the in-trip control in the same slot), and Your trips keeps a permanent
+Plan-a-trip action — so creation stays visible on populated homes too,
+including follow-only ones where the empty card never renders (#347). The
+shelf below is the same `DiscoverBand` as the populated home, with
 **Follow** on every card, which is the first and only UI for
 `followPublicTrip` (#197's endpoint had no caller until now).
 `visibility: public` is the invitation, so a stranger can put a trip in their

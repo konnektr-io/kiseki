@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { ArrowRight, Check, Layers, MapPin, MessageCircle, Plus, Ticket } from "lucide-react";
-import { AppHeader } from "../components/AppHeader";
+import { AppHeader, HEADER_CONTROL, HEADER_CONTROL_ACTIVE } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { ChatPopup } from "../components/chat-panel";
 import { FeedRow } from "../components/FeedRow";
@@ -67,9 +67,11 @@ import type { FeedEntry, ShowcaseTrip, Stage, TripGeo, TripSummary, Visibility }
  * The canvas shows whenever there are pins to stand on — including a brand-new
  * account whose only pins are discoverable trips. A home with no pins (geo
  * down, or nothing listable at all) collapses to the bands in a reading
- * column. Either way the agent stays one tap away: the header's Ask Kiseki
- * button renders whenever the trips read has landed, and the empty state keeps
- * its own Plan-a-trip button.
+ * column. Either way the agent stays one tap away: the header carries the
+ * round chat toggle (the in-trip control in the same slot), and Your trips
+ * keeps a permanent Plan-a-trip action — so creation stays visible on
+ * populated homes, including follow-only ones where the empty state's own
+ * Plan-a-trip button never renders (#347).
  *
  * Pins come from the E2 geo read (`GET /api/trips/geo` — one anchor per
  * listable trip), coloured by stage via `pinClassForStage`. Band↔pin linkage
@@ -486,24 +488,10 @@ function HomeBands({
             Your trips, the people you follow, and trips worth discovering.
           </p>
         </div>
-        {/* Landing chat launcher — top-right of the home. It renders whenever the
-            trips read has landed, even with zero trips: creating a trip with
-            the agent is the empty home's main CTA, and hiding the launcher
-            there would leave only the card's button. Opens the same floating
-            popup as the in-trip chat (#9 / M4 v2). */}
-        {trips && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onOpenChat}
-            aria-haspopup="dialog"
-            aria-expanded={chatOpen}
-            className="shrink-0"
-          >
-            <MessageCircle className="mr-1.5 h-4 w-4" aria-hidden="true" />
-            Ask Kiseki
-          </Button>
-        )}
+      {/* The agent's generic door lives in the header (the round chat toggle
+          beside the account chip, same slot as the in-trip chat), so this
+          row stays a plain heading — one generic door plus the Plan-a-trip
+          action on Your trips, never two labelled buttons to the same chat. */}
       </div>
 
       {/* Search + the Filters door sit above the bands and narrow the trip
@@ -600,6 +588,25 @@ function HomeBands({
               ownGrid?.length
                 ? "Trips you're planning or joining — pick one to open the booklet."
                 : undefined
+            }
+            action={
+              /* Creating a trip IS this chat: the agent builds the empty trip
+                 and fills it. A permanent action here (not just the empty
+                 card's button) keeps creation visible on populated homes —
+                 including follow-only ones, where the empty card never renders
+                 but this band does (#347). Same link-style action slot the
+                 Updates band uses for "Open the feed". */
+              <button
+                type="button"
+                onClick={onOpenChat}
+                aria-haspopup="dialog"
+                aria-expanded={chatOpen}
+                title="Plan a new trip with the Kiseki assistant"
+                className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:focus-ring"
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Plan a trip
+              </button>
             }
           >
             {ownGrid && ownGrid.length > 0 ? (
@@ -799,6 +806,14 @@ function AuthenticatedLanding() {
   const handleOpenChat = useCallback(() => {
     chatUsedRef.current = true;
     setChatOpen(true);
+  }, []);
+  // Header chat toggle — the trip's chat control in the same slot (round
+  // control beside the account chip): the agent's generic door on the
+  // signed-in home, so it survives the bands scrolling away (#347). A
+  // toggle like its in-trip sibling, not open-only.
+  const handleToggleChat = useCallback(() => {
+    chatUsedRef.current = true;
+    setChatOpen((open) => !open);
   }, []);
   // While the landing chat is open the agent may be building for many
   // minutes: poll the cheap trip list so the new card surfaces mid-build.
@@ -1201,9 +1216,34 @@ function AuthenticatedLanding() {
     />
   );
 
+  // Landing header actions: the agent's generic door (round chat toggle, the
+  // trip's control in the same slot) beside the account chip. Shared verbatim
+  // by both layouts below — the map canvas and the collapsed reading column.
+  // Phone arithmetic at 360px: brand ~150 + toggle 44 + account chip ~60 +
+  // row gaps/padding ~48 ≈ 302 — the bar keeps its one-line, never-wrapped
+  // contract with room to spare.
+  const headerActions = (
+    <>
+      <button
+        type="button"
+        onClick={handleToggleChat}
+        aria-expanded={chatOpen}
+        aria-label={chatOpen ? "Close chat" : "Open chat"}
+        title="Chat with the Kiseki assistant"
+        // The same round control as the back affordance (#239); the open
+        // state borrows its geometry and flips the colours — verbatim the
+        // in-trip toggle, so the two doors read as one.
+        className={chatOpen ? HEADER_CONTROL_ACTIVE : HEADER_CONTROL}
+      >
+        <MessageCircle className="h-4 w-4" aria-hidden="true" />
+      </button>
+      <AuthButton />
+    </>
+  );
+
   // Landing chat popup (issue #9 / M4 v2): the same floating drawer as the
-  // in-trip chat, opened by the header / empty-state launchers above. No
-  // tripId — the assistant answers questions about the user's trips or creates
+  // in-trip chat, opened by the header toggle and the Plan-a-trip actions
+  // above. No tripId — the assistant answers questions about the user's trips or creates
   // a new one; uploads stage in the user's inbox until the agent promotes them
   // into the new trip. A fresh trip surfaces as an "Open trip" banner while the
   // grid refetches.
@@ -1290,7 +1330,7 @@ function AuthenticatedLanding() {
         onFocus={selectFromRow}
       >
         <div className="shrink-0">
-          <AppHeader actions={<AuthButton />} />
+          <AppHeader actions={headerActions} />
         </div>
         <div className="min-h-0 flex-1">
           <SplitView
@@ -1358,7 +1398,7 @@ function AuthenticatedLanding() {
   // discovery map is the empty state's backdrop.
   return (
     <div className="min-h-screen" onMouseOver={selectFromRow} onFocus={selectFromRow}>
-      <AppHeader actions={<AuthButton />} />
+      <AppHeader actions={headerActions} />
       <main className="mx-auto max-w-5xl px-4 py-8">
         {bands}
         {chat}

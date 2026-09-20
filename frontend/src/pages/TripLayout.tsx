@@ -11,7 +11,7 @@ import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
 import { EditModeProvider } from "../components/edit-mode";
-import { AppHeader, HEADER_CONTROL } from "../components/AppHeader";
+import { AppHeader, HEADER_CONTROL, HEADER_CONTROL_ACTIVE } from "../components/AppHeader";
 import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
@@ -435,11 +435,7 @@ export function TripLayout() {
               title="Chat with the Kiseki assistant"
               // The same round control as the back affordance (#239); the open
               // state borrows its geometry and flips the colours.
-              className={
-                chatOpen
-                  ? "flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/60 bg-primary text-primary-foreground transition-colors focus-visible:focus-ring md:h-8 md:w-8"
-                  : HEADER_CONTROL
-              }
+              className={chatOpen ? HEADER_CONTROL_ACTIVE : HEADER_CONTROL}
             >
               <MessageCircle className="h-4 w-4" aria-hidden="true" />
             </button>
