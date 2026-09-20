@@ -34,9 +34,16 @@ import { ContentLink } from "./content-link";
 import { PhotoGallery, PhotoStrip } from "./photos";
 import { TrackCard } from "./track-card";
 import { YouTubeEmbeds } from "./youtube";
+import { InstagramEmbeds } from "./instagram";
 import { extractYouTubeId } from "../lib/youtube";
+import { isInstagramUrl } from "../lib/instagram";
 
 /* ---------- shared bits ---------- */
+
+/** A link URL that plays inline above the pills — YouTube (#283) + Instagram (#358). */
+export function isInlinePlayerUrl(url: string | undefined | null): boolean {
+  return extractYouTubeId(url) != null || isInstagramUrl(url);
+}
 
 function Kicker({ children }: { children: ReactNode }) {
   return <p className="kicker">{children}</p>;
@@ -100,11 +107,12 @@ export function MetaChips({ meta }: { meta?: { label: string; value: string }[] 
 
 function Links({ links }: { links?: { label: string; url: string }[] }) {
   if (!links?.length) return null;
-  // A YouTube URL plays inline above the pills (#283) — never as a pill.
-  const rest = links.filter((l) => !extractYouTubeId(l.url));
+  // A YouTube/Instagram URL plays inline above the pills (#283/#358) — never as a pill.
+  const rest = links.filter((l) => !isInlinePlayerUrl(l.url));
   return (
     <>
       <YouTubeEmbeds links={links} />
+      <InstagramEmbeds links={links} />
       {rest.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {rest.map((l) => (
@@ -476,10 +484,11 @@ function TransportBlock({
           {b.links?.length ? (
             <>
               <YouTubeEmbeds links={b.links} />
-              {b.links.some((l) => !extractYouTubeId(l.url)) && (
+              <InstagramEmbeds links={b.links} />
+              {b.links.some((l) => !isInlinePlayerUrl(l.url)) && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {b.links
-                    .filter((l) => !extractYouTubeId(l.url))
+                    .filter((l) => !isInlinePlayerUrl(l.url))
                     .map((l) => (
                       <ContentLink
                         key={l.url}
@@ -706,6 +715,7 @@ function TodoBlock({
             </ul>
           )}
           <YouTubeEmbeds links={b.links} />
+          <InstagramEmbeds links={b.links} />
         </div>
       </div>
     </BlockCard>
@@ -725,6 +735,7 @@ function NoteBlock({ b }: { b: Block }) {
             </div>
           )}
           <YouTubeEmbeds links={b.links} />
+          <InstagramEmbeds links={b.links} />
         </div>
       </div>
     </BlockCard>
@@ -738,11 +749,12 @@ function GalleryBlock({ b }: { b: Block }) {
   const files = imgs.map((it) => (typeof it === "string" ? it : it?.url ?? "")).filter(Boolean);
   // `images` counts as content too (#303): a gallery block that carries the
   // shared field renders its strip above the grid instead of vanishing.
-  if (!files.length && !extractYouTubeId(b.links?.[0]?.url) && !b.images?.length) return null;
+  if (!files.length && !isInlinePlayerUrl(b.links?.[0]?.url) && !b.images?.length) return null;
   return (
     <BlockCard b={b} className="p-3">
       {files.length > 0 && <PhotoGallery items={files} title={b.title ?? undefined} />}
       <YouTubeEmbeds links={b.links} />
+      <InstagramEmbeds links={b.links} />
     </BlockCard>
   );
 }
@@ -752,10 +764,11 @@ function LinkBlock({ b }: { b: Block }) {
   // Nothing to render without links — unless the block carries the shared
   // `images` field (#303), in which case its strip is the content.
   if (!links.length && !b.images?.length) return null;
-  const rest = links.filter((l) => !extractYouTubeId(l.url));
+  const rest = links.filter((l) => !isInlinePlayerUrl(l.url));
   return (
     <BlockCard b={b}>
       <YouTubeEmbeds links={links} />
+      <InstagramEmbeds links={links} />
       {rest.length > 0 && (
         <div className="flex items-start gap-3">
           <IconBadge icon={<Link2 className="h-4 w-4" />} tone="muted" />
