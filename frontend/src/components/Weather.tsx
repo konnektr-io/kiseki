@@ -76,13 +76,26 @@ function readoutTitle(date: string, r: WeatherReadout): string {
  *
  * Web-only (`no-print`): the booklet never calls a live API (#95 rule).
  */
-export function WeatherStrip({ lat, lng }: { lat?: number | null; lng?: number | null }) {
+export function WeatherStrip({
+  lat,
+  lng,
+  onlyDate,
+}: {
+  lat?: number | null;
+  lng?: number | null;
+  /** Pin the strip to a single trip date (day view, #334) — renders only
+   *  that day's chip instead of the five-day strip. Unset keeps the
+   *  five-day location readout. */
+  onlyDate?: string;
+}) {
   const daily = useWeatherDaily(lat, lng, 5);
   if (lat == null || lng == null || !daily?.length) return null;
+  const days = onlyDate ? daily.filter((d) => d.date === onlyDate) : daily;
+  if (!days.length) return null;
   return (
     <div className="no-print space-y-1" aria-label="Weather forecast">
       <ul className="flex flex-wrap gap-1.5">
-        {daily.map((d) => {
+        {days.map((d) => {
           const r = weatherReadout(d);
           if (!r) return null;
           const snowy = r.snow != null || r.base != null;
