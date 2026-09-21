@@ -6,7 +6,7 @@ import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib
 import { isAuthConfigured } from "../lib/auth";
 import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
-import { formatDate, dayCount, shouldShowToday, todayDayIdx } from "../lib/dates";
+import { formatDate, dayCount, shouldShowToday, todayDayIdx, todayExactIdx } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
@@ -296,13 +296,14 @@ export function TripLayout() {
   // Today's own day page: same day surface as any other day, but it keeps
   // the TOP-LEVEL chrome (header + bottom nav) instead of the day-level
   // DayNav bar, and the phone sheet opens all the way up. Gated on the
-  // shortcut existing (live + today has a day to open) — a date-matching day
-  // on a non-live trip is just a day.
+  // shortcut existing (live + today has a day to open) AND the day being
+  // today's EXACT date — a nearest/section fallback day is still a regular
+  // day and keeps its DayNav bar.
   const isTodayPage =
     todayNavTo(trip) != null &&
     routeDayIdx != null &&
     trip != null &&
-    routeDayIdx === todayDayIdx(trip);
+    routeDayIdx === todayExactIdx(trip);
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
