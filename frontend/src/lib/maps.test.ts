@@ -7,6 +7,7 @@ import {
   findLocation,
   formatMapLabel,
   locationStage,
+  mapFitPadding,
   MAP_LABEL_MAX,
   MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
@@ -84,6 +85,36 @@ describe("clampPadding", () => {
   it("handles an unmeasured box without producing NaN", () => {
     const p = clampPadding(CHROME_PADDING, 0, 0);
     expect(Object.values(p).every((v) => Number.isFinite(v))).toBe(true);
+  });
+});
+
+describe("mapFitPadding (#368)", () => {
+  it("keeps the full surface budget on a container that has room", () => {
+    expect(mapFitPadding(900, 700)).toEqual(CHROME_PADDING);
+  });
+
+  it("scales the budget to a card minimap's short side", () => {
+    // A 94px-tall minimap is SMALLER than the 88px-tall chrome budget: the
+    // unclamped padding left fitBounds a negative box and the camera never
+    // moved (#368). The scaled padding must leave the track a real box.
+    const p = mapFitPadding(670, 94);
+    expect(p.top + p.bottom).toBeLessThan(94);
+    expect(p.left + p.right).toBeLessThan(670);
+    // The camera box must stay usable in BOTH axes.
+    expect(670 - p.left - p.right).toBeGreaterThan(0);
+    expect(94 - p.top - p.bottom).toBeGreaterThan(0);
+  });
+
+  it("never goes below the floor, on a degenerate box", () => {
+    const p = mapFitPadding(0, 0);
+    expect(Object.values(p).every((v) => v >= 2 && Number.isFinite(v))).toBe(true);
+  });
+
+  it("is monotonic: a taller/shorter strip gets more/less margin", () => {
+    const short = mapFitPadding(670, 94);
+    const tall = mapFitPadding(670, 190);
+    expect(tall.top).toBeGreaterThanOrEqual(short.top);
+    expect(tall.bottom).toBeGreaterThanOrEqual(short.bottom);
   });
 });
 

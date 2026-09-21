@@ -570,6 +570,39 @@ export function clampPadding(
   return { top, right, bottom, left };
 }
 
+/**
+ * The chrome padding a container can actually afford (#368).
+ *
+ * `CHROME_PADDING` is the map SURFACE's budget — room for the floating sheet
+ * and the rail, 100px horizontally and 88px vertically. A block card's minimap
+ * is 670×94 and has none of that chrome, yet it was handed the surface's
+ * padding: the box left over is negative, `cameraForBounds` returns null,
+ * `fitBounds` silently gives up and the camera stays wherever it was built. On
+ * a recorded-track card that meant the GPX line was drawn (and fetched) but at
+ * ~0.3px wide inside the pin — a minimap that looks like a pin on a basemap.
+ *
+ * Scaling the budget by the smaller side against the surface it was designed
+ * for keeps the geometry a real margin instead of an impossible one: any
+ * container at least `FIT_PADDING_REFERENCE` keeps the exact padding it had,
+ * and a short strip scales its share down so the fit has a box to work with.
+ * `min` is the floor that keeps a degenerate 0×0 container from asking for
+ * nothing at all. Distinct from `clampPadding`, which squeezes a REAL
+ * occlusion (SplitView's sheet) rather than chrome that is not in this box.
+ */
+export const FIT_PADDING_REFERENCE = 420;
+
+export function mapFitPadding(width: number, height: number, min = 2): MapPadding {
+  const smaller = Math.min(Math.max(width, 0), Math.max(height, 0));
+  const scale = Math.min(1, smaller / FIT_PADDING_REFERENCE);
+  const side = (v: number) => Math.max(min, Math.floor(v * scale));
+  return {
+    top: side(CHROME_PADDING.top),
+    right: side(CHROME_PADDING.right),
+    bottom: side(CHROME_PADDING.bottom),
+    left: side(CHROME_PADDING.left),
+  };
+}
+
 /** `prefers-reduced-motion` — a JS-driven camera has to check it itself (§10). */
 export function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;

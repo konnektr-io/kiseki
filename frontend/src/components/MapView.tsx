@@ -4,13 +4,13 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { useTrip } from "./theme";
 import {
   applyBasemapTint,
-  CHROME_PADDING,
   fetchRouteLegs,
   findLocation,
   formatMapLabel,
   hasWebGL2,
   locatedPlaces,
   makeMapLabelElement,
+  mapFitPadding,
   MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
@@ -156,6 +156,14 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         const bounds = new lib.LngLatBounds();
         located.forEach((l) => bounds.extend([l.lng!, l.lat!]));
 
+        // The construction fit and every later re-fit share ONE container-aware
+        // padding (#368): the surface's chrome budget is larger than a card
+        // minimap's box, which left `fitBounds` nothing to fit into and
+        // silently abandoned the camera — the booklet's pin-only minimaps.
+        const fitPadding = () => {
+          const el = ref.current;
+          return mapFitPadding(el?.clientWidth || 320, el?.clientHeight || 240);
+        };
         const mapOpts: ConstructorParameters<typeof lib.Map>[0] = {
           container: ref.current,
           style: mapStyle.styleUrl,
@@ -166,7 +174,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           (mapOpts as Record<string, unknown>).zoom = 13;
         } else if (located.length > 1) {
           (mapOpts as Record<string, unknown>).bounds = bounds;
-          (mapOpts as Record<string, unknown>).fitBoundsOptions = { padding: CHROME_PADDING, maxZoom: 12 };
+          (mapOpts as Record<string, unknown>).fitBoundsOptions = { padding: fitPadding(), maxZoom: 12 };
         } else {
           (mapOpts as Record<string, unknown>).center = [0, 0];
           (mapOpts as Record<string, unknown>).zoom = 1;
@@ -332,6 +340,13 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // mount eagerly and MapLibre may have measured a fallback 640×300
         // before layout/fonts settled, leaving edge markers parked half under
         // the chrome padding once the real width lands (#37).
+        //
+        // Every fit uses the container-aware padding (#368): `CHROME_PADDING`
+        // is the map SURFACE's chrome budget, and a card minimap (670×94) is
+        // smaller than that budget — which left `fitBounds` a negative box,
+        // `cameraForBounds` null, and the camera stuck wherever it was built.
+        // On a recorded-track card the GPX line was drawn all along, just
+        // ~0.3px wide inside the pin: the booklet's "pin + basemap, no line".
         const refit = (includeRoute: boolean) => {
           const full = new lib.LngLatBounds();
           located.forEach((l) => full.extend([l.lng!, l.lat!]));
@@ -351,8 +366,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
           // `idle` shortly after, and a mid-flight fitBounds parks edge markers
           // half-clipped at the container borders (seen on booklet pages 10/14:
           // marker ③/⑤ cut by the right edge, route running off-frame).
+          // `animate: false` also makes the camera update SYNCHRONOUS, so the
+          // frame the PDF captures is already the fitted one (#368).
           map!.fitBounds(full, {
-            padding: CHROME_PADDING,
+            padding: fitPadding(),
             maxZoom: 12,
             animate: !reduceMotion && !isPdfRender,
             duration: 500,
