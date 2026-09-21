@@ -14,12 +14,13 @@ import {
 import { CHROME_PADDING, clampPadding } from "./maps";
 import { unfoldLngs } from "./home-geo";
 
-/* #361 slice 3 — the globe for the whole-trip overview.
+/* #361 slice 3 + #372 slice 1 — the globe for the overviews.
  *
- * Screen-only by construction: the scan level of RouteMap and the
- * OverviewPage feature map (via TripMap/MapView) render on a globe; the day
- * level, card minimaps, LandingMap/HomeMap and the ENTIRE print path stay
- * Mercator. Colours are tokens, never hex; there is no per-trip knob.
+ * Screen-only by construction: the scan level of RouteMap, the
+ * OverviewPage feature map (via TripMap/MapView), and the signed-in landing
+ * map (HomeMap) render on a globe; the day level, card minimaps, LandingMap
+ * and the ENTIRE print path stay Mercator. Colours are tokens, never hex;
+ * there is no per-trip knob.
  */
 
 /** A recording fake for the sliver of MapLibre the globe helpers touch. */

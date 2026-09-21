@@ -5,7 +5,7 @@
  * browser lives here and is pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { clusterPins, homePinsFromGeo, homeRowId, normalizeLng, pinStage, unfoldLngs } from "./home-geo";
+import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, unfoldLngs } from "./home-geo";
 import type { TripGeo } from "./types";
 
 function geo(over: Partial<TripGeo> & { dtId: string }): TripGeo {
@@ -162,5 +162,38 @@ describe("normalizeLng", () => {
     expect(normalizeLng(-190)).toBeCloseTo(170, 4);
     expect(normalizeLng(190)).toBeCloseTo(-170, 4);
     expect(normalizeLng(0)).toBe(0);
+  });
+});
+
+describe("isOnVisibleHemisphere — the landing globe's horizon (#372 slice 1)", () => {
+  // The framed camera for the Canada/Chile/Japan set: the shortest-arc fit
+  // centres on (−144.655, 8.86) — see the HomeMap bounding-box tests.
+  const CAM = { lat: 8.86475, lng: -144.655 };
+
+  it("the framed three-continent set faces its own camera — one globe face holds it", () => {
+    // Measured, not assumed: 148° < 180°, so the whole set is on screen.
+    expect(angularSeparationDeg(51.1784, -114.06, CAM.lat, CAM.lng)).toBeCloseTo(49.21, 1);
+    expect(angularSeparationDeg(-33.4489, -70.66, CAM.lat, CAM.lng)).toBeCloseTo(81.82, 1);
+    expect(angularSeparationDeg(42.78, 141.35, CAM.lat, CAM.lng)).toBeCloseTo(72.26, 1);
+    for (const [lat, lng] of [[51.1784, -114.06], [-33.4489, -70.66], [42.78, 141.35]] as const) {
+      expect(isOnVisibleHemisphere(lat, lng, CAM.lat, CAM.lng)).toBe(true);
+    }
+  });
+
+  it("a pin past the horizon is far-side, even antimeridian-safe", () => {
+    // Japan's antipode (−42.78, −38.65): the farthest possible point.
+    expect(isOnVisibleHemisphere(42.78, 141.35, -42.78, -38.65)).toBe(false);
+    // From a mid-Atlantic camera Japan is over the horizon (Δlng ≈ 171°).
+    expect(isOnVisibleHemisphere(42.78, 141.35, 0, -30)).toBe(false);
+  });
+
+  it("the limb itself still counts as visible — no pin falls off the cluster", () => {
+    expect(angularSeparationDeg(0, 0, 0, 90)).toBeCloseTo(90, 6);
+    expect(isOnVisibleHemisphere(0, 0, 0, 90)).toBe(true);
+    expect(isOnVisibleHemisphere(0, 0, 0, 90.0001)).toBe(false);
+  });
+
+  it("a pin at the camera centre faces it", () => {
+    expect(isOnVisibleHemisphere(50.9981, -118.1957, 50.9981, -118.1957)).toBe(true);
   });
 });

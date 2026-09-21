@@ -4,7 +4,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin, Minus, Plus } from "lucide-react";
 import { hasWebGL2, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { clusterPins, normalizeLng, unfoldLngs, type HomeMapPin } from "../lib/home-geo";
+import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
+import { clusterPins, isOnVisibleHemisphere, normalizeLng, unfoldLngs, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
@@ -29,6 +30,11 @@ interface HomeMapProps {
  * may list, on the keyless OpenFreeMap style, in the app's own pin vocabulary
  * (`pinClassForStage` + the `route-pin` / `is-selected` / `route-map-focused`
  * grammar from the trip maps — no second marker language).
+ *
+ * The canvas renders on the landing globe (#372 slice 1): the shared
+ * `lib/globe.ts` machinery (`setProjection({ type: "globe" })` + the token-sky
+ * atmosphere), routed through the one `shouldUseGlobe` rule. The camera,
+ * clustering and marker grammar below are unchanged.
  *
  * The map answers "where", the bands answer "what": no routes, no legs, one
  * dot per trip, stage-coloured. Colliding pins group into a count badge that
@@ -126,12 +132,22 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       markersRef.current = [];
       const current = pinsRef.current;
       if (!current.length) return;
-      const projected = current.map((p) => {
+      // On the globe a pin's screen projection survives the horizon, so
+      // screen distance alone cannot decide what clusters with what (#372
+      // slice 1): partition by the camera's hemisphere first, then cluster
+      // each half separately. A pin over the horizon never joins a visible
+      // cluster even when `project` lands it on top of one; the limb itself
+      // still counts as visible (`isOnVisibleHemisphere`).
+      const center = live.getCenter();
+      const facing: ProjectedPin[] = [];
+      const averted: ProjectedPin[] = [];
+      for (const p of current) {
         const pt = live.project([p.lng, p.lat]);
-        return { dtId: p.dtId, x: pt.x, y: pt.y };
-      });
+        const item: ProjectedPin = { dtId: p.dtId, x: pt.x, y: pt.y };
+        (isOnVisibleHemisphere(p.lat, p.lng, center.lat, center.lng) ? facing : averted).push(item);
+      }
       const byId = new Map(current.map((p) => [p.dtId, p]));
-      for (const item of clusterPins(projected, CLUSTER_PX)) {
+      for (const item of [...clusterPins(facing, CLUSTER_PX), ...clusterPins(averted, CLUSTER_PX)]) {
         if (item.kind === "cluster") {
           markersRef.current.push(buildClusterMarker(lib, live, item.cluster));
         } else {
@@ -247,6 +263,20 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
           else map!.once("load", () => resolve());
         });
         if (cancelled || !map) return;
+        // Landing globe (#372 slice 1): the signed-in home renders on a
+        // globe with the token-sky atmosphere. Screen-only by construction —
+        // this canvas is never printed (the booklet renders trip docs, never
+        // this surface) and never compact, so the pdf/compact gates pass
+        // through. Still routed through the one `shouldUseGlobe` rule rather
+        // than hardcoded, so there is one projection rule, not two — and no
+        // per-trip projection knob.
+        const isPdfRender =
+          typeof window !== "undefined" &&
+          (window as unknown as Record<string, unknown>).__KISEKI_PDF_RENDER__ === true;
+        const skyEl = ref.current;
+        if (skyEl && shouldUseGlobe({ globe: true, isPdfRender, compact: false })) {
+          applyOverviewGlobe(map, skyEl);
+        }
         // The container may have been 0-sized (or a different size) all through
         // the library load, so give the canvas the box it has NOW and then frame
         // through the same guard the resize path uses.

@@ -116,7 +116,6 @@ export interface ProjectedPin {
   x: number;
   y: number;
 }
-
 /** A cluster of pins too close to tap apart — drawn as one count badge. */
 export interface PinCluster {
   key: string;
@@ -166,4 +165,40 @@ export function clusterPins(points: readonly ProjectedPin[], radiusPx: number): 
     }
   }
   return out;
+}
+
+/**
+ * Great-circle separation in degrees between two points (haversine).
+ *
+ * Pure spherical math — no browser, no map. Used for the landing globe
+ * (#372 slice 1): on a globe a pin's screen projection survives the horizon,
+ * so screen distance alone cannot decide what clusters with what.
+ */
+export function angularSeparationDeg(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return (2 * Math.asin(Math.min(1, Math.sqrt(a))) * 180) / Math.PI;
+}
+
+/**
+ * Whether a pin sits on the camera's hemisphere of the landing globe (#372
+ * slice 1) — separation from the camera centre of at most 90°.
+ *
+ * The limb itself (exactly 90°) counts as visible: a centroid near the limb
+ * still clusters with the visible set rather than falling off it. Anything
+ * past the horizon is far-side: `HomeMap` clusters each hemisphere
+ * separately, so a pin over the horizon never joins a visible cluster even
+ * when `project` lands it on top of one.
+ */
+export function isOnVisibleHemisphere(
+  pinLat: number,
+  pinLng: number,
+  centerLat: number,
+  centerLng: number,
+): boolean {
+  return angularSeparationDeg(pinLat, pinLng, centerLat, centerLng) <= 90;
 }

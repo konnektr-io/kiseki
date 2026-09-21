@@ -52,6 +52,11 @@ const calls = vi.hoisted(() => ({
   handlers: {} as Record<string, (() => void)[]>,
   /** Screen projection — per test: spread (no clustering) or collide. */
   project: "spread" as "spread" | "collide",
+  /** What the globe was asked for — `setProjection` / `setSky` recordings. */
+  projections: [] as unknown[],
+  skies: [] as unknown[],
+  /** The camera centre the horizon check reads — faces both PINS by default. */
+  center: { lng: -53, lat: 49 },
 }));
 
 /** Screen position per mode: spread keeps pins apart, collide stacks them. */
@@ -94,6 +99,15 @@ vi.mock("../lib/maplibre", () => ({
       }
       unproject([x, y]: [number, number]) {
         return { lng: x, lat: y };
+      }
+      getCenter() {
+        return { ...calls.center };
+      }
+      setProjection(p: unknown) {
+        calls.projections.push(p);
+      }
+      setSky(s: unknown) {
+        calls.skies.push(s);
       }
       fitBounds(_bounds: unknown, options: Record<string, unknown>) {
         calls.fit = options;
@@ -224,6 +238,9 @@ beforeEach(() => {
   calls.resizes = 0;
   calls.handlers = {};
   calls.project = "spread";
+  calls.projections = [];
+  calls.skies = [];
+  calls.center = { lng: -53, lat: 49 };
   webgl.ok = true;
   box.w = 390;
   box.h = 783;
@@ -353,6 +370,74 @@ describe("the pin set's bounding box", () => {
     const framed = calls.jumps[0] as { center: [number, number] };
     expect(framed.center[0]).toBeCloseTo(12.62, 3);
     expect(framed.center[1]).toBeCloseTo(46.9, 3);
+  });
+
+  it("the three-continent set spans less than a hemisphere — one globe face holds it", async () => {
+    // 148° < 180°: the flat-measured shortest-arc fit still frames on the
+    // globe. The fit input carries no width-specific branch, so phone
+    // (390px, sheet at half) and desktop (1440px, rail) frame the same box —
+    // one test per width, fresh harness each.
+    const frameWorld = async () => {
+      await mount(<HomeMap pins={WORLD} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+      expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeCloseTo(147.99, 1);
+      expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeLessThan(180);
+      const framed = calls.jumps[0] as { center: [number, number] };
+      expect(framed.center[0]).toBeGreaterThanOrEqual(-180);
+      expect(framed.center[0]).toBeLessThan(180);
+    };
+    box.w = 390;
+    box.h = 783;
+    await frameWorld();
+  });
+
+  it("the three-continent set spans less than a hemisphere at desktop width", async () => {
+    box.w = 1440;
+    box.h = 900;
+    await mount(<HomeMap pins={WORLD} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeCloseTo(147.99, 1);
+    expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeLessThan(180);
+    const framed = calls.jumps[0] as { center: [number, number] };
+    expect(framed.center[0]).toBeGreaterThanOrEqual(-180);
+    expect(framed.center[0]).toBeLessThan(180);
+  });
+});
+
+describe("the landing globe (#372 slice 1)", () => {
+  it("renders on a globe with the token-sky atmosphere — never hex, never a second rule", async () => {
+    await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.projections).toEqual([{ type: "globe" }]);
+    expect(calls.skies).toHaveLength(1);
+    const sky = calls.skies[0] as Record<string, unknown>;
+    expect(sky["sky-color"]).toBeTruthy();
+    expect(sky["horizon-color"]).toBeTruthy();
+    expect(String(sky["sky-color"])).not.toMatch(/^#/);
+    expect(String(sky["horizon-color"])).not.toMatch(/^#/);
+  });
+
+  it("a pin over the horizon never clusters with visible ones", async () => {
+    // Every projection lands on the same pixel — on Mercator this is one
+    // badge. With a North-Pacific camera Revelstoke faces (37°) while Val
+    // Gardena is far-side (103°), so the far-side pin must stand alone.
+    calls.project = "collide";
+    calls.center = { lng: -160, lat: 30 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const buttons = [...el.querySelectorAll("[data-home-map] button")];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.map((b) => b.getAttribute("aria-label")).sort()).toEqual([
+      "Dolomites — Val Gardena",
+      "Ski Week — Revelstoke",
+    ]);
+  });
+
+  it("far-side pins still cluster with each other", async () => {
+    // South-Atlantic camera: both pins over the horizon, same pixel — one
+    // far-side badge, not two lone pins and never mixed into a visible set.
+    calls.project = "collide";
+    calls.center = { lng: -30, lat: -50 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const badges = [...el.querySelectorAll("[data-home-map] button")];
+    expect(badges).toHaveLength(1);
+    expect(badges[0].getAttribute("aria-label")).toBe("2 trips — zoom in");
   });
 });
 
