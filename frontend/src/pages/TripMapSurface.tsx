@@ -9,7 +9,7 @@ import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
-import { formatDay, shouldShowToday, todayDayIdx } from "../lib/dates";
+import { formatDay, shouldShowToday, todayExactIdx } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
 import { withDayFields } from "../lib/editing";
 import { useCanEdit } from "../components/edit-mode";
@@ -408,9 +408,10 @@ export function TripMapSurface() {
    *  The day layout is reused verbatim, but the day-level DayNav bar stays
    *  off (TripLayout's bottom nav covers the page instead) and the phone
    *  sheet opens all the way up. Same gate as the nav shortcut (live +
-   *  today has a day to open) so a date-matching day off-live is just a day.
+   *  today has a day to open) AND today's EXACT date: a nearest/section
+   *  fallback day is still a regular day and keeps its DayNav bar.
    */
-  const todayIdx = shouldShowToday(trip) ? todayDayIdx(trip) : null;
+  const todayIdx = shouldShowToday(trip) ? todayExactIdx(trip) : null;
   const isTodayPage = dayIdx != null && todayIdx != null && dayIdx === todayIdx;
 
   const journey = useMemo(() => tripJourney(trip), [trip]);

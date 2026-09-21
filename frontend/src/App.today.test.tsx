@@ -130,6 +130,41 @@ function liveTrip(over: Record<string, unknown> = {}): Trip {
 let container: HTMLDivElement;
 let root: Root;
 
+/** UTC ISO date N days from now (matches tripTodayIso for UTC trips). */
+function isoDaysFromNow(offset: number): string {
+  return new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Live trip whose days SKIP today: in range, but no exact date match, so the
+ * Today shortcut falls back to the nearest day ("Before"). That day must
+ * still render as a regular day — never the today chrome.
+ */
+function sparseTrip(): Trip {
+  return {
+    id: TRIP_ID,
+    slug: "sparse-trip",
+    title: "Sparse Trip",
+    stage: "live",
+    timezone: "UTC",
+    startDate: isoDaysFromNow(-2),
+    endDate: isoDaysFromNow(2),
+    visibility: "private",
+    myRole: "viewer",
+    coverStats: [],
+    stats: [],
+    features: [],
+    locations: [{ id: "loc-1", name: "Trailhead", lat: 51.18, lng: -115.57 }],
+    sections: [],
+    crew: [],
+    practical: {},
+    days: [
+      { id: "day-1", date: isoDaysFromNow(-1), title: "Before", blocks: [] },
+      { id: "day-2", date: isoDaysFromNow(2), title: "After", blocks: [] },
+    ],
+  } as unknown as Trip;
+}
+
 function mount(initialEntry: string) {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -263,5 +298,29 @@ describe("live-trip routes", () => {
     // No top-level bottom nav: the day keeps its DayNav bar.
     expect(container.querySelector("nav.fixed")).toBeNull();
     expect(container.querySelector('[aria-label^="Next day"]')).not.toBeNull();
+  });
+
+  it("a nearest-day fallback keeps its regular DayNav chrome", async () => {
+    // Live and in range, but no day carries today's exact date: the Today
+    // shortcut still lands on the nearest day…
+    const trip = sparseTrip();
+    mocks.fetchTrip.mockResolvedValue(trip);
+
+    mount(`/t/${TRIP_ID}`);
+    await flush();
+    expect(text()).toContain("Before");
+    // …the shortcut exists (header nav) and points at that day…
+    expect(container.querySelector(`a[href="/t/${TRIP_ID}/day/0"]`)).not.toBeNull();
+    act(() => root?.unmount());
+    container?.remove();
+
+    // …but that day is still a regular day: DayNav bar, no bottom nav,
+    // half sheet — never the today chrome.
+    surface.mode = "sheet";
+    mount(`/t/${TRIP_ID}/day/0`);
+    await flush();
+    expect(container.querySelector("nav.fixed")).toBeNull();
+    expect(container.querySelector('[aria-label^="Next day"]')).not.toBeNull();
+    expect(container.querySelector("div[data-detent]")?.getAttribute("data-detent")).toBe("half");
   });
 });

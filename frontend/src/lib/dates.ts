@@ -203,6 +203,20 @@ export function todayDayIdx(trip: Trip, todayIso?: string): number | null {
   return null;
 }
 
+/**
+ * The exact-today day index, or null. Unlike todayDayIdx (which honestly
+ * falls back to the nearest day so the Today shortcut always has somewhere
+ * to land), this is only ever an EXACT date match — it gates the today
+ * CHROME (top-level nav instead of DayNav, full sheet). A nearest/section
+ * fallback day is still a regular day: it must keep its DayNav bar and never
+ * masquerade as today.
+ */
+export function todayExactIdx(trip: Trip, todayIso?: string): number | null {
+  const r = resolveToday(trip, todayIso);
+  if (r.kind !== "day") return null;
+  return r.dayIdx >= 0 && r.dayIdx < trip.days.length ? r.dayIdx : null;
+}
+
 export function humanizeDays(days: number): string {
   if (days <= 0) return "today";
   if (days === 1) return "1 day";
