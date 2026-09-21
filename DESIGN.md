@@ -465,12 +465,14 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 #### Surfaces
 
 ```
-/t/<id>               Overview    stage-aware home; jumps to the current day page while live
+/t/<id>               Overview    stage-aware home; jumps to /today while live
 /t/<id>/overview      Overview    explicit address — the nav points here while live
                                   (the root would bounce back to today)
-/t/<id>/today         →           redirect to the current day page (same surface as any
-                                  other day — no separate Today page, so the layout
-                                  never diverges from the regular day view)
+/t/<id>/today         Today       the travel surface: the current day on the day
+                                  surface (same TripMapSurface as Day, with
+                                  top-level chrome instead of the DayNav bar).
+                                  A day reached as /day/<i> always keeps its
+                                  DayNav bar, even when its date is today.
 /t/<id>/itinerary     Itinerary   the map surface, scan level — whole trip on the map, the
                                   itinerary in the rail/sheet (§7.6, #92)
 /t/<id>/itinerary#s-<n>           a section — an ANCHOR into the scan list (see below)
@@ -517,18 +519,22 @@ trip root today takes four interactions (Overview → Itinerary → expand → O
 
 #### Today
 
-There is currently **no separate Today page, by design**. A follower opening a share
-link on day 7 must know the date and hunt for it — so `/today` resolves to the
-current **day page** (`/day/<idx>`, the same surface as any other day), and
-degrades honestly when it can't: the trip root and `/today` fall back to the
-overview when today has no day to open (*"starts in 5 days"*, *"ended 3 weeks
-ago"*, or the nearest day are states of the trip, not a page of their own).
-- While `stage === 'live'` and today falls inside the range, the trip root jumps
-  to the current day page and a **Today** shortcut appears in the nav *alongside*
+The current day on the day surface — the same TripMapSurface component as
+any `/day/<idx>`, with top-level chrome instead of the DayNav bar. A follower
+opening a share link on day 7 must know the date and hunt for it; `/today`
+is the door that already knows.
+`/t/<id>/today` resolves to the current day (nearest-day fallback when no day
+carries today's exact date) and degrades honestly when nothing resolves: the
+trip root and `/today` fall back to the overview.
+- While `stage === 'live'` and today falls inside the range, the trip root
+  jumps to `/today` and a **Today** item appears in the nav *alongside*
   Overview (never instead of it). Outside that window it isn't shown at all.
-- Today's day reuses the day layout verbatim, but it keeps the **top-level**
-  chrome: no DayNav prev/up/next bar (the bottom nav covers the page), and
-  the phone sheet opens at the `full` detent.
+- The chrome follows the ROUTE: `/today` keeps the top-level bottom nav (no
+  DayNav bar) and opens the phone sheet at the `full` detent, while every
+  `/day/<idx>` keeps its DayNav bar — even the one whose date is today. So
+  arriving from the itinerary (or DayNav hopping, or a shared day link)
+  always shows the day nav; arriving via the root or the Today item always
+  shows the top-level nav. Same component, same layout, never two bars.
 - The itinerary marks today and scrolls to it.
 - **Resolve against the trip's timezone, not the viewer's.** Today in Hokkaido is not today in
   Belgium. Needs an optional IANA `timezone` on the trip, falling back to viewer-local. Don't

@@ -213,19 +213,26 @@ afterEach(() => {
 });
 
 describe("live-trip routes", () => {
-  it("the trip root jumps to today's day (not a separate Today page)", async () => {
+  it("the trip root jumps to the today view (same day surface, top-level chrome)", async () => {
     mocks.fetchTrip.mockResolvedValue(liveTrip());
     mount(`/t/${TRIP_ID}`);
     await flush();
 
-    // Day surface: the surface header names the day…
+    // The current day on the day surface…
     expect(text()).toContain("Day 1");
     expect(text()).toContain("Today on the road");
-    // …and the overview's summary card is nowhere to be seen.
     expect(text()).not.toContain("Two days on the move.");
+    // …with the top-level bottom nav (Today highlighted), not the DayNav bar.
+    const bottomNav = container.querySelector("nav.fixed");
+    expect(bottomNav, "the top-level bottom nav").not.toBeNull();
+    const todayLink = bottomNav!.querySelector(`a[href="/t/${TRIP_ID}/today"]`);
+    expect(todayLink?.textContent).toContain("Today");
+    expect(todayLink?.getAttribute("aria-current")).toBe("page");
+    expect(container.querySelector('[aria-label^="Next day"]')).toBeNull();
+    expect(container.querySelector('[aria-label^="Previous day"]')).toBeNull();
   });
 
-  it("/today redirects to today's day, /overview renders the overview", async () => {
+  it("/today renders the today view, /overview renders the overview", async () => {
     mocks.fetchTrip.mockResolvedValue(liveTrip());
 
     mount(`/t/${TRIP_ID}/today`);
@@ -242,52 +249,52 @@ describe("live-trip routes", () => {
     expect(container.querySelector('a[aria-label="Back to the itinerary"]')).toBeNull();
   });
 
-  it("today's day keeps the top-level bottom nav, other days keep DayNav", async () => {
+  it("a day reached as /day/<idx> always keeps its DayNav bar — even today's date", async () => {
     mocks.fetchTrip.mockResolvedValue(liveTrip());
 
-    // Today's day: bottom nav present (Today highlighted, Itinerary not)…
+    // Day 0 carries today's exact date, but arrived as a day route (e.g. from
+    // the itinerary) it is a regular day view: no bottom nav, DayNav bar.
     mount(`/t/${TRIP_ID}/day/0`);
     await flush();
-    const bottomNav = container.querySelector("nav.fixed");
-    expect(bottomNav, "the top-level bottom nav on today").not.toBeNull();
-    const todayLink = bottomNav!.querySelector(`a[href="/t/${TRIP_ID}/day/0"]`);
-    expect(todayLink?.textContent).toContain("Today");
-    expect(todayLink?.getAttribute("aria-current")).toBe("page");
-    const itineraryLink = bottomNav!.querySelector(`a[href="/t/${TRIP_ID}/itinerary"]`);
-    expect(itineraryLink?.getAttribute("aria-current")).toBeNull();
-    // …and the day-level prev/next bar is gone.
-    expect(container.querySelector('[aria-label^="Next day"]')).toBeNull();
-    expect(container.querySelector('[aria-label^="Previous day"]')).toBeNull();
+    expect(text()).toContain("Today on the road");
+    expect(container.querySelector("nav.fixed")).toBeNull();
+    expect(container.querySelector('[aria-label^="Next day"]')).not.toBeNull();
     act(() => root?.unmount());
     container?.remove();
 
-    // Any other day: bottom nav hidden, DayNav prev/next back.
     mount(`/t/${TRIP_ID}/day/1`);
     await flush();
     expect(container.querySelector("nav.fixed")).toBeNull();
     expect(container.querySelector('[aria-label^="Previous day"]')).not.toBeNull();
   });
 
-  it("the phone sheet opens all the way up on today, half elsewhere", async () => {
+  it("the phone sheet opens all the way up on the today route, half on day routes", async () => {
     surface.mode = "sheet";
     mocks.fetchTrip.mockResolvedValue(liveTrip());
 
-    mount(`/t/${TRIP_ID}/day/0`);
+    mount(`/t/${TRIP_ID}/today`);
     await flush();
     expect(container.querySelector("div[data-detent]")?.getAttribute("data-detent")).toBe("full");
     act(() => root?.unmount());
     container?.remove();
 
-    mount(`/t/${TRIP_ID}/day/1`);
+    // Same date, day route: regular chrome, half sheet.
+    mount(`/t/${TRIP_ID}/day/0`);
     await flush();
     expect(container.querySelector("div[data-detent]")?.getAttribute("data-detent")).toBe("half");
   });
 
-  it("off-live the root is the overview and a date-matching day is just a day", async () => {
+  it("off-live the root is the overview and /today falls back to it", async () => {
     // Stage `idea` never auto-lives, even in range.
     mocks.fetchTrip.mockResolvedValue(liveTrip({ stage: "idea" }));
 
     mount(`/t/${TRIP_ID}`);
+    await flush();
+    expect(text()).toContain("Two days on the move.");
+    act(() => root?.unmount());
+    container?.remove();
+
+    mount(`/t/${TRIP_ID}/today`);
     await flush();
     expect(text()).toContain("Two days on the move.");
     act(() => root?.unmount());
@@ -300,22 +307,30 @@ describe("live-trip routes", () => {
     expect(container.querySelector('[aria-label^="Next day"]')).not.toBeNull();
   });
 
-  it("a nearest-day fallback keeps its regular DayNav chrome", async () => {
-    // Live and in range, but no day carries today's exact date: the Today
-    // shortcut still lands on the nearest day…
+  it("an unresolvable today route falls back to the overview", async () => {
+    // Live and in range, but no days at all: nothing to resolve.
+    mocks.fetchTrip.mockResolvedValue(liveTrip({ days: [] }));
+    mount(`/t/${TRIP_ID}/today`);
+    await flush();
+    expect(text()).toContain("Two days on the move.");
+  });
+
+  it("the today route resolves a fallback day with today chrome; the day route stays regular", async () => {
+    // Live and in range, but no day carries today's exact date: /today lands
+    // on the nearest day ("Before")…
     const trip = sparseTrip();
     mocks.fetchTrip.mockResolvedValue(trip);
 
-    mount(`/t/${TRIP_ID}`);
+    mount(`/t/${TRIP_ID}/today`);
     await flush();
     expect(text()).toContain("Before");
-    // …the shortcut exists (header nav) and points at that day…
-    expect(container.querySelector(`a[href="/t/${TRIP_ID}/day/0"]`)).not.toBeNull();
+    // …with the today chrome (bottom nav, no DayNav bar)…
+    expect(container.querySelector("nav.fixed")).not.toBeNull();
+    expect(container.querySelector('[aria-label^="Next day"]')).toBeNull();
     act(() => root?.unmount());
     container?.remove();
 
-    // …but that day is still a regular day: DayNav bar, no bottom nav,
-    // half sheet — never the today chrome.
+    // …while the same day as /day/0 is a regular day view.
     surface.mode = "sheet";
     mount(`/t/${TRIP_ID}/day/0`);
     await flush();

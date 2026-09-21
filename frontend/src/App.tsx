@@ -5,7 +5,6 @@ import { MePage, ProfilePage } from "./pages/ProfilePage";
 import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
 import { OverviewPage } from "./pages/OverviewPage";
-import { TodayRedirect } from "./pages/TodayRedirect";
 import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
@@ -53,11 +52,12 @@ export default function App() {
             current day, so without this the Overview nav would bounce right
             back to today. Off-live it renders the same page as the index. */}
         <Route path="overview" element={<OverviewPage />} />
-        {/* Retired page, kept as a redirect (replace — no history pollution):
-            /today used to be its own surface; now it resolves to the current
-            day page, the same surface as any other day. Shared/bookmarked
-            /today links keep landing on today. */}
-        <Route path="today" element={<TodayRedirect />} />
+        {/* The today VIEW (not a redirect): the current day on the day
+            surface — the same TripMapSurface component as /day/<idx>, with
+            top-level chrome instead of the DayNav bar. A day reached as
+            /day/<idx> always keeps its DayNav bar, even when its date is
+            today. Unresolvable (off-live / no day) falls back to the root. */}
+        <Route path="today" element={<TripMapSurface todayView />} />
         {/* ONE persistent map surface (DESIGN.md §7.6): the itinerary is the
             scan level (#92) and /day/<idx> the day level (#90). Both render
             TripMapSurface — level is derived from the URL, the map instance

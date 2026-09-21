@@ -6,7 +6,7 @@ import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib
 import { isAuthConfigured } from "../lib/auth";
 import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
-import { formatDate, dayCount, shouldShowToday, todayDayIdx, todayExactIdx } from "../lib/dates";
+import { formatDate, dayCount, shouldShowToday, todayDayIdx } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
@@ -17,69 +17,42 @@ import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
 /** Under the §7.5 mobile cap of four: Overview always stays, and on a live
- *  trip a Today shortcut jumps straight to the current day page
- *  (`day/<idx>` — the same surface as any other day, not a separate page).
- *  The standalone Map item is retired (#93): the itinerary IS the map surface
- *  now (DESIGN.md §7.6), so the day level lives one tap deeper on the same
- *  nav item. */
+ *  trip a Today item jumps to the current day on the day surface (`/today` —
+ *  the same TripMapSurface component as any other day, with top-level chrome
+ *  instead of the DayNav bar). The standalone Map item is retired (#93): the
+ *  itinerary IS the map surface now (DESIGN.md §7.6), so the day level lives
+ *  one tap deeper on the same nav item. */
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
   { to: "", label: "Overview", icon: Home, end: true },
   { to: "itinerary", label: "Itinerary", icon: CalendarDays },
   { to: "practical", label: "Practical", icon: ListChecks },
 ];
 
-/** Today shortcut target for a live trip, or null when today has no day page
- *  (before / after / dateless / section-without-days — resolveToday's honest
- *  degradations, which have nothing to open). Exported for the unit tests. */
-export function todayNavTo(trip: Trip | null): string | null {
-  if (!trip || !shouldShowToday(trip)) return null;
-  const idx = todayDayIdx(trip);
-  return idx != null ? `day/${idx}` : null;
-}
-
 function navForTrip(trip: Trip | null) {
-  const today = todayNavTo(trip);
-  if (today) {
+  if (trip && shouldShowToday(trip)) {
     return [
       // While live the index jumps to today, so Overview needs its own
       // address — pointing it at "" would bounce straight back to the day.
       { to: "overview", label: "Overview", icon: Home },
-      { to: today, label: "Today", icon: CalendarCheck },
+      { to: "today", label: "Today", icon: CalendarCheck },
       ...NAV_BASE.slice(1),
     ] as typeof NAV_BASE;
   }
   return NAV_BASE;
 }
 
-/** Nav highlight rule (desktop + mobile): day pages belong to the Itinerary
- *  surface — the scan view is their parent — EXCEPT today's own day, which
- *  the Today shortcut owns while it is the shortcut's target. Section links
- *  (/s/<n>) redirect to /itinerary#s-<n> (replace), so they never render long
- *  enough to matter. */
+/** Nav highlight rule (desktop + mobile): /today is its own route, so Today
+ *  highlights exactly there; day pages belong to the Itinerary surface — the
+ *  scan view is their parent — even the one whose date is today (it is
+ *  reached as /day/<idx>, with the DayNav bar). Section links (/s/<n>)
+ *  redirect to /itinerary#s-<n> (replace), so they never render long enough
+ *  to matter. */
 function isNavActive(pathname: string, base: string, to: string, end?: boolean): boolean {
-  if (to.startsWith("day/")) return pathname === `${base}/${to}`;
   if (end) return pathname === base;
   if (to === "itinerary") {
     return pathname === `${base}/itinerary` || pathname.startsWith(`${base}/day`);
   }
   return pathname === `${base}/${to}`;
-}
-
-/** Single-active-item rule shared by the desktop and bottom navs: today's
- *  day is both a day page (the Itinerary surface) and the Today shortcut's
- *  target — the shortcut owns the highlight there. */
-function isItemActive(
-  nav: typeof NAV_BASE,
-  pathname: string,
-  base: string,
-  item: { to: string; label: string; end?: boolean },
-): boolean {
-  let active = isNavActive(pathname, base, item.to, item.end);
-  if (item.label === "Itinerary") {
-    const todayHref = nav.find((n) => n.label === "Today")?.to;
-    if (todayHref && pathname === `${base}/${todayHref}`) active = false;
-  }
-  return active;
 }
 
 function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
@@ -89,7 +62,7 @@ function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => {
-        const isActive = isItemActive(NAV, pathname, base, { to, label, end });
+        const isActive = isNavActive(pathname, base, to, end);
         return (
           <Link
             key={to}
@@ -288,22 +261,23 @@ export function TripLayout() {
   // the next turn, because `focus` is pushed per turn, not per thread.
   const routeDayIdx = (() => {
     const m = pathname.match(new RegExp(`^/t/${tripId}/day/(\\d+)$`));
-    if (!m) return null;
-    const i = parseInt(m[1], 10);
-    return Number.isNaN(i) ? null : i;
+    if (m) {
+      const i = parseInt(m[1], 10);
+      return Number.isNaN(i) ? null : i;
+    }
+    // /today resolves to the current day (same target as the Today nav
+    // item), so the chat drawer opens with that day's context.
+    if (pathname === `/t/${tripId}/today` && trip) {
+      return todayDayIdx(trip);
+    }
+    return null;
   })();
 
-  // Today's own day page: same day surface as any other day, but it keeps
-  // the TOP-LEVEL chrome (header + bottom nav) instead of the day-level
-  // DayNav bar, and the phone sheet opens all the way up. Gated on the
-  // shortcut existing (live + today has a day to open) AND the day being
-  // today's EXACT date — a nearest/section fallback day is still a regular
-  // day and keeps its DayNav bar.
-  const isTodayPage =
-    todayNavTo(trip) != null &&
-    routeDayIdx != null &&
-    trip != null &&
-    routeDayIdx === todayExactIdx(trip);
+  // The today route renders the day surface with top-level chrome (no DayNav
+  // bar, phone sheet opens full) — the chrome follows the ROUTE, so a day
+  // reached as /day/<idx> always keeps its DayNav bar, even when its date is
+  // today.
+  const onTodayRoute = pathname === `/t/${tripId}/today`;
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
@@ -371,14 +345,20 @@ export function TripLayout() {
   }
 
   const days = dayCount(trip.startDate, trip.endDate);
-  const onDayPage = pathname.includes(`/t/${tripId}/day/`);
+  const onDayRoute = pathname.includes(`/t/${tripId}/day/`);
+  // The header back control goes up one level to the itinerary on a day
+  // surface — the day's parent is the scan view — and all the way home
+  // everywhere else. /today counts as a day surface here.
+  const onDayPage = onDayRoute || onTodayRoute;
   // A MAP surface is viewport-shaped, a document surface is column-shaped, and
   // they cannot share a wrapper (DESIGN.md §2): the reading column would crop
   // the map to 768px and `pb-24` would leave a dead strip under the sheet. So
-  // the shell drops the column for the map surface — the itinerary and day
-  // routes both render TripMapSurface (#92/#90); /map is a redirect (#93).
+  // the shell drops the column for the map surface — the itinerary, day and
+  // today routes all render TripMapSurface (#92/#90); /map is a redirect (#93).
   const onMapSurface =
-    pathname === `/t/${tripId}/itinerary` || Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
+    pathname === `/t/${tripId}/itinerary` ||
+    onTodayRoute ||
+    Boolean(pathname.match(new RegExp(`^/t/${tripId}/day/\\d+$`)));
 
   // The drawer scope for THIS route: the day the URL names (clamped into
   // range — a stale /day/99 keeps the whole-trip chat, never a wrong day).
@@ -545,10 +525,10 @@ export function TripLayout() {
           />
         )}
 
-        {/* Mobile bottom nav: hidden on day pages — the day level has its own
-            bar — EXCEPT today's own day, which keeps the top-level nav
+        {/* Mobile bottom nav: hidden on day routes — the day level has its own
+            bar — except the today route, which keeps the top-level nav
             instead of the DayNav bar. */}
-        {(!onDayPage || isTodayPage) && (() => {
+        {(!onDayRoute || onTodayRoute) && (() => {
           const NAV = navForTrip(trip);
           return (
           <nav
@@ -560,7 +540,7 @@ export function TripLayout() {
           >
             <div className="grid" style={{ gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}>
               {NAV.map(({ to, label, icon: Icon, end }) => {
-                const isActive = isItemActive(NAV, pathname, `/t/${tripId}`, { to, label, end });
+                const isActive = isNavActive(pathname, `/t/${tripId}`, to, end);
                 return (
                   <Link
                     key={to}
