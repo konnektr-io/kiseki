@@ -485,6 +485,8 @@ export function RouteMap({
     const markers: MapLibreMarker[] = [];
     const addedLayers: string[] = [];
     const addedSources: string[] = [];
+    /** Detach this build's camera-settle listener, if it added one. */
+    let settleDetach: (() => void) | null = null;
 
     /** A numbered place pin — the same registry ordinal on every surface. */
     const addPin = (loc: TripLocation, excursion: boolean) => {
@@ -684,6 +686,15 @@ export function RouteMap({
       const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
       buildLabels(scanByName, selectedRef.current?.name ?? null);
       rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
+      // #361 slice 2: the unselected overview names its places without a
+      // tap — rebuild the capped layer every time the camera settles
+      // (selected-first with a selection, top-8 chain stops without one).
+      // The day level keeps its focus-driven behaviour: no settle rebuild.
+      const onSettle = () => buildLabels(scanByName, selectedRef.current?.name ?? null);
+      map.on("moveend", onSettle);
+      settleDetach = () => {
+        map.off("moveend", onSettle);
+      };
       if (legsData != null && legsData.length) addLineLayers("journey", legsData);
       addGlyphLayer("journey-glyphs", "journey-glyphs", legsData ?? []);
       journeyRef.current.stops.forEach(extend);
@@ -860,8 +871,11 @@ export function RouteMap({
     }
 
     return () => {
-      // Tear down THIS build's content: the markers it added and the layers
-      // on its own sources. Runs before the next build and on unmount.
+      // Tear down THIS build's content: the settle listener it added, the
+      // markers it added and the layers on its own sources. Runs before the
+      // next build and on unmount.
+      settleDetach?.();
+      settleDetach = null;
       markers.forEach((m) => m.remove());
       for (const m of labelMarkersRef.current) m.remove();
       labelMarkersRef.current = [];

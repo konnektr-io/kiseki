@@ -255,9 +255,14 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // canvas, so a label can never cover it; labels are
         // pointer-events-none and never intercept.
         const labelMarkers: import("maplibre-gl").Marker[] = [];
-        const ensureLabels = () => {
+        // #361 slice 2: the overview names its places without a tap — the
+        // capped top-8 layer is rebuilt every time the camera settles, not
+        // just once at init (the post-fetch refit settles at a different
+        // zoom than the init build measured).
+        const rebuildLabels = () => {
           if (cancelled || !map || single || compact) return;
-          if (labelMarkers.length) return;
+          for (const m of labelMarkers) m.remove();
+          labelMarkers.length = 0;
           const names = selectMapLabels(
             located.map((l) => l.name),
             null,
@@ -278,8 +283,11 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
             );
           }
         };
-        map.on("zoomend", ensureLabels);
-        ensureLabels();
+        // `moveend` is the settle signal: it fires after pans AND zooms
+        // (including the refit below), so the zoom-only listener it replaces
+        // loses nothing.
+        map.on("moveend", rebuildLabels);
+        rebuildLabels();
 
         // Fetch route geometry for multi-pin maps (skip for single-pin thumbnail)
         // and every recorded track in parallel — a failed track fetch degrades
