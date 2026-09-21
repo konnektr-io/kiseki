@@ -74,6 +74,8 @@ vi.mock("../lib/api", async () => {
 const { TripAccessError } = await import("../lib/api");
 const { TripLayout } = await import("./TripLayout");
 const { SettingsPage } = await import("./SettingsPage");
+const { todayNavTo } = await import("./TripLayout");
+const { tripTodayIso } = await import("../lib/dates");
 
 const TRIP = {
   id: "b16680e7-a338-4c76-9cd7-fa13d45be594",
@@ -321,5 +323,53 @@ describe("TripLayout", () => {
     expect(drawer, "the drawer opened").not.toBeNull();
     expect(drawer!.getAttribute("data-focus")).toBe("");
     expect(uncaught).toEqual([]);
+  });
+
+  it("off a live trip there is no Today shortcut at all", async () => {
+    mocks.fetchTrip.mockResolvedValue(TRIP); // stage: idea
+    mount(`/t/${TRIP.id}`);
+    await flush();
+
+    expect(uncaught).toEqual([]);
+    expect(text()).toContain("Overview");
+    expect(text()).not.toContain("Today");
+    expect(todayNavTo(TRIP as Trip)).toBeNull();
+  });
+
+  it("on a live trip the nav keeps Overview AND a Today shortcut to the current day", async () => {
+    // Pin the fixture's day to the viewer's actual today so shouldShowToday
+    // holds whatever day the suite runs on.
+    const todayIso = tripTodayIso({ timezone: "UTC" });
+    const live = {
+      ...TRIP,
+      stage: "live",
+      timezone: "UTC",
+      startDate: todayIso,
+      endDate: todayIso,
+      days: [{ ...TRIP.days[0], date: todayIso }],
+    } as unknown as Trip;
+    mocks.fetchTrip.mockResolvedValue(live);
+    mount(`/t/${TRIP.id}`);
+    await flush();
+
+    expect(uncaught).toEqual([]);
+    expect(todayNavTo(live)).toBe("day/0");
+    // Overview stays (the live swap that hid it is gone)…
+    expect(text()).toContain("Overview");
+    // …and Today jumps straight to the current day page — the same surface
+    // as any other day, not a separate page.
+    const today = container.querySelector(`a[href="/t/${TRIP.id}/day/0"]`);
+    expect(today, "the Today shortcut").not.toBeNull();
+    expect(today!.textContent).toContain("Today");
+  });
+
+  it("todayNavTo is null when today has no day page to open", async () => {
+    const todayIso = tripTodayIso({ timezone: "UTC" });
+    // Live but dateless: in no range, so no shortcut.
+    expect(todayNavTo({ ...TRIP, stage: "live", startDate: undefined, endDate: undefined } as unknown as Trip)).toBeNull();
+    // Live and in range, but no days at all: nothing to open.
+    expect(
+      todayNavTo({ ...TRIP, stage: "live", timezone: "UTC", startDate: todayIso, endDate: todayIso, days: [] } as unknown as Trip),
+    ).toBeNull();
   });
 });

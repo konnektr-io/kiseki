@@ -1303,8 +1303,8 @@ function AuthenticatedLanding() {
         {" — "}
         {upNextLabel(nextUp, todayIso)}
         {/* A live trip's useful destination is TODAY, not its overview — the
-            day it is on right now. Same rule as the trip nav's live swap
-            (§7.5): while it is happening, "today" is the surface you want. */}
+            day it is on right now. /today redirects to that day page (§7.5):
+            while it is happening, "today" is the surface you want. */}
         {displayStage(nextUp) === "live" && (
           <>
             {" · "}

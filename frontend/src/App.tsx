@@ -4,7 +4,7 @@ import { JoinPage } from "./pages/JoinPage";
 import { MePage, ProfilePage } from "./pages/ProfilePage";
 import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
-import { TodayPage } from "./pages/TodayPage";
+import { TodayRedirect } from "./pages/TodayRedirect";
 import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
 import { CrewPage } from "./pages/CrewPage";
@@ -48,7 +48,11 @@ export default function App() {
       <Route path="/feed" element={<FeedPage />} />
       <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
-        <Route path="today" element={<TodayPage />} />
+        {/* Retired page, kept as a redirect (replace — no history pollution):
+            /today used to be its own surface; now it resolves to the current
+            day page, the same surface as any other day. Shared/bookmarked
+            /today links keep landing on today. */}
+        <Route path="today" element={<TodayRedirect />} />
         {/* ONE persistent map surface (DESIGN.md §7.6): the itinerary is the
             scan level (#92) and /day/<idx> the day level (#90). Both render
             TripMapSurface — level is derived from the URL, the map instance
