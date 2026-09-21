@@ -41,7 +41,9 @@ function navForTrip(trip: Trip | null) {
   const today = todayNavTo(trip);
   if (today) {
     return [
-      NAV_BASE[0],
+      // While live the index jumps to today, so Overview needs its own
+      // address — pointing it at "" would bounce straight back to the day.
+      { to: "overview", label: "Overview", icon: Home },
       { to: today, label: "Today", icon: CalendarCheck },
       ...NAV_BASE.slice(1),
     ] as typeof NAV_BASE;
@@ -63,20 +65,31 @@ function isNavActive(pathname: string, base: string, to: string, end?: boolean):
   return pathname === `${base}/${to}`;
 }
 
+/** Single-active-item rule shared by the desktop and bottom navs: today's
+ *  day is both a day page (the Itinerary surface) and the Today shortcut's
+ *  target — the shortcut owns the highlight there. */
+function isItemActive(
+  nav: typeof NAV_BASE,
+  pathname: string,
+  base: string,
+  item: { to: string; label: string; end?: boolean },
+): boolean {
+  let active = isNavActive(pathname, base, item.to, item.end);
+  if (item.label === "Itinerary") {
+    const todayHref = nav.find((n) => n.label === "Today")?.to;
+    if (todayHref && pathname === `${base}/${todayHref}`) active = false;
+  }
+  return active;
+}
+
 function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
   const { pathname } = useLocation();
   const base = `/t/${tripId}`;
   const NAV = navForTrip(trip);
-  // Today's day is both a day page (Itinerary's surface) and the Today
-  // shortcut's target — the shortcut owns the highlight there so exactly one
-  // item is ever active.
-  const todayHref = NAV.find((n) => n.label === "Today")?.to;
-  const todayPath = todayHref ? `${base}/${todayHref}` : null;
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => {
-        let isActive = isNavActive(pathname, base, to, end);
-        if (label === "Itinerary" && todayPath && pathname === todayPath) isActive = false;
+        const isActive = isItemActive(NAV, pathname, base, { to, label, end });
         return (
           <Link
             key={to}
@@ -279,6 +292,17 @@ export function TripLayout() {
     const i = parseInt(m[1], 10);
     return Number.isNaN(i) ? null : i;
   })();
+
+  // Today's own day page: same day surface as any other day, but it keeps
+  // the TOP-LEVEL chrome (header + bottom nav) instead of the day-level
+  // DayNav bar, and the phone sheet opens all the way up. Gated on the
+  // shortcut existing (live + today has a day to open) — a date-matching day
+  // on a non-live trip is just a day.
+  const isTodayPage =
+    todayNavTo(trip) != null &&
+    routeDayIdx != null &&
+    trip != null &&
+    routeDayIdx === todayDayIdx(trip);
 
   if (!authReady && !PDF_RENDER && !error) {
     return (
@@ -520,8 +544,10 @@ export function TripLayout() {
           />
         )}
 
-        {/* Mobile bottom nav (hidden on day pages — the day level has its own bar) */}
-        {!onDayPage && (() => {
+        {/* Mobile bottom nav: hidden on day pages — the day level has its own
+            bar — EXCEPT today's own day, which keeps the top-level nav
+            instead of the DayNav bar. */}
+        {(!onDayPage || isTodayPage) && (() => {
           const NAV = navForTrip(trip);
           return (
           <nav
@@ -533,7 +559,7 @@ export function TripLayout() {
           >
             <div className="grid" style={{ gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}>
               {NAV.map(({ to, label, icon: Icon, end }) => {
-                const isActive = isNavActive(pathname, `/t/${tripId}`, to, end);
+                const isActive = isItemActive(NAV, pathname, `/t/${tripId}`, { to, label, end });
                 return (
                   <Link
                     key={to}

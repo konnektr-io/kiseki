@@ -4,6 +4,7 @@ import { JoinPage } from "./pages/JoinPage";
 import { MePage, ProfilePage } from "./pages/ProfilePage";
 import { TripLayout } from "./pages/TripLayout";
 import { TripHome } from "./pages/TripHome";
+import { OverviewPage } from "./pages/OverviewPage";
 import { TodayRedirect } from "./pages/TodayRedirect";
 import { TripMapSurface } from "./pages/TripMapSurface";
 import { PracticalsPage } from "./pages/PracticalsPage";
@@ -48,6 +49,10 @@ export default function App() {
       <Route path="/feed" element={<FeedPage />} />
       <Route path="/t/:tripId" element={<TripLayout />}>
         <Route index element={<TripHome />} />
+        {/* Explicit overview address: while live the index jumps to the
+            current day, so without this the Overview nav would bounce right
+            back to today. Off-live it renders the same page as the index. */}
+        <Route path="overview" element={<OverviewPage />} />
         {/* Retired page, kept as a redirect (replace — no history pollution):
             /today used to be its own surface; now it resolves to the current
             day page, the same surface as any other day. Shared/bookmarked
