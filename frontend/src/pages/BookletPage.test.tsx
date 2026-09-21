@@ -7,13 +7,13 @@ import { describe, expect, it, vi } from "vitest";
  * have to survive the trip to paper: each titled block renders as heading +
  * prose inside "Key info". MapLibre is the only heavy peripheral in here. */
 const { bookletMapCalls } = vi.hoisted(() => ({
-  bookletMapCalls: [] as { places: string[]; loop: boolean }[],
+  bookletMapCalls: [] as { places: string[]; loop: boolean; globe?: boolean }[],
 }));
 
 vi.mock("../components/MapView", () => ({
   MapView: () => null,
-  TripMap: (props: { places: string[]; loop?: boolean }) => {
-    bookletMapCalls.push({ places: props.places, loop: props.loop ?? false });
+  TripMap: (props: { places: string[]; loop?: boolean; globe?: boolean }) => {
+    bookletMapCalls.push({ places: props.places, loop: props.loop ?? false, globe: props.globe });
     return null;
   },
 }));
@@ -212,6 +212,44 @@ describe("booklet — feature map matches the itinerary chain", () => {
     for (const call of bookletMapCalls) {
       expect(call.places).toEqual(["Banff", "Revelstoke"]);
       expect(call.loop).toBe(false);
+    }
+  });
+
+  /* #361 slice 3 — the ENTIRE print path stays Mercator (SwiftShader + globe
+   * shaders is a new failure mode the booklet must never see). The booklet
+   * prints through its own TripMap with no globe prop, and MapView gates the
+   * projection off isPdfRender even if one leaks through. */
+  it("the booklet feature map never takes the globe", () => {
+    const trip = {
+      id: "t-chain",
+      slug: "test",
+      title: "Powder Highway",
+      stage: "booked",
+      visibility: "private",
+      myRole: "owner",
+      crew: [],
+      practical: {},
+      locations: [
+        { name: "Banff", lat: 51.1784, lng: -115.5708 },
+        { name: "Revelstoke", lat: 50.9981, lng: -118.1957 },
+      ],
+      days: [
+        { date: "2027-02-15", title: "Arrive", blocks: [] },
+        { date: "2027-02-16", title: "Ski", blocks: [] },
+      ],
+      features: [{ kicker: "Route", title: "One loop", map: true }],
+    } as unknown as Trip;
+    bookletMapCalls.length = 0;
+    renderToString(
+      createElement(TripProvider, {
+        trip,
+        apply: () => {},
+        children: createElement(BookletPage),
+      }),
+    );
+    expect(bookletMapCalls.length).toBeGreaterThanOrEqual(1);
+    for (const call of bookletMapCalls) {
+      expect(call.globe).not.toBe(true);
     }
   });
 });

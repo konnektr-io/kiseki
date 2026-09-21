@@ -92,6 +92,11 @@
   --map-route-casing: var(--trip-route-casing, #ffffff);
   --map-marker: var(--trip-marker, var(--trip-primary, #9f1239));
   --map-marker-fg: var(--trip-marker-fg, var(--trip-primary-fg, #fff7ed));
+  /* Overview-globe sky (#361 slice 3) — the same pale sky/horizon the pitch
+     sky has always used, now readable from JS via lib/globe.ts. Per-trip
+     hooks, like every other --map-* value; no preset sets them today. */
+  --map-sky: var(--trip-sky, #c8d4e3);
+  --map-horizon: var(--trip-horizon, #f6f3ee);
 }
 
 /* The focus ring (DESIGN.md §11). `outline` rather than a ring box-shadow so

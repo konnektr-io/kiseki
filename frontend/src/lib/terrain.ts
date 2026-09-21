@@ -7,6 +7,7 @@
  * stays *below* the route and the markers in the layer stack.
  */
 import type { Map as MapLibreMap } from "maplibre-gl";
+import { globeSky, isGlobeProjection } from "./globe";
 
 /**
  * Mapterhorn — free, keyless, terrarium-encoded, BSD-3 (verified 2026-09-01
@@ -217,16 +218,28 @@ function attachTerrainOnPitch(map: MapLibreMap, exaggeration: number): void {
   let attached = false;
   const attach = () => {
     if (attached) return;
+    // Terrain yields to the globe (#361 slice 3): an extruded mesh under a
+    // globe projection is the fight atmosphere loses — hillshade and contours
+    // (2D layers) stay, the 3D mesh waits. The listener stays armed (no
+    // `attached = true`, no `off`) so a level switch back to Mercator still
+    // attaches on the next tilt.
+    if (isGlobeProjection(map)) return;
     attached = true;
-    map.setTerrain({ source: DEM_SOURCE_ID, exaggeration });
-    // Without a sky, tilting shows the page background above the horizon. There
-    // is no `sky` LAYER in MapLibre — it is a root-level object.
-    map.setSky({
-      "sky-color": "#c8d4e3",
-      "horizon-color": "#f6f3ee",
-      "sky-horizon-blend": 0.6,
-      "horizon-fog-blend": 0.6,
-    });
+    try {
+      map.setTerrain({ source: DEM_SOURCE_ID, exaggeration });
+      // Without a sky, tilting shows the page background above the horizon. There
+      // is no `sky` LAYER in MapLibre — it is a root-level object. Colours are
+      // the shared globe tokens (lib/globe.ts), never hex in map code.
+      const { sky, horizon } = globeSky(map.getContainer());
+      map.setSky({
+        "sky-color": sky,
+        "horizon-color": horizon,
+        "sky-horizon-blend": 0.6,
+        "horizon-fog-blend": 0.6,
+      });
+    } catch {
+      /* a tilt without a mesh still leaves the route and the markers */
+    }
     map.off("pitchstart", attach);
   };
   if (map.getPitch() > 0) attach();

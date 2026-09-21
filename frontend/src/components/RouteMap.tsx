@@ -37,6 +37,7 @@ import {
 import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
+import { applyOverviewGlobe, clearOverviewGlobe } from "../lib/globe";
 import { mapColors } from "../lib/tokens";
 import type { TripLocation } from "../lib/types";
 
@@ -675,6 +676,11 @@ export function RouteMap({
 
     if (!levelIsDay) {
       /* ---------------- SCAN LEVEL (#92) ---------------- */
+      // #361 slice 3: the whole-trip overview renders on a globe. This
+      // surface is screen-only by construction (never printed — the booklet
+      // route map is MapView, #37), so there is no pdf gate here; the day
+      // level below goes back to Mercator on every level switch.
+      applyOverviewGlobe(map, map.getContainer());
       journeyRef.current.chain.forEach((loc) => {
         const el = addPin(loc, false);
         el.addEventListener("click", () => onSelectRef.current(loc));
@@ -715,6 +721,8 @@ export function RouteMap({
       fitJourneyRef.current();
     } else {
       /* ---------------- DAY LEVEL (#90) ---------------- */
+      // That day's world stays flat — the globe is the overview's alone.
+      clearOverviewGlobe(map);
       const surface = d;
       for (const m of surface.markers) {
         if (m.role === "place") {
