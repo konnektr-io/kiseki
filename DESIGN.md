@@ -466,6 +466,8 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 
 ```
 /t/<id>               Overview    stage-aware home; jumps to the current day page while live
+/t/<id>/overview      Overview    explicit address — the nav points here while live
+                                  (the root would bounce back to today)
 /t/<id>/today         →           redirect to the current day page (same surface as any
                                   other day — no separate Today page, so the layout
                                   never diverges from the regular day view)
@@ -524,6 +526,9 @@ ago"*, or the nearest day are states of the trip, not a page of their own).
 - While `stage === 'live'` and today falls inside the range, the trip root jumps
   to the current day page and a **Today** shortcut appears in the nav *alongside*
   Overview (never instead of it). Outside that window it isn't shown at all.
+- Today's day reuses the day layout verbatim, but it keeps the **top-level**
+  chrome: no DayNav prev/up/next bar (the bottom nav covers the page), and
+  the phone sheet opens at the `full` detent.
 - The itinerary marks today and scrolls to it.
 - **Resolve against the trip's timezone, not the viewer's.** Today in Hokkaido is not today in
   Belgium. Needs an optional IANA `timezone` on the trip, falling back to viewer-local. Don't

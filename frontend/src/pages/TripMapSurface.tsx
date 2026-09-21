@@ -9,7 +9,7 @@ import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
-import { formatDay } from "../lib/dates";
+import { formatDay, shouldShowToday, todayDayIdx } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
 import { withDayFields } from "../lib/editing";
 import { useCanEdit } from "../components/edit-mode";
@@ -404,6 +404,15 @@ export function TripMapSurface() {
   const rawIdx = isDayRoute ? location.pathname.match(/\/day\/(\d+)$/)?.[1] : undefined;
   const dayIdx = isDayRoute ? parseDayIdx(rawIdx, trip.days.length) : null;
 
+  /* ---- today's own day: same day surface, top-level chrome ----
+   *  The day layout is reused verbatim, but the day-level DayNav bar stays
+   *  off (TripLayout's bottom nav covers the page instead) and the phone
+   *  sheet opens all the way up. Same gate as the nav shortcut (live +
+   *  today has a day to open) so a date-matching day off-live is just a day.
+   */
+  const todayIdx = shouldShowToday(trip) ? todayDayIdx(trip) : null;
+  const isTodayPage = dayIdx != null && todayIdx != null && dayIdx === todayIdx;
+
   const journey = useMemo(() => tripJourney(trip), [trip]);
   const day = useMemo(
     () => (dayIdx != null ? daySurface(trip, dayIdx) : null),
@@ -412,7 +421,7 @@ export function TripMapSurface() {
 
   /* ---- scan-level state ---- */
   const [selected, setSelected] = useState<TripLocation | null>(null);
-  const [detent, setDetent] = useState<Detent>("half");
+  const [detent, setDetent] = useState<Detent>(() => (isTodayPage ? "full" : "half"));
   /** The chapters currently in view (scroll-spy) → their places' pins stay raised. */
   const [spySections, setSpySections] = useState<Set<number>>(new Set());
   /* ---- day-level state ---- */
@@ -435,12 +444,19 @@ export function TripMapSurface() {
     setSpySections(new Set());
   }, [dayIdx]);
 
+  /** Today opens all the way up: arriving on today's day (mount or day → day
+   *  navigation — the surface stays mounted between levels) raises the phone
+   *  sheet to full. Leaving today never yanks the sheet back down. */
+  useEffect(() => {
+    if (isTodayPage) setDetent("full");
+  }, [isTodayPage]);
+
   /** Marker tap at scan level: toggle the place and raise the sheet. The
    *  rail list stays mounted — the scroll effect below brings the place's
    *  pill into view. */
   const selectFromMap = (loc: TripLocation) => {
     setSelected((prev) => togglePlaceSelection(prev, loc));
-    setDetent("half");
+    setDetent(isTodayPage ? "full" : "half");
   };
 
   /* Scan-level pin tap → pill scroll: when a place becomes selected on the
@@ -473,7 +489,7 @@ export function TripMapSurface() {
       return;
     }
     setActiveBlock(blockId);
-    setDetent("half");
+    setDetent(isTodayPage ? "full" : "half");
     // The card scroll happens after the content is committed; rAF so the DOM
     // is settled.
     requestAnimationFrame(() => {
@@ -694,7 +710,8 @@ export function TripMapSurface() {
       activeBlock={activeBlock}
       onCardTap={tapCard}
       scrollRootRef={listRef}
-      sheetNav={surfaceMode === "sheet"}
+      // Today's day keeps the top-level bottom nav instead of the DayNav bar.
+      sheetNav={surfaceMode === "sheet" && !isTodayPage}
       sheetSticky={surfaceMode === "sheet"}
     />
   ) : (
@@ -722,9 +739,10 @@ export function TripMapSurface() {
         content={content}
         /* #104: the day level's prev/up/next bar rides OUTSIDE the scroller
            (desktop + landscape-phone footer slot) so it pins flush to the rail
-           edge; the phone sheet keeps the bar in-flow sticky instead. */
+           edge; the phone sheet keeps the bar in-flow sticky instead.
+           Today's day shows neither — the top-level bottom nav covers it. */
         footer={
-          isDayRoute && dayIdx != null && surfaceMode !== "sheet" ? (
+          isDayRoute && dayIdx != null && surfaceMode !== "sheet" && !isTodayPage ? (
             <DayNav trip={trip} tripId={tripId} dayIdx={dayIdx} />
           ) : undefined
         }

@@ -356,6 +356,11 @@ describe("TripLayout", () => {
     expect(todayNavTo(live)).toBe("day/0");
     // Overview stays (the live swap that hid it is gone)…
     expect(text()).toContain("Overview");
+    // …and it points at the explicit overview address, NOT the trip root:
+    // the root jumps to today while live, so "" would bounce straight back.
+    const overview = container.querySelector(`a[href="/t/${TRIP.id}/overview"]`);
+    expect(overview, "the Overview link lands on the overview").not.toBeNull();
+    expect(overview!.textContent).toContain("Overview");
     // …and Today jumps straight to the current day page — the same surface
     // as any other day, not a separate page.
     const today = container.querySelector(`a[href="/t/${TRIP.id}/day/0"]`);
