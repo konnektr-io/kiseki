@@ -668,19 +668,32 @@ idea.** Formalize it:
 - Cluster below the zoom where pins collide; the cluster shows a count, not a number range.
 - **On-map labels** (2026-09, #357): numbered pills (`3 · Healesville`) below their pins, in the
   trip's own vocabulary — `bg-surface/90` + `text-foreground` + the §2.4 floating recipe,
-  `font-heading` — so the label and the pin can never read as two places. Deterministic display
+  `font-heading` — so the label and the pin can never read as two places. The pill anchors
+  `top` with `MAP_LABEL_PIN_OFFSET_PX = 15` (2026-09, #361: was 26, read as a detached bubble;
+  15 sits just below the 28px visible pin). Deterministic display
   rule (`selectMapLabels`, pinned by test): at most 8 labels, the selected pin always wins, and
   below zoom 2 the whole layer drops while the pins stay. Labels are `pointer-events-none`;
   the drive-time chip is DOM chrome above the canvas, so a label can never cover it.
+- **Overview labels need no tap** (2026-09, #361): the whole-trip overview (scan level +
+  feature map) rebuilds the capped label layer on camera settle (`moveend`) with no selection,
+  so the top-8 chain stops are named as soon as the camera rests. Selected-first still applies
+  once there is a selection; cap 8 and the zoom floor stand; the day level keeps its
+  focus-driven behaviour.
 
 **Two marker roles (2026-09, #90/#92).** The numbered pin stays the *place* marker — stays,
 gateways and journey stops — on every surface, print included. The **day level** of the map
 surface adds a second
-role for *things that happen*: activities get a **letter chip** (A, B, C… in day order) with the
-matching letter on its card — a visibly different glyph shape from the round numbered pins, so
-the two roles can never be confused and no second numbering system appears on the map. Same hit
-target (44px), selection and dimming rules apply to both roles. Excursions (#91) share the
-activity role, styled as secondary markers.
+  role for *things that happen*: activities get a **letter chip** (A, B, C… in day order) with the
+  matching letter on its card — a visibly different glyph shape from the round numbered pins, so
+  the two roles can never be confused and no second numbering system appears on the map. Same hit
+  target (44px), selection and dimming rules apply to both roles. Excursions (#91) share the
+  activity role, styled as secondary markers.
+- **Day chips name their activity** (2026-09, #361): letter chips carry letter-prefixed labels
+  (`A · Hotel X` via `selectChipLabels`/`formatChipLabel`/`makeMapChipLabelElement` — the same
+  pill vocabulary and the same discipline: focused chip first, cap ~8, collision zoom floor,
+  `pointer-events-none`). The letter rides its own square badge matching the card's inline badge,
+  so the label reads as the chip's, never as a numbered place. Excursion diamonds stay
+  label-free — no ordinal, no label.
 
 ### 8.4 Routes
 
@@ -698,6 +711,15 @@ activity role, styled as secondary markers.
   "train = solid + dot pattern" distinction is **not implemented** and the sentence is
   re-scoped to say so: mode reads from the glyph, not the dash (next point). Width no longer
   varies by stage — stage speaks through dash + opacity only (§5.3).
+- **Flight/ferry legs match via airport gateways** (2026-09, #361): a chain leg A→B matches a
+  **flight/ferry-only** block whose endpoints resolve within `GATEWAY_MATCH_KM = 50` of A and B
+  (Luchthaven Santiago ≈ 12 km from Santiago, Luchthaven Cusco ≈ 3 km from Cusco) — airports
+  are gateways, not registry places, so exact-endpoint matching could never reach them and
+  airport-paired flights drew as car routes. Exact-registry matching runs first and always wins;
+  drive/train/undeclared matching stays exact (the #91 Rogers-Pass rule is not reopened); a block
+  with an unresolvable endpoint (`from`/`to` None — BRU→SCL, Lima→home) matches nothing. The
+  matched mode flows through the existing echo (`legModes` → great-circle + glyphs at ¼/¾) and
+  `legStage` inherits the match — a matched flight reads the trip stage, never `provisional`.
 - **Transport glyphs** (2026-09, #357): each declared leg carries two small mode glyphs
   (plane/train/ferry/car — BlockGlyph's shapes and classifier) at ¼ and ¾ along the drawn
   line; short legs (< 15 km) draw none. Sprites are data-URI SVGs registered with
@@ -711,6 +733,21 @@ activity role, styled as secondary markers.
   literal belongs in map code, ever; that leak is how every trip drew Canada-blue routes.
 - Markers are **DOM markers**, so their colours are plain Tailwind utilities off `--color-marker` /
   `--color-marker-fg` and no colour is written in JS at all.
+- **The overview is a globe; everything else is flat** (2026-09, #361, supersedes #357 D1). The
+  whole-trip overview surfaces — the scan level of `RouteMap` and the OverviewPage feature map
+  (`TripMap`/`MapView`, `lib/globe.ts`) — render `setProjection({ type: "globe" })` with
+  atmosphere/sky off tokens (`--map-sky`/`--map-horizon`), never hex. Screen-only by
+  construction: the day level, compact card minimaps, `LandingMap`/`HomeMap`, and the ENTIRE
+  print path stay Mercator (gated off `isPdfRender` the way the camera already is — SwiftShader
+  + globe shaders is a failure mode the booklet must never see). `fitBounds` framing and the
+  `unfoldLngs` shortest-arc logic were re-verified against the globe rather than assumed; if
+  globe and terrain exaggeration fight, terrain yields (§8.6). There is deliberately no per-trip
+  projection knob — globe is a property of the overview surface, not of a trip.
+- **Photo+track blocks print both** (2026-09, #361): when a block carries images AND a GPX track,
+  the booklet shows photos plus a print-only track minimap (`MapView` compact with `tracks`,
+  `hidden print:block` after the photos — the booklet's existing print vocabulary, nothing
+  invented). Screen behaviour is unchanged: photos + stats, no duplicate minimap beside the live
+  surface (#305 stands).
 
 ### 8.5 Map legibility floor
 

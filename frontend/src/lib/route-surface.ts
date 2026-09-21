@@ -144,6 +144,55 @@ export function blockEndpoints(
 }
 
 /**
+ * Gateway proximity for flight/ferry matching (#361 slice 4): a chain leg
+ * A→B matches a flight/ferry block whose endpoints resolve within this many
+ * kilometres of A and B. Airports sit outside the cities they serve
+ * (Luchthaven Santiago ≈ 20 km from Santiago, Luchthaven Cusco ≈ 5 km from
+ * Cusco), so exact-registry matching never fires for them and the leg falls
+ * back to a car route with no mode — the Chile-Peru dashed-coast-line defect.
+ */
+export const GATEWAY_MATCH_KM = 50;
+
+function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad;
+  const dLng = (bLng - aLng) * rad;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(s));
+}
+
+function withinGatewayKm(a: TripLocation, b: TripLocation): boolean {
+  if (a.lat == null || a.lng == null || b.lat == null || b.lng == null) return false;
+  return haversineKm(a.lat, a.lng, b.lat, b.lng) <= GATEWAY_MATCH_KM;
+}
+
+/**
+ * Do a block's resolved endpoints sit at the leg's ends, gateway-close?
+ *
+ * Flight/ferry ONLY — drive/train/undeclared matching stays exact-registry
+ * (the #91/Rogers-Pass rule is load-bearing and is NOT reopened: road prose
+ * must never claim a leg). Direction-insensitive, like the exact match.
+ *
+ * A block with an unresolvable endpoint (explicit `from`/`to` naming nothing
+ * in the registry and no title fallback — e.g. BRU→SCL, where Brussels is not
+ * a trip place) matches nothing: there is no origin to draw from, and that is
+ * correct behaviour, not a second bug.
+ */
+export function gatewayMatch(
+  from: TripLocation,
+  to: TripLocation,
+  eFrom: TripLocation,
+  eTo: TripLocation,
+): boolean {
+  return (
+    (withinGatewayKm(from, eFrom) && withinGatewayKm(to, eTo)) ||
+    (withinGatewayKm(from, eTo) && withinGatewayKm(to, eFrom))
+  );
+}
+
+/**
  * The transport block that describes the leg between two places, if any.
  *
  * Matched on ENDPOINTS, not on "names both places". A drive titled
@@ -151,14 +200,28 @@ export function blockEndpoints(
  * touches-both match hands the same card to the Revelstoke → Rogers Pass leg
  * as well: two rows, same text, and a leg claiming a status it was never
  * given. Direction-insensitive, because a leg is drawn once.
+ *
+ * Exact-registry matching runs first and always wins. Only when nothing
+ * matches exactly does the gateway pass run — flight/ferry blocks whose
+ * airport endpoints sit within GATEWAY_MATCH_KM of the leg's city ends
+ * (#361 slice 4). The matched mode flows through the existing plumbing
+ * (`legModes` echo → great-circle + glyphs); `legStage` inherits the match,
+ * which is honest: a matched flight IS planned travel, not a chain gap.
  */
 export function legBlock(trip: Trip, from: TripLocation, to: TripLocation): Block | undefined {
   if (from === to) return undefined;
-  return allBlocks(trip).find((b) => {
-    if (b.kind !== "transport") return false;
+  const transports = allBlocks(trip).filter((b) => b.kind === "transport");
+  const exact = transports.find((b) => {
     const e = blockEndpoints(trip, b);
     if (!e.from || !e.to) return false;
     return (e.from === from && e.to === to) || (e.from === to && e.to === from);
+  });
+  if (exact) return exact;
+  return transports.find((b) => {
+    if (b.mode !== "flight" && b.mode !== "ferry") return false;
+    const e = blockEndpoints(trip, b);
+    if (!e.from || !e.to) return false;
+    return gatewayMatch(from, to, e.from, e.to);
   });
 }
 

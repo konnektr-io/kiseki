@@ -8,6 +8,7 @@ import {
   formatMapLabel,
   locationStage,
   MAP_LABEL_MAX,
+  MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
   MAP_STYLE_URL,
   markerNumber,
@@ -398,6 +399,38 @@ describe("on-map labels (#357 slice 2)", () => {
 
   it("numbers the prefix like the pin so label and pin read as one place", () => {
     expect(formatMapLabel(3, "Healesville")).toBe("3 · Healesville");
+  });
+
+  it("overview settle without selection names the first 8 chain stops (#361 slice 2)", () => {
+    // The scan-level and feature-map settle rebuilds pass NO selection, so
+    // the capped layer is the chain-order head — the overview names its
+    // places without a tap. Selected-first still applies once tapped
+    // (above), the cap stands, and the zoom floor still drops the layer.
+    const chain = [
+      "Santiago",
+      "Valparaiso",
+      "La Serena",
+      "Antofagasta",
+      "Iquique",
+      "Arica",
+      "Arequipa",
+      "Cusco",
+      "Puno",
+      "Lima",
+      "Huaraz",
+      "Trujillo",
+    ];
+    expect(selectMapLabels(chain, null, 4)).toEqual(chain.slice(0, MAP_LABEL_MAX));
+    expect(selectMapLabels(chain, null, 4)).toHaveLength(MAP_LABEL_MAX);
+  });
+
+  it("sits the pill just below its pin so it reads as a label (#361 slice 1)", () => {
+    // ~14–16px: below the 28px visible pin (bottom edge +14), overlapping
+    // only the transparent 44px hit padding (ends +22) — taps still land
+    // because labels are pointer-events-none, and the drive-time chip is DOM
+    // chrome above the canvas, so a label can never cover it.
+    expect(MAP_LABEL_PIN_OFFSET_PX).toBeGreaterThanOrEqual(14);
+    expect(MAP_LABEL_PIN_OFFSET_PX).toBeLessThanOrEqual(16);
   });
 });
 

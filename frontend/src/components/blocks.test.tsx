@@ -629,6 +629,43 @@ describe("the shared media strip renders on every block kind (#303)", () => {
     expect(both).not.toContain("minimap");
   });
 
+  it("keeps the GPX in the booklet when a block carries photos AND a track (#361 slice 5)", () => {
+    // The defect: `cardMediaNode` returned the PhotoStrip first, so a
+    // photo+track activity printed photos + stats but no track map. The fix
+    // appends a print-only minimap after the photos — screen stays
+    // photos-only (`hidden`), the booklet (`print:block`) keeps the track.
+    // MapView is mocked to null here, so the wrapper div is the assertion.
+    const html = renderWithPlaces([
+      {
+        id: "n4",
+        kind: "activity",
+        title: "Morning run with photos and GPX",
+        location: "Banff",
+        order: 0,
+        images: ["/media/t/n4.jpg"],
+        track: "morning-run.gpx",
+      } as unknown as Block,
+    ]);
+    expect(html).toContain("/media/t/n4.jpg");
+    expect(html).toContain("minimap");
+    expect(html).toContain("print:block");
+    // Photos first, track minimap after — the booklet order Niko asked for.
+    expect(html.indexOf("/media/t/n4.jpg")).toBeLessThan(html.indexOf("minimap"));
+    // Photo-only blocks are unchanged: no track, no extra minimap.
+    const photosOnly = renderWithPlaces([
+      {
+        id: "n5",
+        kind: "activity",
+        title: "Photos, no GPX",
+        location: "Banff",
+        order: 0,
+        images: ["/media/t/n5.jpg"],
+      } as unknown as Block,
+    ]);
+    expect(photosOnly).toContain("/media/t/n5.jpg");
+    expect(photosOnly).not.toContain("minimap");
+  });
+
   it("renders the strip above the card's own body", () => {
     const html = renderWithPlaces([
       {

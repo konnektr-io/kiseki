@@ -165,6 +165,16 @@ export function resolveBlockPlace(trip: Trip, b: Block): TripLocation | undefine
  *  — the surface map right beside the card is the spatial context — while the
  *  booklet keeps it (one component, a print-scope CSS rule serves both).
  *
+ *  PHOTO+TRACK (#361 slice 5): a block carrying BOTH `images` and a `track`
+ *  shows the photos AND a print-only track minimap after them. Screen stays
+ *  exactly as today (photos + the TrackCard stats strip, #305 stands — no
+ *  second map beside the live surface): the extra node is `hidden
+ *  print:block`, the booklet's existing print vocabulary, so it is
+ *  display:none on screen (the observer never fires — no WebGL cost) and
+ *  display:block under the PDF render's emulated print media
+ *  (backend/app/pdf.py), with layout size so MapView mounts eagerly via
+ *  `isPdfRender` and the map waiter covers it like every other map.
+ *
  *  KIND-AGNOSTIC (#303): `images` is a shared field on all ten block kinds and
  *  the itinerary day rows (`dayThumbnails`) already read it from every kind —
  *  so the day view must render this strip for every kind too, or a photo that
@@ -176,7 +186,21 @@ export function resolveBlockPlace(trip: Trip, b: Block): TripLocation | undefine
  *  BEFORE reserving padding for a strip that may not exist. */
 function cardMediaNode(trip: Trip, b: Block): ReactNode {
   if (b.images?.length) {
-    return <PhotoStrip images={b.images} alt={b.title ?? ""} />;
+    const strip = <PhotoStrip images={b.images} alt={b.title ?? ""} />;
+    // #361 slice 5: photos win the screen strip, but a recorded track with
+    // photos still earns its booklet minimap — print-only, after the photos.
+    if (!b.track) return strip;
+    const tracks = [b.track];
+    const place = b.location ? findLocation(trip, b.location) : resolveBlockPlace(trip, b);
+    const places = place?.lat != null && place.lng != null ? [place.name] : [];
+    return (
+      <>
+        {strip}
+        <div className="minimap mb-3 hidden h-24 w-full overflow-hidden rounded-lg border border-border print:block">
+          <MapView places={places} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
+        </div>
+      </>
+    );
   }
   const tracks = b.track ? [b.track] : undefined;
   const place = b.location ? findLocation(trip, b.location) : resolveBlockPlace(trip, b);

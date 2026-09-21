@@ -4,6 +4,8 @@ import {
   blockPlaces,
   dayRangeLabel,
   daysAtLocation,
+  GATEWAY_MATCH_KM,
+  gatewayMatch,
   greatCircle,
   isRegistryScaffold,
   journeyOrder,
@@ -336,6 +338,105 @@ describe("blockEndpoints", () => {
   });
 });
 
+describe("legBlock gateway matching (#361 slice 4: airports are gateways)", () => {
+  // City pair with their real airports: SCL ≈ 12.5 km from Santiago, CUZ ≈
+  // 3.1 km from Cusco — both inside GATEWAY_MATCH_KM (50). The far airport is
+  // ≈ 130 km out. Neutral titles throughout: blockEndpoints falls back to
+  // title prose, and these tests isolate the endpoint proximity rule.
+  const santiago = loc("Santiago", -33.4489, -70.6693);
+  const cusco = loc("Cusco", -13.5319, -71.9675);
+  const scl = loc("Luchthaven Santiago", -33.3929, -70.7856);
+  const cuz = loc("Luchthaven Cusco", -13.5357, -71.9388);
+  const far = loc("Far Airport", -34.6, -70.9);
+
+  const gatewayTrip = (blocks: Block[]): Trip =>
+    ({
+      id: "t-gw",
+      slug: "gateway",
+      title: "Gateway",
+      stage: "planned",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [santiago, cusco, scl, cuz, far],
+      sections: [],
+      days: [dayAt(0, "Travel day", blocks)],
+    }) as unknown as Trip;
+
+  it(`matches a flight whose airports sit within ${GATEWAY_MATCH_KM} km of the cities`, () => {
+    const t = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Morning flight", from: "Luchthaven Santiago", to: "Luchthaven Cusco" },
+    ]);
+    expect(legBlock(t, santiago, cusco)?.id).toBe("f");
+  });
+
+  it("matches a ferry the same way — the rule is flight/ferry only", () => {
+    const t = gatewayTrip([
+      { id: "f", kind: "transport", mode: "ferry", title: "Morning crossing", from: "Luchthaven Santiago", to: "Luchthaven Cusco" },
+    ]);
+    expect(legBlock(t, santiago, cusco)?.id).toBe("f");
+  });
+
+  it("matches regardless of direction", () => {
+    const t = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Morning flight", from: "Luchthaven Santiago", to: "Luchthaven Cusco" },
+    ]);
+    expect(legBlock(t, cusco, santiago)?.id).toBe("f");
+  });
+
+  it("above-threshold airports do NOT match", () => {
+    const t = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Morning flight", from: "Far Airport", to: "Luchthaven Cusco" },
+    ]);
+    expect(legBlock(t, santiago, cusco)).toBeUndefined();
+  });
+
+  it.each(["drive", "train", undefined] as const)(
+    "a %s block never proximity-matches — exact-registry only (#91 stands)",
+    (mode) => {
+      const t = gatewayTrip([
+        { id: "d", kind: "transport", mode: mode, title: "Morning run", from: "Luchthaven Santiago", to: "Luchthaven Cusco" } as Block,
+      ]);
+      expect(legBlock(t, santiago, cusco)).toBeUndefined();
+    },
+  );
+
+  it("a block with an unresolvable endpoint matches nothing (from None / to None)", () => {
+    // BRU→SCL in the live data: Brussels is not a registry place, so `from`
+    // resolves to nothing — no origin to draw from. Correct, not a bug.
+    const noFrom = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Outbound flight", from: "Brussels", to: "Luchthaven Cusco" },
+    ]);
+    expect(legBlock(noFrom, santiago, cusco)).toBeUndefined();
+    const noTo = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Home flight", from: "Luchthaven Santiago", to: "Home" },
+    ]);
+    expect(legBlock(noTo, santiago, cusco)).toBeUndefined();
+  });
+
+  it("exact matching still wins over proximity", () => {
+    const t = gatewayTrip([
+      { id: "gw", kind: "transport", mode: "flight", title: "Morning flight", from: "Luchthaven Santiago", to: "Luchthaven Cusco" },
+      { id: "ex", kind: "transport", mode: "flight", title: "City hop", from: "Santiago", to: "Cusco" },
+    ]);
+    // Gateway block listed first — priority is by match kind, not position.
+    expect(legBlock(t, santiago, cusco)?.id).toBe("ex");
+  });
+
+  it("legStage inherits the gateway match — a matched flight is not provisional", () => {
+    const t = gatewayTrip([
+      { id: "f", kind: "transport", mode: "flight", title: "Morning flight", from: "Luchthaven Santiago", to: "Luchthaven Cusco" },
+    ]);
+    expect(legStage(t, santiago, cusco)).toMatchObject({ stage: "planned", block: { id: "f" } });
+  });
+
+  it("gatewayMatch is direction-insensitive and refuses a half-near pair", () => {
+    expect(gatewayMatch(santiago, cusco, scl, cuz)).toBe(true);
+    expect(gatewayMatch(santiago, cusco, cuz, scl)).toBe(true);
+    expect(gatewayMatch(santiago, cusco, far, cuz)).toBe(false);
+  });
+});
+
 describe("stageToLegStage", () => {
   it("treats the pre-commitment stages as provisional", () => {
     expect(stageToLegStage("idea")).toBe("provisional");
@@ -627,12 +728,16 @@ describe("tripJourney (#91: chain + excursions)", () => {
       "Machu Picchu",
       "Lima",
     ]);
-    // Booked drive in; the overnight hop to the valley has no single speaking
-    // card; the Cusco arrival drive speaks (trip stage = planned); the train
-    // hops and the to-only Lima flight leave honest gaps.
+    // Booked drive in; the overnight flight gateway-matches the valley hop
+    // (#361 slice 4: Santiago≈Valle Nevado 46 km, Cusco≈Sacred Valley 33 km —
+    // both inside the 50 km gateway rule), so the hop reads the trip stage
+    // instead of provisional. Honest: the leg's long-haul travel IS that
+    // flight, and a 2,500 km car route would be the lie. The Cusco arrival
+    // drive speaks (trip stage = planned); the train hops and the to-only
+    // Lima flight leave honest gaps.
     expect(j.legs.map((l) => [`${l.from.name}→${l.to.name}`, l.stage])).toEqual([
       ["Santiago→Valle Nevado", "booked"],
-      ["Valle Nevado→Sacred Valley", "provisional"],
+      ["Valle Nevado→Sacred Valley", "planned"],
       ["Sacred Valley→Cusco", "planned"],
       ["Cusco→Machu Picchu", "provisional"],
       ["Machu Picchu→Lima", "provisional"],

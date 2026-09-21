@@ -20,13 +20,13 @@ import { describe, expect, it, vi } from "vitest";
  * touches none of its internals (same pattern as blocks.test.tsx).
  */
 const { tripMapCalls } = vi.hoisted(() => ({
-  tripMapCalls: [] as { places: string[]; loop: boolean }[],
+  tripMapCalls: [] as { places: string[]; loop: boolean; globe?: boolean }[],
 }));
 
 vi.mock("../components/MapView", () => ({
   MapView: () => null,
-  TripMap: (props: { places: string[]; loop?: boolean }) => {
-    tripMapCalls.push({ places: props.places, loop: props.loop ?? false });
+  TripMap: (props: { places: string[]; loop?: boolean; globe?: boolean }) => {
+    tripMapCalls.push({ places: props.places, loop: props.loop ?? false, globe: props.globe });
     return null;
   },
 }));
@@ -385,5 +385,18 @@ describe("OverviewPage feature map matches the itinerary chain", () => {
     // Two stops never close the loop (returnsToStart needs 3+ chain stops
     // on 4+ days) — no phantom leg home.
     expect(tripMapCalls[0].loop).toBe(false);
+  });
+
+  it("the feature map is an overview surface: it takes the globe (#361 slice 3)", () => {
+    tripMapCalls.length = 0;
+    renderToString(
+      createElement(TripProvider, {
+        trip: CHAIN_TRIP,
+        apply: () => {},
+        children: createElement(MemoryRouter, null, createElement(OverviewPage)),
+      }),
+    );
+    expect(tripMapCalls).toHaveLength(1);
+    expect(tripMapCalls[0].globe).toBe(true);
   });
 });

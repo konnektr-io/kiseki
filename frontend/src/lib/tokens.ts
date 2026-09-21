@@ -22,7 +22,7 @@ export interface MapColors {
   markerFg: string;
 }
 
-function readVar(el: Element, name: string, fallback: string): string {
+export function readTokenVar(el: Element, name: string, fallback: string): string {
   const value = getComputedStyle(el).getPropertyValue(name).trim();
   return value || fallback;
 }
@@ -36,9 +36,9 @@ function readVar(el: Element, name: string, fallback: string): string {
  */
 export function mapColors(el: Element): MapColors {
   return {
-    route: readVar(el, "--map-route", "currentColor"),
-    routeCasing: readVar(el, "--map-route-casing", "currentColor"),
-    marker: readVar(el, "--map-marker", "currentColor"),
-    markerFg: readVar(el, "--map-marker-fg", "currentColor"),
+    route: readTokenVar(el, "--map-route", "currentColor"),
+    routeCasing: readTokenVar(el, "--map-route-casing", "currentColor"),
+    marker: readTokenVar(el, "--map-marker", "currentColor"),
+    markerFg: readTokenVar(el, "--map-marker-fg", "currentColor"),
   };
 }
