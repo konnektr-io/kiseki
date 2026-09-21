@@ -52,6 +52,7 @@ from typing import Any, Callable, Optional
 
 from app.config import KISEKI_GRAPH_TOKEN, KISEKI_GRAPH_URL
 from app.graph.convert import crew_edge_name
+from app.stage import effective_stage
 
 # In-process TTL cache for the hot graph reads. Trip content changes rarely
 # (content updates re-seed or kubectl-cp), and every SPA page load otherwise
@@ -395,17 +396,20 @@ RETURN collect(DISTINCT [a.`$dtId`, type(r), b.`$dtId`, r.`$relationshipId`, r.r
 
 # All trips a user has access to, reached via the `hasCrew` edge (trip -> user).
 # Returns a flat LIST per trip [dtId, visibility, title, subtitle, stage, startDate,
-# endDate, slug, cover, role, discoverable] — a list, assembled into the summary
+# endDate, slug, cover, role, discoverable, timezone] — a list, assembled into the summary
 # dict in Python (shape, not an AGE limitation: `$` keys are fine when quoted,
 # see _META_AT). `$uid` is a bound parameter.
 # `discoverable` (#196 phase B) rides along so profile listings can apply the
 # discoverable-only rule without a second query per trip.
+# `timezone` (#362) rides along so the summary can derive `effectiveStage` in
+# the trip's own calendar date — appended LAST so pre-#362 rows (10/11 wide)
+# still unpack, reading back as UTC-fallback.
 _Q_TRIPS_FOR_USER = """
 MATCH (t:Twin)-[crew:hasCrew]->(u:Twin)
 WHERE u.`$dtId` = $uid
 RETURN collect(DISTINCT [t.`$dtId`, t.visibility, t.title, t.subtitle, t.stage,
                          t.startDate, t.endDate, t.slug, t.cover, crew.role,
-                         t.discoverable]) AS trips
+                         t.discoverable, t.timezone]) AS trips
 """
 
 # The signed-out front door (#249): PUBLIC, DISCOVERABLE trips as cards —
@@ -427,7 +431,7 @@ WHERE t.visibility = 'public' AND t.discoverable = true
 RETURN t.`$dtId` AS dtId, t.visibility AS visibility,
        t.discoverable AS discoverable, t.title AS title,
        t.subtitle AS subtitle, t.stage AS stage, t.startDate AS startDate,
-       t.endDate AS endDate, t.cover AS cover
+       t.endDate AS endDate, t.cover AS cover, t.timezone AS timezone
 LIMIT {limit}
 """
 
@@ -1730,14 +1734,20 @@ class GraphReadClient:
             return None
         if row.get("visibility") != "public" or row.get("discoverable") is not True:
             return None
+        tz = row.get("timezone")
         return {
             "dtId": dt_id,
             "title": row.get("title") or "",
             "subtitle": row.get("subtitle") or "",
             "stage": row.get("stage") or "",
+            "effectiveStage": effective_stage(
+                row.get("stage") or "", row.get("startDate"), row.get("endDate"),
+                tz if isinstance(tz, str) else None,
+            ),
             "startDate": row.get("startDate"),
             "endDate": row.get("endDate"),
             "cover": row.get("cover"),
+            "timezone": tz,
         }
 
     @staticmethod
@@ -1792,12 +1802,13 @@ class GraphReadClient:
     @staticmethod
     def _trip_summary_from_list(row: Any) -> dict:
         """Map a [dtId, visibility, title, subtitle, stage, start, end, slug,
-        cover, role, discoverable] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
+        cover, role, discoverable, timezone] row (from ``_Q_TRIPS_FOR_USER``) into a trip summary dict.
 
         The query returns a plain list (shape — `$` keys are fine when quoted, see
         ``_META_AT``) and we name the fields here. ``$model`` is set so the caller's model-kind
         guard works uniformly. Pre-#196-phase-B rows (10 wide, no discoverable)
-        read back as ``discoverable: False``.
+        read back as ``discoverable: False``; pre-#362 rows (10/11 wide, no
+        timezone) derive ``effectiveStage`` on UTC.
         """
         if not isinstance(row, (list, tuple)):
             return {}
@@ -1806,6 +1817,7 @@ class GraphReadClient:
             start, end, slug, cover, role,
         ) = (list(row) + [None] * 10)[:10]
         discoverable = row[10] if isinstance(row, (list, tuple)) and len(row) > 10 else None
+        tz = row[11] if isinstance(row, (list, tuple)) and len(row) > 11 else None
         return {
             "$dtId": dt_id,
             "$model": TRIP_MODEL,
@@ -1814,12 +1826,14 @@ class GraphReadClient:
             "title": title,
             "subtitle": subtitle,
             "stage": stage,
+            "effectiveStage": effective_stage(stage, start, end, tz if isinstance(tz, str) else None),
             "startDate": start,
             "endDate": end,
             "slug": slug,
             "cover": cover,
             "role": role,
             "discoverable": bool(discoverable),
+            "timezone": tz,
         }
 
     @staticmethod

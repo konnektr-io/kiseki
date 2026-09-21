@@ -1,4 +1,4 @@
-import type { Trip } from "./types";
+import type { Stage, Trip } from "./types";
 import { expandSectionDays } from "./sections";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -37,8 +37,16 @@ export function formatMoney(cost?: number, currency?: string): string | null {
 /* Today / timezone-aware helpers (issue #42)                        */
 /* ------------------------------------------------------------------ */
 
+/** Minimal date surface for the today helpers — nullable so cards,
+ *  summaries and documents all fit (#362). */
+export interface DateCarrier {
+  startDate?: string | null;
+  endDate?: string | null;
+  timezone?: string | null;
+}
+
 /** Trip-local "today" as YYYY-MM-DD, resolved in the trip's IANA timezone when set. */
-export function tripTodayIso(trip: Pick<Trip, "timezone">, now = new Date()): string {
+export function tripTodayIso(trip: DateCarrier, now = new Date()): string {
   const tz = trip.timezone?.trim();
   if (tz) {
     try {
@@ -69,15 +77,32 @@ export function tripTodayIso(trip: Pick<Trip, "timezone">, now = new Date()): st
 }
 
 /** True when today (trip-local) lies within [startDate, endDate] inclusive. */
-export function isTodayInRange(trip: Pick<Trip, "startDate" | "endDate" | "timezone">, todayIso?: string): boolean {
+export function isTodayInRange(trip: DateCarrier, todayIso?: string): boolean {
   if (!trip.startDate || !trip.endDate) return false;
   const today = todayIso ?? tripTodayIso(trip);
   return today >= trip.startDate && today <= trip.endDate;
 }
 
+/** The stage a carrier reads as — the "happening now" decision (#362).
+ *
+ *  Prefers the server's `effectiveStage` (trip-local derivation); falls back
+ *  to the same rule locally so older servers still flip. Stored `stage` is
+ *  authorial intent (badges, settings); this is what Today / Up-next follow.
+ */
+export type StageCarrier = DateCarrier & {
+  stage: Stage;
+  effectiveStage?: Stage;
+};
+
+export function displayStage(t: StageCarrier): Stage {
+  if (t.effectiveStage) return t.effectiveStage;
+  if ((t.stage === "planned" || t.stage === "booked") && isTodayInRange(t)) return "live";
+  return t.stage;
+}
+
 /** True when the Today surface should be offered (live + in-range). */
-export function shouldShowToday(trip: Pick<Trip, "stage" | "startDate" | "endDate" | "timezone">, todayIso?: string): boolean {
-  return trip.stage === "live" && isTodayInRange(trip, todayIso);
+export function shouldShowToday(trip: StageCarrier, todayIso?: string): boolean {
+  return displayStage(trip) === "live" && isTodayInRange(trip, todayIso);
 }
 
 function daysBetween(aIso: string, bIso: string): number | null {

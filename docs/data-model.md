@@ -25,6 +25,17 @@ Trip
 A trip moves through a stage ladder — `idea → options → shortlist → planned → booked → live` — and
 the surfaces adapt to it (what is editable, what the landing page shows, what the booklet emphasises).
 
+`stage` on the twin is authorial intent: it changes only through an explicit
+owner/editor write, and `archive` is terminal (freezing stays deliberate).
+`effectiveStage` is the calendar's vote, derived on every read (#362): a
+`planned`/`booked` trip whose trip-local today (`timezone`, else UTC) falls
+inside `[startDate, endDate]` reads as `live` without any write. `idea` /
+`options` / `shortlist` and undated trips never auto-live. Surfaces that
+answer "happening now" (Today, Up-next) follow `effectiveStage` via the
+frontend's `displayStage()`; badges and settings keep showing stored `stage`.
+The derivation lives in `backend/app/stage.py` — read-path only, never
+persisted, never in DTDL.
+
 ### Blocks
 
 Blocks are the atoms of a day, and they are **typed**, not free text. Each block kind carries only

@@ -19,7 +19,7 @@ import {
   fetchTripGeo,
   followPublicTrip,
 } from "../lib/api";
-import { formatDate, tripTodayIso } from "../lib/dates";
+import { displayStage, formatDate, tripTodayIso } from "../lib/dates";
 import { isAuthConfigured, isSessionExpiredError } from "../lib/auth";
 import {
   activeFacetCount,
@@ -1305,7 +1305,7 @@ function AuthenticatedLanding() {
         {/* A live trip's useful destination is TODAY, not its overview — the
             day it is on right now. Same rule as the trip nav's live swap
             (§7.5): while it is happening, "today" is the surface you want. */}
-        {nextUp.stage === "live" && (
+        {displayStage(nextUp) === "live" && (
           <>
             {" · "}
             <Link

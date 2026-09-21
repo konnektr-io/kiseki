@@ -113,6 +113,7 @@ def test_card_mapper_returns_an_allowlist_not_the_row() -> None:
             "startDate": "2027-02-15",
             "endDate": "2027-03-02",
             "cover": "/media/trip-1/cover.jpg",
+            "timezone": "America/Toronto",
             # none of these are part of the read, but a query edit could add
             # them — the mapper is what stops them leaving the process:
             "claimToken": "secret",
@@ -126,9 +127,11 @@ def test_card_mapper_returns_an_allowlist_not_the_row() -> None:
         "title",
         "subtitle",
         "stage",
+        "effectiveStage",
         "startDate",
         "endDate",
         "cover",
+        "timezone",
     }
 
 

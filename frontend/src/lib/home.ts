@@ -1,4 +1,5 @@
 import type { Stage, TripSummary, Visibility } from "./types";
+import { displayStage } from "./dates";
 import { sortShowcaseTrips } from "./marketing";
 
 /**
@@ -22,7 +23,8 @@ import { sortShowcaseTrips } from "./marketing";
 
 /** Up next: the live trip, else the soonest-starting non-archived trip with a date. */
 export function nextUpTrip(trips: readonly TripSummary[]): TripSummary | null {
-  const live = trips.find((t) => t.stage === "live");
+  // #362: liveness follows the derived stage (booked-but-in-range reads live).
+  const live = trips.find((t) => displayStage(t) === "live");
   if (live) return live;
   let best: TripSummary | null = null;
   for (const t of trips) {
@@ -34,7 +36,7 @@ export function nextUpTrip(trips: readonly TripSummary[]): TripSummary | null {
 
 /** "Happening now" / "Starts tomorrow" / "Starts in 12 days" / "Started Mar 2". */
 export function upNextLabel(trip: TripSummary, todayIso: string): string {
-  if (trip.stage === "live") return "Happening now";
+  if (displayStage(trip) === "live") return "Happening now";
   if (!trip.startDate) return "";
   if (trip.startDate === todayIso) return "Starts today";
   if (trip.startDate > todayIso) {
