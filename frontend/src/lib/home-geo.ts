@@ -1,4 +1,5 @@
 import type { Stage, TripGeo } from "./types";
+import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
 
 /**
  * The signed-in home's map pins (#249, slice 3).
@@ -201,4 +202,44 @@ export function isOnVisibleHemisphere(
   centerLng: number,
 ): boolean {
   return angularSeparationDeg(pinLat, pinLng, centerLat, centerLng) <= 90;
+}
+
+/**
+ * Which trip pins get a visible title label (#372 slice 2) — the landing
+ * map's half of the `selectMapLabels` display discipline, over pins instead
+ * of place names. Pure, so the rule is pinned by test and the canvas
+ * (`components/HomeMap`) only paints the answer.
+ *
+ * - At most MAX labels (the shared `MAP_LABEL_MAX` cap — one rule, not two).
+ * - The selected trip is always labelled: moved first, never capped out.
+ * - Clustered pins take NO label — a count badge is its own reading, and a
+ *   label beside a badge would read as a second index. A selected pin inside
+ *   a cluster stays quiet for the same reason; the badge is its reading.
+ * - Below the collision zoom (`MAP_LABEL_ZOOM_FLOOR`) the whole layer drops —
+ *   pins stay, labels go, selected included.
+ * - Pins with a blank title take no label: an empty pill is floating chrome,
+ *   and the anchor name already rides the pin's `aria-label`.
+ *
+ * The geometry half of "labels never cover" lives in the canvas: the pill is
+ * `pointer-events-none` below its pin (the `MAP_LABEL_PIN_OFFSET_PX` offset),
+ * and the zoom chips are DOM chrome above the canvas.
+ */
+export function selectHomeLabels(
+  pins: readonly HomeMapPin[],
+  clusteredDtIds: ReadonlySet<string> | readonly string[],
+  selectedDtId: string | null,
+  zoom: number,
+  max = MAP_LABEL_MAX,
+): HomeMapPin[] {
+  if (zoom < MAP_LABEL_ZOOM_FLOOR || pins.length === 0) return [];
+  const clustered = clusteredDtIds instanceof Set ? clusteredDtIds : new Set(clusteredDtIds);
+  const candidates = pins.filter((p) => !clustered.has(p.dtId) && p.title.trim() !== "");
+  if (selectedDtId) {
+    const i = candidates.findIndex((p) => p.dtId === selectedDtId);
+    if (i > 0) {
+      const [picked] = candidates.splice(i, 1);
+      candidates.unshift(picked);
+    }
+  }
+  return candidates.slice(0, max);
 }

@@ -57,6 +57,8 @@ const calls = vi.hoisted(() => ({
   skies: [] as unknown[],
   /** The camera centre the horizon check reads — faces both PINS by default. */
   center: { lng: -53, lat: 49 },
+  /** Map zoom the label layer reads — above the collision floor by default. */
+  zoom: 5,
 }));
 
 /** Screen position per mode: spread keeps pins apart, collide stacks them. */
@@ -136,7 +138,7 @@ vi.mock("../lib/maplibre", () => ({
         calls.jumps.push(options);
       }
       getZoom() {
-        return 5;
+        return calls.zoom;
       }
       zoomIn() {
         calls.zooms.push("in");
@@ -241,6 +243,7 @@ beforeEach(() => {
   calls.projections = [];
   calls.skies = [];
   calls.center = { lng: -53, lat: 49 };
+  calls.zoom = 5;
   webgl.ok = true;
   box.w = 390;
   box.h = 783;
@@ -300,17 +303,24 @@ describe("the real map, once it can load", () => {
     expect(calls.map!.attributionControl).toEqual({ compact: true });
   });
 
-  it("drops one stage-coloured pin per trip, and nothing else", async () => {
+  it("drops one stage-coloured pin per trip, plus its title label", async () => {
     const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    // Pins first, then their labels on the same rebuild — labels carry no
+    // accessible name of their own (the pin button is the name).
     expect(calls.markers).toEqual([
       { label: "Ski Week — Revelstoke", at: [-118.1957, 50.9981] },
       { label: "Dolomites — Val Gardena", at: [11.844, 46.4102] },
+      { label: null, at: [-118.1957, 50.9981] },
+      { label: null, at: [11.844, 46.4102] },
     ]);
     // The pin's colour is the one class map — booked filled, planned muted.
     const dots = [...el.querySelectorAll("[data-home-map] .route-pin-dot")];
     expect(dots).toHaveLength(2);
     expect(dots[0].className).toContain(pinClassForStage("booked").split(" ").pop()!);
     expect(dots[1].className).toContain(pinClassForStage("planned").split(" ").pop()!);
+    // The labels name the trips — title only, never a second stage index.
+    const labels = [...el.querySelectorAll("[data-home-map] .map-place-label")];
+    expect(labels.map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
     // Every pin is a labelled 44px button — the bands are the list equivalent,
     // but pointer and keyboard reach the same trips.
     const buttons = [...el.querySelectorAll("[data-home-map] button")];
@@ -319,9 +329,10 @@ describe("the real map, once it can load", () => {
   });
 
   it("never renders a trip the geo read did not list", async () => {
-    await mount(<HomeMap pins={[PINS[0]]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
-    expect(calls.markers).toHaveLength(1);
+    const el = await mount(<HomeMap pins={[PINS[0]]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.markers).toHaveLength(2); // the pin, plus its title label
     expect(calls.markers[0].label).not.toContain("Dolomites");
+    expect(el.textContent).not.toContain("Dolomites");
   });
 
   it("frames the pins with the sheet's padding, and centres a lone one", async () => {
@@ -438,6 +449,68 @@ describe("the landing globe (#372 slice 1)", () => {
     const badges = [...el.querySelectorAll("[data-home-map] button")];
     expect(badges).toHaveLength(1);
     expect(badges[0].getAttribute("aria-label")).toBe("2 trips — zoom in");
+  });
+});
+
+describe("trip title labels (#372 slice 2)", () => {
+  const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-home-map] .map-place-label")];
+
+  it("names each unclustered pin with its title — the pill vocabulary, paint only", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const labels = labelsOf(el);
+    expect(labels.map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
+    for (const label of labels) {
+      // The pill class carries pointer-events-none + heading font +
+      // bg-surface/90 — the label never intercepts, never recolours.
+      expect(label.className).toContain("map-place-label");
+      expect(label.getAttribute("aria-hidden")).toBe("true");
+      expect(label.querySelector(".route-pin-dot")).toBeNull();
+    }
+  });
+
+  it("labels the selected trip first and raises its pill, in place", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId="b" onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const labels = labelsOf(el);
+    expect(labels.map((l) => l.textContent)).toEqual(["Dolomites", "Ski Week"]);
+    expect(labels[0].classList.contains("is-selected")).toBe(true);
+    expect(labels[1].classList.contains("is-selected")).toBe(false);
+  });
+
+  it("restyles the pills when the selection moves, without rebuilding", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const built = calls.elements.length;
+    await act(async () => {
+      root!.render(<HomeMap pins={PINS} selectedDtId="a" onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    });
+    expect(calls.elements.length).toBe(built);
+    const labels = labelsOf(el);
+    expect(labels[0].classList.contains("is-selected")).toBe(true);
+    expect(labels[1].classList.contains("is-selected")).toBe(false);
+  });
+
+  it("clusters take no label — the count badge is the reading", async () => {
+    calls.project = "collide";
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(1);
+    expect(labelsOf(el)).toHaveLength(0);
+  });
+
+  it("drops the whole label layer below the collision zoom — pins stay", async () => {
+    calls.zoom = 1;
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(labelsOf(el)).toHaveLength(0);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(2);
+  });
+
+  it("rebuilds the labels with the markers when the view moves", async () => {
+    calls.project = "collide";
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(labelsOf(el)).toHaveLength(0);
+    calls.project = "spread";
+    await act(async () => {
+      fire("moveend");
+    });
+    expect(labelsOf(el).map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
   });
 });
 

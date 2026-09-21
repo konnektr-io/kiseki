@@ -5,8 +5,21 @@
  * browser lives here and is pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, unfoldLngs } from "./home-geo";
+import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
+import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
 import type { TripGeo } from "./types";
+
+function pin(over: Partial<HomeMapPin> & { dtId: string }): HomeMapPin {
+  return {
+    title: `Trip ${over.dtId}`,
+    stage: "booked",
+    lat: 50.9981,
+    lng: -118.1957,
+    name: "Revelstoke",
+    origin: "mine",
+    ...over,
+  };
+}
 
 function geo(over: Partial<TripGeo> & { dtId: string }): TripGeo {
   return {
@@ -195,5 +208,56 @@ describe("isOnVisibleHemisphere — the landing globe's horizon (#372 slice 1)",
 
   it("a pin at the camera centre faces it", () => {
     expect(isOnVisibleHemisphere(50.9981, -118.1957, 50.9981, -118.1957)).toBe(true);
+  });
+});
+
+describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", () => {
+  const ZOOM = MAP_LABEL_ZOOM_FLOOR + 1;
+  const ids = (pins: HomeMapPin[]) => pins.map((p) => p.dtId);
+
+  it("labels every pin when the set fits the cap", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["a", "b"]);
+  });
+
+  it("caps the layer and keeps input order past it", () => {
+    const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
+    const labelled = selectHomeLabels(pins, new Set(), null, ZOOM);
+    expect(labelled).toHaveLength(MAP_LABEL_MAX);
+    expect(ids(labelled)).toEqual(pins.slice(0, MAP_LABEL_MAX).map((p) => p.dtId));
+  });
+
+  it("moves the selected trip first and never caps it out", () => {
+    const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
+    const labelled = selectHomeLabels(pins, new Set(), `t${MAP_LABEL_MAX + 2}`, ZOOM);
+    expect(labelled).toHaveLength(MAP_LABEL_MAX);
+    expect(labelled[0].dtId).toBe(`t${MAP_LABEL_MAX + 2}`);
+  });
+
+  it("a selected pin inside a cluster stays quiet — the badge is its reading", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(["a"]), "a", ZOOM))).toEqual(["b"]);
+  });
+
+  it("clustered pins take no label", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" }), pin({ dtId: "c" })];
+    expect(ids(selectHomeLabels(pins, ["a", "b"], null, ZOOM))).toEqual(["c"]);
+    expect(selectHomeLabels(pins, ["a", "b", "c"], null, ZOOM)).toEqual([]);
+  });
+
+  it("drops the whole layer below the collision zoom — selected included", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(selectHomeLabels(pins, new Set(), "a", MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, MAP_LABEL_ZOOM_FLOOR)).toHaveLength(2);
+  });
+
+  it("never labels a blank title — the aria-label already names the anchor", () => {
+    const pins = [pin({ dtId: "a", title: "  " }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["b"]);
+  });
+
+  it("labels nothing when there is nothing", () => {
+    expect(selectHomeLabels([], new Set(), null, ZOOM)).toEqual([]);
   });
 });
