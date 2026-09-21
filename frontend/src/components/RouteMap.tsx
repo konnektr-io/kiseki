@@ -8,6 +8,7 @@ import {
   fetchRouteLegs,
   formatMapLabel,
   hasWebGL2,
+  makeMapChipLabelElement,
   makeMapLabelElement,
   MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
@@ -19,6 +20,7 @@ import {
   ROUTE_BODY_WIDTH,
   ROUTE_CASING_OPACITY,
   ROUTE_CASING_WIDTH,
+  selectChipLabels,
   selectMapLabels,
   type MapPadding,
   type RouteLeg,
@@ -154,12 +156,21 @@ export function RouteMap({
   selectedRef.current = selected;
   /** On-map label markers, owned by the level build + selection rebuilds. */
   const labelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Day-level chip label markers (#361 slice 6) — a separate layer from the
+   *  place labels above, owned by the day build + the chip-focus rebuild. */
+  const chipLabelMarkersRef = useRef<MapLibreMarker[]>([]);
   /** Transport sprite modes registered on the map (mount effect) — levels
    *  only add sources + layers on top. */
   const glyphModesRef = useRef<TransportMode[]>([]);
   /** Rebuild the label layer for a selected place — assigned by the level
    *  effect (it owns the level's place list), called by selection + zoom. */
   const rebuildLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
+  /** Rebuild the day-level chip label layer for a focused chip — assigned by
+   *  the day build (it owns the chip list), called by the chip-focus effect
+   *  so the focused chip's label always wins without rebuilding the level. */
+  const rebuildChipLabelsRef = useRef<((active: string | null) => void) | null>(null);
+  const activeBlockRef = useRef(activeBlock);
+  activeBlockRef.current = activeBlock;
 
   const isDay = day != null;
 
@@ -357,10 +368,12 @@ export function RouteMap({
         };
         map.on("zoom", syncZoom);
         syncZoom();
-        // Zoomed in from below the floor with no labels built: build them now.
+        // Zoomed in from below the floor with no labels built: build them now
+        // (either layer — a chip-only day leaves the place layer empty).
         map.on("zoomend", () => {
-          if (labelMarkersRef.current.length === 0) {
+          if (labelMarkersRef.current.length === 0 && chipLabelMarkersRef.current.length === 0) {
             rebuildLabelsRef.current?.(selectedRef.current?.name ?? null);
+            rebuildChipLabelsRef.current?.(activeBlockRef.current);
           }
         });
         const syncOriented = () => {
@@ -741,6 +754,48 @@ export function RouteMap({
       }
       buildLabels(dayByName, null);
       rebuildLabelsRef.current = (sel) => buildLabels(dayByName, sel);
+      /* Day-level chip labels (#361 slice 6): the square A/B/C activity
+       * markers name their activity in the same pill vocabulary as the place
+       * labels — letter badge + block title, capped at ~8 with the focused
+       * chip first, gone below the collision zoom (pins and chips stay).
+       * Excursion diamonds never reach this path (role "place" only draws
+       * them, and this layer only ever sees role "activity"). Anchored below
+       * the chip and pointer-events-none like the place labels, so a label
+       * never covers a pin, a chip hit target, or the drive-time chip (DOM
+       * chrome above the canvas). */
+      const chipEntries: Array<{ id: string; letter: string; title: string; place: TripLocation }> = [];
+      {
+        const dayBlocks = trip.days[dayIdxRef.current ?? -1]?.blocks ?? [];
+        const titleById = new Map(dayBlocks.map((b) => [b.id, b.title] as const));
+        for (const m of surface.markers) {
+          if (m.role !== "activity") continue;
+          if (m.place.lng == null || m.place.lat == null) continue;
+          const id = m.blockIds[0];
+          chipEntries.push({ id, letter: m.letter, title: titleById.get(id) || m.place.name, place: m.place });
+        }
+      }
+      const buildChipLabels = (active: string | null) => {
+        for (const mk of chipLabelMarkersRef.current) mk.remove();
+        chipLabelMarkersRef.current = [];
+        const byId = new Map(chipEntries.map((c) => [c.id, c] as const));
+        for (const id of selectChipLabels(chipEntries.map((c) => c.id), active, map.getZoom() ?? 0)) {
+          const c = byId.get(id);
+          if (!c) continue;
+          const el = makeMapChipLabelElement(c.letter, c.title);
+          if (id === active) el.classList.add("is-selected");
+          chipLabelMarkersRef.current.push(
+            new lib.Marker({
+              element: el,
+              anchor: "top",
+              offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+            })
+              .setLngLat([c.place.lng!, c.place.lat!])
+              .addTo(map),
+          );
+        }
+      };
+      buildChipLabels(activeBlockRef.current);
+      rebuildChipLabelsRef.current = buildChipLabels;
       if (surface.legs.length) {
         // #104: real road geometry when the backend gave it; while the fetch
         // is in flight the great-circle arc draws (the fit must not wait on
@@ -887,7 +942,10 @@ export function RouteMap({
       markers.forEach((m) => m.remove());
       for (const m of labelMarkersRef.current) m.remove();
       labelMarkersRef.current = [];
+      for (const m of chipLabelMarkersRef.current) m.remove();
+      chipLabelMarkersRef.current = [];
       rebuildLabelsRef.current = null;
+      rebuildChipLabelsRef.current = null;
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -919,6 +977,9 @@ export function RouteMap({
         const isChip = el.classList.contains("route-chip");
         el.classList.toggle("is-selected", isChip ? id === activeBlock : false);
       });
+      // The focused chip's label always wins — rebuild the capped chip layer
+      // around the new focus (chips themselves only change classes).
+      rebuildChipLabelsRef.current?.(activeBlock);
       const chip = activeBlock ? chipPosRef.current.get(activeBlock) : null;
       const map = mapRef.current;
       if (chip && map) {

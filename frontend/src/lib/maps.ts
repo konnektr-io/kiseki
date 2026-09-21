@@ -303,12 +303,53 @@ export function formatMapLabel(ordinal: number, name: string): string {
   return `${ordinal} · ${name}`;
 }
 
+/**
+ * Day-level chip labels (#361 slice 6): the same display discipline as
+ * `selectMapLabels`, over chip ids instead of place names. The focused
+ * (active) chip's label always wins; the cap and the collision zoom floor
+ * keep a dense day readable. Excursion diamonds never reach this path (no
+ * ordinal) — the chip layer only ever sees activity markers.
+ */
+export function selectChipLabels(
+  ids: string[],
+  active: string | null,
+  zoom: number,
+  max = MAP_LABEL_MAX,
+): string[] {
+  return selectMapLabels(ids, active, zoom, max);
+}
+
+/** `A · Hotel X` — the letter is the chip's identity, as the number is the pin's. */
+export function formatChipLabel(letter: string, title: string): string {
+  return `${letter} · ${title}`;
+}
+
 /** The DOM pill for an on-map label — browser-only (call inside effects). */
 export function makeMapLabelElement(text: string): HTMLDivElement {
   const el = document.createElement("div");
   el.className = "map-place-label";
   el.setAttribute("aria-hidden", "true");
   el.textContent = text;
+  return el;
+}
+
+/**
+ * The DOM pill for a chip label (#361 slice 6) — browser-only (call inside
+ * effects). The same pill vocabulary as `makeMapLabelElement` (surface tint,
+ * heading font), but a chip label, never a numbered place label: the letter
+ * rides its own square badge — the chip's glyph, matching the inline badge on
+ * its card — so the label visually associates with its square chip. Colours
+ * are classes off tokens; no colour is ever written in JS.
+ */
+export function makeMapChipLabelElement(letter: string, title: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "map-place-label is-chip";
+  el.setAttribute("aria-hidden", "true");
+  const badge = document.createElement("span");
+  badge.className = "map-chip-letter";
+  badge.textContent = letter;
+  el.appendChild(badge);
+  el.appendChild(document.createTextNode(` · ${title}`));
   return el;
 }
 

@@ -476,6 +476,17 @@ h4 {
     0 0 0 2px var(--color-accent),
     0 2px 12px rgb(0 0 0 / 0.12);
 }
+/* Day-level chip labels (#361 slice 6): the same pill as a place label, but
+ * the square chip's family — a softer corner echoing the chip glyph, and the
+ * letter on its own square badge (the chip's identity, matching the inline
+ * badge on its card) so the label associates with its chip instead of
+ * reading as a numbered place. Same tokens, no new colours. */
+.map-place-label.is-chip {
+  @apply inline-flex items-center gap-1.5 rounded-md;
+}
+.map-place-label .map-chip-letter {
+  @apply grid h-5 w-5 shrink-0 place-items-center rounded bg-marker font-heading text-[11px] font-semibold leading-none text-marker-fg;
+}
 .map-labels-off .map-place-label {
   display: none;
 }
