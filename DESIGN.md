@@ -465,8 +465,10 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 #### Surfaces
 
 ```
-/t/<id>               Overview    stage-aware home; redirects to /today while live
-/t/<id>/today         Today       the travel surface                          (TARGET)
+/t/<id>               Overview    stage-aware home; jumps to the current day page while live
+/t/<id>/today         →           redirect to the current day page (same surface as any
+                                  other day — no separate Today page, so the layout
+                                  never diverges from the regular day view)
 /t/<id>/itinerary     Itinerary   the map surface, scan level — whole trip on the map, the
                                   itinerary in the rail/sheet (§7.6, #92)
 /t/<id>/itinerary#s-<n>           a section — an ANCHOR into the scan list (see below)
@@ -486,9 +488,9 @@ Navigation mirrors the data model. That is what makes an IA feel inevitable rath
 `/` signed in is a map surface too (§2.2, #249): the discovery home's bands ride
 the rail/sheet beside the trip pins. It needs no nav slot — it is the root.
 
-Mobile bottom nav caps at **four**: *Today-or-Overview · Itinerary · Practical* (with *Today*
-swapping in while `live` — that is the four). Crew folds into Overview — it's a low-frequency
-page. There is **no Map nav item** (2026-09, #93): the maps live inside the itinerary and day
+Mobile bottom nav caps at **four**: *Overview · Today · Itinerary · Practical* (with *Today*
+as a shortcut to the current day page while `live` — Overview always stays).
+Crew folds into Overview — it's a low-frequency page. There is **no Map nav item** (2026-09, #93): the maps live inside the itinerary and day
 pages (§7.6), so Itinerary keeps its calendar glyph and no icon is surrendered. A future nav
 item must earn the slot under the same test: if it is a filtered view of its parent, it is a
 filter or an anchor, not a page. **Settings stays off-nav for the same reason** (#248): it is
@@ -513,19 +515,19 @@ trip root today takes four interactions (Overview → Itinerary → expand → O
 
 #### Today
 
-There is currently **no concept of "today" anywhere in the frontend**. A follower opening a share
-link on day 7 must know the date and hunt for it.
-
-- `/today` resolves to the current day, and degrades honestly when it can't: *"starts in 5 days"*,
-  *"ended 3 weeks ago"*, or the nearest day.
-- While `stage === 'live'` and today falls inside the range, the trip root goes there and a
-  **Today** item appears in the nav. Outside that window it isn't shown at all.
+There is currently **no separate Today page, by design**. A follower opening a share
+link on day 7 must know the date and hunt for it — so `/today` resolves to the
+current **day page** (`/day/<idx>`, the same surface as any other day), and
+degrades honestly when it can't: the trip root and `/today` fall back to the
+overview when today has no day to open (*"starts in 5 days"*, *"ended 3 weeks
+ago"*, or the nearest day are states of the trip, not a page of their own).
+- While `stage === 'live'` and today falls inside the range, the trip root jumps
+  to the current day page and a **Today** shortcut appears in the nav *alongside*
+  Overview (never instead of it). Outside that window it isn't shown at all.
 - The itinerary marks today and scrolls to it.
 - **Resolve against the trip's timezone, not the viewer's.** Today in Hokkaido is not today in
   Belgium. Needs an optional IANA `timezone` on the trip, falling back to viewer-local. Don't
   build more than that.
-- Today is screen-only — a printed booklet has no today. The Today surface is chrome (§2.3),
-  `no-print`.
 
 #### Sections are a grouping, not a level
 
@@ -579,7 +581,7 @@ list and the day's blocks, rendered exactly as they render today — lives in th
 interacts with the map. Navigating scan ↔ day (and day ↔ day) **keeps the map alive**: the
 same MapLibre instance stays mounted; only the content and the map data/camera change. The
 scan level shows the whole trip — there is no separate route page (#93) and no expandable
-beyond it. The remaining document pages are Overview, Practical, Today and Crew; the booklet
+beyond it. The remaining document pages are Overview, Practical and Crew; the booklet
 is a document route (`BookletPage`).
 
 Contract:

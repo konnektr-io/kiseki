@@ -6,7 +6,7 @@ import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib
 import { isAuthConfigured } from "../lib/auth";
 import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
-import { formatDate, dayCount, shouldShowToday } from "../lib/dates";
+import { formatDate, dayCount, shouldShowToday, todayDayIdx } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
@@ -16,28 +16,46 @@ import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
 
-/** Under the §7.5 mobile cap of four — three base items, Today swaps in for
- *  Overview on live trips. The standalone Map item is retired (#93): the
- *  itinerary IS the map surface now (DESIGN.md §7.6), so the day level lives
- *  one tap deeper on the same nav item. */
+/** Under the §7.5 mobile cap of four: Overview always stays, and on a live
+ *  trip a Today shortcut jumps straight to the current day page
+ *  (`day/<idx>` — the same surface as any other day, not a separate page).
+ *  The standalone Map item is retired (#93): the itinerary IS the map surface
+ *  now (DESIGN.md §7.6), so the day level lives one tap deeper on the same
+ *  nav item. */
 const NAV_BASE: { to: string; label: string; icon: typeof Home; end?: boolean }[] = [
   { to: "", label: "Overview", icon: Home, end: true },
   { to: "itinerary", label: "Itinerary", icon: CalendarDays },
   { to: "practical", label: "Practical", icon: ListChecks },
 ];
 
+/** Today shortcut target for a live trip, or null when today has no day page
+ *  (before / after / dateless / section-without-days — resolveToday's honest
+ *  degradations, which have nothing to open). Exported for the unit tests. */
+export function todayNavTo(trip: Trip | null): string | null {
+  if (!trip || !shouldShowToday(trip)) return null;
+  const idx = todayDayIdx(trip);
+  return idx != null ? `day/${idx}` : null;
+}
+
 function navForTrip(trip: Trip | null) {
-  if (trip && shouldShowToday(trip)) {
-    return [{ to: "today", label: "Today", icon: CalendarCheck }, ...NAV_BASE.slice(1)] as typeof NAV_BASE;
+  const today = todayNavTo(trip);
+  if (today) {
+    return [
+      NAV_BASE[0],
+      { to: today, label: "Today", icon: CalendarCheck },
+      ...NAV_BASE.slice(1),
+    ] as typeof NAV_BASE;
   }
   return NAV_BASE;
 }
 
 /** Nav highlight rule (desktop + mobile): day pages belong to the Itinerary
- *  surface — the scan view is their parent. Section links (/s/<n>) redirect
- *  to /itinerary#s-<n> (replace), so they never render long enough to matter. */
+ *  surface — the scan view is their parent — EXCEPT today's own day, which
+ *  the Today shortcut owns while it is the shortcut's target. Section links
+ *  (/s/<n>) redirect to /itinerary#s-<n> (replace), so they never render long
+ *  enough to matter. */
 function isNavActive(pathname: string, base: string, to: string, end?: boolean): boolean {
-  if (to === "today") return pathname === `${base}/today`;
+  if (to.startsWith("day/")) return pathname === `${base}/${to}`;
   if (end) return pathname === base;
   if (to === "itinerary") {
     return pathname === `${base}/itinerary` || pathname.startsWith(`${base}/day`);
@@ -49,10 +67,16 @@ function NavLinks({ tripId, trip }: { tripId: string; trip: Trip | null }) {
   const { pathname } = useLocation();
   const base = `/t/${tripId}`;
   const NAV = navForTrip(trip);
+  // Today's day is both a day page (Itinerary's surface) and the Today
+  // shortcut's target — the shortcut owns the highlight there so exactly one
+  // item is ever active.
+  const todayHref = NAV.find((n) => n.label === "Today")?.to;
+  const todayPath = todayHref ? `${base}/${todayHref}` : null;
   return (
     <nav className="flex items-center gap-1">
       {NAV.map(({ to, label, icon: Icon, end }) => {
-        const isActive = isNavActive(pathname, base, to, end);
+        let isActive = isNavActive(pathname, base, to, end);
+        if (label === "Itinerary" && todayPath && pathname === todayPath) isActive = false;
         return (
           <Link
             key={to}

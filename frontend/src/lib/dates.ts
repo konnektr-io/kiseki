@@ -185,6 +185,24 @@ export function resolveToday(trip: Trip, todayIso?: string): TodayResolution {
   return { kind: "no-dates", todayIso: today };
 }
 
+/**
+ * The day index "today" should open as a regular day page (DESIGN.md §7.5).
+ * Maps resolveToday's day-located kinds to their index; anything without a
+ * day to open (before / after / no-dates / section-without-days) is null.
+ * Section days are validated — a stale section range pointing past the last
+ * day is not a target.
+ */
+export function todayDayIdx(trip: Trip, todayIso?: string): number | null {
+  const r = resolveToday(trip, todayIso);
+  if (r.kind === "day" || r.kind === "nearest-day") {
+    return r.dayIdx >= 0 && r.dayIdx < trip.days.length ? r.dayIdx : null;
+  }
+  if (r.kind === "section" && r.nearestDayIdx != null) {
+    return r.nearestDayIdx >= 0 && r.nearestDayIdx < trip.days.length ? r.nearestDayIdx : null;
+  }
+  return null;
+}
+
 export function humanizeDays(days: number): string {
   if (days <= 0) return "today";
   if (days === 1) return "1 day";
