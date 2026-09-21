@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, CalendarDays, X } from "lucide-react";
 import { useTrip } from "../components/theme";
 import { RouteMap } from "../components/RouteMap";
@@ -9,7 +9,7 @@ import { SplitView, useSurfaceMode } from "../components/SplitView";
 import { Button } from "../components/ui";
 import { DayBlocks, MetaChips } from "../components/blocks";
 import { Markdown } from "../lib/markdown";
-import { formatDay, shouldShowToday, todayExactIdx } from "../lib/dates";
+import { formatDay, shouldShowToday, todayDayIdx } from "../lib/dates";
 import { sectionIndexForDay } from "../lib/sections";
 import { withDayFields } from "../lib/editing";
 import { useCanEdit } from "../components/edit-mode";
@@ -392,27 +392,32 @@ function DayRail({
  * URL tracks the level — in-app transitions push history, browser
  * back/forward walks levels without unmounting anything.
  */
-export function TripMapSurface() {
+export function TripMapSurface({ todayView = false }: { todayView?: boolean } = {}) {
   const trip = useTrip();
   const { tripId = "" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const surfaceMode = useSurfaceMode();
 
-  /* ---- the level IS the URL ---- */
-  const isDayRoute = /\/day\/\d+$/.test(location.pathname);
-  const rawIdx = isDayRoute ? location.pathname.match(/\/day\/(\d+)$/)?.[1] : undefined;
-  const dayIdx = isDayRoute ? parseDayIdx(rawIdx, trip.days.length) : null;
+  /* ---- the level IS the URL (or the today route) ---- */
+  const urlIsDayRoute = /\/day\/\d+$/.test(location.pathname);
+  const rawIdx = urlIsDayRoute ? location.pathname.match(/\/day\/(\d+)$/)?.[1] : undefined;
+  const urlDayIdx = urlIsDayRoute ? parseDayIdx(rawIdx, trip.days.length) : null;
+  // The today route resolves to the current day (nearest-day fallback, same
+  // as the old /today redirect); off-live or with no day to open there is
+  // nothing to show and the trip root takes over (overview, or today again
+  // when it resolves — never a loop: the root only jumps while live AND
+  // resolvable).
+  const todayResolvedIdx = todayView && shouldShowToday(trip) ? todayDayIdx(trip) : null;
+  const dayIdx = todayView ? todayResolvedIdx : urlDayIdx;
+  const isDayRoute = todayView || urlIsDayRoute;
 
-  /* ---- today's own day: same day surface, top-level chrome ----
-   *  The day layout is reused verbatim, but the day-level DayNav bar stays
-   *  off (TripLayout's bottom nav covers the page instead) and the phone
-   *  sheet opens all the way up. Same gate as the nav shortcut (live +
-   *  today has a day to open) AND today's EXACT date: a nearest/section
-   *  fallback day is still a regular day and keeps its DayNav bar.
+  /* ---- today's view: same day surface, top-level chrome ----
+   *  The chrome follows the ROUTE: /today keeps the top-level bottom nav
+   *  (no DayNav bar) and opens the phone sheet full, while every /day/<idx>
+   *  keeps its DayNav bar — even the one whose date is today.
    */
-  const todayIdx = shouldShowToday(trip) ? todayExactIdx(trip) : null;
-  const isTodayPage = dayIdx != null && todayIdx != null && dayIdx === todayIdx;
+  const isTodayPage = todayView;
 
   const journey = useMemo(() => tripJourney(trip), [trip]);
   const day = useMemo(
@@ -618,6 +623,13 @@ export function TripMapSurface() {
         </div>
       </div>
     );
+  }
+
+  /* Unresolvable today route (off-live, or live with no day to open):
+     hand back to the trip root, which renders the overview. Placed with the
+     other stable early return above — same branch every render per trip. */
+  if (todayView && dayIdx == null) {
+    return <Navigate to={`/t/${tripId}`} replace />;
   }
 
   /** The chip identity of the focused block (its marker's first block id). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { todayDayIdx, todayExactIdx } from "./dates";
+import { todayDayIdx } from "./dates";
 import type { Trip } from "./types";
 
 function trip(over: Partial<Trip> = {}): Trip {
@@ -57,29 +57,5 @@ describe("todayDayIdx", () => {
 
   it("returns null when there are no days at all", () => {
     expect(todayDayIdx(trip({ days: [] }), "2027-09-21")).toBeNull();
-  });
-});
-
-describe("todayExactIdx", () => {
-  it("resolves only an exact date match", () => {
-    expect(todayExactIdx(trip(), "2027-09-21")).toBe(1);
-  });
-
-  it("returns null for nearest-day and section fallbacks", () => {
-    // Gap day: todayDayIdx honestly falls back to the nearest day…
-    const gap = trip({
-      days: [
-        { id: "d0", date: "2027-09-20", title: "Day 1", blocks: [] },
-        { id: "d1", date: "2027-09-22", title: "Day 3", blocks: [] },
-      ],
-    } as Partial<Trip>);
-    expect(todayDayIdx(gap, "2027-09-21")).toBe(0);
-    // …but the today chrome needs the exact date.
-    expect(todayExactIdx(gap, "2027-09-21")).toBeNull();
-  });
-
-  it("returns null outside the range", () => {
-    expect(todayExactIdx(trip(), "2027-09-19")).toBeNull();
-    expect(todayExactIdx(trip(), "2027-09-25")).toBeNull();
   });
 });
