@@ -270,8 +270,13 @@ export function pinScaleAtZoom(zoom: number): number {
 export const MAP_LABEL_MAX = 8;
 /** Below this zoom pins collide — keep the pins, drop the labels. */
 export const MAP_LABEL_ZOOM_FLOOR = 2;
-/** Label pill offset below its pin, in px (the 44px hit box ends at +22). */
-export const MAP_LABEL_PIN_OFFSET_PX = 26;
+/** Label pill offset below its pin, in px (#361 slice 1): just below the
+ *  28px visible pin (bottom edge +14) so the pill reads as the pin's label,
+ *  not a detached bubble. The pill overlaps the transparent 44px hit padding
+ *  (ends +22) — harmless, because labels are `pointer-events-none` and taps
+ *  pass through to the pin; the drive-time chip is DOM chrome above the
+ *  canvas, so a label can never cover it. */
+export const MAP_LABEL_PIN_OFFSET_PX = 15;
 
 export function selectMapLabels(
   names: string[],

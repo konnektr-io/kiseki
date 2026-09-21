@@ -8,6 +8,7 @@ import {
   formatMapLabel,
   locationStage,
   MAP_LABEL_MAX,
+  MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
   MAP_STYLE_URL,
   markerNumber,
@@ -398,6 +399,15 @@ describe("on-map labels (#357 slice 2)", () => {
 
   it("numbers the prefix like the pin so label and pin read as one place", () => {
     expect(formatMapLabel(3, "Healesville")).toBe("3 · Healesville");
+  });
+
+  it("sits the pill just below its pin so it reads as a label (#361 slice 1)", () => {
+    // ~14–16px: below the 28px visible pin (bottom edge +14), overlapping
+    // only the transparent 44px hit padding (ends +22) — taps still land
+    // because labels are pointer-events-none, and the drive-time chip is DOM
+    // chrome above the canvas, so a label can never cover it.
+    expect(MAP_LABEL_PIN_OFFSET_PX).toBeGreaterThanOrEqual(14);
+    expect(MAP_LABEL_PIN_OFFSET_PX).toBeLessThanOrEqual(16);
   });
 });
 
