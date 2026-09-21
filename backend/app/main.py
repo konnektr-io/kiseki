@@ -132,6 +132,7 @@ from .media import (
 from .fit import FitError, parse_fit
 from .gpx import GpxError, parse_gpx
 from .models import Trip
+from .stage import effective_stage
 from .ratelimit import allow
 from .pdf import render_booklet_pdf
 from .tricount import TriCountError, fetch_snapshot
@@ -459,6 +460,10 @@ def _public_trip(
     (``lat: 0.0``, ``order: 0``), silently corrupting real data.
     """
     data = trip.model_dump(by_alias=True, exclude_none=True)
+    # Derived read-path stage (#362): the calendar's vote. ``stage`` stays the
+    # stored authorial intent; ``effectiveStage`` is what surfaces (Today,
+    # "Happening now") follow. Never persisted, never in DTDL.
+    data["effectiveStage"] = effective_stage(trip.stage, trip.startDate, trip.endDate, trip.timezone)
     # Both link secrets are write-only as far as the API is concerned: they
     # leave only through their dedicated, owner-gated endpoints (join-link
     # #6, follow-link #197).

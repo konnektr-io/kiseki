@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 from .models import Trip
+from .stage import effective_stage
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 _ANON_DIR = BACKEND_DIR / "data" / "mocks"
@@ -145,10 +146,12 @@ def list_trips_for_user(user_dtid: str) -> list[dict]:
             "title": t.title,
             "subtitle": t.subtitle,
             "stage": t.stage,
+            "effectiveStage": effective_stage(t.stage, t.startDate, t.endDate, t.timezone),
             "startDate": t.startDate,
             "endDate": t.endDate,
             "slug": t.slug,
             "cover": t.cover,
+            "timezone": t.timezone,
         }
         for t in _anon_trips()
     ]
@@ -178,9 +181,11 @@ def list_showcase_trips(limit: int | None = None) -> list[dict]:
                 "title": trip.title,
                 "subtitle": trip.subtitle,
                 "stage": trip.stage,
+                "effectiveStage": effective_stage(trip.stage, trip.startDate, trip.endDate, trip.timezone),
                 "startDate": trip.startDate,
                 "endDate": trip.endDate,
                 "cover": trip.cover,
+                "timezone": trip.timezone,
             }
         )
         if len(out) >= cap:

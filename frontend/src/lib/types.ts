@@ -195,9 +195,12 @@ export interface ShowcaseTrip {
   title: string;
   subtitle: string;
   stage: Stage;
+  /** Derived read-path stage (#362) — absent on older servers. */
+  effectiveStage?: Stage;
   startDate?: string | null;
   endDate?: string | null;
   cover?: string | null;
+  timezone?: string | null;
 }
 
 export interface TripSummary {
@@ -206,8 +209,11 @@ export interface TripSummary {
   title: string;
   subtitle?: string;
   stage: Stage;
+  /** Derived read-path stage (#362) — absent on older servers. */
+  effectiveStage?: Stage;
   startDate?: string;
   endDate?: string;
+  timezone?: string;
   slug: string;
   cover?: string;
   role?: Role;
@@ -413,6 +419,11 @@ export interface Trip {
   title: string;
   subtitle?: string;
   stage: Stage;
+  /** Derived read-path stage (#362): the calendar's vote — `live` when a
+   *  `planned`/`booked` trip's trip-local today falls in [startDate, endDate].
+   *  Absent on older servers; use `displayStage()` (dates.ts), never `stage`,
+   *  for "happening now" decisions. */
+  effectiveStage?: Stage;
   startDate?: string;
   endDate?: string;
   timezone?: string; // IANA, e.g. "Asia/Tokyo" — trip-local "today", fallback viewer-local
