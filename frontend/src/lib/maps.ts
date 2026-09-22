@@ -324,11 +324,19 @@ export function formatChipLabel(letter: string, title: string): string {
   return `${letter} · ${title}`;
 }
 
-/** The DOM pill for an on-map label — browser-only (call inside effects). */
-export function makeMapLabelElement(text: string): HTMLDivElement {
+/** The DOM pill for an on-map label — browser-only (call inside effects).
+ *
+ * The `title` attribute always carries the full text: capped pills (#375)
+ * ellipsise, and the tooltip keeps the whole name. Pass `{ home: true }` for
+ * the signed-in landing pills — the `is-home` class scopes the width cap to
+ * them, so the trip surfaces sharing this vocabulary keep their own labels
+ * untouched.
+ */
+export function makeMapLabelElement(text: string, opts?: { home?: boolean }): HTMLDivElement {
   const el = document.createElement("div");
-  el.className = "map-place-label";
+  el.className = opts?.home ? "map-place-label is-home" : "map-place-label";
   el.setAttribute("aria-hidden", "true");
+  el.title = text;
   el.textContent = text;
   return el;
 }

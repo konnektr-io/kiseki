@@ -476,6 +476,16 @@ h4 {
     0 0 0 2px var(--color-accent),
     0 2px 12px rgb(0 0 0 / 0.12);
 }
+/* Home title pills (#375): capped at HOME_LABEL_MAX_WIDTH_PX (160px) with an
+ * ellipsis — a 42-char trip title would otherwise make a ~250px pill on a
+ * 390px phone. The full title stays on `title`; the cap is scoped to the
+ * home pills so the trip surfaces sharing this vocabulary keep their own
+ * labels untouched. Keep the px in sync with the constant. */
+.map-place-label.is-home {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Day-level chip labels (#361 slice 6): the same pill as a place label, but
  * the square chip's family — a softer corner echoing the chip glyph, and the
  * letter on its own square badge (the chip's identity, matching the inline

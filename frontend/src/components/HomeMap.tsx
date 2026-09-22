@@ -5,7 +5,7 @@ import { MapPin, Minus, Plus } from "lucide-react";
 import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
-import { clusterPins, isOnVisibleHemisphere, normalizeLng, selectHomeLabels, unfoldLngs, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
+import { clusterPins, isOnVisibleHemisphere, normalizeLng, placeHomeLabels, selectHomeLabels, unfoldLngs, type HomeLabelPlacement, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
@@ -144,9 +144,11 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       const center = live.getCenter();
       const facing: ProjectedPin[] = [];
       const averted: ProjectedPin[] = [];
+      const screenById = new Map<string, { x: number; y: number }>();
       for (const p of current) {
         const pt = live.project([p.lng, p.lat]);
         const item: ProjectedPin = { dtId: p.dtId, x: pt.x, y: pt.y };
+        screenById.set(p.dtId, { x: pt.x, y: pt.y });
         (isOnVisibleHemisphere(p.lat, p.lng, center.lat, center.lng) ? facing : averted).push(item);
       }
       const byId = new Map(current.map((p) => [p.dtId, p]));
@@ -170,13 +172,27 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       // (cap, selected-first, no labels for clusters) and takes NO zoom: on
       // the globe a settled phone camera lives at NEGATIVE zoom (measured
       // −2.28 at 390×844), so any floor here hides every label on the device
-      // that asked for them — see the rule's doc comment. The pill sits BELOW
-      // its pin so a label can never cover it, is `pointer-events-none` so it
-      // never steals a tap, and the zoom chips are DOM chrome above the canvas
-      // so they are never covered.
+      // that asked for them — see the rule's doc comment. `placeHomeLabels`
+      // (#375) then fits each pill inside the box — capped width, edge clamp,
+      // bottom flip, overlap drop — from the projections above and the live
+      // container size. The pill sits BELOW its pin so a label can never
+      // cover it, is `pointer-events-none` so it never steals a tap, and the
+      // zoom chips are DOM chrome above the canvas so they are never covered.
       const selected = selectedRef.current;
-      for (const pin of selectHomeLabels(current, clustered, selected)) {
-        markersRef.current.push(buildTitleLabelMarker(lib, live, pin, selected === pin.dtId));
+      const labelled = selectHomeLabels(current, clustered, selected);
+      const box = ref.current;
+      const placed = placeHomeLabels(
+        labelled,
+        screenById,
+        box?.clientWidth ?? 0,
+        box?.clientHeight ?? 0,
+      );
+      const placedById = new Map(placed.map((p) => [p.dtId, p]));
+      for (const pin of labelled) {
+        const placement = placedById.get(pin.dtId);
+        // An overlap-dropped pill paints nothing — its pin stays.
+        if (!placement) continue;
+        markersRef.current.push(buildTitleLabelMarker(lib, live, pin, selected === pin.dtId, placement));
       }
       // The focus story, same grammar as the trip maps: one selected place,
       // everything else recedes — dimmed, never hidden.
@@ -459,25 +475,31 @@ function buildPinMarker(
   return new lib.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map);
 }
 
-/** One trip's title label (#372 slice 2): the pill vocabulary, below its pin. */
+/** One trip's title label (#372 slice 2, geometry #375): the pill vocabulary,
+ *  below its pin unless the box says otherwise. */
 function buildTitleLabelMarker(
   lib: typeof import("maplibre-gl"),
   map: MapLibreMap,
   pin: HomeMapPin,
   selected: boolean,
+  placement: HomeLabelPlacement,
 ): MapLibreMarker {
   // The title only — no number, no second index. The dot keeps the stage
   // colour; the anchor name stays in the pin button's `aria-label`. The pill
   // class carries `pointer-events-none` + the heading font + `bg-surface/90`
   // (token colours only, never hex) and is `aria-hidden`: the pin button is
-  // the accessible name, the label is paint.
-  const el = makeMapLabelElement(pin.title);
+  // the accessible name, the label is paint. `is-home` caps the width with
+  // an ellipsis; `title` keeps the full text.
+  const el = makeMapLabelElement(pin.title, { home: true });
   el.dataset.homeLabel = pin.dtId;
   if (selected) el.classList.add("is-selected");
+  // Edge clamp (#375): the marker offset shifts the pill so it stays inside
+  // the box; a bottom flip puts it above the pin instead of below.
+  const flipped = placement.anchor === "bottom";
   return new lib.Marker({
     element: el,
-    anchor: "top",
-    offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+    anchor: flipped ? "bottom" : "top",
+    offset: [placement.offsetX, flipped ? -MAP_LABEL_PIN_OFFSET_PX : MAP_LABEL_PIN_OFFSET_PX] as [number, number],
   })
     .setLngLat([pin.lng, pin.lat])
     .addTo(map);
