@@ -959,6 +959,96 @@ def test_section_location_refs_removal(client, rsa_keypair, graph) -> None:
     assert s["locationRefs"] == []
 
 
+def test_section_location_refs_order_is_persisted(client, rsa_keypair, graph) -> None:
+    """PUT /sections persists the ORDER of ``locationRefs`` (issue #378).
+
+    The chapter chip row and the section map render ``locationRefs`` in list
+    order, but the write only ever stored the edge SET: a reorder was silently
+    dropped and a newly added ref read back FIRST (the live graph returns
+    ``atLocation`` edges in its own traversal order). The write now stamps edge
+    ``index`` = list position — the same convention as the root ``atLocation``
+    (marker order) and ``hasSection`` (chapter order) edges — and the read path
+    sorts by it.
+    """
+    g = graph()
+    trip = _trip_of(g)
+    token = _token_of(rsa_keypair)
+    section = _section_by_days(trip.sections, [0, 1])
+    url = f"/api/trips/{trip.id}/sections/{section.id}"
+    a, b, c = (loc.name for loc in trip.locations[:3])
+    loc_id = {loc.name: loc.id for loc in trip.locations}
+
+    def refs(resp) -> list[str]:
+        return next(x for x in resp.json()["sections"] if x["id"] == section.id)["locationRefs"]
+
+    # The fixture carries the live graph's legacy shape: this section's
+    # atLocation edges have NO index at all.
+    assert [
+        e.get("index") for e in g.rels
+        if e.get("$sourceId") == section.id and e.get("$relationshipName") == "atLocation"
+    ] == [None] * len(section.locationRefs)
+
+    # (1) author two refs in a chosen order
+    r = _authz(client, "put", url, token, json={"locationRefs": [a, b]})
+    assert r.status_code == 200
+    assert refs(r) == [a, b]
+
+    # (2) reorder the SAME set — the reported silent no-op
+    r = _authz(client, "put", url, token, json={"locationRefs": [b, a]})
+    assert r.status_code == 200
+    assert refs(r) == [b, a]
+
+    # (3) add a NEW ref in the middle — it used to read back first
+    r = _authz(client, "put", url, token, json={"locationRefs": [b, c, a]})
+    assert r.status_code == 200
+    assert refs(r) == [b, c, a]
+
+    # (4) the position really is the edge `index` (the read path's sort key)
+    edges = {
+        e["$targetId"]: e.get("index") for e in g.rels
+        if e.get("$sourceId") == section.id and e.get("$relationshipName") == "atLocation"
+    }
+    assert edges == {loc_id[b]: 0, loc_id[c]: 1, loc_id[a]: 2}
+
+    # (5) the reported manifestation: the live graph hands the edges back in its
+    # own traversal order (the freshly added one first). The order the author
+    # sent must still be what reads back.
+    authored = [e for e in g.rels
+                if e.get("$sourceId") == section.id
+                and e.get("$relationshipName") == "atLocation"]
+    for e in authored:
+        g.rels.remove(e)
+    g.rels[:0] = list(reversed(authored))
+    r = _authz(client, "get", f"/api/trips/{trip.id}", token)
+    assert r.status_code == 200
+    assert refs(r) == [b, c, a]
+
+    # (6) dropping a ref keeps the order of the survivors
+    r = _authz(client, "put", url, token, json={"locationRefs": [c, b]})
+    assert r.status_code == 200
+    assert refs(r) == [c, b]
+
+    # (7) build-up from empty, one ref per PUT, in the desired order
+    r = _authz(client, "put", url, token, json={"locationRefs": []})
+    assert r.status_code == 200 and refs(r) == []
+    for sent in ([c], [c, b], [c, b, a]):
+        r = _authz(client, "put", url, token, json={"locationRefs": sent})
+        assert r.status_code == 200
+        assert refs(r) == sent
+
+    # (8) a repeated name is one ref on one position (first occurrence)
+    r = _authz(client, "put", url, token, json={"locationRefs": [a, b, a]})
+    assert r.status_code == 200
+    assert refs(r) == [a, b]
+
+    # (9) an unknown name is still a 422 that writes nothing
+    before = refs(r)
+    r = _authz(client, "put", url, token, json={"locationRefs": [a, "Nopeville"]})
+    assert r.status_code == 422
+    r = _authz(client, "get", f"/api/trips/{trip.id}", token)
+    assert refs(r) == before
+
+
 def test_section_days_trim_and_restore(client, rsa_keypair, graph) -> None:
     """PUT /sections now accepts days: rewiring hasDay edges (issue #89).
     Lake Louise [12, 15] -> [12, 14] must drop day 15 (Mar 2) from the chapter."""
