@@ -1,5 +1,5 @@
 import type { Stage, TripGeo } from "./types";
-import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
+import { MAP_LABEL_MAX } from "./maps";
 
 /**
  * The signed-in home's map pins (#249, slice 3).
@@ -205,6 +205,19 @@ export function isOnVisibleHemisphere(
 }
 
 /**
+ * The landing map's own label floor (#372) — deliberately NOT the trip-map
+ * `MAP_LABEL_ZOOM_FLOOR` (2), which stays exactly as it is.
+ *
+ * That floor exists to stop clutter on trip maps carrying dozens of pins. The
+ * landing map holds at most ~10 trips under a hard cap of 8 labels, so a zoom
+ * gate is the wrong tool here: the three-continent fit lands at zoom 0.9–1.3
+ * on a 390px phone (measured headless), and a floor of 2 reads as "no labels
+ * until the viewer zooms in twice". A world-zoom globe naming its ≤8 trips is
+ * the desired reading — the CAP is this surface's clutter control, not the zoom.
+ */
+export const HOME_LABEL_ZOOM_FLOOR = 0;
+
+/**
  * Which trip pins get a visible title label (#372 slice 2) — the landing
  * map's half of the `selectMapLabels` display discipline, over pins instead
  * of place names. Pure, so the rule is pinned by test and the canvas
@@ -215,7 +228,7 @@ export function isOnVisibleHemisphere(
  * - Clustered pins take NO label — a count badge is its own reading, and a
  *   label beside a badge would read as a second index. A selected pin inside
  *   a cluster stays quiet for the same reason; the badge is its reading.
- * - Below the collision zoom (`MAP_LABEL_ZOOM_FLOOR`) the whole layer drops —
+ * - Below the home floor (`HOME_LABEL_ZOOM_FLOOR`) the whole layer drops —
  *   pins stay, labels go, selected included.
  * - Pins with a blank title take no label: an empty pill is floating chrome,
  *   and the anchor name already rides the pin's `aria-label`.
@@ -231,7 +244,7 @@ export function selectHomeLabels(
   zoom: number,
   max = MAP_LABEL_MAX,
 ): HomeMapPin[] {
-  if (zoom < MAP_LABEL_ZOOM_FLOOR || pins.length === 0) return [];
+  if (zoom < HOME_LABEL_ZOOM_FLOOR || pins.length === 0) return [];
   const clustered = clusteredDtIds instanceof Set ? clusteredDtIds : new Set(clusteredDtIds);
   const candidates = pins.filter((p) => !clustered.has(p.dtId) && p.title.trim() !== "");
   if (selectedDtId) {

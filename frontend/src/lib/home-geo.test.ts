@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
 import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
+import { HOME_LABEL_ZOOM_FLOOR } from "./home-geo";
 import type { TripGeo } from "./types";
 
 function pin(over: Partial<HomeMapPin> & { dtId: string }): HomeMapPin {
@@ -213,6 +214,9 @@ describe("isOnVisibleHemisphere — the landing globe's horizon (#372 slice 1)",
 
 describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", () => {
   const ZOOM = MAP_LABEL_ZOOM_FLOOR + 1;
+  // Measured phone fit zoom for the three-continent set (headless Chromium,
+  // SwiftShader, 390px viewport): the fitted camera lands at 0.9–1.3.
+  const PHONE_FIT_ZOOM = 1;
   const ids = (pins: HomeMapPin[]) => pins.map((p) => p.dtId);
 
   it("labels every pin when the set fits the cap", () => {
@@ -247,9 +251,21 @@ describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", (
 
   it("drops the whole layer below the collision zoom — selected included", () => {
     const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
-    expect(selectHomeLabels(pins, new Set(), "a", MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
-    expect(selectHomeLabels(pins, new Set(), null, MAP_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
-    expect(selectHomeLabels(pins, new Set(), null, MAP_LABEL_ZOOM_FLOOR)).toHaveLength(2);
+    expect(selectHomeLabels(pins, new Set(), "a", HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR)).toHaveLength(2);
+  });
+
+  it("labels at the phone-fit zoom — a capped set of ~10 cannot clutter (#372)", () => {
+    // Measured in headless Chromium (SwiftShader): the three-continent fit
+    // lands at zoom 0.9–1.3 on a 390px viewport. The landing map must name
+    // its trips there, not only after the viewer zooms in twice.
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, PHONE_FIT_ZOOM))).toEqual(["a", "b"]);
+  });
+
+  it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", () => {
+    expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
   });
 
   it("never labels a blank title — the aria-label already names the anchor", () => {
