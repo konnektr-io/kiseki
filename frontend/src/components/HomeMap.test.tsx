@@ -426,30 +426,69 @@ describe("the landing globe (#372 slice 1)", () => {
     expect(String(sky["horizon-color"])).not.toMatch(/^#/);
   });
 
-  it("a pin over the horizon never clusters with visible ones", async () => {
+  it("a pin over the horizon never clusters with visible ones — and gets no marker itself", async () => {
     // Every projection lands on the same pixel — on Mercator this is one
     // badge. With a North-Pacific camera Revelstoke faces (37°) while Val
-    // Gardena is far-side (103°), so the far-side pin must stand alone.
+    // Gardena is far-side (103°): #377 slice 2 gives the far-side pin NO
+    // marker at all, so only the facing pin paints (no badge, no ghost).
     calls.project = "collide";
     calls.center = { lng: -160, lat: 30 };
     const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
     const buttons = [...el.querySelectorAll("[data-home-map] button")];
-    expect(buttons).toHaveLength(2);
-    expect(buttons.map((b) => b.getAttribute("aria-label")).sort()).toEqual([
-      "Dolomites — Val Gardena",
-      "Ski Week — Revelstoke",
-    ]);
+    expect(buttons).toHaveLength(1);
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Ski Week — Revelstoke"]);
   });
 
-  it("far-side pins still cluster with each other", async () => {
-    // South-Atlantic camera: both pins over the horizon, same pixel — one
-    // far-side badge, not two lone pins and never mixed into a visible set.
+  it("far-side pins get no badge — the partition covers marker construction", async () => {
+    // South-Atlantic camera: both pins over the horizon, same pixel. Before
+    // #377 slice 2 this was one far-side badge (whose unprojected centroid
+    // can land on the visible disc); now it is nothing — no ghosts.
     calls.project = "collide";
     calls.center = { lng: -30, lat: -50 };
     const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
-    const badges = [...el.querySelectorAll("[data-home-map] button")];
-    expect(badges).toHaveLength(1);
-    expect(badges[0].getAttribute("aria-label")).toBe("2 trips — zoom in");
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(0);
+    expect(el.querySelectorAll("[data-home-map] .map-place-label")).toHaveLength(0);
+  });
+
+  it("the limb still counts as visible — a pin at 90° keeps its marker", async () => {
+    // Exactly 90° of separation: `isOnVisibleHemisphere` reads it as facing.
+    const limb: HomeMapPin[] = [
+      { dtId: "limb", title: "Limb Trip", stage: "booked", lat: 0, lng: 0, name: "Null", origin: "mine" },
+    ];
+    calls.center = { lng: 90, lat: 0 };
+    const el = await mount(<HomeMap pins={limb} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(1);
+    expect([...el.querySelectorAll("[data-home-map] .map-place-label")].map((l) => l.textContent)).toEqual([
+      "Limb Trip",
+    ]);
+  });
+
+  it("labels ride the same partition — a far-side pin names nothing", async () => {
+    // Same North-Pacific camera as above: only the facing pin is labelled.
+    calls.center = { lng: -160, lat: 30 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect([...el.querySelectorAll("[data-home-map] .map-place-label")].map((l) => l.textContent)).toEqual([
+      "Ski Week",
+    ]);
+  });
+
+  it("rotating a far-side pin back into view restores it on moveend", async () => {
+    // South-Atlantic camera first: nothing paints. Then rotate to face both
+    // pins and fire moveend — the existing rebuild (no new system) brings
+    // them back with their labels.
+    calls.center = { lng: -30, lat: -50 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(0);
+    calls.center = { lng: -53, lat: 49 };
+    calls.project = "spread";
+    await act(async () => {
+      fire("moveend");
+    });
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(2);
+    expect([...el.querySelectorAll("[data-home-map] .map-place-label")].map((l) => l.textContent)).toEqual([
+      "Ski Week",
+      "Dolomites",
+    ]);
   });
 });
 

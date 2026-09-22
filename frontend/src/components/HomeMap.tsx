@@ -141,18 +141,31 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       // each half separately. A pin over the horizon never joins a visible
       // cluster even when `project` lands it on top of one; the limb itself
       // still counts as visible (`isOnVisibleHemisphere`).
+      //
+      // #377 slice 2: the partition covers MARKER CONSTRUCTION, not just
+      // clustering. A lone averted pin gets NO marker (its projection would
+      // otherwise mirror onto the visible disc as a ghost), and a far-side
+      // cluster gets no badge either (its unprojected centroid can land on
+      // the visible disc). Only the facing half is clustered and painted;
+      // labels ride the same partition below. Rotating the globe fires
+      // `moveend`, which rebuilds — rotated-in pins come back with no new
+      // rebuild system.
       const center = live.getCenter();
       const facing: ProjectedPin[] = [];
-      const averted: ProjectedPin[] = [];
       const screenById = new Map<string, { x: number; y: number }>();
+      const facingIds = new Set<string>();
       for (const p of current) {
         const pt = live.project([p.lng, p.lat]);
         const item: ProjectedPin = { dtId: p.dtId, x: pt.x, y: pt.y };
         screenById.set(p.dtId, { x: pt.x, y: pt.y });
-        (isOnVisibleHemisphere(p.lat, p.lng, center.lat, center.lng) ? facing : averted).push(item);
+        if (isOnVisibleHemisphere(p.lat, p.lng, center.lat, center.lng)) {
+          facing.push(item);
+          facingIds.add(p.dtId);
+        }
       }
       const byId = new Map(current.map((p) => [p.dtId, p]));
-      const clusteredItems = [...clusterPins(facing, CLUSTER_PX), ...clusterPins(averted, CLUSTER_PX)];
+      const facingPins = current.filter((p) => facingIds.has(p.dtId));
+      const clusteredItems = clusterPins(facing, CLUSTER_PX);
       const clustered = new Set<string>();
       for (const item of clusteredItems) {
         if (item.kind === "cluster") {
@@ -179,7 +192,7 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       // cover it, is `pointer-events-none` so it never steals a tap, and the
       // zoom chips are DOM chrome above the canvas so they are never covered.
       const selected = selectedRef.current;
-      const labelled = selectHomeLabels(current, clustered, selected);
+      const labelled = selectHomeLabels(facingPins, clustered, selected);
       const box = ref.current;
       const placed = placeHomeLabels(
         labelled,
