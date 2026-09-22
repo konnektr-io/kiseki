@@ -1669,7 +1669,17 @@ def _validate_location_refs_exist(graph: dict, names: list[str]) -> None:
 def _sync_section_location_refs(
     client: Any, trip_dtid: str, graph: dict, section_id: str, names: list[str], x_user_id: str
 ) -> None:
-    """Make a section's ``atLocation`` edges exactly ``names`` (registry names)."""
+    """Make a section's ``atLocation`` edges exactly ``names`` (registry names).
+
+    LIST POSITION IS THE ORDER (issue #378): every edge carries ``index`` = its
+    position in ``names`` — the same convention as the root ``atLocation`` edges
+    (marker order) and ``hasSection`` (chapter order) — and the read path sorts
+    by it. Without an index the live graph hands the edges back in its own
+    traversal order, so a request order was silently ignored and a freshly added
+    ref read back FIRST (the chapter chip row / section map then showed a
+    zigzag). An edge already sitting at its requested position is left alone;
+    new and moved ones are re-upserted with their position.
+    """
     locations = {
         t.get("name"): t["$dtId"]
         for t in graph.get("twins", []) if _model_kind(t) == "Location"
@@ -1678,28 +1688,42 @@ def _sync_section_location_refs(
         if n not in locations:
             raise WriteError(422, f"Unknown location {n!r} — add it to the trip first")
     cur = {
-        r.get("$targetId") for r in graph.get("relationships", [])
+        r.get("$targetId"): r for r in graph.get("relationships", [])
         if r.get("$sourceId") == section_id and r.get("$relationshipName") == "atLocation"
     }
-    keep = {locations[n] for n in names if locations[n] in cur}
-    for target in cur - keep:
+    # A repeated name is one edge on one position (first occurrence wins) —
+    # the edge id is deterministic per (section, name), so a duplicate can only
+    # produce an ambiguous index, never a second ref.
+    ordered: list[str] = []
+    for n in names:
+        if n not in ordered:
+            ordered.append(n)
+    keep = {locations[n] for n in ordered}
+    for target, rel in cur.items():
+        if target in keep:
+            continue
         # Edges are sourced at the SECTION, not the trip (issue #89).
         client.delete_relationship(
-            section_id, _rel_id(section_id, "atLocation", target), x_user_id=x_user_id
+            section_id,
+            rel.get("$relationshipId") or _rel_id(section_id, "atLocation", target),
+            x_user_id=x_user_id,
         )
-    for n in names:
+    for i, n in enumerate(ordered):
         target = locations[n]
-        if target not in cur:
-            client.upsert_relationship(
-                trip_dtid,
-                {
-                    "$relationshipId": _rel_id(section_id, "atLocation", target),
-                    "$sourceId": section_id,
-                    "$relationshipName": "atLocation",
-                    "$targetId": target,
-                },
-                x_user_id=x_user_id,
-            )
+        existing = cur.get(target)
+        if existing is not None and existing.get("index") == i:
+            continue
+        client.upsert_relationship(
+            trip_dtid,
+            {
+                "$relationshipId": _rel_id(section_id, "atLocation", target),
+                "$sourceId": section_id,
+                "$relationshipName": "atLocation",
+                "$targetId": target,
+                "index": i,
+            },
+            x_user_id=x_user_id,
+        )
 
 
 def _sync_section_days(

@@ -241,11 +241,16 @@ def graph_to_trip(graph: dict) -> M.Trip:
         d["days"] = _collapse_day_range(
             [i for i, did in enumerate(day_ids) if did in sec_day_ids]
         )
-        # section → Location edges → location names (locationRefs)
+        # section → Location edges → location names (locationRefs). The author
+        # sets the order (`PUT /sections/{id}` writes edge `index` = list
+        # position, #378), so read it back through `targets` — the same
+        # index-sorted walk the root atLocation / hasSection edges use. Reading
+        # the raw edge list instead returned the graph's traversal order, which
+        # ignored the request entirely (a new ref came back first).
         d["locationRefs"] = [
-            loc_name_by_id[r["$targetId"]]
-            for r in rels_by_src.get(sid, [])
-            if r.get("$relationshipName") == "atLocation" and r.get("$targetId") in loc_name_by_id
+            loc_name_by_id[tid]
+            for tid in targets(sid, "atLocation")
+            if tid in loc_name_by_id
         ]
         # section-owned unscheduled blocks (ideation)
         d["blocks"] = [block_from(bid, loc_name_by_id) for bid in targets(sid, "hasBlock")]

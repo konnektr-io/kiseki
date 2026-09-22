@@ -82,7 +82,7 @@ the next GET / booklet PDF reflects the edit — no rebuild, no reseed, no PVC.
 | POST | `/api/trips/{trip_id}/days` | insert a day at `index` (default append) — explicit ISO `date` or neighbor-based default |
 | PUT | `/api/trips/{trip_id}/days/{day_id}` | title/notes/meta/map (date immutable) |
 | DELETE | `/api/trips/{trip_id}/days/{day_id}` | remove a day (its blocks go with it; the last remaining day cannot be deleted) |
-| PUT | `/api/trips/{trip_id}/sections/{section_id}` | title, `locationRefs`, or `days` (inclusive `[first, last]` 0-based; rewires the section's `hasDay` edges + twin property; in-bounds + no overlap with another section — a day renders under exactly one section) |
+| PUT | `/api/trips/{trip_id}/sections/{section_id}` | title, `locationRefs` (ORDER IS PERSISTED — list position becomes the edge's `index`, so the chapter's chip row and map read back as authored, #378), or `days` (inclusive `[first, last]` 0-based; rewires the section's `hasDay` edges + twin property; in-bounds + no overlap with another section — a day renders under exactly one section) |
 | POST | `/api/trips/{trip_id}/sections` | create a section chapter — `title` (+ optional `days` range, `locationRefs`); no `days` = pure ideation section |
 | POST | `/api/trips/{trip_id}/blocks` | create — `container: {"type": "day"\|"section", "id"}` |
 | PUT | `/api/trips/{trip_id}/blocks/{block_id}` | edit fields (kind immutable; transport fields only on `transport`; `placeId` pins THE venue for the Google Maps deep link) |

@@ -129,6 +129,22 @@ def main() -> int:
                 check("PUT /sections remove locationRef", st == 200)
             else:
                 print("  (skip) no second registry location to toggle a ref with")
+            # (#378) the ORDER must be persisted: the chapter chip row and the
+            # section map render `locationRefs` in list order, so a reversed
+            # list has to read back reversed. Before #378 the write stored only
+            # the edge SET and the live graph returned its own traversal order,
+            # so a reorder was a silent no-op and a newly added ref read back
+            # first. Runs on ≥2 refs, with or without a spare registry location.
+            if len(orig_refs) >= 2:
+                reversed_refs = list(reversed(orig_refs))
+                st, doc_rev = _req("PUT", f"/api/trips/{tid}/sections/{section['id']}",
+                                   {"locationRefs": reversed_refs})
+                got = next((x.get("locationRefs") for x in doc_rev.get("sections", [])
+                            if x["id"] == section["id"]), None)
+                check("PUT /sections locationRefs order round-trip (#378)",
+                      st == 200 and got == reversed_refs)
+            else:
+                print("  (skip) section has <2 refs — no order to reverse")
         else:
             print("  (skip) no section with locationRefs to exercise")
 

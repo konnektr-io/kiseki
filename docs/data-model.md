@@ -107,6 +107,11 @@ Two things worth knowing:
 
 - **A crew row is a `Person` until it is claimed**, then it is a `User` twin whose `$dtId` is the
   auth `sub`. The `hasCrew` edge — not the name, not the e-mail — is what grants access.
+- **Order lives on the edge as `index`.** Every ordered relationship carries `index` = list
+  position — root `atLocation` (marker order), `hasSection` (chapter order), and a section's
+  `atLocation` (the chapter's place order the itinerary view renders, #378). The read path sorts
+  by it; a write that changes the order re-stamps it. Consequently a ref list with no `index`
+  reads back in the graph's own traversal order, never in the order you sent.
 - **Following a trip is a `hasCrew` edge with `role: follower`.** There is no separate follow edge for
   trips; `follows` (User → User) is only for following people. That is why a follower can read the
   trip and a claimant can be promoted, using one mechanism.
