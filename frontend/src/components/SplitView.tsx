@@ -32,6 +32,19 @@ const RAIL_MAX_VIEWPORT_RESERVE_PX = 480;
 const SIDE_PX = 340;
 /** Gap between a floating side panel and the viewport edge. */
 const SIDE_GUTTER = 12;
+/**
+ * The sheet's top corner radius, in px — `rounded-t-2xl` on the Sheet section
+ * (`components/Sheet.tsx`), and Tailwind v4's `2xl` is 1rem = 16px.
+ *
+ * It exists here because the sheet-mode map box ends ABOVE the sheet's flat top
+ * edge by exactly this much (#377 follow-up, Niko 2026-09-22: "align to the
+ * bottom of the sheet side borders"). The rounded shoulders leave a 16px notch
+ * of page backdrop beside the sheet's straight side edges; letting the map
+ * extend to the bottom of those corners puts map in the notch instead — the
+ * sheet is opaque and sits above it (z-20), so nothing else changes. Keep this
+ * in sync with the class, or the notch comes back.
+ */
+export const SHEET_CORNER_RADIUS_PX = 16;
 /** sessionStorage key — the drag survives navigation, not sessions. */
 const RAIL_WIDTH_KEY = "kiseki-rail-width";
 
@@ -306,10 +319,14 @@ export function SplitView({
         // so the map IS the visible strip — the unchanged camera path frames
         // it with chrome-only padding. The Sheet overlay itself is untouched
         // (same absolute bottom, same detents, same drag).
+        //
+        // #377 follow-up: the box ends at the BOTTOM OF THE SHEET'S CORNERS,
+        // not at its flat top edge (SHEET_CORNER_RADIUS_PX above) — otherwise
+        // the rounded shoulders leave a 16px notch of page backdrop showing.
         <div
           data-sheet-map-box=""
           className="absolute left-0 right-0 top-0 overflow-hidden"
-          style={{ bottom: `${sheetPx}px` }}
+          style={{ bottom: `${Math.max(0, sheetPx - SHEET_CORNER_RADIUS_PX)}px` }}
         >
           {map(padding)}
         </div>
