@@ -205,31 +205,29 @@ export function isOnVisibleHemisphere(
 }
 
 /**
- * The landing map's own label floor (#372) — deliberately NOT the trip-map
- * `MAP_LABEL_ZOOM_FLOOR` (2), which stays exactly as it is.
- *
- * That floor exists to stop clutter on trip maps carrying dozens of pins. The
- * landing map holds at most ~10 trips under a hard cap of 8 labels, so a zoom
- * gate is the wrong tool here: the three-continent fit lands at zoom 0.9–1.3
- * on a 390px phone (measured headless), and a floor of 2 reads as "no labels
- * until the viewer zooms in twice". A world-zoom globe naming its ≤8 trips is
- * the desired reading — the CAP is this surface's clutter control, not the zoom.
- */
-export const HOME_LABEL_ZOOM_FLOOR = 0;
-
-/**
  * Which trip pins get a visible title label (#372 slice 2) — the landing
  * map's half of the `selectMapLabels` display discipline, over pins instead
  * of place names. Pure, so the rule is pinned by test and the canvas
  * (`components/HomeMap`) only paints the answer.
+ *
+ * **No zoom gate, deliberately — and this is not an oversight.** The trip-map
+ * `MAP_LABEL_ZOOM_FLOOR` (2) exists to stop clutter on maps carrying dozens of
+ * pins; this surface holds ≤10 trips under a hard cap of 8, so the CAP is its
+ * clutter control and a zoom gate buys nothing. Worse, a gate here is actively
+ * wrong: the landing map is the app's only GLOBE, and MapLibre's zoom is
+ * unbounded BELOW zero on a globe (the sphere may be smaller than the
+ * viewport), unlike flat Mercator where the transform floors it around 0.6.
+ * Measured on a 390×844 phone against live data: the settled camera lands at
+ * **zoom −2.28** and labels vanished; the same page at 1440×900 settles at
+ * +3.38 and keeps them. A floor of 0 therefore hid every label on exactly the
+ * device this feature was asked for. Do not reintroduce one; if a future
+ * surface needs a floor, gate on collision from the cluster pass instead.
  *
  * - At most MAX labels (the shared `MAP_LABEL_MAX` cap — one rule, not two).
  * - The selected trip is always labelled: moved first, never capped out.
  * - Clustered pins take NO label — a count badge is its own reading, and a
  *   label beside a badge would read as a second index. A selected pin inside
  *   a cluster stays quiet for the same reason; the badge is its reading.
- * - Below the home floor (`HOME_LABEL_ZOOM_FLOOR`) the whole layer drops —
- *   pins stay, labels go, selected included.
  * - Pins with a blank title take no label: an empty pill is floating chrome,
  *   and the anchor name already rides the pin's `aria-label`.
  *
@@ -241,10 +239,9 @@ export function selectHomeLabels(
   pins: readonly HomeMapPin[],
   clusteredDtIds: ReadonlySet<string> | readonly string[],
   selectedDtId: string | null,
-  zoom: number,
   max = MAP_LABEL_MAX,
 ): HomeMapPin[] {
-  if (zoom < HOME_LABEL_ZOOM_FLOOR || pins.length === 0) return [];
+  if (pins.length === 0) return [];
   const clustered = clusteredDtIds instanceof Set ? clusteredDtIds : new Set(clusteredDtIds);
   const candidates = pins.filter((p) => !clustered.has(p.dtId) && p.title.trim() !== "");
   if (selectedDtId) {

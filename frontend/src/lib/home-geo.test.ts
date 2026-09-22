@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
-import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
-import { HOME_LABEL_ZOOM_FLOOR } from "./home-geo";
+import { MAP_LABEL_MAX } from "./maps";
+
 import type { TripGeo } from "./types";
 
 function pin(over: Partial<HomeMapPin> & { dtId: string }): HomeMapPin {
@@ -213,67 +213,60 @@ describe("isOnVisibleHemisphere — the landing globe's horizon (#372 slice 1)",
 });
 
 describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", () => {
-  const ZOOM = MAP_LABEL_ZOOM_FLOOR + 1;
-  // Measured phone fit zoom for the three-continent set (headless Chromium,
-  // SwiftShader, 390px viewport): the fitted camera lands at 0.9–1.3.
-  const PHONE_FIT_ZOOM = 1;
   const ids = (pins: HomeMapPin[]) => pins.map((p) => p.dtId);
 
   it("labels every pin when the set fits the cap", () => {
     const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
-    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["a", "b"]);
+    expect(ids(selectHomeLabels(pins, new Set(), null))).toEqual(["a", "b"]);
   });
 
   it("caps the layer and keeps input order past it", () => {
     const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
-    const labelled = selectHomeLabels(pins, new Set(), null, ZOOM);
+    const labelled = selectHomeLabels(pins, new Set(), null);
     expect(labelled).toHaveLength(MAP_LABEL_MAX);
     expect(ids(labelled)).toEqual(pins.slice(0, MAP_LABEL_MAX).map((p) => p.dtId));
   });
 
   it("moves the selected trip first and never caps it out", () => {
     const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
-    const labelled = selectHomeLabels(pins, new Set(), `t${MAP_LABEL_MAX + 2}`, ZOOM);
+    const labelled = selectHomeLabels(pins, new Set(), `t${MAP_LABEL_MAX + 2}`);
     expect(labelled).toHaveLength(MAP_LABEL_MAX);
     expect(labelled[0].dtId).toBe(`t${MAP_LABEL_MAX + 2}`);
   });
 
   it("a selected pin inside a cluster stays quiet — the badge is its reading", () => {
     const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
-    expect(ids(selectHomeLabels(pins, new Set(["a"]), "a", ZOOM))).toEqual(["b"]);
+    expect(ids(selectHomeLabels(pins, new Set(["a"]), "a"))).toEqual(["b"]);
   });
 
   it("clustered pins take no label", () => {
     const pins = [pin({ dtId: "a" }), pin({ dtId: "b" }), pin({ dtId: "c" })];
-    expect(ids(selectHomeLabels(pins, ["a", "b"], null, ZOOM))).toEqual(["c"]);
-    expect(selectHomeLabels(pins, ["a", "b", "c"], null, ZOOM)).toEqual([]);
+    expect(ids(selectHomeLabels(pins, ["a", "b"], null))).toEqual(["c"]);
+    expect(selectHomeLabels(pins, ["a", "b", "c"], null)).toEqual([]);
   });
 
-  it("drops the whole layer below the collision zoom — selected included", () => {
+  it("carries NO zoom gate — a negative globe zoom still labels (#372)", () => {
+    // The regression this pins, measured on live data: the 390x844 landing
+    // globe settles at zoom -2.28 (MapLibre zoom is unbounded below zero on a
+    // globe), and the earlier HOME_LABEL_ZOOM_FLOOR = 0 hid every label on a
+    // phone. The rule takes no zoom at all now; if anyone adds one back, this
+    // test fails at the phone's real value.
     const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
-    expect(selectHomeLabels(pins, new Set(), "a", HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
-    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
-    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR)).toHaveLength(2);
-  });
-
-  it("labels at the phone-fit zoom — a capped set of ~10 cannot clutter (#372)", () => {
-    // Measured in headless Chromium (SwiftShader): the three-continent fit
-    // lands at zoom 0.9–1.3 on a 390px viewport. The landing map must name
-    // its trips there, not only after the viewer zooms in twice.
-    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
-    expect(ids(selectHomeLabels(pins, new Set(), null, PHONE_FIT_ZOOM))).toEqual(["a", "b"]);
-  });
-
-  it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", () => {
-    expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
+    expect(ids(selectHomeLabels(pins, new Set(), null))).toEqual(["a", "b"]);
+    expect(ids(selectHomeLabels(pins, new Set(), "a"))).toEqual(["a", "b"]);
   });
 
   it("never labels a blank title — the aria-label already names the anchor", () => {
     const pins = [pin({ dtId: "a", title: "  " }), pin({ dtId: "b" })];
-    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["b"]);
+    expect(ids(selectHomeLabels(pins, new Set(), null))).toEqual(["b"]);
   });
 
   it("labels nothing when there is nothing", () => {
-    expect(selectHomeLabels([], new Set(), null, ZOOM)).toEqual([]);
+    expect(selectHomeLabels([], new Set(), null)).toEqual([]);
+  });
+
+  it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", async () => {
+    const { MAP_LABEL_ZOOM_FLOOR } = await import("./maps");
+    expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
   });
 });
