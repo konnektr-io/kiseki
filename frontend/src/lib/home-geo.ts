@@ -1,5 +1,5 @@
 import type { Stage, TripGeo } from "./types";
-import { MAP_LABEL_MAX } from "./maps";
+import { MAP_LABEL_MAX, MAP_LABEL_PIN_OFFSET_PX } from "./maps";
 
 /**
  * The signed-in home's map pins (#249, slice 3).
@@ -252,4 +252,119 @@ export function selectHomeLabels(
     }
   }
   return candidates.slice(0, max);
+}
+
+/**
+ * Pill geometry for the home title labels (#375) — pure, pinned by test,
+ * painted by `components/HomeMap`.
+ *
+ * The display rule (`selectHomeLabels`: cap, selected-first, clusters quiet)
+ * cannot see what the pills look like on screen: a 42-char title makes a
+ * ~250px pill on a 390px phone, so edge pins clip at the map border
+ * (`overflow-hidden` cuts them) and near neighbours overlap even though the
+ * pins themselves clustered fine. Three geometry answers, in priority order
+ * (the input order — selected first — is the placement order, never re-sorted):
+ *
+ * 1. **Width cap** (`HOME_LABEL_MAX_WIDTH_PX`): the pill never exceeds it;
+ *    longer titles ellipsise (CSS) with the full text on `title`.
+ * 2. **Edge clamp**: a pill whose pin projects inside the box is shifted
+ *    (marker x-offset) so it stays inside; a pill that would run past the
+ *    bottom flips above its pin (anchor `bottom`). Pins projecting outside
+ *    the box keep the default placement — their pill is off-screen with them,
+ *    and dragging a label into view for an invisible pin would lie.
+ * 3. **Overlap**: a pill colliding with an already-placed one is dropped
+ *    (the pin stays). The cap shrinks most collisions away; this catches the
+ *    rest — two pins 60px apart whose capped pills are 160px wide.
+ *
+ * Widths are estimates (`estimateHomeLabelWidthPx`), not measurements: the
+ * layout runs before the markers exist, and an estimate keeps the rule pure.
+ * The estimate is conservative (at-or-above the real pill), so a kept pill
+ * never overlaps worse than computed — at most a dropped pill that would
+ * have fit by a few px.
+ */
+export const HOME_LABEL_MAX_WIDTH_PX = 160;
+/** Approx pill height at `text-[11px]` + vertical padding — box math only. */
+export const HOME_LABEL_HEIGHT_PX = 24;
+/** Keep-out from the container edge — a pill never touches the border. */
+export const HOME_LABEL_EDGE_PX = 4;
+
+/** Conservative pill width for a title: ~6.5px per glyph + pill chrome, capped. */
+export function estimateHomeLabelWidthPx(title: string): number {
+  return Math.min(HOME_LABEL_MAX_WIDTH_PX, 32 + Math.ceil(title.length * 6.5));
+}
+
+/** A pin's projected screen point, in CSS px from the container's top-left. */
+export interface HomeLabelScreenPt {
+  x: number;
+  y: number;
+}
+
+/** Where a home pill goes: which side of its pin, and how far it shifts. */
+export interface HomeLabelPlacement {
+  dtId: string;
+  /** `top` = pill below the pin (the default); `bottom` = flipped above it. */
+  anchor: "top" | "bottom";
+  /** Marker x-offset in px — the edge clamp. Positive shifts right. */
+  offsetX: number;
+}
+
+interface PlacedBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function boxesOverlap(a: PlacedBox, b: PlacedBox, gap: number): boolean {
+  return (
+    a.left < b.right + gap && b.left < a.right + gap && a.top < b.bottom + gap && b.top < a.bottom + gap
+  );
+}
+
+export function placeHomeLabels(
+  labels: readonly HomeMapPin[],
+  positions: ReadonlyMap<string, HomeLabelScreenPt>,
+  containerW: number,
+  containerH: number,
+): HomeLabelPlacement[] {
+  const out: HomeLabelPlacement[] = [];
+  if (labels.length === 0) return out;
+  // No box, no geometry — keep every label at its default placement rather
+  // than clamping against a 0×0 container (which would stack all pills at
+  // the corner and drop all but one).
+  if (!(containerW > 0) || !(containerH > 0)) {
+    return labels.map((p) => ({ dtId: p.dtId, anchor: "top" as const, offsetX: 0 }));
+  }
+  const placed: PlacedBox[] = [];
+  for (const pin of labels) {
+    const pos = positions.get(pin.dtId);
+    if (!pos || pos.x < 0 || pos.x > containerW || pos.y < 0 || pos.y > containerH) {
+      out.push({ dtId: pin.dtId, anchor: "top", offsetX: 0 });
+      continue;
+    }
+    const w = estimateHomeLabelWidthPx(pin.title);
+    const half = w / 2;
+    // Clamp the pill's centre so the box stays inside the edges. On a box
+    // narrower than the pill, centre it — a centred overflow reads better
+    // than a pill pinned to one border.
+    const lo = HOME_LABEL_EDGE_PX + half;
+    const hi = containerW - HOME_LABEL_EDGE_PX - half;
+    const cx = lo > hi ? containerW / 2 : Math.min(hi, Math.max(lo, pos.x));
+    // Below the pin by default; flip above it when the pill would run past
+    // the bottom and there is room on top.
+    const belowTop = pos.y + MAP_LABEL_PIN_OFFSET_PX;
+    const fitsBelow = belowTop + HOME_LABEL_HEIGHT_PX <= containerH - HOME_LABEL_EDGE_PX;
+    const fitsAbove =
+      pos.y - MAP_LABEL_PIN_OFFSET_PX - HOME_LABEL_HEIGHT_PX >= HOME_LABEL_EDGE_PX;
+    const anchor: "top" | "bottom" = fitsBelow || !fitsAbove ? "top" : "bottom";
+    const top =
+      anchor === "top"
+        ? Math.min(belowTop, containerH - HOME_LABEL_EDGE_PX - HOME_LABEL_HEIGHT_PX)
+        : pos.y - MAP_LABEL_PIN_OFFSET_PX - HOME_LABEL_HEIGHT_PX;
+    const box: PlacedBox = { left: cx - half, top, right: cx + half, bottom: top + HOME_LABEL_HEIGHT_PX };
+    if (placed.some((p) => boxesOverlap(p, box, HOME_LABEL_EDGE_PX))) continue;
+    placed.push(box);
+    out.push({ dtId: pin.dtId, anchor, offsetX: Math.round(cx - pos.x) });
+  }
+  return out;
 }
