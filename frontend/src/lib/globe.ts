@@ -1,13 +1,13 @@
 /**
- * The globe for the whole-trip overview (#361 slice 3).
+ * The globe for the overviews (#361 slice 3, #372 slice 1).
  *
- * The scan level of `RouteMap` and the `OverviewPage` feature map (via
- * `TripMap`/`MapView`) render with `setProjection({ type: "globe" })`, plus
- * atmosphere/sky per the style spec. Everything else stays Mercator: the day
- * level, compact card minimaps, `LandingMap`/`HomeMap`, and the ENTIRE print
- * path (SwiftShader + globe shaders is a new failure mode the booklet must
- * never see — the projection is gated off `isPdfRender` the way the camera
- * already is).
+ * The scan level of `RouteMap`, the `OverviewPage` feature map (via
+ * `TripMap`/`MapView`), and the signed-in landing map (`components/HomeMap`)
+ * render with `setProjection({ type: "globe" })`, plus atmosphere/sky per the
+ * style spec. Everything else stays Mercator: the day level, compact card
+ * minimaps, `LandingMap`, and the ENTIRE print path (SwiftShader + globe
+ * shaders is a new failure mode the booklet must never see — the projection
+ * is gated off `isPdfRender` the way the camera already is).
  *
  * Colours are tokens, never hex: the sky reads `--map-sky`/`--map-horizon`
  * off the map container (see `index.css`), the same path `lib/tokens.ts`
@@ -65,10 +65,12 @@ export function globeSkySpec(el: Element): Record<string, unknown> {
 }
 
 /**
- * Whether an overview `MapView` renders on the globe.
+ * Whether an overview renders on the globe.
  *
- * `globe` is set only by the overview feature map; the booklet PDF and the
- * compact card minimaps always stay Mercator even if it leaks through.
+ * `globe` is set by the overview feature map and by the signed-in landing
+ * map (`HomeMap`, which passes a constant — this surface is globe by
+ * construction, never per trip); the booklet PDF and the compact card
+ * minimaps always stay Mercator even if it leaks through.
  */
 export function shouldUseGlobe({
   globe,

@@ -739,11 +739,13 @@ surface adds a second
   literal belongs in map code, ever; that leak is how every trip drew Canada-blue routes.
 - Markers are **DOM markers**, so their colours are plain Tailwind utilities off `--color-marker` /
   `--color-marker-fg` and no colour is written in JS at all.
-- **The overview is a globe; everything else is flat** (2026-09, #361, supersedes #357 D1). The
+- **The overview is a globe; everything else is flat** (2026-09, #361, supersedes #357 D1;
+  #372 extends the scoping to the signed-in landing map). The
   whole-trip overview surfaces — the scan level of `RouteMap` and the OverviewPage feature map
-  (`TripMap`/`MapView`, `lib/globe.ts`) — render `setProjection({ type: "globe" })` with
+  (`TripMap`/`MapView`, `lib/globe.ts`) — plus the signed-in landing map (`HomeMap`) render
+  `setProjection({ type: "globe" })` with
   atmosphere/sky off tokens (`--map-sky`/`--map-horizon`), never hex. Screen-only by
-  construction: the day level, compact card minimaps, `LandingMap`/`HomeMap`, and the ENTIRE
+  construction: the day level, compact card minimaps, `LandingMap`, and the ENTIRE
   print path stay Mercator (gated off `isPdfRender` the way the camera already is — SwiftShader
   + globe shaders is a failure mode the booklet must never see). `fitBounds` framing and the
   `unfoldLngs` shortest-arc logic were re-verified against the globe rather than assumed; if

@@ -5,8 +5,22 @@
  * browser lives here and is pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { clusterPins, homePinsFromGeo, homeRowId, normalizeLng, pinStage, unfoldLngs } from "./home-geo";
+import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
+import { MAP_LABEL_MAX, MAP_LABEL_ZOOM_FLOOR } from "./maps";
+import { HOME_LABEL_ZOOM_FLOOR } from "./home-geo";
 import type { TripGeo } from "./types";
+
+function pin(over: Partial<HomeMapPin> & { dtId: string }): HomeMapPin {
+  return {
+    title: `Trip ${over.dtId}`,
+    stage: "booked",
+    lat: 50.9981,
+    lng: -118.1957,
+    name: "Revelstoke",
+    origin: "mine",
+    ...over,
+  };
+}
 
 function geo(over: Partial<TripGeo> & { dtId: string }): TripGeo {
   return {
@@ -162,5 +176,104 @@ describe("normalizeLng", () => {
     expect(normalizeLng(-190)).toBeCloseTo(170, 4);
     expect(normalizeLng(190)).toBeCloseTo(-170, 4);
     expect(normalizeLng(0)).toBe(0);
+  });
+});
+
+describe("isOnVisibleHemisphere — the landing globe's horizon (#372 slice 1)", () => {
+  // The framed camera for the Canada/Chile/Japan set: the shortest-arc fit
+  // centres on (−144.655, 8.86) — see the HomeMap bounding-box tests.
+  const CAM = { lat: 8.86475, lng: -144.655 };
+
+  it("the framed three-continent set faces its own camera — one globe face holds it", () => {
+    // Measured, not assumed: 148° < 180°, so the whole set is on screen.
+    expect(angularSeparationDeg(51.1784, -114.06, CAM.lat, CAM.lng)).toBeCloseTo(49.21, 1);
+    expect(angularSeparationDeg(-33.4489, -70.66, CAM.lat, CAM.lng)).toBeCloseTo(81.82, 1);
+    expect(angularSeparationDeg(42.78, 141.35, CAM.lat, CAM.lng)).toBeCloseTo(72.26, 1);
+    for (const [lat, lng] of [[51.1784, -114.06], [-33.4489, -70.66], [42.78, 141.35]] as const) {
+      expect(isOnVisibleHemisphere(lat, lng, CAM.lat, CAM.lng)).toBe(true);
+    }
+  });
+
+  it("a pin past the horizon is far-side, even antimeridian-safe", () => {
+    // Japan's antipode (−42.78, −38.65): the farthest possible point.
+    expect(isOnVisibleHemisphere(42.78, 141.35, -42.78, -38.65)).toBe(false);
+    // From a mid-Atlantic camera Japan is over the horizon (Δlng ≈ 171°).
+    expect(isOnVisibleHemisphere(42.78, 141.35, 0, -30)).toBe(false);
+  });
+
+  it("the limb itself still counts as visible — no pin falls off the cluster", () => {
+    expect(angularSeparationDeg(0, 0, 0, 90)).toBeCloseTo(90, 6);
+    expect(isOnVisibleHemisphere(0, 0, 0, 90)).toBe(true);
+    expect(isOnVisibleHemisphere(0, 0, 0, 90.0001)).toBe(false);
+  });
+
+  it("a pin at the camera centre faces it", () => {
+    expect(isOnVisibleHemisphere(50.9981, -118.1957, 50.9981, -118.1957)).toBe(true);
+  });
+});
+
+describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", () => {
+  const ZOOM = MAP_LABEL_ZOOM_FLOOR + 1;
+  // Measured phone fit zoom for the three-continent set (headless Chromium,
+  // SwiftShader, 390px viewport): the fitted camera lands at 0.9–1.3.
+  const PHONE_FIT_ZOOM = 1;
+  const ids = (pins: HomeMapPin[]) => pins.map((p) => p.dtId);
+
+  it("labels every pin when the set fits the cap", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["a", "b"]);
+  });
+
+  it("caps the layer and keeps input order past it", () => {
+    const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
+    const labelled = selectHomeLabels(pins, new Set(), null, ZOOM);
+    expect(labelled).toHaveLength(MAP_LABEL_MAX);
+    expect(ids(labelled)).toEqual(pins.slice(0, MAP_LABEL_MAX).map((p) => p.dtId));
+  });
+
+  it("moves the selected trip first and never caps it out", () => {
+    const pins = Array.from({ length: MAP_LABEL_MAX + 3 }, (_, i) => pin({ dtId: `t${i}` }));
+    const labelled = selectHomeLabels(pins, new Set(), `t${MAP_LABEL_MAX + 2}`, ZOOM);
+    expect(labelled).toHaveLength(MAP_LABEL_MAX);
+    expect(labelled[0].dtId).toBe(`t${MAP_LABEL_MAX + 2}`);
+  });
+
+  it("a selected pin inside a cluster stays quiet — the badge is its reading", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(["a"]), "a", ZOOM))).toEqual(["b"]);
+  });
+
+  it("clustered pins take no label", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" }), pin({ dtId: "c" })];
+    expect(ids(selectHomeLabels(pins, ["a", "b"], null, ZOOM))).toEqual(["c"]);
+    expect(selectHomeLabels(pins, ["a", "b", "c"], null, ZOOM)).toEqual([]);
+  });
+
+  it("drops the whole layer below the collision zoom — selected included", () => {
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(selectHomeLabels(pins, new Set(), "a", HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR - 0.5)).toEqual([]);
+    expect(selectHomeLabels(pins, new Set(), null, HOME_LABEL_ZOOM_FLOOR)).toHaveLength(2);
+  });
+
+  it("labels at the phone-fit zoom — a capped set of ~10 cannot clutter (#372)", () => {
+    // Measured in headless Chromium (SwiftShader): the three-continent fit
+    // lands at zoom 0.9–1.3 on a 390px viewport. The landing map must name
+    // its trips there, not only after the viewer zooms in twice.
+    const pins = [pin({ dtId: "a" }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, PHONE_FIT_ZOOM))).toEqual(["a", "b"]);
+  });
+
+  it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", () => {
+    expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
+  });
+
+  it("never labels a blank title — the aria-label already names the anchor", () => {
+    const pins = [pin({ dtId: "a", title: "  " }), pin({ dtId: "b" })];
+    expect(ids(selectHomeLabels(pins, new Set(), null, ZOOM))).toEqual(["b"]);
+  });
+
+  it("labels nothing when there is nothing", () => {
+    expect(selectHomeLabels([], new Set(), null, ZOOM)).toEqual([]);
   });
 });

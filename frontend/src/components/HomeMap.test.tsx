@@ -22,6 +22,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HomeMapPin } from "../lib/home-geo";
+import { HOME_LABEL_ZOOM_FLOOR } from "../lib/home-geo";
 
 const PINS: HomeMapPin[] = [
   { dtId: "a", title: "Ski Week", stage: "booked", lat: 50.9981, lng: -118.1957, name: "Revelstoke", origin: "mine" },
@@ -52,6 +53,13 @@ const calls = vi.hoisted(() => ({
   handlers: {} as Record<string, (() => void)[]>,
   /** Screen projection — per test: spread (no clustering) or collide. */
   project: "spread" as "spread" | "collide",
+  /** What the globe was asked for — `setProjection` / `setSky` recordings. */
+  projections: [] as unknown[],
+  skies: [] as unknown[],
+  /** The camera centre the horizon check reads — faces both PINS by default. */
+  center: { lng: -53, lat: 49 },
+  /** Map zoom the label layer reads — above the collision floor by default. */
+  zoom: 5,
 }));
 
 /** Screen position per mode: spread keeps pins apart, collide stacks them. */
@@ -95,6 +103,15 @@ vi.mock("../lib/maplibre", () => ({
       unproject([x, y]: [number, number]) {
         return { lng: x, lat: y };
       }
+      getCenter() {
+        return { ...calls.center };
+      }
+      setProjection(p: unknown) {
+        calls.projections.push(p);
+      }
+      setSky(s: unknown) {
+        calls.skies.push(s);
+      }
       fitBounds(_bounds: unknown, options: Record<string, unknown>) {
         calls.fit = options;
         calls.fits += 1;
@@ -122,7 +139,7 @@ vi.mock("../lib/maplibre", () => ({
         calls.jumps.push(options);
       }
       getZoom() {
-        return 5;
+        return calls.zoom;
       }
       zoomIn() {
         calls.zooms.push("in");
@@ -224,6 +241,10 @@ beforeEach(() => {
   calls.resizes = 0;
   calls.handlers = {};
   calls.project = "spread";
+  calls.projections = [];
+  calls.skies = [];
+  calls.center = { lng: -53, lat: 49 };
+  calls.zoom = 5;
   webgl.ok = true;
   box.w = 390;
   box.h = 783;
@@ -283,17 +304,24 @@ describe("the real map, once it can load", () => {
     expect(calls.map!.attributionControl).toEqual({ compact: true });
   });
 
-  it("drops one stage-coloured pin per trip, and nothing else", async () => {
+  it("drops one stage-coloured pin per trip, plus its title label", async () => {
     const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    // Pins first, then their labels on the same rebuild — labels carry no
+    // accessible name of their own (the pin button is the name).
     expect(calls.markers).toEqual([
       { label: "Ski Week — Revelstoke", at: [-118.1957, 50.9981] },
       { label: "Dolomites — Val Gardena", at: [11.844, 46.4102] },
+      { label: null, at: [-118.1957, 50.9981] },
+      { label: null, at: [11.844, 46.4102] },
     ]);
     // The pin's colour is the one class map — booked filled, planned muted.
     const dots = [...el.querySelectorAll("[data-home-map] .route-pin-dot")];
     expect(dots).toHaveLength(2);
     expect(dots[0].className).toContain(pinClassForStage("booked").split(" ").pop()!);
     expect(dots[1].className).toContain(pinClassForStage("planned").split(" ").pop()!);
+    // The labels name the trips — title only, never a second stage index.
+    const labels = [...el.querySelectorAll("[data-home-map] .map-place-label")];
+    expect(labels.map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
     // Every pin is a labelled 44px button — the bands are the list equivalent,
     // but pointer and keyboard reach the same trips.
     const buttons = [...el.querySelectorAll("[data-home-map] button")];
@@ -302,9 +330,10 @@ describe("the real map, once it can load", () => {
   });
 
   it("never renders a trip the geo read did not list", async () => {
-    await mount(<HomeMap pins={[PINS[0]]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
-    expect(calls.markers).toHaveLength(1);
+    const el = await mount(<HomeMap pins={[PINS[0]]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.markers).toHaveLength(2); // the pin, plus its title label
     expect(calls.markers[0].label).not.toContain("Dolomites");
+    expect(el.textContent).not.toContain("Dolomites");
   });
 
   it("frames the pins with the sheet's padding, and centres a lone one", async () => {
@@ -353,6 +382,142 @@ describe("the pin set's bounding box", () => {
     const framed = calls.jumps[0] as { center: [number, number] };
     expect(framed.center[0]).toBeCloseTo(12.62, 3);
     expect(framed.center[1]).toBeCloseTo(46.9, 3);
+  });
+
+  it("the three-continent set spans less than a hemisphere — one globe face holds it", async () => {
+    // 148° < 180°: the flat-measured shortest-arc fit still frames on the
+    // globe. The fit input carries no width-specific branch, so phone
+    // (390px, sheet at half) and desktop (1440px, rail) frame the same box —
+    // one test per width, fresh harness each.
+    const frameWorld = async () => {
+      await mount(<HomeMap pins={WORLD} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+      expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeCloseTo(147.99, 1);
+      expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeLessThan(180);
+      const framed = calls.jumps[0] as { center: [number, number] };
+      expect(framed.center[0]).toBeGreaterThanOrEqual(-180);
+      expect(framed.center[0]).toBeLessThan(180);
+    };
+    box.w = 390;
+    box.h = 783;
+    await frameWorld();
+  });
+
+  it("the three-continent set spans less than a hemisphere at desktop width", async () => {
+    box.w = 1440;
+    box.h = 900;
+    await mount(<HomeMap pins={WORLD} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeCloseTo(147.99, 1);
+    expect(calls.bounds!.maxLng - calls.bounds!.minLng).toBeLessThan(180);
+    const framed = calls.jumps[0] as { center: [number, number] };
+    expect(framed.center[0]).toBeGreaterThanOrEqual(-180);
+    expect(framed.center[0]).toBeLessThan(180);
+  });
+});
+
+describe("the landing globe (#372 slice 1)", () => {
+  it("renders on a globe with the token-sky atmosphere — never hex, never a second rule", async () => {
+    await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(calls.projections).toEqual([{ type: "globe" }]);
+    expect(calls.skies).toHaveLength(1);
+    const sky = calls.skies[0] as Record<string, unknown>;
+    expect(sky["sky-color"]).toBeTruthy();
+    expect(sky["horizon-color"]).toBeTruthy();
+    expect(String(sky["sky-color"])).not.toMatch(/^#/);
+    expect(String(sky["horizon-color"])).not.toMatch(/^#/);
+  });
+
+  it("a pin over the horizon never clusters with visible ones", async () => {
+    // Every projection lands on the same pixel — on Mercator this is one
+    // badge. With a North-Pacific camera Revelstoke faces (37°) while Val
+    // Gardena is far-side (103°), so the far-side pin must stand alone.
+    calls.project = "collide";
+    calls.center = { lng: -160, lat: 30 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const buttons = [...el.querySelectorAll("[data-home-map] button")];
+    expect(buttons).toHaveLength(2);
+    expect(buttons.map((b) => b.getAttribute("aria-label")).sort()).toEqual([
+      "Dolomites — Val Gardena",
+      "Ski Week — Revelstoke",
+    ]);
+  });
+
+  it("far-side pins still cluster with each other", async () => {
+    // South-Atlantic camera: both pins over the horizon, same pixel — one
+    // far-side badge, not two lone pins and never mixed into a visible set.
+    calls.project = "collide";
+    calls.center = { lng: -30, lat: -50 };
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const badges = [...el.querySelectorAll("[data-home-map] button")];
+    expect(badges).toHaveLength(1);
+    expect(badges[0].getAttribute("aria-label")).toBe("2 trips — zoom in");
+  });
+});
+
+describe("trip title labels (#372 slice 2)", () => {
+  const labelsOf = (el: HTMLElement) => [...el.querySelectorAll("[data-home-map] .map-place-label")];
+
+  it("names each unclustered pin with its title — the pill vocabulary, paint only", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const labels = labelsOf(el);
+    expect(labels.map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
+    for (const label of labels) {
+      // The pill class carries pointer-events-none + heading font +
+      // bg-surface/90 — the label never intercepts, never recolours.
+      expect(label.className).toContain("map-place-label");
+      expect(label.getAttribute("aria-hidden")).toBe("true");
+      expect(label.querySelector(".route-pin-dot")).toBeNull();
+    }
+  });
+
+  it("labels the selected trip first and raises its pill, in place", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId="b" onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const labels = labelsOf(el);
+    expect(labels.map((l) => l.textContent)).toEqual(["Dolomites", "Ski Week"]);
+    expect(labels[0].classList.contains("is-selected")).toBe(true);
+    expect(labels[1].classList.contains("is-selected")).toBe(false);
+  });
+
+  it("restyles the pills when the selection moves, without rebuilding", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    const built = calls.elements.length;
+    await act(async () => {
+      root!.render(<HomeMap pins={PINS} selectedDtId="a" onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    });
+    expect(calls.elements.length).toBe(built);
+    const labels = labelsOf(el);
+    expect(labels[0].classList.contains("is-selected")).toBe(true);
+    expect(labels[1].classList.contains("is-selected")).toBe(false);
+  });
+
+  it("clusters take no label — the count badge is the reading", async () => {
+    calls.project = "collide";
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(1);
+    expect(labelsOf(el)).toHaveLength(0);
+  });
+
+  it("labels at the phone-fit zoom — the home floor is 0, not the trip-map 2 (#372)", async () => {
+    calls.zoom = 1;
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(labelsOf(el).map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
+  });
+
+  it("drops the whole label layer below the home floor — pins stay", async () => {
+    calls.zoom = HOME_LABEL_ZOOM_FLOOR - 1;
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(labelsOf(el)).toHaveLength(0);
+    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(2);
+  });
+
+  it("rebuilds the labels with the markers when the view moves", async () => {
+    calls.project = "collide";
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(labelsOf(el)).toHaveLength(0);
+    calls.project = "spread";
+    await act(async () => {
+      fire("moveend");
+    });
+    expect(labelsOf(el).map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
   });
 });
 

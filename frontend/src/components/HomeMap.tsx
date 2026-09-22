@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin, Minus, Plus } from "lucide-react";
-import { hasWebGL2, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
+import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { clusterPins, normalizeLng, unfoldLngs, type HomeMapPin } from "../lib/home-geo";
+import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
+import { clusterPins, isOnVisibleHemisphere, normalizeLng, selectHomeLabels, unfoldLngs, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
@@ -30,11 +31,19 @@ interface HomeMapProps {
  * (`pinClassForStage` + the `route-pin` / `is-selected` / `route-map-focused`
  * grammar from the trip maps — no second marker language).
  *
+ * The canvas renders on the landing globe (#372 slice 1): the shared
+ * `lib/globe.ts` machinery (`setProjection({ type: "globe" })` + the token-sky
+ * atmosphere), routed through the one `shouldUseGlobe` rule. The camera,
+ * clustering and marker grammar below are unchanged.
+ *
  * The map answers "where", the bands answer "what": no routes, no legs, one
  * dot per trip, stage-coloured. Colliding pins group into a count badge that
- * zooms in on tap. The bands are the keyboard-reachable list equivalent (§11);
- * pins are real `<button>`s all the same, so pointer and keyboard reach the
- * same trips.
+ * zooms in on tap. Unclustered pins carry a visible title label (#372 slice
+ * 2): the `map-place-label` pill below the pin, the trip title only — the dot
+ * keeps the stage colour, the anchor name stays in the pin's `aria-label`,
+ * and clusters show counts, never labels. The bands are the keyboard-reachable
+ * list equivalent (§11); pins are real `<button>`s all the same, so pointer
+ * and keyboard reach the same trips.
  *
  * ## The container must carry its OWN height (do not "simplify" this)
  *
@@ -126,18 +135,45 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       markersRef.current = [];
       const current = pinsRef.current;
       if (!current.length) return;
-      const projected = current.map((p) => {
+      // On the globe a pin's screen projection survives the horizon, so
+      // screen distance alone cannot decide what clusters with what (#372
+      // slice 1): partition by the camera's hemisphere first, then cluster
+      // each half separately. A pin over the horizon never joins a visible
+      // cluster even when `project` lands it on top of one; the limb itself
+      // still counts as visible (`isOnVisibleHemisphere`).
+      const center = live.getCenter();
+      const facing: ProjectedPin[] = [];
+      const averted: ProjectedPin[] = [];
+      for (const p of current) {
         const pt = live.project([p.lng, p.lat]);
-        return { dtId: p.dtId, x: pt.x, y: pt.y };
-      });
+        const item: ProjectedPin = { dtId: p.dtId, x: pt.x, y: pt.y };
+        (isOnVisibleHemisphere(p.lat, p.lng, center.lat, center.lng) ? facing : averted).push(item);
+      }
       const byId = new Map(current.map((p) => [p.dtId, p]));
-      for (const item of clusterPins(projected, CLUSTER_PX)) {
+      const clusteredItems = [...clusterPins(facing, CLUSTER_PX), ...clusterPins(averted, CLUSTER_PX)];
+      const clustered = new Set<string>();
+      for (const item of clusteredItems) {
+        if (item.kind === "cluster") {
+          for (const id of item.cluster.memberDtIds) clustered.add(id);
+        }
+      }
+      for (const item of clusteredItems) {
         if (item.kind === "cluster") {
           markersRef.current.push(buildClusterMarker(lib, live, item.cluster));
         } else {
           const pin = byId.get(item.pin.dtId);
           if (pin) markersRef.current.push(buildPinMarker(lib, live, pin, selectedRef, selectRef));
         }
+      }
+      // Title labels (#372 slice 2): the same rebuild, the same marker array
+      // — no second rebuild system, no new state. `selectHomeLabels` decides
+      // (cap, selected-first, no labels for clusters, nothing below the
+      // collision zoom); the pill sits BELOW its pin so a label can never
+      // cover it, is `pointer-events-none` so it never steals a tap, and the
+      // zoom chips are DOM chrome above the canvas so they are never covered.
+      const selected = selectedRef.current;
+      for (const pin of selectHomeLabels(current, clustered, selected, live.getZoom() ?? 0)) {
+        markersRef.current.push(buildTitleLabelMarker(lib, live, pin, selected === pin.dtId));
       }
       // The focus story, same grammar as the trip maps: one selected place,
       // everything else recedes — dimmed, never hidden.
@@ -247,6 +283,20 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
           else map!.once("load", () => resolve());
         });
         if (cancelled || !map) return;
+        // Landing globe (#372 slice 1): the signed-in home renders on a
+        // globe with the token-sky atmosphere. Screen-only by construction —
+        // this canvas is never printed (the booklet renders trip docs, never
+        // this surface) and never compact, so the pdf/compact gates pass
+        // through. Still routed through the one `shouldUseGlobe` rule rather
+        // than hardcoded, so there is one projection rule, not two — and no
+        // per-trip projection knob.
+        const isPdfRender =
+          typeof window !== "undefined" &&
+          (window as unknown as Record<string, unknown>).__KISEKI_PDF_RENDER__ === true;
+        const skyEl = ref.current;
+        if (skyEl && shouldUseGlobe({ globe: true, isPdfRender, compact: false })) {
+          applyOverviewGlobe(map, skyEl);
+        }
         // The container may have been 0-sized (or a different size) all through
         // the library load, so give the canvas the box it has NOW and then frame
         // through the same guard the resize path uses.
@@ -300,6 +350,10 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     if (!container) return;
     container.querySelectorAll<HTMLElement>("[data-pin]").forEach((el) => {
       el.classList.toggle("is-selected", el.dataset.pin === selectedDtId);
+    });
+    // The title labels ride the same in-place restyle — no rebuild.
+    container.querySelectorAll<HTMLElement>("[data-home-label]").forEach((el) => {
+      el.classList.toggle("is-selected", el.dataset.homeLabel === selectedDtId);
     });
   }, [selectedDtId, ready]);
 
@@ -400,6 +454,30 @@ function buildPinMarker(
   el.appendChild(dot);
   el.addEventListener("click", () => selectRef.current(pin.dtId));
   return new lib.Marker({ element: el }).setLngLat([pin.lng, pin.lat]).addTo(map);
+}
+
+/** One trip's title label (#372 slice 2): the pill vocabulary, below its pin. */
+function buildTitleLabelMarker(
+  lib: typeof import("maplibre-gl"),
+  map: MapLibreMap,
+  pin: HomeMapPin,
+  selected: boolean,
+): MapLibreMarker {
+  // The title only — no number, no second index. The dot keeps the stage
+  // colour; the anchor name stays in the pin button's `aria-label`. The pill
+  // class carries `pointer-events-none` + the heading font + `bg-surface/90`
+  // (token colours only, never hex) and is `aria-hidden`: the pin button is
+  // the accessible name, the label is paint.
+  const el = makeMapLabelElement(pin.title);
+  el.dataset.homeLabel = pin.dtId;
+  if (selected) el.classList.add("is-selected");
+  return new lib.Marker({
+    element: el,
+    anchor: "top",
+    offset: [0, MAP_LABEL_PIN_OFFSET_PX] as [number, number],
+  })
+    .setLngLat([pin.lng, pin.lat])
+    .addTo(map);
 }
 
 /** Colliding pins, drawn as one count badge — tapping zooms in. */

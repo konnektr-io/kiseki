@@ -1,4 +1,5 @@
 import type { Stage, TripGeo } from "./types";
+import { MAP_LABEL_MAX } from "./maps";
 
 /**
  * The signed-in home's map pins (#249, slice 3).
@@ -116,7 +117,6 @@ export interface ProjectedPin {
   x: number;
   y: number;
 }
-
 /** A cluster of pins too close to tap apart — drawn as one count badge. */
 export interface PinCluster {
   key: string;
@@ -166,4 +166,93 @@ export function clusterPins(points: readonly ProjectedPin[], radiusPx: number): 
     }
   }
   return out;
+}
+
+/**
+ * Great-circle separation in degrees between two points (haversine).
+ *
+ * Pure spherical math — no browser, no map. Used for the landing globe
+ * (#372 slice 1): on a globe a pin's screen projection survives the horizon,
+ * so screen distance alone cannot decide what clusters with what.
+ */
+export function angularSeparationDeg(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return (2 * Math.asin(Math.min(1, Math.sqrt(a))) * 180) / Math.PI;
+}
+
+/**
+ * Whether a pin sits on the camera's hemisphere of the landing globe (#372
+ * slice 1) — separation from the camera centre of at most 90°.
+ *
+ * The limb itself (exactly 90°) counts as visible: a centroid near the limb
+ * still clusters with the visible set rather than falling off it. Anything
+ * past the horizon is far-side: `HomeMap` clusters each hemisphere
+ * separately, so a pin over the horizon never joins a visible cluster even
+ * when `project` lands it on top of one.
+ */
+export function isOnVisibleHemisphere(
+  pinLat: number,
+  pinLng: number,
+  centerLat: number,
+  centerLng: number,
+): boolean {
+  return angularSeparationDeg(pinLat, pinLng, centerLat, centerLng) <= 90;
+}
+
+/**
+ * The landing map's own label floor (#372) — deliberately NOT the trip-map
+ * `MAP_LABEL_ZOOM_FLOOR` (2), which stays exactly as it is.
+ *
+ * That floor exists to stop clutter on trip maps carrying dozens of pins. The
+ * landing map holds at most ~10 trips under a hard cap of 8 labels, so a zoom
+ * gate is the wrong tool here: the three-continent fit lands at zoom 0.9–1.3
+ * on a 390px phone (measured headless), and a floor of 2 reads as "no labels
+ * until the viewer zooms in twice". A world-zoom globe naming its ≤8 trips is
+ * the desired reading — the CAP is this surface's clutter control, not the zoom.
+ */
+export const HOME_LABEL_ZOOM_FLOOR = 0;
+
+/**
+ * Which trip pins get a visible title label (#372 slice 2) — the landing
+ * map's half of the `selectMapLabels` display discipline, over pins instead
+ * of place names. Pure, so the rule is pinned by test and the canvas
+ * (`components/HomeMap`) only paints the answer.
+ *
+ * - At most MAX labels (the shared `MAP_LABEL_MAX` cap — one rule, not two).
+ * - The selected trip is always labelled: moved first, never capped out.
+ * - Clustered pins take NO label — a count badge is its own reading, and a
+ *   label beside a badge would read as a second index. A selected pin inside
+ *   a cluster stays quiet for the same reason; the badge is its reading.
+ * - Below the home floor (`HOME_LABEL_ZOOM_FLOOR`) the whole layer drops —
+ *   pins stay, labels go, selected included.
+ * - Pins with a blank title take no label: an empty pill is floating chrome,
+ *   and the anchor name already rides the pin's `aria-label`.
+ *
+ * The geometry half of "labels never cover" lives in the canvas: the pill is
+ * `pointer-events-none` below its pin (the `MAP_LABEL_PIN_OFFSET_PX` offset),
+ * and the zoom chips are DOM chrome above the canvas.
+ */
+export function selectHomeLabels(
+  pins: readonly HomeMapPin[],
+  clusteredDtIds: ReadonlySet<string> | readonly string[],
+  selectedDtId: string | null,
+  zoom: number,
+  max = MAP_LABEL_MAX,
+): HomeMapPin[] {
+  if (zoom < HOME_LABEL_ZOOM_FLOOR || pins.length === 0) return [];
+  const clustered = clusteredDtIds instanceof Set ? clusteredDtIds : new Set(clusteredDtIds);
+  const candidates = pins.filter((p) => !clustered.has(p.dtId) && p.title.trim() !== "");
+  if (selectedDtId) {
+    const i = candidates.findIndex((p) => p.dtId === selectedDtId);
+    if (i > 0) {
+      const [picked] = candidates.splice(i, 1);
+      candidates.unshift(picked);
+    }
+  }
+  return candidates.slice(0, max);
 }
