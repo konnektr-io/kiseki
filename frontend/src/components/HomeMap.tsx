@@ -426,7 +426,7 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
              `.maplibregl-map{position:relative}` defeats Tailwind's `.absolute`,
              and a relative box with no in-flow children is 0 tall. See the
              component doc comment — this line is the bug fix. */
-          className={`map-surface h-full w-full transition-opacity duration-300 ${
+          className={`home-globe map-surface h-full w-full transition-opacity duration-300 ${
             ready ? "opacity-100" : "opacity-0"
           }`}
         />

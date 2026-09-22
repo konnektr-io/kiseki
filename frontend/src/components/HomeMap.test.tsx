@@ -415,6 +415,19 @@ describe("the pin set's bounding box", () => {
 });
 
 describe("the landing globe (#372 slice 1)", () => {
+  it("carries the landing-scoped disc-edge rule (#377 slice 4) — trip surfaces keep the pale sky", async () => {
+    // Slice 4 is CSS-scoped (`home-globe` in index.css darkens --trip-sky /
+    // --trip-horizon + the canvas backdrop off tokens): the component's half
+    // is the hook, so pin the hook — and that the globe/sky request is
+    // unchanged beneath it.
+    const html = renderToString(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(html).toContain("home-globe");
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelector("[data-home-map]")!.classList.contains("home-globe")).toBe(true);
+    expect(calls.projections).toEqual([{ type: "globe" }]);
+    expect(calls.skies).toHaveLength(1);
+  });
+
   it("renders on a globe with the token-sky atmosphere — never hex, never a second rule", async () => {
     await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
     expect(calls.projections).toEqual([{ type: "globe" }]);
