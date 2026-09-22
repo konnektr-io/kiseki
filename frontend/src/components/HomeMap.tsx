@@ -167,12 +167,15 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       }
       // Title labels (#372 slice 2): the same rebuild, the same marker array
       // — no second rebuild system, no new state. `selectHomeLabels` decides
-      // (cap, selected-first, no labels for clusters, nothing below the
-      // collision zoom); the pill sits BELOW its pin so a label can never
-      // cover it, is `pointer-events-none` so it never steals a tap, and the
-      // zoom chips are DOM chrome above the canvas so they are never covered.
+      // (cap, selected-first, no labels for clusters) and takes NO zoom: on
+      // the globe a settled phone camera lives at NEGATIVE zoom (measured
+      // −2.28 at 390×844), so any floor here hides every label on the device
+      // that asked for them — see the rule's doc comment. The pill sits BELOW
+      // its pin so a label can never cover it, is `pointer-events-none` so it
+      // never steals a tap, and the zoom chips are DOM chrome above the canvas
+      // so they are never covered.
       const selected = selectedRef.current;
-      for (const pin of selectHomeLabels(current, clustered, selected, live.getZoom() ?? 0)) {
+      for (const pin of selectHomeLabels(current, clustered, selected)) {
         markersRef.current.push(buildTitleLabelMarker(lib, live, pin, selected === pin.dtId));
       }
       // The focus story, same grammar as the trip maps: one selected place,

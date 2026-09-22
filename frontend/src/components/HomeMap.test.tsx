@@ -22,7 +22,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HomeMapPin } from "../lib/home-geo";
-import { HOME_LABEL_ZOOM_FLOOR } from "../lib/home-geo";
+import { MAP_LABEL_ZOOM_FLOOR } from "../lib/maps";
 
 const PINS: HomeMapPin[] = [
   { dtId: "a", title: "Ski Week", stage: "booked", lat: 50.9981, lng: -118.1957, name: "Revelstoke", origin: "mine" },
@@ -496,17 +496,18 @@ describe("trip title labels (#372 slice 2)", () => {
     expect(labelsOf(el)).toHaveLength(0);
   });
 
-  it("labels at the phone-fit zoom — the home floor is 0, not the trip-map 2 (#372)", async () => {
-    calls.zoom = 1;
+  it("labels at a NEGATIVE globe zoom — the phone's settled camera (#372)", async () => {
+    // Measured on live data: the 390x844 landing globe settles at zoom -2.28
+    // (MapLibre zoom is unbounded below zero on a globe), which is the whole
+    // reason the home rule carries no zoom gate. A regression to any floor
+    // at or above 0 hides every label on a phone — pin the phone value.
+    calls.zoom = -2.28;
     const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
     expect(labelsOf(el).map((l) => l.textContent)).toEqual(["Ski Week", "Dolomites"]);
   });
 
-  it("drops the whole label layer below the home floor — pins stay", async () => {
-    calls.zoom = HOME_LABEL_ZOOM_FLOOR - 1;
-    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
-    expect(labelsOf(el)).toHaveLength(0);
-    expect(el.querySelectorAll("[data-home-map] button")).toHaveLength(2);
+  it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", () => {
+    expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
   });
 
   it("rebuilds the labels with the markers when the view moves", async () => {
