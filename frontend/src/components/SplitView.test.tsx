@@ -6,7 +6,9 @@
  * carries `bottom: sheetPx`, so the map IS the visible strip and the camera
  * needs no sheet occlusion. Pinned here:
  *
- * - the wrapper's `bottom` IS the sheet occlusion for the detent;
+ * - the wrapper's `bottom` is the sheet occlusion MINUS the sheet's top
+ *   corner radius (#377 follow-up: the box ends at the bottom of the rounded
+ *   shoulders so no backdrop notch shows above them);
  * - `padding.bottom` is chrome-only (the sheet is no longer inside the box —
  *   counting it too would double-shift);
  * - the occlusion is measured from the OUTER box (`mapBoxRef`), never the
@@ -21,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CHROME_PADDING, type MapPadding } from "../lib/maps";
 import { detentOcclusionPx } from "../lib/sheet";
 
-const { SplitView } = await import("./SplitView");
+const { SplitView, SHEET_CORNER_RADIUS_PX } = await import("./SplitView");
 
 let container: HTMLDivElement | null = null;
 let root: Root | null = null;
@@ -99,22 +101,27 @@ async function mountSheet(detent: "peek" | "half" | "full", seen: { padding: Map
 }
 
 describe("sheet-mode map box (#377 slice 1)", () => {
-  it("ends the map box where the sheet begins — wrapper bottom IS the occlusion", async () => {
+  it("ends the map box at the BOTTOM OF THE SHEET'S CORNERS, not its flat edge (#377 follow-up)", async () => {
+    // The rounded top shoulders of the sheet leave a 16px notch of page
+    // backdrop beside its straight side edges; the map box extends by the
+    // corner radius so the notch shows map instead. Niko, 2026-09-22:
+    // "align to the bottom of the sheet side borders".
     const seen: { padding: MapPadding | null } = { padding: null };
     const el = await mountSheet("half", seen);
     const wrapper = el.querySelector("[data-sheet-map-box]") as HTMLElement;
     expect(wrapper).toBeTruthy();
-    expect(wrapper.style.bottom).toBe(`${detentOcclusionPx("half", box.h)}px`);
-    expect(wrapper.style.bottom).toBe("400px");
+    expect(SHEET_CORNER_RADIUS_PX).toBe(16); // rounded-t-2xl — keep in sync with Sheet.tsx
+    expect(wrapper.style.bottom).toBe(`${detentOcclusionPx("half", box.h) - SHEET_CORNER_RADIUS_PX}px`);
+    expect(wrapper.style.bottom).toBe("384px");
   });
 
-  it("measures the occlusion from the OUTER box at every detent", async () => {
-    for (const [detent, want] of [["peek", "120px"], ["half", "400px"], ["full", "720px"]] as const) {
+  it("measures the occlusion from the OUTER box at every detent (minus the corner radius)", async () => {
+    for (const [detent, want] of [["peek", "104px"], ["half", "384px"], ["full", "704px"]] as const) {
       const seen: { padding: MapPadding | null } = { padding: null };
       const el = await mountSheet(detent, seen);
       const wrapper = el.querySelector("[data-sheet-map-box]") as HTMLElement;
       expect(wrapper.style.bottom).toBe(want);
-      expect(wrapper.style.bottom).toBe(`${detentOcclusionPx(detent, 800)}px`);
+      expect(wrapper.style.bottom).toBe(`${detentOcclusionPx(detent, 800) - SHEET_CORNER_RADIUS_PX}px`);
       await act(async () => {
         root!.render(<div />);
       });
