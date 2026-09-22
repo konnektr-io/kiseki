@@ -73,6 +73,11 @@ Discovery, the whole-trip route at full screen, "things to do around here". A ma
 **viewport-shaped**: the map is the canvas and content floats over it.
 
 - The map fills the container. Content **floats over it**: sheets, rails, chips, pills.
+  Exception that proves it (§7.2 ladder, #377): on the signed-in landing map the map box ENDS
+  where the sheet begins (SplitView sheet mode, inner wrapper at `bottom: sheetPx`) — a globe
+  framed *behind* a sheet centers behind it, and no camera offset survives the globe transform
+  (the offset approach was reverted unmerged; see #377 status). The sheet occlusion stays a camera `padding` everywhere
+  else; on this surface the box carries it instead, measured from the outer container.
 - No reading column. Layout is driven by the map/content ratio ladder (§7.2).
 - Everything floating needs the *floating elevation recipe* (§2.4) or it will be unreadable over
   satellite imagery.

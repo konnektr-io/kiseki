@@ -189,10 +189,15 @@ export function SplitView({
 
   // The map's usable viewport is the part not covered by content. In `split`
   // and `rail` the map has its own column, so only its own chrome occludes it.
+  // In `sheet` mode (#377 slice 1, Niko's resize): the map box ENDS where the
+  // sheet begins — an inner wrapper carries `bottom: sheetPx`, so the box IS
+  // the visible strip and the camera needs no sheet occlusion. `sheetPx` is
+  // still measured from the OUTER box (`mapBoxRef`): the fraction is of the
+  // surface, and measuring the shrunk box would feed back on itself.
   const sheetPx = mode === "sheet" ? detentOcclusionPx(detent, box.height) : 0;
   const occluded: MapPadding =
     mode === "sheet"
-      ? { ...CHROME_PADDING, bottom: CHROME_PADDING.bottom + sheetPx }
+      ? { ...CHROME_PADDING }
       : mode === "side"
         ? { ...CHROME_PADDING, left: CHROME_PADDING.left + SIDE_PX + SIDE_GUTTER * 2 }
         : CHROME_PADDING;
@@ -205,19 +210,26 @@ export function SplitView({
   // away whatever the viewer had panned to. DESIGN.md §10: camera moves fire
   // on explicit intent, never on render.
   const padding = useMemo(
-    () => clampPadding(occluded, box.width, box.height),
-    [occluded.top, occluded.right, occluded.bottom, occluded.left, box.width, box.height],
+    // Clamp against the map box the camera actually sees: in `sheet` mode
+    // that is the visible strip (outer minus the sheet), elsewhere the outer
+    // box itself.
+    () =>
+      clampPadding(
+        occluded,
+        box.width,
+        mode === "sheet" ? Math.max(0, box.height - sheetPx) : box.height,
+      ),
+    [occluded.top, occluded.right, occluded.bottom, occluded.left, box.width, box.height, sheetPx, mode],
   );
 
-  // MapLibre's own chrome sits in the map container's corners, which is
-  // exactly where the content is: the attribution row is under the sheet, and
-  // the zoom chips are under the side panel. Attribution is a legal
-  // requirement and the zoom buttons are the a11y floor's answer to "not
-  // everyone can pinch", so neither may be covered — `index.css` translates
-  // the corner rows by these two offsets.
+  // MapLibre's own chrome sits in the map container's corners. In `side`
+  // mode the zoom chips are under the side panel, so they translate clear of
+  // it. In `sheet` mode (#377 slice 1) the map box ends above the sheet, so
+  // the attribution row at the box bottom is visible with no translate —
+  // `--map-chrome-y` stays 0 there (the sheet is no longer inside the box).
   const chromeStyle = {
     "--map-chrome-x": mode === "side" ? `${SIDE_PX + SIDE_GUTTER}px` : "0px",
-    "--map-chrome-y": `${sheetPx}px`,
+    "--map-chrome-y": "0px",
   } as React.CSSProperties;
 
   if (mode === "split" || mode === "rail") {
@@ -288,7 +300,22 @@ export function SplitView({
       data-sheet-detent={mode === "sheet" ? detent : undefined}
       className="map-surface relative h-full w-full overflow-hidden"
     >
-      {map(padding)}
+      {mode === "sheet" ? (
+        // #377 slice 1 (Niko's resize): the map box ends where the sheet
+        // begins. The inner wrapper is anchored top with `bottom: sheetPx`,
+        // so the map IS the visible strip — the unchanged camera path frames
+        // it with chrome-only padding. The Sheet overlay itself is untouched
+        // (same absolute bottom, same detents, same drag).
+        <div
+          data-sheet-map-box=""
+          className="absolute left-0 right-0 top-0 overflow-hidden"
+          style={{ bottom: `${sheetPx}px` }}
+        >
+          {map(padding)}
+        </div>
+      ) : (
+        map(padding)
+      )}
       {mode === "side" ? (
         // Landscape phone: the map keeps the whole viewport and the list
         // floats over it, so it needs the full four-layer recipe (§2.4).

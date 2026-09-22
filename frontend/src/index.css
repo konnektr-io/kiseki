@@ -535,6 +535,26 @@ h4 {
   transition: transform 200ms ease-out;
 }
 
+/* Landing-globe disc edge (#377 slice 4): the signed-in home renders on a
+   globe whose positron land is near-identical to the page's light greys, so
+   the disc reads flat. This landing-scoped rule darkens the sky the globe
+   machinery reads (`lib/globe.ts` → `--map-sky`/`--map-horizon`, via the
+   `--trip-sky`/`--trip-horizon` hooks no preset sets) plus the canvas
+   backdrop — in the token layer, never hex, never the basemap itself (§8.5
+   stands), and the trip surfaces keep the shared pale sky untouched.
+   Relative (not absolute) darkening, so a dark page still sits a step off
+   the land instead of inverting.
+   The values are the muted-foreground/muted ramp pre-resolved to `rgb()`:
+   MapLibre's style-spec validator rejects `color-mix()` outright (measured:
+   "sky-color: color expected"), so a mix here fails the sky and logs — the
+   ramp's resolved values are what ships. The backdrop rides the same horizon
+   token, so canvas and sky can never drift apart. */
+.home-globe {
+  --trip-sky: rgb(189, 186, 183);
+  --trip-horizon: rgb(214, 212, 210);
+  background-color: var(--trip-horizon);
+}
+
 /* The sheet's drag handle is a full-width bar, so the default focus ring
    draws a 390px rectangle across the top of the sheet. Ring the grab bar
    itself instead — the same "chip inside the hit target" idea as the markers. */
