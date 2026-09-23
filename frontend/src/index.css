@@ -97,6 +97,12 @@
      hooks, like every other --map-* value; no preset sets them today. */
   --map-sky: var(--trip-sky, #c8d4e3);
   --map-horizon: var(--trip-horizon, #f6f3ee);
+  /* The traveler's own position (#383) — the accuracy halo is drawn as a real
+     MapLibre circle layer, so it needs the colour as a string. It defaults to
+     `accent` (§5.1, "the secondary voice … map highlights"), never to the
+     trip's signature colour: the dot must not read as a place marker or a
+     stage badge. */
+  --map-locate: var(--trip-locate, var(--trip-accent, #0f766e));
 }
 
 /* The focus ring (DESIGN.md §11). `outline` rather than a ring box-shadow so
@@ -565,12 +571,37 @@ h4 {
   @apply focus-ring;
 }
 
+/* ---------- the traveler's own position (#383) ----------
+   The one marker on a trip surface that is about the VIEWER, not the trip:
+   the whole-trip map can show where you are standing. Deliberately outside the
+   §8.3 vocabulary — no ordinal (it must never claim a slot in the ① ② ③
+   index), round but half the size of a place pin, and painted in
+   `--map-locate` (accent by default), never in the trip's signature colour,
+   so it cannot read as a stop or a stage badge. The white ring makes it read
+   over snow and forest alike; it is `pointer-events-none` (never a target) and
+   never printed (the booklet gets no live position).
+
+   The halo around it is NOT CSS: it is the `device-accuracy` circle layer, in
+   the map's own layer space, because its radius means metres, not pixels. */
+.route-locate-dot {
+  background-color: var(--map-locate);
+  @apply h-3.5 w-3.5 rounded-full ring-2 ring-surface shadow-floating;
+}
+
+/* The locate control's one-line notice (blocked / no fix), pinned under the
+   map buttons in the §2.4 floating recipe. Same detent rule as the buttons:
+   at `full` the map is a strip and there is nothing to locate. */
+.map-locate-notice {
+  @apply floating pointer-events-auto max-w-[15rem] rounded-lg px-3 py-2 text-xs leading-snug text-foreground;
+}
+
 /* At `full` the map is a ~60px strip: the zoom chips and the frame button have
    nothing left to act on, and they collide with the attribution that just rode
    up above the sheet. `visibility` rather than `opacity` so they leave the tab
    order too — the handle and Escape are the way back. */
 .map-surface[data-sheet-detent="full"] .maplibregl-ctrl-top-left,
-.map-surface[data-sheet-detent="full"] .map-chip-btn {
+.map-surface[data-sheet-detent="full"] .map-chip-btn,
+.map-surface[data-sheet-detent="full"] .map-locate-notice {
   visibility: hidden;
 }
 

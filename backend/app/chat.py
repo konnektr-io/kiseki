@@ -114,12 +114,21 @@ class ChatRequest(_Strict):
     block whose "Ask the agent about this" opened the drawer. Like ``tripId``
     it is context for the agent, never an ACL input — the gate stays the trip
     role — and it only applies to a turn that is being SUBMITTED.
+
+    ``deviceLocation`` is the traveler's own position (#383), sent only while
+    the trip map is actively tracking it. It is the one piece of context the
+    relay CANNOT resolve server-side (the graph knows nothing about where the
+    person is standing), so unlike ``focus`` it is client-supplied — and for
+    that reason it is numbers only, in a strict model with bounded ranges, and
+    rendered into the instructions by the relay itself. No string from the
+    browser may reach the agent's system prompt.
     """
 
     messages: list[ChatMessage] = []
     threadId: str | None = None
     tripId: str | None = None
     focus: ChatFocus | None = None
+    deviceLocation: DeviceLocation | None = None
     turnKey: str | None = None
     cursor: int | None = None
 
@@ -145,6 +154,35 @@ class ChatFocus(_Strict):
 
     entity: FocusEntity
     id: str = Field(min_length=1, max_length=120)
+
+
+class DeviceLocation(_Strict):
+    """The traveler's own position (#383) — the trip map's live fix.
+
+    The one context value the relay cannot resolve server-side: the graph knows
+    where the trip goes, never where the person reading it is standing. So the
+    browser supplies it, and it is therefore NUMBERS ONLY with hard bounds — no
+    string, no free text, nothing that could become prose in the agent's system
+    prompt. The relay does all the phrasing (`device_location_line`).
+
+    Sent only while the trip map is actively tracking (the SPA's
+    ``lib/device-location.ts`` gates it): absent is the normal case, and a
+    location that is stale is dropped client-side rather than offered here as
+    "where I am now".
+    """
+
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    # Horizontal accuracy in metres. Generous upper bound: a coarse cell-tower
+    # fix is still a position, and the agent is told the precision.
+    accuracy: float | None = Field(default=None, ge=0, le=100_000)
+
+    # STRICT, on top of the wire model's `extra="forbid"`: a coordinate arrives
+    # as a JSON number or the turn is a 422. Pydantic would otherwise coerce
+    # `"52.09"` into a float, which means a STRING has entered the position —
+    # exactly the shape this model exists to refuse. The SPA sends numbers
+    # (``Number(fix.lat.toFixed(5))``), and nothing else is a fix.
+    model_config = ConfigDict(extra="forbid", strict=True)
 
 
 class TurnRequest(_Strict):
@@ -764,6 +802,42 @@ def focus_line(trip, focus: ChatFocus | None) -> str | None:
     return f"a {focus.entity} that is no longer in this trip (id {focus.id})"
 
 
+def device_location_line(location: DeviceLocation | None) -> str | None:
+    """State the traveler's own position (#383), or ``None``.
+
+    The trip map can track where the traveler is standing and passes it along
+    with the turn, so "find somewhere to eat around here" answers from THEIR
+    street instead of from the last place the itinerary names. Without this
+    line the agent has no way to know the two differ — "here" would resolve to
+    whatever place the trip is on today.
+
+    Phrased entirely here, from numbers: the browser sends the fix, never a
+    sentence, so nothing a client says can write this prompt (see
+    ``DeviceLocation``). Precision is stated rather than implied — a ±2 km fix
+    and a ±5 m fix are different answers to "how far is that", and the agent is
+    told which one it has.
+    """
+    if location is None:
+        return None
+    precision = (
+        f" (accurate to roughly {round(location.accuracy)} m)"
+        if location.accuracy is not None
+        else ""
+    )
+    return (
+        f"The traveler’s own device is reporting its current position as "
+        f"{location.lat:.5f}, {location.lng:.5f}{precision} — a live fix from "
+        "the trip map, sent with this message because they asked the map to "
+        "show them where they are. When they say “here”, “near me”, “around "
+        "here”, or ask for something to eat, something to do or how far a place "
+        "is, treat THAT position as where they are — not a trip place, not the "
+        "day’s stop. Say which position the answer assumes when it matters "
+        "(“from where you are now…”). If the fix sits nowhere near the trip — "
+        "they are home, or it looks plainly wrong — say what you assumed "
+        "instead of quietly computing from a position that cannot be right."
+    )
+
+
 def identity_instructions(
     actor_sub: str,
     trip_id: str | None,
@@ -771,6 +845,7 @@ def identity_instructions(
     *,
     trip=None,
     focus: ChatFocus | None = None,
+    device_location: DeviceLocation | None = None,
 ) -> str:
     """Ephemeral system prompt (Responses ``instructions``) telling the agent
     which user it is acting for — and WHICH TRIP/entity this thread is about.
@@ -784,6 +859,10 @@ def identity_instructions(
     of heuristics. Callers pass the ``Trip`` the ACL gate already resolved
     (``require_actor_trip_access`` returns it), so this costs no extra graph
     read.
+
+    ``device_location`` adds the traveler's own position (#383) when the trip
+    map is tracking it — the one fact the relay cannot resolve from the graph,
+    handed to :func:`device_location_line` to phrase from numbers alone.
 
     The envelope also carries the sub the write-API calls act as — and one
     silence rule: never narrate the machinery (tokens, M2M, minting, act-as —
@@ -849,6 +928,12 @@ def identity_instructions(
     )
     if anchor:
         head += f"{anchor} "
+    # The traveler's own position (#383), when the trip map is tracking it —
+    # an additional fact, never a replacement for the anchor: "here" is still
+    # the anchored trip, it is just not necessarily the same spot as the day.
+    position = device_location_line(device_location)
+    if position:
+        head += f"{position} "
     return head + (
         "Every trip read and write must act AS THAT sub — pass "
         "`--act-as <that sub>` on every wrapper/script call, or set "
@@ -1451,6 +1536,7 @@ def build_run_body(
     thread_id: str | None = None,
     trip=None,
     focus: ChatFocus | None = None,
+    device_location: DeviceLocation | None = None,
 ) -> dict:
     """Runs-API request body — the submitted turn, nothing else (#217).
 
@@ -1465,14 +1551,20 @@ def build_run_body(
     ``trip``/``focus`` only shape the ``instructions`` (which trip and which
     day this thread is about, #330) — the session id is unchanged, so a thread
     keeps its history across trips and an already-running turn stays
-    addressable by the same key.
+    addressable by the same key. ``device_location`` rides the same channel
+    (#383): the traveler's own position, in the ephemeral prompt only.
     """
     return {
         "model": "kiseki",
         "input": [last_user_input(messages)],
         "session_id": conversation_id_for(actor_sub, trip_id, thread_id),
         "instructions": identity_instructions(
-            actor_sub, trip_id, thread_id, trip=trip, focus=focus
+            actor_sub,
+            trip_id,
+            thread_id,
+            trip=trip,
+            focus=focus,
+            device_location=device_location,
         ),
     }
 

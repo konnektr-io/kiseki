@@ -261,6 +261,29 @@ A WebGL canvas is not accessible. Therefore:
 - Attribution is a legal requirement — style it, never hide it.
 - Loading state: the static map image or a themed skeleton. Never an empty grey box.
 
+## The traveler's own position (#383)
+
+`RouteMap` can show where the *viewer* is and hand the position to the chat. Full spec in
+DESIGN.md §8.7; the load-bearing rules when touching it:
+
+- **`lib/geolocation.ts` is the only file that touches `navigator.geolocation`**, and
+  `lib/device-location.ts` is its only caller. Tracking starts ONLY if the browser already
+  grants the permission, or on an explicit tap by the traveler — never on load, never on a
+  `prompt`/`unknown` permission. Prompting is the bug this feature exists to avoid: a denial
+  is sticky, and a prompt on load is how you earn one.
+- **Trip map only.** `RouteMap` is the only surface that starts it; `LandingMap`/`HomeMap`
+  must never call the store.
+- The dot is a DOM marker in `--map-locate` (**accent**, never the trip's signature colour,
+  and no ordinal) and the halo is a MapLibre `circle` layer whose radius is metres converted
+  at the current zoom — do not turn it into a CSS blob, the number means something.
+- **Three states, one button** (`locateControl` — pure and unit-tested): start ·
+  recentre · stop. A drag or pinch by the traveler pauses following, which is what makes
+  "recentre" the middle state rather than a second control.
+- **Nothing is persisted** — no localStorage, no cookie, and no coordinate in a PostHog
+  event. It reaches the chat only as `deviceLocation` while the map is tracking, and the
+  backend renders it from numbers (`device_location_line`); a string there is a 422, never
+  prompt text.
+
 ## Map surfaces worth building (in order)
 
 1. ~~**Trip route (standalone page)**~~ — shipped (#39), then **retired as a page** (2026-09,

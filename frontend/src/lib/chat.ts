@@ -5,6 +5,7 @@ import type { FileUIPart, UIMessage, UIMessageChunk } from "ai";
 
 import { authHeaders } from "./auth-headers";
 import { posterNameFor } from "./media";
+import { deviceLocationForChat } from "./device-location";
 
 /**
  * Chat wire client (issue #9 / M4) — the SPA side of `POST /api/chat`.
@@ -444,7 +445,14 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         // The third — the day/section/block the drawer is about (#330) — is
         // read HERE, at send time, so a re-scoped drawer reaches the agent on
         // the next turn without the transport being rebuilt.
+        //
+        // The traveler's own position rides the same seam (#383): read from
+        // the trip map's session store at THIS moment, so a turn carries where
+        // they are when they sent it — not where they were when the drawer
+        // mounted. Absent unless the map is actively tracking (never persisted
+        // to the turn state above; a position is not a transcript).
         const opening = messages[messages.length - 1];
+        const deviceLocation = deviceLocationForChat();
         const turn: TurnState = {
           turnKey: newTurnKey(),
           cursor: 0,
@@ -461,6 +469,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
             turnKey: turn.turnKey,
             ...(tripId ? { tripId } : {}),
             ...(state.focus ? { focus: state.focus } : {}),
+            ...(deviceLocation ? { deviceLocation } : {}),
           },
         };
       },

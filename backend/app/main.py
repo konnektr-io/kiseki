@@ -2718,6 +2718,7 @@ async def post_chat(
             thread_id=body.threadId,
             trip=trip,
             focus=body.focus,
+            device_location=body.deviceLocation,
         )
 
     async def _stream():

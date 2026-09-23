@@ -20,6 +20,10 @@ export interface MapColors {
   marker: string;
   /** Marker ordinal / foreground on top of the fill. */
   markerFg: string;
+  /** The traveler's own position (#383) — the accuracy halo's fill. Trip
+   *  chrome rather than trip content, so it defaults to `accent` and never to
+   *  the signature colour a pin or a route already owns. */
+  locate: string;
 }
 
 export function readTokenVar(el: Element, name: string, fallback: string): string {
@@ -40,5 +44,6 @@ export function mapColors(el: Element): MapColors {
     routeCasing: readTokenVar(el, "--map-route-casing", "currentColor"),
     marker: readTokenVar(el, "--map-marker", "currentColor"),
     markerFg: readTokenVar(el, "--map-marker-fg", "currentColor"),
+    locate: readTokenVar(el, "--map-locate", "currentColor"),
   };
 }
