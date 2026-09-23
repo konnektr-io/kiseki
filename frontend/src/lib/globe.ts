@@ -1,13 +1,21 @@
 /**
- * The globe for the overviews (#361 slice 3, #372 slice 1).
+ * The globe for the overviews (#361 slice 3, #372 slice 1; scoped back to
+ * two surfaces 2026-09-23).
  *
- * The scan level of `RouteMap`, the `OverviewPage` feature map (via
- * `TripMap`/`MapView`), and the signed-in landing map (`components/HomeMap`)
- * render with `setProjection({ type: "globe" })`, plus atmosphere/sky per the
- * style spec. Everything else stays Mercator: the day level, compact card
- * minimaps, `LandingMap`, and the ENTIRE print path (SwiftShader + globe
+ * The `OverviewPage` feature map (via `TripMap`/`MapView globe`) and the
+ * signed-in landing map (`components/HomeMap`) render with
+ * `setProjection({ type: "globe" })`, plus atmosphere/sky per the style spec.
+ * Everything else stays Mercator: BOTH levels of the trip surface
+ * (`components/RouteMap` — the itinerary map; the scan level was briefly on
+ * the globe and lost its DEM, see below), compact card minimaps,
+ * `LandingMap`, and the ENTIRE print path (SwiftShader + globe
  * shaders is a new failure mode the booklet must never see — the projection
  * is gated off `isPdfRender` the way the camera already is).
+ *
+ * Terrain is the reason the itinerary map is Mercator in both directions:
+ * under a globe projection MapLibre stops drawing the DEM, so a heliski week
+ * loses the relief the terrain work (#38) exists to show. The globe belongs
+ * on surfaces where the world itself is the subject, not where elevation is.
  *
  * Colours are tokens, never hex: the sky reads `--map-sky`/`--map-horizon`
  * off the map container (see `index.css`), the same path `lib/tokens.ts`
