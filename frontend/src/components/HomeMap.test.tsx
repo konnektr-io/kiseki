@@ -39,6 +39,8 @@ const calls = vi.hoisted(() => ({
   markers: [] as { label: string | null; at: [number, number] }[],
   /** Live marker elements, in construction order. */
   elements: [] as HTMLElement[],
+  /** Controls handed to the map: `{ control, position }`, for the one-control rule. */
+  controls: [] as { control: Record<string, unknown>; position: string }[],
   fit: null as Record<string, unknown> | null,
   /** How many times a camera was computed for the pin set (a re-frame = a 2nd). */
   fits: 0,
@@ -79,6 +81,13 @@ vi.mock("../lib/maps", async (importOriginal) => ({
 // no canvas, and the test still sees exactly what the component would ask for.
 vi.mock("../lib/maplibre", () => ({
   loadMapLibre: async () => ({
+    // The one zoom control the app uses on EVERY map surface (2026-09-23):
+    // options land on the instance so a test can assert them.
+    NavigationControl: class {
+      constructor(options: Record<string, unknown>) {
+        Object.assign(this, options);
+      }
+    },
     Map: class {
       container: HTMLElement;
       constructor(options: Record<string, unknown>) {
@@ -140,6 +149,9 @@ vi.mock("../lib/maplibre", () => ({
       }
       getZoom() {
         return calls.zoom;
+      }
+      addControl(control: Record<string, unknown>, position: string) {
+        calls.controls.push({ control, position });
       }
       zoomIn() {
         calls.zooms.push("in");
@@ -230,6 +242,7 @@ function fireResize(): void {
 
 beforeEach(() => {
   calls.map = null;
+  calls.controls = [];
   calls.markers = [];
   calls.elements = [];
   calls.fit = null;
@@ -637,23 +650,21 @@ describe("clustering", () => {
   });
 });
 
-describe("zoom controls", () => {
-  it("zooms on the labelled buttons, once the map is ready", async () => {
-    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
-    const zoomIn = el.querySelector('button[aria-label="Zoom in"]') as HTMLElement;
-    const zoomOut = el.querySelector('button[aria-label="Zoom out"]') as HTMLElement;
-    await act(async () => {
-      zoomIn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      zoomOut.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(calls.zooms).toEqual(["in", "out"]);
+describe("zoom controls — one control for every map surface", () => {
+  it("adds the SAME NavigationControl the trip maps use, top-left, compass + pitch", async () => {
+    await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    // The landing used to draw its own chip pair; the trip maps (RouteMap,
+    // MapView) add `new NavigationControl({ showCompass: true, visualizePitch:
+    // true })` at "top-left". Pinned so the two cannot drift apart again.
+    expect(calls.controls).toHaveLength(1);
+    expect(calls.controls[0].position).toBe("top-left");
+    expect(calls.controls[0].control).toMatchObject({ showCompass: true, visualizePitch: true });
   });
 
-  it("renders no zoom without pins", () => {
-    const html = renderToString(
-      <HomeMap pins={[]} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />,
-    );
-    expect(html).not.toContain("Zoom in");
+  it("draws no zoom chrome of its own — the control owns it", async () => {
+    const el = await mount(<HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={{ top: 0, right: 0, bottom: 0, left: 0 }} />);
+    expect(el.querySelector('button[aria-label="Zoom in"]')).toBeNull();
+    expect(el.querySelector('button[aria-label="Zoom out"]')).toBeNull();
   });
 });
 

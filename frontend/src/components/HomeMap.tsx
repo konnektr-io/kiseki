@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { MapPin, Minus, Plus } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
@@ -293,6 +293,13 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
           attributionControl: { compact: true },
         });
         mapRef.current = map;
+        // ONE zoom control for the whole app (2026-09-23): the landing used to
+        // draw its own 44px chip pair while every trip surface used MapLibre's
+        // NavigationControl, so the same gesture had two looks depending on
+        // where you were. This is the trip maps' control, options and corner
+        // included — `showCompass` + `visualizePitch` are the way back out of a
+        // tilt or a rotation (§8 terrain note).
+        map.addControl(new lib.NavigationControl({ showCompass: true, visualizePitch: true }), "top-left");
         map.getCanvas().setAttribute("aria-label", "Map of your trips");
         map.on("error", () => {
           if (!cancelled && map && !map.loaded()) {
@@ -391,14 +398,6 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
 
   const state = empty ? "empty" : failed ? "failed" : webgl2 === false ? "no-webgl2" : ready ? "ready" : "idle";
 
-  const zoomBy = (delta: number) => {
-    const live = mapRef.current;
-    if (!live) return;
-    // Asking for a specific zoom IS taking the camera.
-    tookOverRef.current = true;
-    if (delta > 0) live.zoomIn({ duration: prefersReducedMotion() ? 0 : CAMERA_MS });
-    else live.zoomOut({ duration: prefersReducedMotion() ? 0 : CAMERA_MS });
-  };
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-muted">
@@ -430,31 +429,6 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
             ready ? "opacity-100" : "opacity-0"
           }`}
         />
-      )}
-      {/* Zoom stays a real button (§11): pinch is the gesture a motor
-          impairment rules out. Small chips in 44px targets, top-left — the
-          drive-time corner (top-right) belongs to the layer toggle. */}
-      {!empty && (
-        <div className="absolute left-3 top-3 z-10 flex flex-col gap-2">
-          <button
-            type="button"
-            aria-label="Zoom in"
-            disabled={!ready}
-            onClick={() => zoomBy(1)}
-            className="floating grid h-11 w-11 place-items-center rounded-xl text-foreground disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Zoom out"
-            disabled={!ready}
-            onClick={() => zoomBy(-1)}
-            className="floating grid h-11 w-11 place-items-center rounded-xl text-foreground disabled:opacity-50"
-          >
-            <Minus className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </div>
       )}
     </div>
   );

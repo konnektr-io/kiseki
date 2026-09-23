@@ -1,13 +1,19 @@
 /**
- * The globe for the overviews (#361 slice 3, #372 slice 1).
+ * The landing globe (#372 slice 1; the only globe left as of 2026-09-23).
  *
- * The scan level of `RouteMap`, the `OverviewPage` feature map (via
- * `TripMap`/`MapView`), and the signed-in landing map (`components/HomeMap`)
- * render with `setProjection({ type: "globe" })`, plus atmosphere/sky per the
- * style spec. Everything else stays Mercator: the day level, compact card
- * minimaps, `LandingMap`, and the ENTIRE print path (SwiftShader + globe
- * shaders is a new failure mode the booklet must never see — the projection
- * is gated off `isPdfRender` the way the camera already is).
+ * ONE surface renders on the globe: the signed-in landing map
+ * (`components/HomeMap`), which is where Niko asked for it (2026-09-23).
+ * Everything inside a trip — the overview feature map, the itinerary scan
+ * level, the day level, every card minimap — is Mercator, because a globe
+ * projection costs the surface its DEM (see below). The whole print path too
+ * (SwiftShader + globe shaders is a new failure mode the booklet must never
+ * see).
+ *
+ * Terrain is the reason no trip surface gets the globe: under a globe
+ * projection the DEM stops earning its place (`lib/terrain.ts` yields the 3D
+ * mesh while `isGlobeProjection` is true), so a heliski week loses the relief
+ * the terrain work (#38) exists to show. Trip surfaces are where elevation IS
+ * the subject; the landing map is where the world is.
  *
  * Colours are tokens, never hex: the sky reads `--map-sky`/`--map-horizon`
  * off the map container (see `index.css`), the same path `lib/tokens.ts`
@@ -36,7 +42,6 @@ export interface GlobeCapableMap {
 }
 
 export const GLOBE_PROJECTION_TYPE = "globe";
-export const MERCATOR_PROJECTION_TYPE = "mercator";
 
 /**
  * The globe's sky, off the token layer.
@@ -65,12 +70,12 @@ export function globeSkySpec(el: Element): Record<string, unknown> {
 }
 
 /**
- * Whether an overview renders on the globe.
+ * Whether a surface renders on the globe.
  *
- * `globe` is set by the overview feature map and by the signed-in landing
- * map (`HomeMap`, which passes a constant — this surface is globe by
- * construction, never per trip); the booklet PDF and the compact card
- * minimaps always stay Mercator even if it leaks through.
+ * Exactly one caller passes `globe`: the signed-in landing map
+ * (`HomeMap`, a constant — that surface is globe by construction, never per
+ * trip). The booklet PDF and the compact card minimaps always stay Mercator
+ * even if it leaks through.
  */
 export function shouldUseGlobe({
   globe,
@@ -85,7 +90,7 @@ export function shouldUseGlobe({
 }
 
 /**
- * Put the overview projection on a loaded map. Never throws: the globe is
+ * Put the globe projection on a loaded map. Never throws: the globe is
  * atmosphere, so a map that rejects it keeps its Mercator route rather than
  * a broken surface.
  */
@@ -95,15 +100,6 @@ export function applyOverviewGlobe(map: GlobeCapableMap, el: Element): void {
     map.setSky(globeSkySpec(el));
   } catch {
     /* Mercator with the route beats no map at all */
-  }
-}
-
-/** Back to Mercator — the day level's half of the RouteMap level switch. */
-export function clearOverviewGlobe(map: GlobeCapableMap): void {
-  try {
-    map.setProjection({ type: MERCATOR_PROJECTION_TYPE });
-  } catch {
-    /* the projection it already has is fine */
   }
 }
 

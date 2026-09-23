@@ -36,7 +36,6 @@ import {
   type LegGlyphFeature,
 } from "../lib/leg-glyphs";
 import { addTerrain } from "../lib/terrain";
-import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
 import { mapColors } from "../lib/tokens";
 import { Floating } from "./ui";
 
@@ -51,11 +50,6 @@ interface MapViewProps {
    *  resolve through the same mapping). Drawn as cased lines in the trip
    *  route colour and included in the framed extent. */
   tracks?: string[];
-  /** Overview globe (#361 slice 3): the whole-trip feature map renders with
-   *  `setProjection({ type: "globe" })`. Screen-only by construction — the
-   *  booklet PDF (`isPdfRender`) and compact card minimaps stay Mercator even
-   *  when this is set. Only the overview feature map passes it. */
-  globe?: boolean;
 }
 
 /**
@@ -72,7 +66,7 @@ interface MapViewProps {
  * around this component. The booklet PDF renders the SAME map live via
  * Playwright+SwiftShader, so screen and paper share basemap/markers/routes.
  */
-export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false, tracks = [], globe = false }: MapViewProps) {
+export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false, tracks = [] }: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
@@ -257,14 +251,10 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
 
-        // Overview globe (#361 slice 3): the whole-trip feature map renders
-        // on a globe — screen-only by construction, gated off isPdfRender the
-        // way the camera already is (SwiftShader + globe shaders is a new
-        // failure mode the booklet must never see) and off compact card
-        // minimaps. Day/leg maps never pass `globe` at all.
-        if (shouldUseGlobe({ globe, isPdfRender, compact })) {
-          applyOverviewGlobe(map, ref.current);
-        }
+        // No projection is ever set here: every surface MapView draws is part
+        // of a trip, and a trip surface is Mercator so the DEM keeps working
+        // (Niko, 2026-09-23). The globe belongs to the landing map alone —
+        // `components/HomeMap`, which owns its own `applyOverviewGlobe` call.
 
         // Elevation first, so the route and markers added below land ON TOP of
         // the hillshade rather than under it (#38). Deliberately not awaited
@@ -589,7 +579,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
       abort.abort();
       map?.remove();
     };
-  }, [trip, placesKey, tracksKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact, globe]);
+  }, [trip, placesKey, tracksKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
 
   // No WebGL2 or tile/style load failure: placeholder so the page never has an
   // empty grey box and the PDF waiter can resolve via data-map-failed.
@@ -646,12 +636,12 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
  * This component is intentionally thin — it just validates there is something
  * to show and forwards to MapView.
  */
-export function TripMap({ places, loop = false, tracks, globe = false }: { places: string[]; loop?: boolean; tracks?: string[]; globe?: boolean }) {
+export function TripMap({ places, loop = false, tracks }: { places: string[]; loop?: boolean; tracks?: string[] }) {
   const trip = useTrip();
   const all = locatedPlaces(trip);
   if (all.length < 1) return null;
   // Route maps need at least one resolvable place in `places`; TripMap callers
   // already pass the relevant subset (e.g. [from,to] for a leg, all for overview).
   // We don't second-guess that here — MapView itself handles 1 vs 2+ places.
-  return <MapView places={places} loop={loop} tracks={tracks} globe={globe} />;
+  return <MapView places={places} loop={loop} tracks={tracks} />;
 }

@@ -37,10 +37,11 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
 
       {f.map && chain.length >= 2 ? (
         <div className="mt-3 print:hidden">
-          {/* Overview globe (#361 slice 3): the whole-trip feature map is a
-              screen-only overview surface. The booklet prints through its own
-              TripMap (BookletPage, no globe prop) — Mercator, always. */}
-          <TripMap places={chain.map((l) => l.name)} loop={returnsToStart(trip)} tracks={tripTracks(trip)} globe />
+          {/* Mercator, like every other surface inside a trip (#361 slice 3
+              had this one on the globe, which cost it the DEM). The globe is
+              the landing map's alone — `components/HomeMap`. The booklet prints
+              through this same TripMap, so screen and paper agree. */}
+          <TripMap places={chain.map((l) => l.name)} loop={returnsToStart(trip)} tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">
