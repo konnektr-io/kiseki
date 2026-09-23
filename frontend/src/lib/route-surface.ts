@@ -312,6 +312,52 @@ export function placeDays(trip: Trip, name: string): number[] {
 }
 
 /**
+ * Where a scan-level PLACE selection lands in the itinerary rail — the ONE
+ * answer the sheet's "…is highlighted below" line and the scroll both read
+ * (they can never disagree about what just happened).
+ *
+ * A chapter that names the place in `locationRefs` renders a pill for it
+ * (`SectionLocations` is the list's finest handle): scrolling to that pill puts
+ * the chapter in view, and the pill's refs are returned because the reference
+ * may be an ALIAS — `locationRefs: ["Hillcrest"]` renders a pill labelled
+ * `Hillcrest` while a tap on the map selects the registry entry `Revelstoke`,
+ * and a name-only lookup then finds nothing to scroll to.
+ *
+ * A venue — the restaurant a day eats at, the hotel it sleeps in — is a
+ * registry place NO chapter refs and, being an excursion, it carries no
+ * numbered pin either (#91): its only handle in the itinerary is the day it
+ * happens on, so that is where the selection scrolls (`placeDays`, first day).
+ *
+ * `null` = no handle at all in the list (a registry entry no day mentions and
+ * no chapter refs): ring only, and the sheet must not promise more.
+ */
+export type PlaceRailHandle = { kind: "pill"; refs: string[] } | { kind: "day"; dayIdx: number };
+
+export function placeRailHandle(trip: Trip, name: string): PlaceRailHandle | null {
+  const target = findLocation(trip, name);
+  if (!target) return null;
+  const refs: string[] = [];
+  for (const s of trip.sections ?? []) {
+    for (const r of s.locationRefs ?? []) {
+      if (findLocation(trip, r) === target) refs.push(r);
+    }
+  }
+  if (refs.length) return { kind: "pill", refs };
+  const days = placeDays(trip, name);
+  if (!days.length) return null;
+  const [first] = days;
+  // The list must actually RENDER that day: with chapters it draws only the
+  // days a section covers (`expandSectionDays`), without them every day gets a
+  // flat row. A day card that does not exist is not a handle — promising it
+  // would put the same broken sentence back in the sheet.
+  const sections = trip.sections ?? [];
+  const rendered = sections.length
+    ? sections.some((s) => expandSectionDays(s.days).includes(first))
+    : trip.days.length > 0;
+  return rendered ? { kind: "day", dayIdx: first } : null;
+}
+
+/**
  * WHY the trip is at a place — a journey stop it re-bases at, or an excursion
  * it visits from a base elsewhere (#91; DESIGN.md §7.6: "Excursions from a
  * base render as secondary markers, never chain stops").

@@ -437,6 +437,25 @@ h4 {
   border-color: var(--color-accent);
 }
 
+/* A day card the place selection landed on (`scrollToPlaceDayCard`): the same
+   1.2s attention ring as a flashed pill, drawn on the card's own rounded box.
+   Box-shadow only — a card is big, so a background/border change would read as
+   a re-style rather than a flash, and nothing in the card may reflow. The JS
+   skips the class under prefers-reduced-motion, like the pill flash. */
+@keyframes day-card-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-accent) 35%, transparent);
+  }
+}
+.day-card-flash {
+  animation: day-card-flash 1.2s ease-in-out 1;
+  border-color: var(--color-accent);
+}
+
 /* Zoom-scaled pins + on-map labels (#357 slice 2).
  *
  *  The pin keeps its day-zoom size in the markup (`h-7 w-7`) and shrinks

@@ -38,7 +38,7 @@ vi.mock("../components/SplitView", () => ({
     createElement("div", null, header, content),
 }));
 
-import { scrollToPlacePill, scrollWithinScroller, togglePlaceSelection, TripMapSurface } from "./TripMapSurface";
+import { scrollToPlaceDayCard, scrollToPlacePill, scrollWithinScroller, selectionNote, togglePlaceSelection, TripMapSurface } from "./TripMapSurface";
 import { TripProvider } from "../components/theme";
 import type { Trip, TripLocation } from "../lib/types";
 
@@ -283,5 +283,131 @@ describe("scrollWithinScroller", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("resolves a pill whose ref is an ALIAS of the selected place", () => {
+    // A chapter can ref the place by alias (`locationRefs: ["Hillcrest"]`), so
+    // the pill's attribute is the alias while a map tap selects the registry
+    // name — `refs` from placeRailHandle bridges the two.
+    vi.useFakeTimers();
+    try {
+      const unrelated = fakeRoot(["Golden"]);
+      expect(scrollToPlacePill(unrelated.root as never, "Revelstoke", ["Hillcrest"])).toBe(false);
+      const aliased = fakeRoot(["Hillcrest"]);
+      expect(scrollToPlacePill(aliased.root as never, "Revelstoke", ["Hillcrest"])).toBe(true);
+      expect(aliased.pills[0].calls[0]).toEqual([{ block: "nearest", behavior: "smooth" }]);
+      expect(unrelated.pills[0].calls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("scrollToPlaceDayCard (the venue handle: no pill, scroll the day)", () => {
+  /** The rail as the helper sees it: a root whose querySelector returns the
+   *  day card for one index only. The card has no `closest`, so
+   *  scrollWithinScroller takes its scrollIntoView fallback — the same shape
+   *  the pill tests use. */
+  function fakeRail(knows: number) {
+    const calls: unknown[] = [];
+    const classes = new Set<string>();
+    const card = {
+      getAttribute: () => String(knows),
+      classList: {
+        add: (c: string) => void classes.add(c),
+        remove: (c: string) => void classes.delete(c),
+      },
+      scrollIntoView: (...args: unknown[]) => void calls.push(args),
+    };
+    const root = {
+      querySelector: (sel: string) => {
+        const m = /\[data-day-idx="(\d+)"\]/.exec(sel);
+        return m && Number(m[1]) === knows ? card : null;
+      },
+      querySelectorAll: () => [],
+    };
+    return { card, root, calls, classes };
+  }
+
+  it("scrolls the place's day card into view and flashes it", () => {
+    vi.useFakeTimers();
+    try {
+      const { root, calls, classes } = fakeRail(2);
+      expect(scrollToPlaceDayCard(root as never, 2)).toBe(true);
+      expect(calls[0]).toEqual([{ block: "center", behavior: "smooth" }]);
+      expect(classes.has("day-card-flash")).toBe(true);
+      vi.advanceTimersByTime(1300);
+      expect(classes.has("day-card-flash")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns false (no throw) when that day card is not in the rail", () => {
+    const { root, calls } = fakeRail(2);
+    expect(scrollToPlaceDayCard(root as never, 7)).toBe(false);
+    expect(calls).toHaveLength(0);
+    expect(scrollToPlaceDayCard(null, 0)).toBe(false);
+  });
+
+  it("finds a FOLDED day by the card's per-day link (the fold's data-day-idx is the first day)", () => {
+    const calls: unknown[] = [];
+    const classes = new Set<string>();
+    const link = {};
+    const foldCard = {
+      classList: {
+        add: (c: string) => void classes.add(c),
+        remove: (c: string) => void classes.delete(c),
+      },
+      querySelector: (sel: string) => (sel === 'a[href$="/day/7"]' ? link : null),
+      scrollIntoView: (...args: unknown[]) => void calls.push(args),
+    };
+    const root = {
+      querySelector: () => null, // no card carries data-day-idx="7" — it is folded
+      querySelectorAll: (sel: string) => (sel === "[data-day-idx]" ? [foldCard] : []),
+    };
+    vi.useFakeTimers();
+    try {
+      expect(scrollToPlaceDayCard(root as never, 7)).toBe(true);
+      expect(calls[0]).toEqual([{ block: "center", behavior: "smooth" }]);
+      expect(classes.has("day-card-flash")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("skips the flash under prefers-reduced-motion (the scroll still lands)", () => {
+    const prevWindow = (globalThis as Record<string, unknown>).window;
+    (globalThis as Record<string, unknown>).window = { matchMedia: () => ({ matches: true }) };
+    try {
+      const { root, calls, classes } = fakeRail(2);
+      expect(scrollToPlaceDayCard(root as never, 2)).toBe(true);
+      expect(calls[0]).toEqual([{ block: "center", behavior: "auto" }]);
+      expect(classes.has("day-card-flash")).toBe(false);
+    } finally {
+      if (prevWindow === undefined) delete (globalThis as Record<string, unknown>).window;
+      else (globalThis as Record<string, unknown>).window = prevWindow;
+    }
+  });
+});
+
+describe("selectionNote (the sheet must describe what actually happened)", () => {
+  it("names the pill when the place has one", () => {
+    expect(selectionNote({ kind: "pill", refs: ["Revelstoke"] })).toBe(
+      "On the map — its pill is highlighted below",
+    );
+  });
+
+  it("names the day for a place with no pill — never a promise the rail breaks", () => {
+    // Niko's report: tapping an activity diamond (a restaurant in the
+    // Revelstoke cluster) kept the pill wording while scrolling nothing.
+    expect(selectionNote({ kind: "day", dayIdx: 2 })).toBe(
+      "On the map — Day 3 is highlighted below",
+    );
+    expect(selectionNote({ kind: "day", dayIdx: 2 })).not.toContain("pill");
+  });
+
+  it("promises nothing when the place has no handle at all (ring only)", () => {
+    expect(selectionNote(null)).toBe("On the map");
   });
 });

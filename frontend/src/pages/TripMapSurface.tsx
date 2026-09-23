@@ -17,7 +17,7 @@ import { putTripDay } from "../lib/api";
 import { useTripWrite } from "../lib/useTripWrite";
 import { capture } from "../lib/posthog";
 import { markerNumber, findLocation, prefersReducedMotion } from "../lib/maps";
-import { tripJourney } from "../lib/route-surface";
+import { placeRailHandle, tripJourney, type PlaceRailHandle } from "../lib/route-surface";
 import { daySurface, type DaySurface } from "../lib/day-surface";
 import { usePageTitle } from "../lib/seo";
 import type { Detent } from "../lib/sheet";
@@ -70,17 +70,24 @@ export function togglePlaceSelection(
  * Exported for the scroll-helper unit tests; the tree stays auth-agnostic
  * (no role branching — pitfall 16).
  */
-export function scrollToPlacePill(root: ParentNode | null, name: string): boolean {
+export function scrollToPlacePill(root: ParentNode | null, name: string, refs: string[] = []): boolean {
   if (!root) return false;
+  // The pill's attribute is the section's REF, which may be an alias of the
+  // selected place ("Hillcrest" for `Revelstoke`) — `refs` carries those from
+  // `placeRailHandle`, so an alias-named chapter still answers a pin tap.
+  const wanted = new Set([name, ...refs]);
   // Match on the attribute value rather than a `[data-place-pill="<name>"]`
   // selector — place names carry quotes/parens (no CSS.escape needed, no
   // selector-injection shape to worry about).
   const pills = Array.from(root.querySelectorAll("[data-place-pill]"));
-  const target = pills.find((el) => el.getAttribute("data-place-pill") === name) as
-    | HTMLElement
-    | undefined;
-  // No matching pill anywhere (the place is in no section's locationRefs):
-  // ring only, no scroll — not an error.
+  const target = pills.find((el) => {
+    const ref = el.getAttribute("data-place-pill");
+    return ref != null && wanted.has(ref);
+  }) as HTMLElement | undefined;
+  // No matching pill anywhere (no chapter refs the place, or the ref names
+  // something else): false — the caller falls back to the place's day card
+  // (`scrollToPlaceDayCard`), and only if that has nothing either does the
+  // selection keep its ring without a scroll.
   if (!target) return false;
   // jsdom/node has no scrollIntoView — guard so unit tests don't explode.
   if (typeof target.scrollIntoView === "function") {
@@ -101,6 +108,57 @@ export function scrollToPlacePill(root: ParentNode | null, name: string): boolea
     setTimeout(() => target.classList.remove("place-pill-flash"), 1200);
   }
   return true;
+}
+
+/**
+ * Scroll the DAY CARD of `dayIdx` into view in the rail and flash it — the
+ * selection's handle when the place has no chapter pill (`placeRailHandle`).
+ *
+ * Venues are the case that needs this: a restaurant is a registry place with
+ * coordinates (so it gets a map marker) but no chapter refs it and, as an
+ * excursion, it carries no numbered pin (#91). Tapping its diamond used to show
+ * a registry ordinal in the sheet and scroll NOTHING — "it didn't scroll to the
+ * correct day" (Niko, 2026-09-23). The day card is the furniture the trip
+ * actually owns for that place, and the card is where the meal/activity block
+ * is readable, so the selection lands there.
+ *
+ * Same confinement as the pill path (`scrollWithinScroller` — `scrollIntoView`
+ * walks the ancestor chain and drags the whole phone surface up), same
+ * reduced-motion discipline: the scroll still lands, only the flash is skipped.
+ */
+export function scrollToPlaceDayCard(root: ParentNode | null, dayIdx: number): boolean {
+  if (!root) return false;
+  // The day's own card, or — when the day is folded into a multi-day card
+  // (`FoldedDayCard`, whose `data-day-idx` is the FIRST folded day) — the card
+  // that links to that day. Both are "the day's card" to the eye: the fold's
+  // per-day nav is right there on it.
+  const card =
+    root.querySelector<HTMLElement>(`[data-day-idx="${dayIdx}"]`) ??
+    Array.from(root.querySelectorAll<HTMLElement>("[data-day-idx]")).find((el) =>
+      el.querySelector(`a[href$="/day/${dayIdx}"]`),
+    );
+  if (!card) return false;
+  if (typeof card.scrollIntoView === "function") {
+    scrollWithinScroller(card, "center", prefersReducedMotion() ? "auto" : "smooth");
+  }
+  if (!prefersReducedMotion() && card.classList) {
+    card.classList.add("day-card-flash");
+    setTimeout(() => card.classList.remove("day-card-flash"), 1200);
+  }
+  return true;
+}
+
+/**
+ * The scan-level sheet's line under the selected place — what the rail just
+ * did with it. It describes the handle that was acted on and nothing more: the
+ * old copy promised "its pill is highlighted below" for every place, including
+ * the venues that have no pill, which is how a tap on an activity diamond read
+ * as "wrong number in the sheet and no scroll" (Niko, 2026-09-23).
+ */
+export function selectionNote(handle: PlaceRailHandle | null): string {
+  if (handle?.kind === "pill") return "On the map — its pill is highlighted below";
+  if (handle?.kind === "day") return `On the map — Day ${handle.dayIdx + 1} is highlighted below`;
+  return "On the map";
 }
 
 /**
@@ -434,6 +492,19 @@ export function TripMapSurface({ todayView = false }: { todayView?: boolean } = 
   const [activeBlock, setActiveBlock] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  /**
+   * Where the selected place lives in the rail (its chapter's pill, or the day
+   * card of the day it happens on) — derived, so the sheet's line and the
+   * scroll read one answer. `journey.chain` is the same membership the map uses
+   * to decide between a numbered pin and an excursion diamond, so the sheet's
+   * badge is the marker the traveller actually tapped (§8.3).
+   */
+  const selectedHandle: PlaceRailHandle | null = useMemo(
+    () => (selected ? placeRailHandle(trip, selected.name) : null),
+    [trip, selected],
+  );
+  const selectedIsStop = !!selected && journey.chain.some((l) => l.name === selected.name);
+
   usePageTitle(
     dayIdx != null && trip.days[dayIdx]
       ? `Day ${dayIdx + 1} — ${trip.days[dayIdx].title || trip.title}`
@@ -465,21 +536,28 @@ export function TripMapSurface({ todayView = false }: { todayView?: boolean } = 
     setDetent(isTodayPage ? "full" : "half");
   };
 
-  /* Scan-level pin tap → pill scroll: when a place becomes selected on the
-     itinerary route, scroll its pill into view inside the rail/sheet scroller
-     and flash it (scrollToPlacePill — ring only when no pill matches). Day
-     level has no pills: pin tap there keeps the existing behavior only (pin
-     ring + card pulse via cardProps). The cleanup clears a lingering flash
-     when the selection moves on before its timeout fired. */
+  /* Scan-level pin tap → rail handle: when a place becomes selected on the
+     itinerary route, the rail scrolls to where that place actually lives and
+     flashes it (scrollToPlacePill — its chapter's pill; scrollToPlaceDayCard —
+     the day it happens on, for the venues no chapter refs). The sheet's own
+     line under the place reads the SAME handle (selectionNote), so the promise
+     and the scroll can never disagree. Day level has no pills or day cards:
+     pin tap there keeps the existing behavior only (pin ring + card pulse via
+     cardProps). The cleanup clears a lingering flash when the selection moves
+     on before its timeout fired. */
   useEffect(() => {
     if (isDayRoute || !selected) return;
-    scrollToPlacePill(listRef.current, selected.name);
+    if (selectedHandle?.kind === "pill") {
+      scrollToPlacePill(listRef.current, selected.name, selectedHandle.refs);
+    } else if (selectedHandle?.kind === "day") {
+      scrollToPlaceDayCard(listRef.current, selectedHandle.dayIdx);
+    }
     return () => {
       listRef.current
-        ?.querySelectorAll(".place-pill-flash")
-        .forEach((el) => el.classList.remove("place-pill-flash"));
+        ?.querySelectorAll(".place-pill-flash, .day-card-flash")
+        .forEach((el) => el.classList.remove("place-pill-flash", "day-card-flash"));
     };
-  }, [selected, isDayRoute]);
+  }, [selected, selectedHandle, isDayRoute]);
 
   /** Day level, map → rail: a chip tap raises, scrolls to and pulses its card.
    *  (#104): the scroll root IS the DayRail root element (`listRef` — scan
@@ -663,17 +741,27 @@ export function TripMapSurface({ todayView = false }: { todayView?: boolean } = 
     </div>
   ) : selected ? (
     <div className="flex items-center gap-2.5">
-      <span
-        aria-hidden="true"
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg"
-      >
-        {markerNumber(trip, selected)}
-      </span>
+      {/* The badge is the marker that was TAPPED (§8.3): the numbered pin for a
+          journey stop, the hollow diamond for an excursion. A venue's registry
+          index is a number the map never draws — an excursion claims no slot in
+          the ① ② ③ index (#91) — so the sheet must not invent one (Niko,
+          2026-09-23: a tap on a restaurant diamond showed "20" and read as a
+          wrong number). */}
+      {selectedIsStop ? (
+        <span
+          aria-hidden="true"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-marker-fg bg-marker text-[12px] font-bold leading-none text-marker-fg"
+        >
+          {markerNumber(trip, selected)}
+        </span>
+      ) : (
+        <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center">
+          <span className="h-4 w-4 rotate-45 rounded-[4px] border-2 border-marker bg-surface shadow-card" />
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate font-heading text-base font-semibold leading-tight">{selected.name}</p>
-        <p className="text-xs tabular-nums text-muted-foreground">
-          On the map — its pill is highlighted below
-        </p>
+        <p className="text-xs tabular-nums text-muted-foreground">{selectionNote(selectedHandle)}</p>
       </div>
       <Button
         variant="ghost"
