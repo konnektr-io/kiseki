@@ -15,6 +15,7 @@ import {
   locationsInText,
   LEG_STAGE_LABELS,
   placeDays,
+  placeRailHandle,
   placeRole,
   resolveLegCoordinates,
   returnsToStart,
@@ -947,5 +948,82 @@ describe("dayRangeLabel", () => {
 
   it("is null for no days", () => {
     expect(dayRangeLabel([])).toBeNull();
+  });
+});
+
+/**
+ * Niko's report (2026-09-23): tapping an activity diamond on the itinerary map
+ * — a venue, i.e. a place the trip does not re-base at — showed a registry
+ * ordinal in the sheet and scrolled the rail nowhere ("showing 20 and should
+ * scroll to Revelstoke"). `placeRailHandle` is the ONE answer the sheet's line
+ * and the scroll both read, so they cannot disagree.
+ */
+describe("placeRailHandle (where a selected place lands in the itinerary)", () => {
+  /** canada() + a Revelstoke restaurant: a registry place with coordinates, a
+   *  meal block on day 3, and NO chapter ref — the live-post-venue-round shape. */
+  function withVenue(): Trip {
+    const base = canada();
+    return {
+      ...base,
+      locations: [...(base.locations ?? []), loc("Rockford Bar & Grill", 50.9582, -118.1642)],
+      days: base.days.map((d, i) =>
+        i === 2
+          ? {
+              ...d,
+              blocks: [
+                ...d.blocks,
+                {
+                  id: "m1",
+                  kind: "meal",
+                  title: "Dinner — Rockford Bar & Grill",
+                  location: "Rockford Bar & Grill",
+                },
+              ],
+            }
+          : d,
+      ),
+    } as Trip;
+  }
+
+  it("prefers the chapter pill for a place a section refs", () => {
+    expect(placeRailHandle(canada(), "Banff")).toEqual({ kind: "pill", refs: ["Banff"] });
+  });
+
+  it("returns the ref as written, so an ALIAS-named pill still matches", () => {
+    const trip = canada({
+      sections: [{ id: "s1", title: "Revelstoke", days: [2, 3], locationRefs: ["Hillcrest"] }],
+    });
+    // A map tap selects the registry name; the pill's attribute is the alias.
+    expect(placeRailHandle(trip, "Revelstoke")).toEqual({ kind: "pill", refs: ["Hillcrest"] });
+  });
+
+  it("falls back to the place's first day when no chapter refs it", () => {
+    const trip = withVenue();
+    // Rockford is on day 3 (index 2) and in no section's locationRefs — the
+    // venue case that used to scroll nothing.
+    expect(placeRailHandle(trip, "Rockford Bar & Grill")).toEqual({ kind: "day", dayIdx: 2 });
+  });
+
+  it("is null when the place has no handle in the list at all (ring only)", () => {
+    // Rogers Pass is in the registry but no day and no chapter names it here.
+    expect(placeRailHandle(canada(), "Rogers Pass")).toBeNull();
+    expect(placeRailHandle(canada(), "Nowhere At All")).toBeNull();
+  });
+
+  it("is null when the day it happens on is not rendered as a card", () => {
+    // With chapters, the list draws only the days a section covers — a day
+    // outside every section has no card to scroll to, so the sheet must not
+    // promise one.
+    const trip = withVenue();
+    const narrowed: Trip = {
+      ...trip,
+      sections: [{ id: "s0", title: "Arrival", days: [0, 1], locationRefs: ["Banff"] }],
+    };
+    expect(placeRailHandle(narrowed, "Rockford Bar & Grill")).toBeNull();
+    // …and without chapters the flat list renders every day, so it is a handle.
+    expect(placeRailHandle({ ...trip, sections: [] }, "Rockford Bar & Grill")).toEqual({
+      kind: "day",
+      dayIdx: 2,
+    });
   });
 });
