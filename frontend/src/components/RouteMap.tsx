@@ -27,7 +27,7 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { greatCircle, legModes, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
+import { greatCircle, legModes, markerPaintRank, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
 import {
   addLegGlyphLayer,
   classifiedGlyphMode,
@@ -821,12 +821,17 @@ export function RouteMap({
       // landing map (`HomeMap`) and the signed-in overview feature map
       // (`OverviewPage` -> `MapView globe`). Nothing sets a projection on this
       // surface, so both levels are Mercator by construction.
-      journeyRef.current.chain.forEach((loc) => {
-        const el = addPin(loc, false);
-        el.addEventListener("click", () => onSelectRef.current(loc));
-      });
+      // Paint order, lowest first: the excursion diamonds, then the numbered
+      // stops they stand on. MapLibre stacks marker elements in the order they
+      // are ADDED (all of them `position: absolute`, `z-index: auto`), so a
+      // diamond added after its pin wins the tap — the venue round added 23 of
+      // them and made the trip's own pins untappable at journey zoom (#388).
       journeyRef.current.excursions.forEach((loc) => {
         const el = addPin(loc, true);
+        el.addEventListener("click", () => onSelectRef.current(loc));
+      });
+      journeyRef.current.chain.forEach((loc) => {
+        const el = addPin(loc, false);
         el.addEventListener("click", () => onSelectRef.current(loc));
       });
       const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
@@ -864,7 +869,13 @@ export function RouteMap({
       // Flat, like the scan level above — neither level of the trip surface
       // sets a projection, so there is nothing to switch back from.
       const surface = d;
-      for (const m of surface.markers) {
+      // Same paint order as the scan level (see `markerPaintRank`): the day's
+      // excursion diamonds, then its stop pins, then the letter chips — a chip
+      // opens a block, so it keeps the top target it already had.
+      const dayMarkers = [...surface.markers].sort(
+        (a, b) => markerPaintRank(trip, a) - markerPaintRank(trip, b),
+      );
+      for (const m of dayMarkers) {
         if (m.role === "place") {
           const excursion = placeRole(trip, m.place.name) === "excursion";
           const el = addPin(m.place, excursion);
