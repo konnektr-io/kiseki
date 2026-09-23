@@ -119,7 +119,7 @@
         "name": "status",
         "schema": "string",
         "writable": true,
-        "description": "Lifecycle: planned | booked | done."
+        "description": "Lifecycle: planned | booked | done | skipped."
       },
       {
         "@type": "Property",

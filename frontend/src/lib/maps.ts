@@ -429,6 +429,9 @@ export function locationStage(trip: Trip, loc: TripLocation): Trip["stage"] {
   ];
   for (const b of blocks) {
     if (!refers(b.location) && !refers(b.from) && !refers(b.to)) continue;
+    // `skipped` is silent here too: a plan that did not happen commits
+    // nothing, so the place keeps whatever the other blocks say (#385).
+    if (b.status === "skipped") continue;
     if (b.status === "booked" || b.status === "done") return "booked";
     if (b.status === "planned") planned = true;
   }

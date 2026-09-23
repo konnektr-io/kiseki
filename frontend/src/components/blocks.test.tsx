@@ -475,8 +475,8 @@ describe("a DONE block quiets the whole live Google overlay (#286/#289)", () => 
     expect(html).not.toContain("/api/places/photo?ref=");
   });
 
-  it("keeps the planning treatment for planned, booked and unset", () => {
-    for (const status of ["planned", "booked", undefined] as const) {
+  it("keeps the planning treatment for planned, booked, skipped and unset", () => {
+    for (const status of ["planned", "booked", "skipped", undefined] as const) {
       const html = renderWithPlaces([activityWith(status)]);
       expect(html).toContain("line-clamp-2");
       expect(html).toContain("Best powder in Hokkaido.");
@@ -484,6 +484,27 @@ describe("a DONE block quiets the whole live Google overlay (#286/#289)", () => 
       expect(html).toContain("Rated 4.4 out of 5");
       expect(html).toContain("/api/places/photo?ref=");
     }
+  });
+});
+
+/* #385: a planned block that did not happen records `skipped` — honest
+ * history, no false "done". The card renders muted (struck-through chip +
+ * dimmed card) and the day keeps its planning review treatment (the traveller
+ * did not do the thing, so the choosing aid stays loud). */
+describe("a SKIPPED block stays visible but muted (#385)", () => {
+  const skipped: Block = {
+    id: "b21",
+    kind: "activity",
+    title: "Morning run",
+    status: "skipped",
+    order: 0,
+  } as unknown as Block;
+
+  it("renders a struck-through SKIPPED chip on a dimmed card", () => {
+    const html = renderWithPlaces([skipped]);
+    expect(html).toContain("SKIPPED");
+    expect(html).toContain("line-through");
+    expect(html).toContain("opacity-70");
   });
 });
 

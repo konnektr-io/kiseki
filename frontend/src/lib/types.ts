@@ -19,7 +19,7 @@ export type BlockKind =
   | "booking"
   | "custom";
 
-export type BlockStatus = "planned" | "booked" | "done";
+export type BlockStatus = "planned" | "booked" | "done" | "skipped";
 export type Role = "owner" | "editor" | "viewer" | "follower";
 export type Visibility = "public" | "private";
 

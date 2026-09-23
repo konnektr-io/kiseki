@@ -68,6 +68,10 @@ describe("blockLegStage", () => {
     expect(blockLegStage(trip({ stage: "booked" }), block({ id: "b", kind: "transport" }))).toBe("booked");
     expect(blockLegStage(trip({ stage: "idea" }), block({ id: "b", kind: "transport" }))).toBe("provisional");
   });
+  it("a skipped block says nothing — the trip stage answers (#385)", () => {
+    expect(blockLegStage(trip({ stage: "booked" }), block({ id: "b", kind: "transport", status: "skipped" }))).toBe("booked");
+    expect(blockLegStage(trip({ stage: "live" }), block({ id: "b", kind: "transport", status: "skipped" }))).toBe("booked");
+  });
 });
 
 /* ------------------------------------------------------------ day surface */

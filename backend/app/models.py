@@ -42,8 +42,10 @@ BlockKind = Literal[
     "activity", "transport", "lodging", "meal",
     "todo", "note", "gallery", "link", "booking", "custom",
 ]
-# planned → booked → done lifecycle of a block / booking.
-BlockStatus = Literal["planned", "booked", "done"]
+# planned → booked → done is the happy path; skipped records that the plan
+# was there and did not happen (live-trip capture, #385) — honest history,
+# no false "done", excluded from planned counts.
+BlockStatus = Literal["planned", "booked", "done", "skipped"]
 # Trip maturity: idea → … → live → archive (drives the UI badge + day highlights).
 Stage = Literal["idea", "options", "shortlist", "planned", "booked", "live", "archive"]
 # Crew relationship role (carried as a `hasCrew` edge property, NOT on Person).
@@ -89,7 +91,7 @@ class Block(BaseModel):
     links: list[Link] = Field(default_factory=list, description="External links attached to the block.")
     cost: Optional[float] = Field(default=None, description="Monetary cost (number; pair with `currency`).")
     currency: Optional[str] = Field(default=None, description="ISO currency code for `cost`, e.g. 'CAD'.")
-    status: Optional[BlockStatus] = Field(default=None, description="Lifecycle: planned | booked | done.")
+    status: Optional[BlockStatus] = Field(default=None, description="Lifecycle: planned | booked | done | skipped.")
     bookingCode: Optional[str] = Field(default=None, description="Confirmation / booking reference.")
     order: Optional[int] = Field(default=None, description="Sort order within the day (0-based).")
     # todo: [{label, done}] · gallery: [image urls] · custom: raw html

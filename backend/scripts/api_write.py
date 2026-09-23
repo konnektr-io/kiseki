@@ -280,7 +280,7 @@ BLOCK_KINDS = {
     "activity", "transport", "lodging", "meal", "todo", "note",
     "gallery", "link", "booking", "custom",
 }
-BLOCK_STATUS = {"planned", "booked", "done"}
+BLOCK_STATUS = {"planned", "booked", "done", "skipped"}
 STAGES = {"idea", "options", "shortlist", "planned", "booked", "live", "archive"}
 CREW_ROLES = {"owner", "editor", "viewer", "follower"}
 PLAN_KEYS = {"scalars", "locations", "features", "days", "sections", "practical", "crew"}

@@ -200,7 +200,7 @@ POST /sections body (issue #89): a brand-new chapter over trip days.
 | `links` | array[Link] | NoneType | no | `null` |
 | `cost` | float | NoneType | no | `null` |
 | `currency` | str | NoneType | no | `null` |
-| `status` | "planned" | "booked" | "done" | NoneType | no | `null` |
+| `status` | "planned" | "booked" | "done" | "skipped" | NoneType | no | `null` |
 | `bookingCode` | str | NoneType | no | `null` |
 | `items` | array[Any] | NoneType | no | `null` |
 | `html` | str | NoneType | no | `null` |
@@ -233,7 +233,7 @@ Editable block fields shared across kinds (id/kind/order excluded).
 | `links` | array[Link] | NoneType | no | `null` |
 | `cost` | float | NoneType | no | `null` |
 | `currency` | str | NoneType | no | `null` |
-| `status` | "planned" | "booked" | "done" | NoneType | no | `null` |
+| `status` | "planned" | "booked" | "done" | "skipped" | NoneType | no | `null` |
 | `bookingCode` | str | NoneType | no | `null` |
 | `items` | array[Any] | NoneType | no | `null` |
 | `html` | str | NoneType | no | `null` |
@@ -484,7 +484,7 @@ own area.
 
 All kinds: `activity`, `booking`, `custom`, `gallery`, `link`, `lodging`, `meal`, `note`, `todo`, `transport`.
 Statuses a block may carry:
-`booked`, `done`, `planned`.
+`booked`, `done`, `planned`, `skipped`.
 
 **transport**
 

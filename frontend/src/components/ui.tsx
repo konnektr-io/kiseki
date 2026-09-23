@@ -107,6 +107,7 @@ export const STATUS_LABELS: Record<BlockStatus, string> = {
   planned: "Planned",
   booked: "Booked",
   done: "Done",
+  skipped: "Skipped",
 };
 
 export function StageBadge({ stage, className = "" }: { stage: Stage; className?: string }) {

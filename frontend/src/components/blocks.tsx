@@ -53,10 +53,17 @@ const STATUS_LABEL: Record<BlockStatus, string> = {
   planned: "PLANNED",
   booked: "BOOKED",
   done: "DONE",
+  skipped: "SKIPPED",
 };
 
 function StatusChip({ status }: { status?: BlockStatus }) {
   if (!status) return null;
+  if (status === "skipped")
+    return (
+      <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground line-through">
+        {STATUS_LABEL[status]}
+      </span>
+    );
   const booked = status === "booked" || status === "done";
   return (
     <span
@@ -266,7 +273,7 @@ function BlockCard({
   return (
     <div
       {...cardProps}
-      className={`booklet-keep relative rounded-xl border border-border bg-card p-4 shadow-card ${className}`}
+      className={`booklet-keep relative rounded-xl border border-border bg-card p-4 shadow-card ${b?.status === "skipped" ? "opacity-70" : ""} ${className}`}
     >
       {b ? <CardMedia b={b} /> : null}
       {children}

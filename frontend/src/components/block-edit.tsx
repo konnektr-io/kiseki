@@ -438,7 +438,7 @@ function BlockEditor({
                     disabled={busy}
                   >
                     <option value="">—</option>
-                    {(["planned", "booked", "done"] as const).map((s) => (
+                    {(["planned", "booked", "done", "skipped"] as const).map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
