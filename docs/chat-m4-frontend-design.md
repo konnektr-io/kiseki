@@ -63,10 +63,11 @@ trip mid-conversation would otherwise address a turn that does not exist. The
 relay's thread-scoped lookup also checks the unanchored scope for the same
 reason — that is the ordinary "the agent created the trip in this turn" path.
 
-**Turn identity vs. context anchors (#330).** `tripId` and `focus` are CONTEXT:
-they tell the AGENT what the conversation is about and are deliberately NOT part
-of the turn key — a reconnect (`getTurnStatus` sends `threadId` + `turnKey` +
-`tripId`, never a focus) must keep resolving the same turn. What context does:
+**Turn identity vs. context anchors (#330).** `tripId`, `focus` and
+`deviceLocation` are CONTEXT: they tell the AGENT what the conversation is about
+and are deliberately NOT part of the turn key — a reconnect (`getTurnStatus`
+sends `threadId` + `turnKey` + `tripId`, never a focus or a position) must keep
+resolving the same turn. What context does:
 
 - `tripId` → gated (the caller holds follower+ on it) and, since #330, **named
   to the agent**: `identity_instructions` states the trip's title, id, stage,
@@ -82,6 +83,13 @@ of the turn key — a reconnect (`getTurnStatus` sends `threadId` + `turnKey` +
   ID, never prose: the human label comes from the graph, so no browser can
   write the agent's instructions. A stale id degrades to a neutral line rather
   than failing the turn.
+- `deviceLocation` → `{lat, lng, accuracy?}` (#383), the traveler's OWN position
+  while the trip map is tracking it, so "somewhere to eat around here" resolves
+  to where they are standing rather than to the day's stop. This is the one
+  anchor the relay cannot derive from the graph, so it is client-supplied — and
+  therefore NUMBERS ONLY in a strict bounded model: the relay does all the
+  phrasing (`device_location_line`) and a string is a 422, never prompt text.
+  Absent unless the map is tracking, so most turns carry nothing.
 
 **The Reconnect banner is the last resort, not the mechanism.** It used to be
 gated on the relay's `interrupted` marker, which only arrives on a stream someone

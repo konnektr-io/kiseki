@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap, Marker as MapLibreMarker } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Maximize2 } from "lucide-react";
+import { Locate, LocateFixed, Maximize2, X } from "lucide-react";
 import { useTrip } from "./theme";
 import {
   applyBasemapTint,
@@ -40,10 +40,39 @@ import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
 import { mapColors } from "../lib/tokens";
+import { accuracyRadiusPx, locateControl, type DeviceFix } from "../lib/geolocation";
+import { startTrackingDeviceIfPermitted, useDeviceLocation } from "../lib/device-location";
 import type { TripLocation } from "../lib/types";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
+
+/** MapLibre source + layer id for the device accuracy halo (#383). One id for
+ *  both, so the zoom listener and the fix effect cannot drift apart. */
+const DEVICE_SOURCE = "device-accuracy";
+
+/**
+ * The accuracy halo's geometry: one point at the fix — the RADIUS is a paint
+ * property (metres → pixels at the current zoom), never geometry, because a
+ * hand-built polygon in degrees would be wrong at every latitude.
+ */
+function deviceHalo(fix: DeviceFix | null) {
+  return {
+    type: "FeatureCollection" as const,
+    features: fix
+      ? [
+          {
+            type: "Feature" as const,
+            properties: {},
+            geometry: {
+              type: "Point" as const,
+              coordinates: [fix.lng, fix.lat] as [number, number],
+            },
+          },
+        ]
+      : [],
+  };
+}
 
 /** One resolved leg to draw, scan or day. */
 interface LegFeature {
@@ -173,9 +202,46 @@ export function RouteMap({
 
   const isDay = day != null;
 
+  /* ---- the traveler's own position (#383) ---- */
+  /** The device-location session — module store, so it survives a level change
+   *  and is readable by the chat drawer at send time (lib/device-location). */
+  const { state: device, start: startLocate, stop: stopLocate, dismissNotice } = useDeviceLocation();
+  /** Whether the CAMERA is following the dot. On from the tap that starts or
+   *  recentres, off the moment the traveler moves the map themselves: the
+   *  camera is theirs, and an unexplained snap-back is the worst thing a
+   *  locate control can do (the same rule Apple/Google Maps use). */
+  const [following, setFollowing] = useState(false);
+  /** A centre-once is pending for the next fix — the tap usually lands before
+   *  the first fix exists (it may be the tap that triggers the permission
+   *  prompt), so the flight happens when a position actually arrives. */
+  const recentreRef = useRef(false);
+  /** The dot marker — a DOM element like the pins, so no colour is ever
+   *  written in JS (`.route-locate-dot` off `--map-locate`). */
+  const locateMarkerRef = useRef<MapLibreMarker | null>(null);
+  /** The fix the halo is drawn for, shared by the zoom listener (radius) and
+   *  the fix effect (data) — neither can derive it from the other. */
+  const haloFixRef = useRef<DeviceFix | null>(null);
+  /** Re-derive the halo radius for the current camera — assigned by the mount
+   *  effect (it owns the zoom listener) and called when a fix lands. */
+  const syncHaloRef = useRef<(() => void) | null>(null);
+  /** Live mirror of `following` for the map's own event listeners, which are
+   *  registered once and must not close over a stale state. */
+  const followingRef = useRef(following);
+  followingRef.current = following;
+
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
   // preference — without WebGL2 the constructor throws (DESIGN.md §8.2).
   const [webgl2] = useState(hasWebGL2);
+
+  /* A trip map never ASKS for location on its own (#383): it starts watching
+   * only when the browser already grants it for this origin — a returning
+   * traveler sees their dot straight away, and everyone else sees an idle
+   * control until they tap it. A prompt on load is how an app teaches people
+   * to deny, and a denial is sticky. */
+  useEffect(() => {
+    if (!webgl2) return;
+    startTrackingDeviceIfPermitted();
+  }, [webgl2]);
   const [failed, setFailed] = useState(false);
   const [ready, setReady] = useState(false);
   /** Journey leg geometry from the backend (scan level). `undefined` = still
@@ -356,6 +422,33 @@ export function RouteMap({
         mapRef.current = map;
 
         map.addControl(new lib.NavigationControl({ showCompass: true, visualizePitch: true }), "top-left");
+        /** A gesture on the map is the traveler taking the wheel (#383):
+         *  following yields at once and the control starts offering "come back
+         *  to me" instead. `dragstart` is pointer-only, but `zoomstart` fires
+         *  for the map's own `easeTo`/`fitBounds` too — without the
+         *  `originalEvent` test, Kiseki's own camera work would pause follow. */
+        const onUserGesture = (e: { originalEvent?: unknown }) => {
+          if (e?.originalEvent == null) return;
+          if (!followingRef.current) return;
+          followingRef.current = false;
+          setFollowing(false);
+        };
+        map.on("dragstart", onUserGesture);
+        map.on("zoomstart", onUserGesture);
+        /** The halo's radius is metres at the current ground resolution, and
+         *  MapLibre's `circle-radius` is always PIXELS — so this is the one
+         *  device-location value that has to be recomputed on zoom. Before the
+         *  layer exists (or after the map is gone) it is a no-op. */
+        const syncHalo = () => {
+          if (!map || !map.getLayer(DEVICE_SOURCE)) return;
+          const fix = haloFixRef.current;
+          map.setPaintProperty(
+            DEVICE_SOURCE,
+            "circle-radius",
+            fix ? accuracyRadiusPx(fix.accuracy, fix.lat, map.getZoom() ?? 0) : 0,
+          );
+        };
+        syncHaloRef.current = syncHalo;
         // Zoom-scaled pins (#357 slice 2): --pin-scale shrinks the visible
         // dot toward ~22px at journey zoom; the 44px hit target never moves.
         // Below the collision zoom the label layer drops (pins stay).
@@ -364,6 +457,7 @@ export function RouteMap({
           const z = map.getZoom() ?? 0;
           ref.current.style.setProperty("--pin-scale", String(pinScaleAtZoom(z)));
           ref.current.classList.toggle("map-labels-off", z < MAP_LABEL_ZOOM_FLOOR);
+          syncHalo();
         };
         map.on("zoom", syncZoom);
         syncZoom();
@@ -394,6 +488,26 @@ export function RouteMap({
 
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
+
+        // The traveler's accuracy halo (#383): a real circle layer, created
+        // with the map and BEFORE any level's route layers, so the trip always
+        // draws on top of it. The radius (metres → px) rides `syncHalo`, which
+        // the zoom listener and every new fix call; the data is one point.
+        map.addSource(DEVICE_SOURCE, { type: "geojson", data: deviceHalo(null) });
+        map.addLayer({
+          id: DEVICE_SOURCE,
+          type: "circle",
+          source: DEVICE_SOURCE,
+          paint: {
+            "circle-color": mapColors(map.getContainer()).locate,
+            "circle-opacity": 0.16,
+            "circle-radius": 0,
+            "circle-stroke-color": mapColors(map.getContainer()).locate,
+            "circle-stroke-opacity": 0.35,
+            "circle-stroke-width": 1,
+          },
+        });
+        syncHalo();
 
         // Transport glyph sprites (#357 slice 3B) — registered once per map
         // instance; levels only add sources + layers. A failed registration
@@ -472,6 +586,16 @@ export function RouteMap({
       glyphModesRef.current = [];
       fitJourneyRef.current = null;
       fitDayRef.current = null;
+      // The device dot and halo belonged to THIS map instance; the session
+      // itself (lib/device-location) outlives it on purpose, so re-entering
+      // the trip map shows the dot again without a second permission prompt.
+      locateMarkerRef.current?.remove();
+      locateMarkerRef.current = null;
+      haloFixRef.current = null;
+      syncHaloRef.current = null;
+      followingRef.current = false;
+      setFollowing(false);
+      recentreRef.current = false;
       setReady(false);
       setLegsData(undefined);
     };
@@ -1016,6 +1140,81 @@ export function RouteMap({
     });
   }, [spyPlaces, selected, isDay, ready]);
 
+  /* ------------------------------------------------------------------ */
+  /* The traveler's own position (#383): the dot, its accuracy halo, and */
+  /* the camera that follows it. Level-independent by construction — one */
+  /* map instance serves both levels, and "where am I" means the same    */
+  /* thing on the whole-trip scan as on a single day.                    */
+  /* ------------------------------------------------------------------ */
+
+  /** Fly the camera to the dot — the ONE movement the traveler asked for.
+   *  Keeps the current zoom when it is already closer (a traveler zoomed into
+   *  a street does not want to be pulled back out). */
+  const flyToFix = (fix: DeviceFix) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const opts = {
+      center: [fix.lng, fix.lat] as [number, number],
+      zoom: Math.max(map.getZoom(), 13),
+      offset: paddingOffset(paddingRef.current),
+    };
+    if (prefersReducedMotion()) map.jumpTo(opts);
+    else map.easeTo({ ...opts, duration: CAMERA_MS });
+  };
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const lib = libRef.current;
+    const container = ref.current;
+    if (!map || !lib || !container || !ready) return;
+    const fix = device.tracking ? device.fix : null;
+    haloFixRef.current = fix;
+    // The DOM contract for the session (`data-device-location`) — the same idea
+    // as `data-map-ready` for the PDF waiter: a surface state other code (and
+    // the browser probe in `scripts/probe-device-location.py`) can assert
+    // without reaching into a WebGL canvas.
+    container.dataset.deviceLocation = fix ? "live" : "off";
+
+    // The dot: a DOM marker like the pins, so its colour is a CSS class off
+    // `--map-locate` and no literal is ever written in JS (§8.4). `aria-hidden`
+    // and pointer-events-none: it is a "you are here", never a target.
+    if (fix) {
+      if (locateMarkerRef.current) {
+        locateMarkerRef.current.setLngLat([fix.lng, fix.lat]);
+      } else {
+        const el = document.createElement("div");
+        el.className = "route-locate-dot pointer-events-none";
+        el.setAttribute("aria-hidden", "true");
+        locateMarkerRef.current = new lib.Marker({ element: el })
+          .setLngLat([fix.lng, fix.lat])
+          .addTo(map);
+      }
+    } else if (locateMarkerRef.current) {
+      locateMarkerRef.current.remove();
+      locateMarkerRef.current = null;
+    }
+
+    // The halo: one point plus a radius in pixels at this camera's ground
+    // resolution (syncHalo owns the maths — the zoom listener needs it too).
+    const source = map.getSource(DEVICE_SOURCE) as GeoJSONSource | undefined;
+    source?.setData(deviceHalo(fix));
+    syncHaloRef.current?.();
+
+    if (!fix) return;
+    if (recentreRef.current) {
+      // The flight a start/recentre tap asked for, deferred until a position
+      // actually existed (the tap may be what triggers the permission prompt).
+      recentreRef.current = false;
+      flyToFix(fix);
+      return;
+    }
+    // Following: a plain jump per fix, never an animation — a 500ms ease per
+    // GPS tick is a camera that never settles, and the dot is the thing that
+    // should move. Zoom is untouched: the framing stays the traveler's.
+    if (followingRef.current) map.jumpTo({ center: [fix.lng, fix.lat] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device.tracking, device.fix, ready]);
+
   /* Camera reframes when the occlusion changes (a detent drag, a rotation, a
      breakpoint change) — at whichever level is live. Forgetting this is the
      #1 bug in map+sheet layouts: the route hides under the sheet and it
@@ -1054,6 +1253,28 @@ export function RouteMap({
     );
   }
 
+  /* The locate control's state (#383) — a pure mapping (lib/geolocation), so
+     the button below is presentation only. */
+  const locate = locateControl({ tracking: device.tracking, following });
+
+  /** The tap: start+centre, come back to me, or stop — see `locateControl`. */
+  const onLocate = () => {
+    if (locate.action === "start") {
+      setFollowing(true);
+      recentreRef.current = true; // flies when the first fix lands
+      startLocate();
+      return;
+    }
+    if (locate.action === "recentre") {
+      setFollowing(true);
+      if (device.fix) flyToFix(device.fix); // a fix is in hand — go now
+      else recentreRef.current = true;
+      return;
+    }
+    stopLocate();
+    setFollowing(false);
+  };
+
   return (
     <>
       <div ref={ref} className="map-pin-scaled h-full w-full" />
@@ -1073,6 +1294,48 @@ export function RouteMap({
           <Maximize2 className="h-4 w-4" aria-hidden="true" />
         </span>
       </button>
+      {/* The traveler's own position (#383) — the only control on this surface
+          that is about the viewer rather than the trip. Idle until tapped, or
+          until the browser already grants location; the label states what the
+          tap will do, because the same button starts, recentres and stops. */}
+      <button
+        type="button"
+        onClick={onLocate}
+        aria-label={locate.label}
+        title={locate.label}
+        data-locate={locate.action}
+        data-tracking={device.tracking ? "true" : "false"}
+        className="map-chip-btn absolute right-0 top-11 z-10 grid h-11 w-11 place-items-center"
+      >
+        <span
+          className={`floating grid h-8 w-8 place-items-center rounded-lg ${
+            locate.following ? "text-accent" : "text-muted-foreground"
+          }`}
+        >
+          {locate.icon === "locate-fixed" ? (
+            <LocateFixed className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <Locate className="h-4 w-4" aria-hidden="true" />
+          )}
+        </span>
+      </button>
+      {/* Why a start failed (blocked, no fix) — one line, floating, dismissed
+          by the traveler, and never a modal: the map is still the surface. */}
+      {device.notice && (
+        <div className="map-locate-notice absolute right-0 top-[5.5rem] z-10" role="status">
+          <div className="flex items-start gap-2">
+            <span className="min-w-0 flex-1">{device.notice}</span>
+            <button
+              type="button"
+              onClick={dismissNotice}
+              aria-label="Dismiss"
+              className="-m-1 grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

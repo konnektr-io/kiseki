@@ -820,6 +820,39 @@ give way when something has to.
 - Elevation never breaks the map: `addTerrain` swallows its own failures, so a DEM that will not
   load costs the trip its hillshade, not its route.
 
+### 8.7 The traveler's own position (#383)
+
+The trip map can show where the **viewer** is standing. It is the one thing on a map surface that
+is about the reader rather than the trip, and it exists because *"where am I relative to this?"* is
+the question a paper booklet and a plotted route cannot answer.
+
+- **Permission-first, and quiet about it.** Tracking starts in exactly two ways: the browser already
+  *grants* geolocation for this origin (a returning traveler's dot appears with no prompt), or the
+  traveler taps the locate control. Nothing else. An app that prompts on load teaches people to
+  deny, and a denial is sticky — so an idle map is a silent map.
+- **Trip map only.** The landing globe and the home map never ask. A position is offered to the chat
+  as well, and only while the map is tracking it.
+- **Never trip content.** The dot takes `--map-locate` (accent — §5.1's "map highlights" voice), not
+  the signature colour the route and the pins already own, and it carries **no ordinal**: it must
+  never read as a place, a stop, or a stage (§8.3). It has a white ring so it reads over snow and
+  forest, and an accuracy halo in the map's own layer space — a real metre radius converted to
+  pixels at the current zoom, because "±8 m" and "±2 km" are different answers to "how far is that".
+- **The camera yields, always.** A silent start (permission already granted) draws the dot where it
+  is and leaves the trip's framing alone — it never yanks the map away from the route on arrival.
+  A tap on the control flies to the dot once, and following continues as a plain jump per fix (an
+  animation per GPS tick is a camera that never settles). The instant the traveler drags or pinches
+  the map, following stops: the camera is theirs, and an unexplained snap-back is the worst thing a
+  locate control can do.
+- **One control, three states** — start · recentre · stop — because a second chip for the rarer
+  action is more chrome than the surface can hold. Its `aria-label` states what THIS tap will do.
+- **Chrome rules apply.** A real `<button>` with a label that says what this tap will do, carrying
+  the same chip recipe and 44px tap target as the frame button beside it (§7.3's exemption permits
+  smaller map controls; these two move together or not at all). Hidden at the sheet's `full` detent
+  like the other map buttons, and `no-print` by construction: a live position has no business on
+  paper.
+- **Not persisted, not measured.** No storage, no cookie, and no coordinate in any analytics event.
+  Stopping the control drops the fix, and the session dies with the page.
+
 ---
 
 ## 9. Photography
@@ -906,7 +939,10 @@ next few PRs.
 - [ ] Semantic elements: `<button>` for actions, `<a>` for navigation. (Mostly right today.)
 - [ ] Touch targets ≥44×44 — marker hit areas especially. *(Map **controls** are exempt:
       the shared `NavigationControl` is 32px on every surface by decision, 2026-09-23 — gestures are
-      the primary interaction and the buttons are the fallback. See §7.3.)*
+      the primary interaction and the buttons are the fallback. See §7.3. The trip map's own chip
+      pair — frame and the locate control (#383) — still carries the 44px
+      target-with-a-small-chip recipe: the exemption permits smaller, it does not require it, and
+      those two must move together if they move at all.)*
 - [ ] Contrast per §5.2, verified for every preset in both palettes.
 - [ ] Text over images always scrimmed.
 - [ ] Every map has a keyboard-reachable list equivalent.
@@ -963,7 +999,10 @@ CSS in a shape where a second `@page` size (square album, e.g. 210×210mm) is a 
 ([`ui.tsx`](frontend/src/components/ui.tsx)), the ten block renderers
 ([`blocks.tsx`](frontend/src/components/blocks.tsx)), `MapView` / `TripMap` (screen + PDF,
 #37), and the map-surface primitives `RouteMap` / `Sheet` / `SplitView` (#39 — repurposed into
-the itinerary/day map surface of §7.6).
+the itinerary/day map surface of §7.6). `RouteMap` also carries the locate control and the
+traveler's own dot + accuracy halo (#383, §8.7), driven by `lib/geolocation.ts` /
+`lib/device-location.ts` — no separate component, because the control's meaning is the map's
+state (following / centred / stopped), not a prop.
 
 ### 13.2 Debt found in the v0.12.3 audit
 

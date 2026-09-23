@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { UIMessageChunk } from "ai";
 
 import { getTurnStatus, KisekiChatTransport } from "./chat";
+import { resetDeviceLocationForTests, startTrackingDevice, stopTrackingDevice } from "./device-location";
 
 /* `KisekiChatTransport` (DefaultChatTransport subclass): request shaping
  * (`{messages, threadId, tripId}` + bearer token) and 401/403 mapping. The
@@ -77,6 +78,11 @@ function sendOptions(messages: Parameters<KisekiChatTransport["sendMessages"]>[0
   };
 }
 
+afterEach(() => {
+  resetDeviceLocationForTests();
+  vi.unstubAllGlobals();
+});
+
 describe("KisekiChatTransport", () => {
   it("posts {messages, threadId, tripId} with the bearer token", async () => {
     const seen: Array<{ url: string; init: RequestInit }> = [];
@@ -147,6 +153,68 @@ describe("KisekiChatTransport", () => {
     expect(body).toMatchObject({ messages: [], threadId: "thread-2" });
     expect(body).not.toHaveProperty("tripId");
     expect(body.turnKey).toMatch(/^turn-[0-9a-f-]{8,}$/);
+  });
+
+  /* #383: the traveler's own position is sent ONLY while the trip map is
+   * tracking it, and read at send time — so "find restaurants around me" lands
+   * with the position the traveler had when they pressed send. */
+  it("carries the device position while the trip map is tracking it", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl,
+    });
+    const send = async () => {
+      await readAll(
+        await transport.sendMessages(
+          sendOptions([{ id: `u${seen.length}`, role: "user", parts: [{ type: "text", text: "here" }] }]),
+        ),
+      );
+      return JSON.parse(seen[seen.length - 1].init.body as string) as Record<string, unknown>;
+    };
+
+    // nothing to say before a fix exists
+    expect(await send()).not.toHaveProperty("deviceLocation");
+
+    vi.stubGlobal("navigator", {
+      geolocation: {
+        watchPosition: (ok: (pos: GeolocationPosition) => void) => {
+          queueMicrotask(() =>
+            ok({
+              coords: { latitude: 52.090712345678, longitude: 5.1214987, accuracy: 7.6 },
+              timestamp: 0,
+            } as GeolocationPosition),
+          );
+          return 3;
+        },
+        clearWatch: () => {},
+      },
+      permissions: {
+        query: () =>
+          Promise.resolve({
+            state: "granted",
+            addEventListener: () => {},
+            removeEventListener: () => {},
+          }),
+      },
+    });
+    startTrackingDevice();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(await send()).toMatchObject({
+      tripId: "trip-1",
+      deviceLocation: { lat: 52.09071, lng: 5.1215, accuracy: 8 },
+    });
+
+    // a stopped session is not a location
+    stopTrackingDevice();
+    expect(await send()).not.toHaveProperty("deviceLocation");
   });
 
   it("re-attaches to a carried turn instead of re-sending it", async () => {
