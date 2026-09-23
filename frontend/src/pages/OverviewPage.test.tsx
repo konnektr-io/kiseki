@@ -387,7 +387,7 @@ describe("OverviewPage feature map matches the itinerary chain", () => {
     expect(tripMapCalls[0].loop).toBe(false);
   });
 
-  it("the feature map is an overview surface: it takes the globe (#361 slice 3)", () => {
+  it("the feature map is Mercator, like every trip surface (2026-09-23)", () => {
     tripMapCalls.length = 0;
     renderToString(
       createElement(TripProvider, {
@@ -397,6 +397,9 @@ describe("OverviewPage feature map matches the itinerary chain", () => {
       }),
     );
     expect(tripMapCalls).toHaveLength(1);
-    expect(tripMapCalls[0].globe).toBe(true);
+    // The globe is the LANDING map's alone (components/HomeMap). A trip
+    // surface on the globe loses its DEM, so no TripMap call may take one —
+    // pinned here because #361 slice 3 passed `globe` from exactly this line.
+    expect(tripMapCalls[0].globe).toBeUndefined();
   });
 });

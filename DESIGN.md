@@ -416,9 +416,22 @@ bakes `options.padding` into the centre/zoom and then discards it, while `easeTo
 the transform's persistent padding — use both and the route ends up shifted twice, clipped against
 the top edge. Pick one (`RouteMap` passes `padding` to `fitBounds` and the equivalent `offset` to
 `easeTo`). And **MapLibre's own corner chrome is under the content**: the attribution row sits
-where the sheet is and the zoom chips sit where the side panel is, so both corner rows are
+where the sheet is and the zoom control sits where the side panel is, so both corner rows are
 translated clear of it. Attribution is a legal requirement and the zoom buttons are the a11y
 floor's answer to "not everyone can pinch"; neither may be covered.
+
+**One zoom control, on every surface** (2026-09-23). The landing map used to draw its own 44px
+chip pair while the trip maps used MapLibre's `NavigationControl`, so the same gesture had two
+looks depending on where you were. Every map — landing, trip overview, itinerary, day — now adds
+the same control, same options (`showCompass`, `visualizePitch`) and same corner (`top-left`), so
+the compass that resets a tilt is there exactly where the terrain is. Do not re-introduce a
+bespoke zoom button on one surface alone.
+
+Known, accepted for now: the library control's buttons measure 32px (MapLibre 6.6), so §11's ≥44px touch target is
+**not** met by map chrome anywhere — the landing's removed chip pair was the only place that
+reached it. Consistency won this round; if the floor matters more, the fix is one CSS override on
+`.maplibregl-ctrl-group button` (44px, token-styled) applied to every surface at once, not a
+second control.
 
 ### 7.4 Density
 

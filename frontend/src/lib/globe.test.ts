@@ -2,12 +2,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyOverviewGlobe,
-  clearOverviewGlobe,
   GLOBE_PROJECTION_TYPE,
   globeSky,
   globeSkySpec,
   isGlobeProjection,
-  MERCATOR_PROJECTION_TYPE,
   shouldUseGlobe,
   type GlobeCapableMap,
 } from "./globe";
@@ -75,7 +73,7 @@ describe("shouldUseGlobe — the screen-only gate", () => {
   });
 });
 
-describe("applyOverviewGlobe / clearOverviewGlobe", () => {
+describe("applyOverviewGlobe — the landing globe", () => {
   it("sets the globe projection with a token sky", () => {
     const map = fakeMap();
     const el = document.createElement("div");
@@ -106,17 +104,9 @@ describe("applyOverviewGlobe / clearOverviewGlobe", () => {
     expect(horizon).not.toMatch(/^#/);
   });
 
-  it("the day level goes back to Mercator and sets no sky", () => {
-    const map = fakeMap();
-    clearOverviewGlobe(map);
-    expect(map.projections).toEqual([{ type: MERCATOR_PROJECTION_TYPE }]);
-    expect(map.skies).toHaveLength(0);
-  });
-
   it("a map that rejects the globe keeps its Mercator route — never a broken surface", () => {
     const map = fakeMap({ throwOnProjection: true, throwOnSky: true });
     expect(() => applyOverviewGlobe(map, document.createElement("div"))).not.toThrow();
-    expect(() => clearOverviewGlobe(map)).not.toThrow();
   });
 });
 
