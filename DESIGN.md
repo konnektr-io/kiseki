@@ -163,7 +163,8 @@ Header, nav, sheets, map controls, toasts, the auth button.
 
 - Must be legible over **both** a white page and a photograph. Assume the worst background.
 - Always `no-print`.
-- Touch targets ≥ 44×44 CSS px, always.
+- Touch targets ≥ 44×44 CSS px, always — except the shared map `NavigationControl`, exempt
+  by decision (2026-09-23, §7.3/§11).
 - **Chrome stacks above content.** The header is `z-30` and the sheet is `z-20`, and that gap is load-bearing: both used to be `z-20`, so they shared a stacking context and the sheet — later in the DOM — won on document order, which covered an open account menu with the sheet's top edge on a phone (2026-09-16 review). Every header affordance (the account menu, a trip's actions menu) opens *downward*, straight into the sheet's territory, so the header must own the higher value. A surface that needs to float over the map's own chips (also `z-10`, inside the map) still works, because the sheet sits above the map subtree entirely.
 
 ### 2.4 The floating elevation recipe
@@ -427,11 +428,11 @@ the same control, same options (`showCompass`, `visualizePitch`) and same corner
 the compass that resets a tilt is there exactly where the terrain is. Do not re-introduce a
 bespoke zoom button on one surface alone.
 
-Known, accepted for now: the library control's buttons measure 32px (MapLibre 6.6), so §11's ≥44px touch target is
-**not** met by map chrome anywhere — the landing's removed chip pair was the only place that
-reached it. Consistency won this round; if the floor matters more, the fix is one CSS override on
-`.maplibregl-ctrl-group button` (44px, token-styled) applied to every surface at once, not a
-second control.
+These buttons are 32px (MapLibre 6.6), below §11's general touch-target floor — **deliberately
+exempted** (Niko, 2026-09-23): *"you can drop the 44px min for the buttons on the map. it's huge
+and nobody uses those buttons anyway. gestures are way easier."* Pinch, drag and tap are the
+interactions people actually use; the buttons are the fallback, and 44px of standing chrome on a
+192px-tall map costs more than it buys. §11 records the exemption.
 
 ### 7.4 Density
 
@@ -903,7 +904,9 @@ next few PRs.
       codebase**. Every interactive element needs a visible ring that works on light, dark, and photo
       backgrounds (`focus-visible:ring-2 ring-primary ring-offset-2 ring-offset-background`).
 - [ ] Semantic elements: `<button>` for actions, `<a>` for navigation. (Mostly right today.)
-- [ ] Touch targets ≥44×44 — check map controls and marker hit areas especially.
+- [ ] Touch targets ≥44×44 — marker hit areas especially. *(Map **controls** are exempt:
+      the shared `NavigationControl` is 32px on every surface by decision, 2026-09-23 — gestures are
+      the primary interaction and the buttons are the fallback. See §7.3.)*
 - [ ] Contrast per §5.2, verified for every preset in both palettes.
 - [ ] Text over images always scrimmed.
 - [ ] Every map has a keyboard-reachable list equivalent.
