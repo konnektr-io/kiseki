@@ -94,6 +94,8 @@ export interface DaySurface {
 export function blockLegStage(trip: Trip, b: Block): LegStage {
   if (b.status === "booked" || b.status === "done") return "booked";
   if (b.status === "planned") return "planned";
+  // `skipped` says nothing about commitment — the plan did not happen, so the
+  // trip stage answers, exactly like an unstatused block (#385).
   return stageToLegStage(trip.stage);
 }
 

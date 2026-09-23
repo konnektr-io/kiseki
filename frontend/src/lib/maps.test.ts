@@ -276,6 +276,12 @@ describe("locationStage", () => {
     expect(locationStage(staged("idea", [], sections), banff)).toBe("booked");
   });
 
+  it("a skipped block commits nothing — the place keeps the trip stage (#385)", () => {
+    const days = [{ blocks: [{ kind: "meal", location: "Banff", status: "skipped" }] }] as unknown as Trip["days"];
+    expect(locationStage(staged("idea", days), banff)).toBe("idea");
+    expect(locationStage(staged("live", days), banff)).toBe("live");
+  });
+
   it("a booked block wins over a planned one for the same place", () => {
     const days = [
       {

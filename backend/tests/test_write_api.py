@@ -755,6 +755,31 @@ def test_update_block_fields_and_kind_rules(client, rsa_keypair, graph) -> None:
     assert r.status_code == 422
 
 
+def test_put_and_create_block_accept_skipped_status(client, rsa_keypair, graph) -> None:
+    """#385: a planned block that did not happen records `skipped` — the write
+    path accepts the value on both create and edit, and it reads back."""
+    g = graph()
+    trip, day_id, _ = _day_and_section(g)
+    token = _token_of(rsa_keypair)
+    block = trip.days[0].blocks[0]
+    url = f"/api/trips/{trip.id}/blocks/{block.id}"
+
+    r = _authz(client, "put", url, token, json={"status": "skipped"})
+    assert r.status_code == 200
+    edited = next(b for d in _trip_of(g).days for b in d.blocks if b.id == block.id)
+    assert edited.status == "skipped"
+
+    r = _authz(client, "post", f"/api/trips/{trip.id}/blocks", token, json={
+        "kind": "activity",
+        "title": "Morning run that never happened",
+        "status": "skipped",
+        "container": {"type": "day", "id": day_id},
+    })
+    assert r.status_code == 201
+    day = next(d for d in r.json()["days"] if d["id"] == day_id)
+    assert day["blocks"][-1]["status"] == "skipped"
+
+
 def test_put_block_accepts_place_id(client, rsa_keypair, graph) -> None:
     """#15/#95 wiring: a block can pin THE venue (not just the town) via
     `placeId` — stored leniently, returned verbatim for the deep link."""

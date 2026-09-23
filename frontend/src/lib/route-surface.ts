@@ -243,6 +243,8 @@ export function legStage(
   const block = legBlock(trip, from, to);
   if (block?.status === "booked" || block?.status === "done") return { stage: "booked", block };
   if (block?.status === "planned") return { stage: "planned", block };
+  // `skipped` commits nothing — a plan that did not happen leaves the leg to
+  // the trip-stage fallback, like an unstatused block (#385).
   if (block) return { stage: stageToLegStage(trip.stage), block };
   return { stage: "provisional", block: undefined };
 }

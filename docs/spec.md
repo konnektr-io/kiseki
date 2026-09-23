@@ -95,7 +95,7 @@ idea → options → shortlist → planned → booked → live → archive
 
 - **Trip**: name, destination, dates, stage, cover, summary (markdown), crew (edges), theme, customCss, customHtml (escape hatch)
 - **Day**: date, title, notes (markdown), ordered blocks
-- **Block** (kind-discriminated, ~10 kinds total — deliberately small): `activity | transport | lodging | meal | todo | note | gallery | link | booking | custom`. Fields: title, time, location (geo), description (markdown), links[] (label+url), cost, status (`planned|booked|done`), bookingCode, order
+- **Block** (kind-discriminated, ~10 kinds total — deliberately small): `activity | transport | lodging | meal | todo | note | gallery | link | booking | custom`. Fields: title, time, location (geo), description (markdown), links[] (label+url), cost, status (`planned|booked|done|skipped` — `skipped` records a plan that did not happen, #385), bookingCode, order
 - **Person**: name, role, avatar
 - **Integration** (P2): kind (photos|strava|timeline|steps), status, tokenRef → **token lives in app secrets, never in the graph**
 - **FeedEntry** (P2): type, payload, visibility (`public|crew|followers|private`)
