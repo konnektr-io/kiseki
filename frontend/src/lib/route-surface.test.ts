@@ -14,6 +14,7 @@ import {
   legStage,
   locationsInText,
   LEG_STAGE_LABELS,
+  markerPaintRank,
   placeDays,
   placeRailHandle,
   placeRole,
@@ -556,6 +557,51 @@ describe("isRegistryScaffold (#91)", () => {
     expect(journeyOrder(trip).map((s) => s.name)).toEqual(
       trip.locations!.map((l) => l.name),
     );
+  });
+});
+
+describe("markerPaintRank (#388: a venue diamond never covers the trip's pins)", () => {
+  it("ranks a diamond under a stop pin and a chip above both", () => {
+    const trip = canadaLive();
+    const rogers = trip.locations![5]; // an excursion — never a re-base
+    const base = trip.locations![2]; // a chapter base — a stop
+    expect(placeRole(trip, rogers.name)).toBe("excursion");
+    expect(placeRole(trip, base.name)).toBe("stop");
+    const diamond = markerPaintRank(trip, { role: "place", place: rogers });
+    const pin = markerPaintRank(trip, { role: "place", place: base });
+    const chip = markerPaintRank(trip, { role: "activity", place: base });
+    expect(diamond).toBeLessThan(pin);
+    expect(pin).toBeLessThan(chip);
+  });
+
+  it("sorts every excursion under every stop, whatever order they arrive in", () => {
+    // The reported tap: six Revelstoke venues stand within ~4 px of the ③ pin
+    // and MapLibre stacks markers in DOM order, so whatever sorts last answers
+    // a tap at that spot.
+    const trip = canadaLive();
+    const markers = [
+      ...journeyOrder(trip).map((place) => ({ role: "place" as const, place })),
+      ...tripExcursions(trip).map((place) => ({ role: "place" as const, place })),
+    ];
+    const painted = [...markers]
+      .sort((a, b) => markerPaintRank(trip, a) - markerPaintRank(trip, b))
+      .map((m) => (placeRole(trip, m.place.name) === "excursion" ? "diamond" : "pin"));
+    expect(painted).toContain("diamond");
+    expect(painted).toContain("pin");
+    expect(painted.lastIndexOf("diamond")).toBeLessThan(painted.indexOf("pin"));
+  });
+
+  it("appends the diamonds before the stops on the scan level", () => {
+    // Source-level pin: MapLibre stacks marker elements in the order they are
+    // ADDED (this surface sets no z-index), so the order of these two loops IS
+    // the stacking order — chain-first is the #388 report, a tap at
+    // ③ Revelstoke opening The Village Idiot Bar & Grill.
+    const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
+    const diamonds = scan.indexOf("journeyRef.current.excursions.forEach");
+    const stops = scan.indexOf("journeyRef.current.chain.forEach");
+    expect(diamonds).toBeGreaterThanOrEqual(0);
+    expect(stops).toBeGreaterThanOrEqual(0);
+    expect(diamonds).toBeLessThan(stops);
   });
 });
 

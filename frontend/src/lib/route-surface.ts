@@ -416,6 +416,37 @@ export function isRegistryScaffold(trip: Trip): boolean {
 }
 
 /**
+ * Paint order for a level's markers (#388 — venue diamonds buried the stop pins
+ * they stand on).
+ *
+ * MapLibre appends every marker element to the same canvas container and all of
+ * them are `position: absolute` with `z-index: auto`, so the DOM order the
+ * component built IS the stacking order and the LATER element wins a tap at a
+ * shared spot. The venue round appended 23 excursion diamonds AFTER the five
+ * chain stops they stand on (Revelstoke alone has six venues within ~4 px), so
+ * the map's own numbered pins became untappable: at journey zoom a tap on
+ * ③ Revelstoke selected The Village Idiot Bar & Grill (Niko, 2026-09-23).
+ *
+ * Ranked lowest first — a marker sorted by this paints under the next:
+ *
+ * - `0` — an excursion diamond: secondary by design (§7.6) and never allowed to
+ *   cover the trip's own structure.
+ * - `1` — a numbered stop pin: the ① ② ③ index is the map's spine.
+ * - `2` — a day's activity chip: it opens a block, so it keeps the top spot it
+ *   already had by being added last.
+ *
+ * Equal ranks keep their input order (`sort` is stable), so a level's own marker
+ * order still reads.
+ */
+export function markerPaintRank(
+  trip: Trip,
+  marker: { role: "place" | "activity"; place: TripLocation },
+): number {
+  if (marker.role === "activity") return 2;
+  return placeRole(trip, marker.place.name) === "excursion" ? 0 : 1;
+}
+
+/**
  * Does the trip come back to where it started?
  *
  * This decides whether the route gets a closing leg. Asking the data beats
