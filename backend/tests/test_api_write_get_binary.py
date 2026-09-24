@@ -17,11 +17,14 @@ from the reported traceback) at the same offset.
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -164,3 +167,108 @@ def test_a_failed_fetch_never_leaves_a_stale_artifact(server, tmp_path):
     assert result.returncode != 0
     assert "HTTP 404" in result.stderr
     assert not out.exists()
+
+
+# ------------------------------------------------------------------ timeouts
+#
+# Issue #389: a booklet render is ~40s of Playwright + SwiftShader before the
+# first byte, and the client waited a hard 30s — so the ONE artifact the agent
+# exports could never be fetched, and the wait died as a raw
+# `TimeoutError: The read operation timed out` traceback out of ssl.py. In an
+# unattended round that costs the whole turn and yields no signal.
+
+
+class _SlowHandler(_Handler):
+    """Answers 5s late — longer than the timeout under test."""
+
+    def do_GET(self):  # noqa: N802 — http.server's spelling
+        time.sleep(5)
+        super().do_GET()
+
+
+@pytest.fixture()
+def slow_server():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _SlowHandler)
+    httpd.seen = []  # type: ignore[attr-defined]
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    httpd.base_url = f"http://127.0.0.1:{httpd.server_address[1]}"  # type: ignore[attr-defined]
+    try:
+        yield httpd
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=5)
+
+
+def _module():
+    spec = importlib.util.spec_from_file_location("api_write_under_test", SCRIPT)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_booklet_path_gets_a_render_sized_default_timeout():
+    """The default is per call shape, not one global 30s that guarantees the
+    booklet can never be fetched (issue #389)."""
+    aw = _module()
+    args = argparse.Namespace(timeout=None)
+
+    assert aw._timeout_for(args, f"/api/trips/{TRIP_ID}/booklet.pdf") == aw.RENDER_TIMEOUT
+    assert aw.RENDER_TIMEOUT > 40  # a render is ~40s before the first byte
+    assert aw._timeout_for(args, f"/api/trips/{TRIP_ID}") == aw.TIMEOUT
+    assert aw._timeout_for(args, "/api/trips") == aw.TIMEOUT
+
+
+def test_an_explicit_timeout_overrides_both_defaults():
+    aw = _module()
+
+    assert aw._timeout_for(argparse.Namespace(timeout=5), f"/api/trips/{TRIP_ID}/booklet.pdf") == 5
+    assert aw._timeout_for(argparse.Namespace(timeout=120), "/api/trips") == 120
+
+
+def test_an_absurd_timeout_is_refused_client_side():
+    """A typo must not hang an unattended round for hours."""
+    aw = _module()
+
+    for bad in (0, -1, 10_000):
+        with pytest.raises(SystemExit, match="between 1 and 900"):
+            aw._timeout_for(argparse.Namespace(timeout=bad), "/api/trips")
+
+
+def test_a_timeout_reports_one_line_with_the_fix_not_a_traceback(slow_server, tmp_path):
+    """The reported failure: a slow render used to surface as a traceback from
+    deep inside ssl.py, saying nothing about what was waited on."""
+    out = tmp_path / "booklet.pdf"
+    out.write_bytes(b"%PDF-1.4\nSTALE FROM A PREVIOUS RUN\n%%EOF\n")
+
+    result = _run(
+        slow_server,
+        "get",
+        f"/api/trips/{TRIP_ID}/booklet.pdf",
+        "--out",
+        str(out),
+        "--timeout",
+        "1",
+    )
+
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert "TimeoutError" not in result.stderr
+    assert "timed out after 1s" in result.stderr
+    assert "booklet.pdf" in result.stderr
+    assert "--timeout" in result.stderr  # names the fix
+    # A timed-out fetch leaves no artifact to be mistaken for a fresh one.
+    assert not out.exists()
+
+
+def test_a_timeout_on_a_plain_call_keeps_the_generic_hint(slow_server):
+    """Only the render gets the booklet hint; a JSON call that times out says so
+    without sending the caller chasing a Playwright render."""
+    result = _run(slow_server, "get", "/api/trips/slow", "--timeout", "1")
+
+    assert result.returncode != 0
+    assert "Traceback" not in result.stderr
+    assert "timed out after 1s" in result.stderr
+    assert "booklet" not in result.stderr

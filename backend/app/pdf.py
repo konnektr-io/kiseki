@@ -12,7 +12,7 @@ Auth bypass (#58, hardened after the v0.15.6 incidents): the backend is
 ALREADY protected (JWT + crew role), so the SPA's Auth0 sign-in gate is
 redundant for the PDF render. The renderer sets
 ``window.__KISEKI_PDF_RENDER__ = true`` before the app loads; the SPA skips
-its UI auth gate in that mode and uses the injected access token for its API
+its UI auth gate in that mode and uses the injected credential for its API
 calls. The token is injected via ``add_init_script`` — NOT via the SPA-shell
 ``<script>`` replace: that path depends on the loopback navigation carrying
 an Authorization header, and if it ever doesn't, the SPA falls into
@@ -21,10 +21,20 @@ headless browser. The render then hangs with no API call at all and dies at
 the booklet-content timeout (the nondeterministic first-click failure).
 The init-script injection is unconditional and cannot fail silently.
 
-The renderer also strips the Authorization header from every third-party
-request (tiles.openfreemap.org, fonts, DEM) — the SPA's own API fetches keep
-their header, but nothing the page loads from other origins sees the
-caller's bearer token.
+Two credential shapes reach this page, and BOTH must be injected (#389):
+a bearer token (the UI's "Download PDF", forwarded as
+``window.__KISEKI_ACCESS_TOKEN__``) and an admin API key + act-as sub (the
+content agent's ``api_write.py``, which has no bearer token at all) forwarded
+as ``window.__KISEKI_API_KEY__`` / ``window.__KISEKI_ACT_AS_SUB__`` — the same
+page-global seam the browser probes use (``frontend/src/lib/auth-headers.ts``).
+Without the key pair a private trip's booklet render fetches the trip
+anonymously, gets 401, never mounts the booklet content, and dies at the
+booklet-content timeout — a 500 that names nothing.
+
+The renderer also strips the credential headers (Authorization, X-API-Key,
+X-Act-As-Sub) from every third-party request (tiles.openfreemap.org, fonts,
+DEM) — the SPA's own API fetches keep theirs, but nothing the page loads from
+another origin sees the caller's credential.
 
 Map parity (#37): the booklet's maps are the SAME MapLibre GL JS maps as on
 screen (OpenFreeMap positron, themed route/markers). They render live during
@@ -67,6 +77,12 @@ def _browser_path_candidates() -> list[Path]:
     return candidates
 
 
+def _js_string(value: str | None) -> str:
+    """A JS string literal for ``value`` — always a string, never undefined."""
+    safe = (value or "").replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{safe}"'
+
+
 def _token_init_script(access_token: str | None) -> str:
     """Inject the access token as a page global BEFORE any app script runs.
 
@@ -75,13 +91,68 @@ def _token_init_script(access_token: str | None) -> str:
     fall into the Auth0 SDK in a headless browser — an iframe flow that
     cannot complete there and hangs the whole render (#58 follow-up).
     """
-    safe = (access_token or "").replace("\\", "\\\\").replace('"', '\\"')
-    return f'window.__KISEKI_ACCESS_TOKEN__ = "{safe}";'
+    return f"window.__KISEKI_ACCESS_TOKEN__ = {_js_string(access_token)};"
+
+
+def _api_key_init_script(api_key: str | None, act_as_sub: str | None = None) -> str:
+    """Inject the admin API key + act-as sub as page globals (#389).
+
+    The content agent has no bearer token: it authenticates with ``X-API-Key``
+    + a mandatory ``X-Act-As-Sub`` (#324). The headless page must present the
+    SAME credential, or a PRIVATE trip's booklet fetch goes out anonymous and
+    401s — the SPA then never reaches its booklet-ready marker and the render
+    dies at the content timeout with a 500 that names nothing.
+
+    Empty when no key was presented (the bearer path, or a public trip):
+    ``authHeaders()`` treats a falsy global as absent and falls back to the
+    bearer token, so a public render stays exactly as anonymous as before.
+    """
+    if not api_key:
+        return ""
+    return (
+        f"window.__KISEKI_API_KEY__ = {_js_string(api_key)};"
+        f"window.__KISEKI_ACT_AS_SUB__ = {_js_string(act_as_sub)};"
+    )
+
+
+def _credential_init_scripts(
+    access_token: str | None,
+    api_key: str | None = None,
+    act_as_sub: str | None = None,
+) -> list[str]:
+    """The page globals for whichever credential the caller presented.
+
+    The token global is ALWAYS set (see ``_token_init_script``); the key pair
+    rides on top when the caller is an API-key client. Both are plain strings
+    with no interpolation of untrusted structure — the values are escaped by
+    ``_js_string``.
+    """
+    scripts = [_token_init_script(access_token)]
+    key_script = _api_key_init_script(api_key, act_as_sub)
+    if key_script:
+        scripts.append(key_script)
+    return scripts
+
+
+# The credential headers the renderer must never let a third-party origin see.
+_CREDENTIAL_HEADERS = frozenset({"authorization", "x-api-key", "x-act-as-sub"})
 
 
 async def render_booklet_pdf(
-    base_url: str, key: str, out_path: Path, access_token: str | None = None
+    base_url: str,
+    key: str,
+    out_path: Path,
+    access_token: str | None = None,
+    api_key: str | None = None,
+    act_as_sub: str | None = None,
 ) -> None:
+    """Render one trip's booklet to ``out_path``.
+
+    ``access_token`` / ``api_key``+``act_as_sub`` are the caller's credential
+    as the endpoint received it — exactly one shape is forwarded into the page
+    (see ``_credential_init_scripts``), because the SPA's own trip fetch is
+    what needs it.
+    """
     url = f"{base_url}/t/{key}/booklet"
     last_error: Exception | None = None
 
@@ -126,15 +197,20 @@ async def render_booklet_pdf(
                     page = await browser.new_page(
                         viewport={"width": 708, "height": 1123}
                     )
-                    # Flag + token must be set before the SPA loads so it skips
-                    # Auth0 entirely and mounts MapLibre eagerly (observer bypass).
+                    # Flag + credential must be set before the SPA loads so it
+                    # skips Auth0 entirely and mounts MapLibre eagerly
+                    # (observer bypass).
                     await page.add_init_script(_PDF_RENDER_FLAG)
-                    await page.add_init_script(_token_init_script(access_token))
+                    for script in _credential_init_scripts(
+                        access_token, api_key, act_as_sub
+                    ):
+                        await page.add_init_script(script)
 
-                    # The SPA may legitimately send its bearer token to /api/*,
+                    # The SPA may legitimately send its credential to /api/*,
                     # but no third-party origin (tiles.openfreemap.org, fonts,
                     # DEM host) has any business seeing it. Route on the page
-                    # level: drop the header for every cross-origin request.
+                    # level: drop the credential headers for every cross-origin
+                    # request.
                     base_origin = "http://" + url.split("/", 3)[2]
                     await page.route(
                         "**/*",
@@ -143,7 +219,7 @@ async def render_booklet_pdf(
                                 {
                                     k: v
                                     for k, v in route.request.headers.items()
-                                    if k.lower() != "authorization"
+                                    if k.lower() not in _CREDENTIAL_HEADERS
                                 }
                                 if not route.request.url.startswith(base_origin)
                                 else None

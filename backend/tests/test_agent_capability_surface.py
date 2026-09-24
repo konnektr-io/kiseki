@@ -104,6 +104,19 @@ def test_docstring_documents_binary_get_out() -> None:
     assert "binary" in text
 
 
+def test_docstring_documents_the_render_sized_timeout() -> None:
+    """The wait is part of the same contract (issue #389).
+
+    A render is ~40s before the first byte, so a copy that keeps the old fixed
+    30s client timeout can never fetch a booklet at all — the failure mode the
+    agent reported. `--timeout` (and the 180s default for `*.pdf`) has to be in
+    the help text, not just in the source.
+    """
+    text = _run("--help").stdout
+    assert "--timeout" in text
+    assert "180" in text
+
+
 def test_create_trip_arg_contract() -> None:
     """create-trip takes --title/--subtitle only — no body flags."""
     no_title = _run("create-trip", "--subtitle", "x")
