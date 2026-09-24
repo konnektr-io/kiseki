@@ -167,6 +167,14 @@ that might predate the run. Verifying a finished build:
     python scripts/api_write.py get /api/trips/<trip_id>/booklet.pdf --out /tmp/booklet.pdf
     test "$(stat -c%s /tmp/booklet.pdf)" -gt 10000 && head -c4 /tmp/booklet.pdf
 
+A booklet RENDER is a ~40s job (Playwright + SwiftShader), so `get` on a
+`*.pdf` path waits 180s by default — the 30s used for every other call would
+guarantee a timeout on the one artifact the agent exports. `--timeout SECONDS`
+overrides it for any call; a timeout that does fire reports one line naming the
+URL and the fix, never a traceback (issue #389). Private trips render fine with
+the admin key + act-as: the server forwards that same identity into the
+headless page's own trip fetch.
+
 Bodies with quotes/apostrophes: write the JSON to a file and pass --file
 (inline shell quoting of apostrophes is the classic failure).
 
@@ -204,6 +212,27 @@ from typing import Any
 
 BASE_URL = os.environ.get("KISEKI_BASE_URL", "https://kiseki.konnektr.io")
 TIMEOUT = 30
+# A booklet render is ~40s of Playwright + SwiftShader before the first byte
+# arrives (issue #389), so the generic 30s would time out every single booklet
+# fetch. One knob, one default per call shape; --timeout overrides both.
+RENDER_TIMEOUT = 180
+
+
+def _is_render_path(path: str | None) -> bool:
+    """True for the booklet PDF — the one slow, non-JSON GET the agent makes."""
+    return bool(path) and path.rstrip("/").lower().endswith(".pdf")
+
+
+def _timeout_for(args, path: str | None) -> int:
+    """Seconds to wait for this call: --timeout, else 180s for a booklet
+    render, else 30s. A non-positive/absurd value is refused client-side so a
+    typo cannot hang an unattended round forever."""
+    explicit = getattr(args, "timeout", None)
+    if explicit is not None:
+        if explicit < 1 or explicit > 900:
+            raise SystemExit("error: --timeout must be between 1 and 900 seconds")
+        return explicit
+    return RENDER_TIMEOUT if _is_render_path(path) else TIMEOUT
 
 
 def _read_body(args) -> bytes | None:
@@ -1719,6 +1748,9 @@ def main() -> int:
     ap.add_argument("--out",
                     help="get: write the response body to this file as raw bytes "
                          "(binary-safe — booklet.pdf); prints bytes=N content-type=…")
+    ap.add_argument("--timeout", type=int, default=None, metavar="SECONDS",
+                    help="seconds to wait for the response (default: 180 for a *.pdf "
+                         "booklet render — it takes ~40s — and 30 for every other call)")
     ap.add_argument("--title", help="Trip title (create-trip only)")
     ap.add_argument("--subtitle", help="Trip subtitle (create-trip only)")
     ap.add_argument("--token", help="Credential: JWT or ksk_ admin key (default: $KISEKI_API_KEY, then $KISEKI_TOKEN)")
@@ -1791,8 +1823,9 @@ def main() -> int:
     if body is not None:
         req.add_header("Content-Type", "application/json")
 
+    timeout = _timeout_for(args, path)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
             content_type = resp.headers.get("Content-Type", "")
     except urllib.error.HTTPError as exc:
@@ -1803,8 +1836,25 @@ def main() -> int:
             pass
         print(f"HTTP {exc.code}: {detail or exc.reason}", file=sys.stderr)
         return exc.code
-    except urllib.error.URLError as exc:
-        print(f"error: cannot reach {url}: {exc.reason}", file=sys.stderr)
+    except (TimeoutError, urllib.error.URLError) as exc:
+        # A timeout is the EXPECTED shape of a slow render, and in an unattended
+        # -q round a traceback costs the whole turn and says nothing (issue
+        # #389). One line: what was waited on, for how long, and the fix.
+        reason = getattr(exc, "reason", exc)
+        if isinstance(exc, urllib.error.URLError) and not isinstance(reason, TimeoutError):
+            print(f"error: cannot reach {url}: {reason}", file=sys.stderr)
+            return 1
+        hint = (
+            " — a booklet render takes ~40s; retry with --timeout 300"
+            if _is_render_path(path)
+            else " — retry with --timeout <seconds> if the server is slow"
+        )
+        print(f"error: timed out after {timeout}s waiting for {url}{hint}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        # RemoteDisconnected, connection reset mid-body, TLS failure: same rule
+        # — one line naming the URL, never a traceback.
+        print(f"error: {url} failed: {exc}", file=sys.stderr)
         return 1
 
     if args.out:

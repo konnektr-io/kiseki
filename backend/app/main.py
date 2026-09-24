@@ -1864,13 +1864,19 @@ async def booklet_pdf(
     trip_id: str,
     _: str | None = Depends(authorize_trip_path),
     authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+    x_act_as_sub: str | None = Header(default=None),
 ) -> FileResponse:
     """Trip booklet PDF (#13) — same visibility gate as the trip itself.
 
     Public trips: anyone may download (no auth needed). Private trips: JWT +
     crew role required (via ``authorize_trip_path``). The renderer's SPA page
-    loads the trip, so the caller's access token (if any) is forwarded to
-    the headless browser (injected as a page global by pdf.py).
+    loads the trip ITSELF, so the caller's credential is forwarded to the
+    headless browser (injected as page globals by pdf.py) — a bearer token for
+    the UI, or the admin API key + act-as sub for the content agent (#389).
+    The gate above already validated that credential; the forwarded copy is
+    the same identity, so the page's own trip fetch is authorized exactly like
+    the download request was.
 
     A render takes ~40s of SwiftShader + up to 2GiB (15 live WebGL contexts) —
     by far the most expensive thing the pod does, and since #64 the public-trip
@@ -1894,6 +1900,9 @@ async def booklet_pdf(
     access_token = None
     if authorization and authorization.lower().startswith("bearer "):
         access_token = authorization.split(" ", 1)[1].strip() or None
+    # Bearer-first (the backend's credential rule): only an API-key caller
+    # forwards the key pair, and only when it actually presented one.
+    render_api_key = x_api_key if (access_token is None and x_api_key) else None
     render_key = trip_id.lower()
     lock = _PDF_RENDER_LOCKS.setdefault(render_key, asyncio.Lock())
     # Serialize: every waiter reuses the SAME finished file, so a double-click
@@ -1905,7 +1914,14 @@ async def booklet_pdf(
         try:
             # Pod-wide: one render at a time, whatever the trip.
             async with _PDF_RENDER_SLOT:
-                await render_booklet_pdf(base_url, render_key, Path(path), access_token=access_token)
+                await render_booklet_pdf(
+                    base_url,
+                    render_key,
+                    Path(path),
+                    access_token=access_token,
+                    api_key=render_api_key,
+                    act_as_sub=x_act_as_sub,
+                )
         except Exception as exc:
             Path(path).unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail=f"PDF rendering failed: {exc}") from exc

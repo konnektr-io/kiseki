@@ -8,6 +8,7 @@ public-visibility route.
 
 from __future__ import annotations
 
+import hashlib
 import time
 
 import pytest
@@ -364,9 +365,10 @@ def test_booklet_renders_with_role(
 ) -> None:
     role("viewer")
     captured: dict = {}
-    async def fake_render(base_url, key, out_path, access_token=None):
+    async def fake_render(base_url, key, out_path, access_token=None, api_key=None, act_as_sub=None):
         captured["key"] = key
         captured["token"] = access_token
+        captured["api_key"] = api_key
         out_path.write_bytes(b"%PDF-fake")
     monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
     token = _token_of(rsa_keypair)
@@ -379,6 +381,7 @@ def test_booklet_renders_with_role(
     assert r.content.startswith(b"%PDF-")
     assert captured["key"] == trip.id
     assert captured["token"] == token
+    assert captured["api_key"] is None  # bearer callers forward no key
 
 
 def test_booklet_public_trip_is_anonymous(
@@ -389,7 +392,7 @@ def test_booklet_public_trip_is_anonymous(
     Pinned deliberately: this is the one path that reaches the 40s/2GiB
     renderer with no credential, so a change here should break a test.
     """
-    async def fake_render(base_url, key, out_path, access_token=None):
+    async def fake_render(base_url, key, out_path, access_token=None, api_key=None, act_as_sub=None):
         out_path.write_bytes(b"%PDF-fake")
 
     monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
@@ -404,7 +407,7 @@ def test_booklet_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatc
     path is unauthenticated, so one client cannot loop it."""
     renders = {"n": 0}
 
-    async def fake_render(base_url, key, out_path, access_token=None):
+    async def fake_render(base_url, key, out_path, access_token=None, api_key=None, act_as_sub=None):
         renders["n"] += 1
         out_path.write_bytes(b"%PDF-fake")
 
@@ -414,6 +417,89 @@ def test_booklet_rate_limited(client: TestClient, monkeypatch: pytest.MonkeyPatc
         assert client.get(url).status_code == 200
     assert client.get(url).status_code == 429
     assert renders["n"] == 5  # the 429 never reached the renderer
+
+
+# ------------------------------------------------- booklet + admin API key (#389)
+
+
+KEY = "ksk_test_admin_key_do_not_use"
+KEY_SUB = "google-oauth2|100613034256980569871"
+
+
+@pytest.fixture
+def api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configure one admin API key for the app (issue #324)."""
+    digest = hashlib.sha256(KEY.encode()).hexdigest()
+    monkeypatch.setattr(auth_module, "KISEKI_API_KEYS", f"agent:{digest}")
+
+
+def test_booklet_forwards_the_admin_key_to_the_render(
+    client: TestClient, role, api_key, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#389: a PRIVATE trip renders for the content agent.
+
+    The endpoint's gate accepts the admin key + act-as (issue #324), but the
+    headless page fetches the trip ITSELF — with no credential forwarded it
+    went out anonymous, 401'd, and the render died at the content timeout as a
+    500 that named nothing. The key pair must ride into the page.
+    """
+    role("viewer")
+    captured: dict = {}
+
+    async def fake_render(base_url, key, out_path, access_token=None, api_key=None, act_as_sub=None):
+        captured.update(key=key, token=access_token, api_key=api_key, act_as=act_as_sub)
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    trip = load_trips()[0]
+    r = client.get(
+        f"/api/trips/{trip.id}/booklet.pdf",
+        headers={"X-API-Key": KEY, "X-Act-As-Sub": KEY_SUB},
+    )
+
+    assert r.status_code == 200
+    assert captured["api_key"] == KEY
+    assert captured["act_as"] == KEY_SUB
+    assert captured["token"] is None  # an API key is not a bearer token
+
+
+def test_booklet_api_key_without_act_as_is_refused(
+    client: TestClient, api_key
+) -> None:
+    """An API key never acts as itself: no act-as → 401 before any render."""
+    r = client.get(
+        f"/api/trips/{_private_uuid()}/booklet.pdf",
+        headers={"X-API-Key": KEY},
+    )
+    assert r.status_code == 401
+
+
+def test_booklet_bearer_wins_over_a_presented_api_key(
+    client: TestClient, rsa_keypair, role, api_key, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bearer-first, like every other gate: the forwarded credential is the one
+    the request was AUTHORIZED with, never a header that merely rode along."""
+    role("viewer")
+    captured: dict = {}
+
+    async def fake_render(base_url, key, out_path, access_token=None, api_key=None, act_as_sub=None):
+        captured.update(token=access_token, api_key=api_key)
+        out_path.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr("app.main.render_booklet_pdf", fake_render)
+    token = _token_of(rsa_keypair)
+    r = client.get(
+        f"/api/trips/{_private_uuid()}/booklet.pdf",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-API-Key": KEY,
+            "X-Act-As-Sub": KEY_SUB,
+        },
+    )
+
+    assert r.status_code == 200
+    assert captured["token"] == token
+    assert captured["api_key"] is None
 
 
 # ------------------------------------------------------------- #58 pdf render bypass
