@@ -245,94 +245,114 @@ export function SplitView({
     "--map-chrome-y": "0px",
   } as React.CSSProperties;
 
-  if (mode === "split" || mode === "rail") {
-    // Both desktop modes are draggable (#105 + #104 prod fix): rail = px
-    // column; split = the fr ladder until a drag settles it into an explicit
-    // px column (same mechanism both modes). Split's un-dragged ladder keeps
-    // the §7.2 2fr:3fr content/map ratio around the divider column.
-    const draggable = true;
-    const firstCol =
-      mode === "rail"
-        ? `${railWidth || RAIL_DEFAULT_PX}px`
-        : railWidth
-          ? `${railWidth}px`
-          : "minmax(0, 2fr)";
-    const mapCol = mode === "rail" || railWidth ? "minmax(0, 1fr)" : "minmax(0, 3fr)";
-    return (
-      <div
-        className="grid h-full w-full overflow-hidden"
-        style={{
-          // #105: rail | 12px divider | map — the divider is a grid CHILD, so it
-          // must have its own column or the map falls to an implicit second row.
-          gridTemplateColumns: `${firstCol} 12px ${mapCol}`,
-        }}
-      >
-        {/* The rail is the only scroll container; the map never scrolls. */}
-        <section
-          aria-label={label}
-          className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-background"
-        >
-          {header && <div className="shrink-0 border-b border-border px-5 py-3">{header}</div>}
-          <div data-scroll-root="" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-            {content}
-          </div>
-          {footer && <div className="no-print shrink-0 border-t border-border">{footer}</div>}
-        </section>
-        {draggable && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            aria-label={`Resize the ${label} panel`}
-            aria-valuenow={railWidth || RAIL_DEFAULT_PX}
-            aria-valuemin={RAIL_MIN_PX}
-            aria-valuemax={railClamp(2000)}
-            tabIndex={0}
-            onPointerDown={onDividerPointerDown}
-            onPointerMove={onDividerPointerMove}
-            onPointerUp={onDividerPointerUp}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") setRailWidth((w) => railClamp((w || RAIL_DEFAULT_PX) - 24));
-              if (e.key === "ArrowRight") setRailWidth((w) => railClamp((w || RAIL_DEFAULT_PX) + 24));
-            }}
-            className="split-divider group relative z-10 -ml-1.5 w-3 shrink-0 cursor-col-resize touch-none"
-          >
-            <span className="split-divider-grip absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-foreground/20 transition-colors group-hover:bg-accent group-focus-visible:bg-accent" />
-          </div>
-        )}
-        <div ref={mapBoxRef} className="map-surface relative h-full min-w-0">
-          {map(padding)}
-        </div>
-      </div>
-    );
-  }
+  /** The two DESKTOP rungs, where the content is a column beside the map.
+   *  Declared before `mapFrame` — the frame's own geometry keys off it. */
+  const isColumn = mode === "split" || mode === "rail";
 
-  return (
+  /* The map element, rendered ONCE and never re-parented (#392).
+     This component used to `return` from two different JSX ROOTS — a grid in
+     rail/split, an absolute box in sheet/side — with `map(padding)` inline in
+     each. React reconciles by position, so any `mode` change crossed between
+     two unrelated trees and UNMOUNTED the map: a new MapLibre instance, a
+     re-downloaded basemap, a reset camera, and the `!ready` skeleton pulsing
+     over the top. `useSurfaceMode` re-reads on resize AND on orientationchange,
+     so simply rotating a phone did it (measured: 2 map instances per rotate —
+     see scripts/probe-map-surface-mode.py).
+
+     The fix is structural, not a key: hoist the map into a stable wrapper that
+     is rendered in ONE place, and let only its GEOMETRY change with the mode
+     (a grid cell, or the bottom-anchored visible strip in sheet). Layout is
+     driven by the wrapper's own class/style, so each mode still gets exactly
+     the box it had before. */
+  const mapFrame = (
     <div
-      ref={mapBoxRef}
-      style={chromeStyle}
-      data-sheet-detent={mode === "sheet" ? detent : undefined}
-      className="map-surface relative h-full w-full overflow-hidden"
+      /* The attribute name is unchanged from the pre-#392 element so the
+         sheet-geometry contract below stays pinned by the same selector. */
+      data-sheet-map-box=""
+      data-map-frame=""
+      /* In the column modes the grid order is rail | divider | map, but the map
+         is rendered FIRST in the DOM (so React never re-parents it) — `order`
+         moves the grid cell without moving the node. */
+      style={
+        mode === "sheet"
+          ? { bottom: `${Math.max(0, sheetPx - SHEET_CORNER_RADIUS_PX)}px` }
+          : isColumn
+            ? { order: 3 }
+            : undefined
+      }
+      className={
+        mode === "sheet"
+          ? // #377 slice 1 (Niko's resize): the map box ends where the sheet
+            // begins, so the map IS the visible strip and the camera needs no
+            // sheet occlusion. The box ends at the BOTTOM OF THE SHEET'S
+            // CORNERS, not its flat top edge (SHEET_CORNER_RADIUS_PX), or the
+            // rounded shoulders leave a notch of page backdrop showing.
+            "absolute left-0 right-0 top-0 overflow-hidden"
+          : isColumn
+            ? "map-surface relative h-full min-w-0"
+            : "relative h-full w-full"
+      }
     >
-      {mode === "sheet" ? (
-        // #377 slice 1 (Niko's resize): the map box ends where the sheet
-        // begins. The inner wrapper is anchored top with `bottom: sheetPx`,
-        // so the map IS the visible strip — the unchanged camera path frames
-        // it with chrome-only padding. The Sheet overlay itself is untouched
-        // (same absolute bottom, same detents, same drag).
-        //
-        // #377 follow-up: the box ends at the BOTTOM OF THE SHEET'S CORNERS,
-        // not at its flat top edge (SHEET_CORNER_RADIUS_PX above) — otherwise
-        // the rounded shoulders leave a 16px notch of page backdrop showing.
-        <div
-          data-sheet-map-box=""
-          className="absolute left-0 right-0 top-0 overflow-hidden"
-          style={{ bottom: `${Math.max(0, sheetPx - SHEET_CORNER_RADIUS_PX)}px` }}
-        >
-          {map(padding)}
+      {map(padding)}
+    </div>
+  );
+
+  // Both desktop modes are draggable (#105 + #104 prod fix): rail = px column;
+  // split = the fr ladder until a drag settles it into an explicit px column
+  // (same mechanism both modes). Split's un-dragged ladder keeps the §7.2
+  // 2fr:3fr content/map ratio around the divider column.
+  const firstCol = isColumn
+    ? mode === "rail"
+      ? `${railWidth || RAIL_DEFAULT_PX}px`
+      : railWidth
+        ? `${railWidth}px`
+        : "minmax(0, 2fr)"
+    : "";
+  const mapCol = isColumn ? (mode === "rail" || railWidth ? "minmax(0, 1fr)" : "minmax(0, 3fr)") : "";
+
+  /* The rail/split content column. A column shape, so it only exists in those
+     two modes — that is layout, not identity, and it never wrapped the map. */
+  const column = isColumn && (
+    <>
+      <section
+        aria-label={label}
+        style={{ order: 1 }}
+        className="flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-background"
+      >
+        {header && <div className="shrink-0 border-b border-border px-5 py-3">{header}</div>}
+        <div data-scroll-root="" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+          {content}
         </div>
-      ) : (
-        map(padding)
-      )}
+        {footer && <div className="no-print shrink-0 border-t border-border">{footer}</div>}
+      </section>
+      {/* #105: rail | 12px divider | map — the divider is a grid CHILD, so it
+          must have its own column or the map falls to an implicit second row. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        style={{ order: 2 }}
+        aria-label={`Resize the ${label} panel`}
+        aria-valuenow={railWidth || RAIL_DEFAULT_PX}
+        aria-valuemin={RAIL_MIN_PX}
+        aria-valuemax={railClamp(2000)}
+        tabIndex={0}
+        onPointerDown={onDividerPointerDown}
+        onPointerMove={onDividerPointerMove}
+        onPointerUp={onDividerPointerUp}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") setRailWidth((w) => railClamp((w || RAIL_DEFAULT_PX) - 24));
+          if (e.key === "ArrowRight") setRailWidth((w) => railClamp((w || RAIL_DEFAULT_PX) + 24));
+        }}
+        className="split-divider group relative z-10 -ml-1.5 w-3 shrink-0 cursor-col-resize touch-none"
+      >
+        <span className="split-divider-grip absolute inset-y-0 left-1/2 w-1 -translate-x-1/2 rounded-full bg-foreground/20 transition-colors group-hover:bg-accent group-focus-visible:bg-accent" />
+      </div>
+    </>
+  );
+
+  /* The overlay content (side / sheet). Also layout-only. */
+  const overlay = !isColumn && (
+    <>
       {mode === "side" ? (
         // Landscape phone: the map keeps the whole viewport and the list
         // floats over it, so it needs the full four-layer recipe (§2.4).
@@ -355,6 +375,36 @@ export function SplitView({
           {content}
         </Sheet>
       )}
+    </>
+  );
+
+  /* ONE root for all four modes. The map frame is ALWAYS the first child at
+     the same position, so React keeps it mounted across a mode change; only
+     the root's own display/grid-template and the frame's geometry move. */
+  return (
+    <div
+      ref={mapBoxRef}
+      style={
+        isColumn
+          ? { gridTemplateColumns: `${firstCol} 12px ${mapCol}` }
+          : chromeStyle
+      }
+      data-sheet-detent={mode === "sheet" ? detent : undefined}
+      className={
+        isColumn
+          ? "grid h-full w-full overflow-hidden"
+          : "map-surface relative h-full w-full overflow-hidden"
+      }
+    >
+      {/* The map is ALWAYS the first child — DOM order never changes, so React
+          can never re-parent it. In the column modes the grid is
+          `rail | 12px | map`, so the rail/divider take the first two cells
+          and `order` pushes the map into the last one. CSS `order` moves a
+          grid item without moving it in the tree, which is the whole point:
+          a `display:contents` shim or a branch swap would reconcile two
+          different shapes and remount the map again. */}
+      {mapFrame}
+      {isColumn ? column : overlay}
     </div>
   );
 }

@@ -145,3 +145,68 @@ describe("sheet-mode map box (#377 slice 1)", () => {
     expect(outer.style.getPropertyValue("--map-chrome-y")).toBe("0px");
   });
 });
+
+/**
+ * #392 — the map must NOT remount when the surface mode changes.
+ *
+ * `SplitView` used to `return` from two different JSX roots with `map(padding)`
+ * inline in each, so React reconciled across two unrelated trees on every mode
+ * change and unmounted the map. `useSurfaceMode` re-reads on resize AND
+ * orientationchange, so rotating a phone destroyed the MapLibre instance: the
+ * basemap re-downloaded, the `!ready` skeleton pulsed over it, and the camera
+ * reset (measured by scripts/probe-map-surface-mode.py — 2 instances/rotate).
+ *
+ * The assertion is the DOM node's IDENTITY, not its shape: a remounted element
+ * is a different object, so tagging the map child and holding the reference
+ * across the mode change is exactly "did React throw it away". A `key` would
+ * NOT fix this — the roots differ, so identity is what matters.
+ */
+describe("map identity across surface modes (#392)", () => {
+  /** Render SplitView, tagging the map child so a remount is detectable. */
+  async function mount(): Promise<HTMLElement> {
+    await act(async () => {
+      root!.render(
+        <SplitView
+          label="The route"
+          detent="half"
+          onDetentChange={() => undefined}
+          content={<div>rows</div>}
+          map={() => <div data-test-map="" />}
+        />,
+      );
+    });
+    await act(async () => {
+      fireResize();
+    });
+    return container!;
+  }
+
+  it("keeps the SAME map element when the mode changes (no remount)", async () => {
+    // `useSurfaceMode` reads matchMedia; drive the ladder the way a rotate does.
+    const mql = (matches: boolean) =>
+      ((query: string) => ({
+        matches: query === "(min-width: 768px)" ? matches : false,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      })) as unknown as typeof window.matchMedia;
+
+    // 1. sheet (phone portrait) — the map child is mounted.
+    window.matchMedia = mql(false);
+    let el = await mount();
+    const first = el.querySelector("[data-test-map]") as HTMLElement;
+    expect(first).toBeTruthy();
+
+    // 2. cross into a wide viewport (rotate / breakpoint) and re-render.
+    window.matchMedia = mql(true);
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    el = container!;
+    const second = el.querySelector("[data-test-map]") as HTMLElement;
+    expect(second).toBeTruthy();
+
+    // THE assertion: same node object, so React never unmounted the map.
+    expect(second).toBe(first);
+  });
+});
