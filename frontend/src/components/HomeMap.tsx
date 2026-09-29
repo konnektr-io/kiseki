@@ -6,7 +6,7 @@ import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL,
 import { loadMapLibre } from "../lib/maplibre";
 import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
 import { deviceFixIfGranted, START_FIX_QUICK_MS, type DeviceFix } from "../lib/geolocation";
-import { clusterPins, isOnVisibleHemisphere, normalizeLng, placeHomeLabels, selectHomeLabels, unfoldLngs, type HomeLabelPlacement, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
+import { clusterPins, fitZoomCenteredOn, isOnVisibleHemisphere, normalizeLng, placeHomeLabels, selectHomeLabels, unfoldLngs, type HomeLabelPlacement, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
 const CAMERA_MS = 500;
@@ -14,6 +14,8 @@ const CAMERA_MS = 500;
 const CLUSTER_PX = 48;
 /** Never zoom past a street into a pin set — the fit's ceiling. */
 const MAX_FIT_ZOOM = 12;
+/** One located trip: open close enough to read it (a whole town, not a street). */
+const SINGLE_PIN_ZOOM = 10;
 
 interface HomeMapProps {
   /** The pins to draw — the E2 rows, verbatim. Never invented here. */
@@ -141,6 +143,11 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     let cancelled = false;
     let map: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    // The traveler's own starting point, once known (#393). Held here rather
+    // than threaded through every call so `framePins` — which runs on load, on
+    // a resize, on a sheet detent and on a late fix — can centre on it whenever
+    // it has it. `null` means "no granted fix", which changes nothing.
+    let currentFix: DeviceFix | null = null;
     // The globe's starting centre (#393), asked for HERE — in parallel with
     // the library load — so a browser that ALREADY holds a fix can hand it to
     // the constructor, the one way the FIRST painted frame is the traveler's
@@ -242,6 +249,12 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
      * an unmeasurable box, a padding that leaves no room) must fall back to
      * the traveler's own starting point rather than leave null island up
      * (#393). Every `return` below is deliberate.
+     *
+     * **When a granted fix is known, the CENTER IS THE TRAVELER** and the zoom
+     * is the one that keeps the trips around them in view (`fitZoomCenteredOn`)
+     * — the overview's middle is where you are, which is what #393 asked for.
+     * Without a fix, nothing changes: the trips' own bounding box picks the
+     * camera, exactly as before.
      */
     const framePins = (): boolean => {
       const live = mapRef.current;
@@ -253,10 +266,37 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       // on null island (see the container note above).
       const el = ref.current;
       if (el && (!el.clientWidth || !el.clientHeight)) return false;
+      const box = {
+        width: el ? el.clientWidth : 0,
+        height: el ? el.clientHeight : 0,
+        padding: paddingRef.current,
+      };
+      // #393: with the traveler's own position in hand, the camera stands on
+      // THEM. The zoom is capped at what the ordinary fit would have used, so
+      // centring on the traveler can only ever widen the view, never crop the
+      // trips further than the fit already did.
+      if (currentFix) {
+        const zoom = fitZoomCenteredOn(
+          { lat: currentFix.lat, lng: currentFix.lng },
+          current,
+          box,
+          current.length === 1 ? SINGLE_PIN_ZOOM : MAX_FIT_ZOOM,
+        );
+        if (zoom !== null) {
+          const target = { center: [currentFix.lng, currentFix.lat] as [number, number], zoom };
+          if (prefersReducedMotion()) live.jumpTo(target);
+          else live.easeTo({ ...target, duration: CAMERA_MS });
+          fixFramed = true;
+          return true;
+        }
+        // No room to reason about a zoom (the #368 class): fall through to the
+        // ordinary fit, which answers `null` here too and leaves the caller to
+        // fall back to the traveler's bare centre.
+      }
       if (current.length === 1) {
         const only = current[0];
-        if (prefersReducedMotion()) live.jumpTo({ center: [only.lng, only.lat], zoom: 10 });
-        else live.easeTo({ center: [only.lng, only.lat], zoom: 10, duration: CAMERA_MS });
+        if (prefersReducedMotion()) live.jumpTo({ center: [only.lng, only.lat], zoom: SINGLE_PIN_ZOOM });
+        else live.easeTo({ center: [only.lng, only.lat], zoom: SINGLE_PIN_ZOOM, duration: CAMERA_MS });
         return true;
       }
       // Longitudes unfolded around their widest gap, so a set spanning the
@@ -291,9 +331,13 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     // camera-moving, so it only re-runs when one of those changed — and a fit
     // that bailed is not an answer, so it stays retryable (see below).
     let lastFitKey = "";
-    /** True once a pin fit has APPLIED a camera — from then on the fit owns the
-     *  camera, so the traveler's starting point is not the fallback any more. */
-    let framedPins = false;
+    /**
+     * True once a camera CENTRED ON THE TRAVELER has been applied. The fix
+     * itself arriving is not that: `currentFix` may be known while the box is
+     * still laying out and no camera has moved yet, which is exactly the moment
+     * a bare "face them" jump is still owed.
+     */
+    let fixFramed = false;
     /**
      * Frame the pins, unless the viewer owns the camera now. Cheap to call: it
      * exits before touching the map whenever nothing relevant changed.
@@ -316,33 +360,38 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       // landing, a detent settling on the same numbers) gets a second chance
       // instead of being skipped as "already done" for the rest of the session,
       // which would leave the camera on MapLibre's `[0,0]`.
-      if (framePins()) {
-        lastFitKey = key;
-        framedPins = true;
-      }
+      if (framePins()) lastFitKey = key;
       rebuildMarkers();
       return true;
     };
     reframeRef.current = reframeIfOurs;
 
     /**
-     * Centre the globe on the traveler's own starting point (#393) — the
-     * fallback for a camera no pin fit could claim, so the surface never opens
-     * on null island when the browser already told us where home is.
+     * Hand the camera the traveler's own starting point (#393).
      *
-     * Three ways this is a no-op, all of them load-bearing: no granted fix, a
-     * fit that already framed the trips (the trips are the answer, not the
-     * traveler's sofa), and a viewer who has moved the camera themselves
-     * (§10 — the camera is theirs, we only ever set it up).
+     * Since `framePins` CENTRES on a known fix, this is the path a fix that
+     * arrives LATE takes: the constructor's quick window expired, the trips
+     * framed themselves, and then the browser finally answered. Re-framing puts
+     * the middle back on the traveler with the trips still in view — which is
+     * the whole of what #393 asked for.
      *
-     * Instant (`jumpTo`), never an animation: this is the frame the map is
-     * BORN with, not a move to watch.
+     * Two ways this is a no-op, both load-bearing: no granted fix (nothing to
+     * move to), and a viewer who has moved the camera themselves (§10 — the
+     * camera is theirs; we only ever set it up).
      */
-    const applyStartFix = (startFix: DeviceFix | null): void => {
-      if (cancelled || !startFix || framedPins || tookOverRef.current) return;
-      const live = mapRef.current;
-      if (!live) return;
-      live.jumpTo({ center: [startFix.lng, startFix.lat] });
+    const applyStartFix = (fix: DeviceFix | null): void => {
+      if (cancelled || !fix || tookOverRef.current) return;
+      // The camera is already standing on them — nothing left to do.
+      if (fixFramed) return;
+      currentFix = fix;
+      if (framePins()) {
+        rebuildMarkers();
+      } else {
+        // Nothing measurable to choose a ZOOM from (a box still laying out) —
+        // at least face the traveler; the ResizeObserver re-frames properly the
+        // moment the container reports a size.
+        mapRef.current?.jumpTo({ center: [fix.lng, fix.lat] });
+      }
       ref.current?.setAttribute("data-home-start", "device-fallback");
     };
 
@@ -350,6 +399,21 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     const markReadyIfSized = () => {
       const el = ref.current;
       if (el && el.clientWidth > 0 && el.clientHeight > 0) setReady(true);
+    };
+
+    /**
+     * State the camera's own centre in the DOM (`data-home-camera`), because the
+     * camera lives inside a WebGL canvas the DOM cannot read. Without this the
+     * only seam is `data-home-start`, which records where the camera STARTED —
+     * a starting point the pin fit then walked away from looks identical to one
+     * that held, and "#393 the middle is my location" is a claim about the
+     * camera the browser probe can only check here.
+     */
+    const publishCamera = (): void => {
+      const centre = mapRef.current?.getCenter();
+      if (centre) {
+        ref.current?.setAttribute("data-home-camera", `${centre.lat.toFixed(2)},${centre.lng.toFixed(2)}`);
+      }
     };
 
     void (async () => {
@@ -379,6 +443,11 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
           ...(startFix ? { center: [startFix.lng, startFix.lat] as [number, number] } : {}),
         });
         mapRef.current = map;
+        // A constructor centre means the camera is BORN on the traveler — record
+        // it, and hold the fix so the very first frame `framePins` draws is
+        // centred on them too (the constructor centre alone would be overwritten
+        // by that fit a moment later, which is exactly the bug #393 reports).
+        if (startFix) currentFix = startFix;
         // Which face of the globe the camera opened on has no representation in
         // the DOM (the canvas is WebGL), so the component states it — the seam
         // the phone probe reads (`device` / `device-fallback` / `default`).
@@ -397,7 +466,10 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
             setFailed(true);
           }
         });
-        map.on("moveend", rebuildMarkers);
+        map.on("moveend", () => {
+          rebuildMarkers();
+          publishCamera();
+        });
         // A gesture, not a programmatic move: MapLibre only sets `originalEvent`
         // when a real pointer/keyboard was behind it.
         const onUserIntent = (e?: { originalEvent?: unknown }) => {
@@ -428,18 +500,18 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
         }
         // The container may have been 0-sized (or a different size) all through
         // the library load, so give the canvas the box it has NOW and then frame
-        // through the same guard the resize path uses.
+        // through the same guard the resize path uses. With a granted fix in
+        // hand this frame is centred on the traveler; without one it is the
+        // trips' fit, exactly as it always was.
         map.resize();
         if (!reframeIfOurs()) rebuildMarkers();
-        // A camera the fit could not claim (a 0-sized box, a padding that
-        // leaves no room) falls back to the traveler rather than keeping the
-        // `[0,0]` the map was born with — see `applyStartFix`.
+        // If the fix was not known at construction, this records that it arrived
+        // and re-centres — see `applyStartFix`.
         applyStartFix(startFix);
-        // A fix that missed the quick window still gets its say, under the same
-        // guards `applyStartFix` applies (no pin fit claimed the camera, and the
-        // viewer has not moved it themselves): a slow device lands on the
-        // traveler a couple of seconds in, instead of opening on null island and
-        // staying there for good.
+        // A fix that missed the constructor's quick window still gets its say: a
+        // slow device lands on the traveler a couple of seconds in, instead of
+        // opening on null island and staying there for good. The same §10 guard
+        // applies — a viewer who has already moved the camera keeps it.
         if (!startFix) {
           void startFixPromise.then((late) => {
             if (late) applyStartFix(late);

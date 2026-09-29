@@ -16,13 +16,14 @@
  *   `route-map-focused` — no second marker language).
  * - **Colliding pins group into a count badge** that zooms in on tap.
  * - **Empty geo builds no map at all** — the home collapses the canvas.
- * - **The globe opens on the traveler when location is already granted** — a
- *   one-shot, prompt-free starting point (#393) that the pin fit still
- *   overrides, and a fallback for a camera no fit could claim. A real first fix
- *   takes seconds, so the map never waits for it: a fix the browser already
- *   holds becomes the constructor's centre, and a slower one re-centres when it
- *   lands (#393 follow-up); a fit that bailed stays retryable for the same
- *   reason.
+ * - **The globe opens on the traveler when location is already granted — and
+ *   STAYS there** (#393): the centre is their own position with the trips
+ *   framed around them (`fitZoomCenteredOn`), prompt-free. A real first fix
+ *   takes seconds, so the map never waits for it: one the browser already holds
+ *   becomes the constructor's centre, a slower one re-centres when it lands, and
+ *   without a granted fix NOTHING changes — the trips' fit picks the camera,
+ *   exactly as it always did. A fit that bailed stays retryable for the same
+ *   reason the fallback exists.
  */
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -829,18 +830,21 @@ describe("the traveler's own starting point (#393)", () => {
     return { getCurrentPosition, watchPosition };
   }
 
-  it("opens on the traveler when location is already granted — and the pin fit still wins", async () => {
+  it("opens on the traveler when location is already granted — and STAYS there", async () => {
     const { getCurrentPosition, watchPosition } = stubLocation("granted");
     const el = await mount(at());
     // The camera is BORN at the traveler (a constructor centre, so nothing
-    // animates and the viewer never watches a jump): the first painted frame
-    // faces them, not null island.
+    // animates and the viewer never watches a jump)…
     expect((calls.map as Record<string, unknown>).center).toEqual([5.1214, 52.0907]);
     expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("device");
-    // …and the fit still owns the camera: this surface answers "where are my
-    // trips", so a starting point that beat the trips would be a bug.
-    const framed = calls.jumps[0] as { center: [number, number] };
-    expect(framed.center[0]).toBeCloseTo(-53.17585, 4);
+    // …and the pin fit does NOT walk away from them (#393): the frame that
+    // follows is centred on the fix, at a zoom WIDE enough to keep the trips in
+    // view — the fake's own fit for this box answers zoom 3, so anything below
+    // it is the "zoom out so the trips still fit around YOU" answer.
+    const framed = calls.jumps[0] as { center: [number, number]; zoom: number };
+    expect(framed.center).toEqual([5.1214, 52.0907]);
+    expect(framed.zoom).toBeGreaterThan(0);
+    expect(framed.zoom).toBeLessThan(3);
     // One question, asked once, and never a session — the trip map's locate
     // control stays the only thing in the app that tracks.
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);

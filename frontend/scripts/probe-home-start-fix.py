@@ -209,6 +209,20 @@ class Probe:
         return page.evaluate("window.__geo")
 
     @staticmethod
+    def camera(page):
+        """Where the camera actually IS (`data-home-camera`), published on moveend.
+
+        The canvas is WebGL, and `data-home-start` only records where the camera
+        STARTED — a starting point the pin fit then walked away from is
+        indistinguishable from one that held. This is the only honest read of the
+        claim #393 makes: "the middle of the globe is my location".
+        """
+        return page.evaluate(
+            "(() => { const el = document.querySelector('[data-home-map]');"
+            " return el ? el.getAttribute('data-home-camera') : null; })()"
+        )
+
+    @staticmethod
     def start_attr(page):
         return page.evaluate(
             "(() => { const el = document.querySelector('[data-home-map]');"
@@ -343,8 +357,20 @@ class Probe:
             self.check(len(pins) == 2, "both trip pins are on the canvas", f"{len(pins)} pins")
             self.check(
                 all(self.inside(box, pin) for pin in pins),
-                "the pin fit still owns the camera — every pin is inside the box",
+                "the trips are framed AROUND the traveler — every pin inside the box",
                 json.dumps([pin["id"] for pin in pins]),
+            )
+            # The claim #393 actually makes: the MIDDLE is the traveler's own
+            # position. `device` says the constructor knew where to start; only
+            # `data-home-camera` says where the camera ended up.
+            cam = self.camera(page)
+            lat, lng = (float(v) for v in cam.split(",")) if cam else (None, None)
+            self.check(
+                cam is not None
+                and abs(lat - FIX["latitude"]) < 0.02
+                and abs(lng - FIX["longitude"]) < 0.02,
+                "the camera's CENTRE is the traveler, not the trips' bounding box",
+                f"{cam} (fix is {FIX['latitude']},{FIX['longitude']})",
             )
             self.check(
                 self.labels(page) >= 1,
@@ -380,6 +406,16 @@ class Probe:
                 "the globe still frames the trips — no regression for a fresh visitor",
                 json.dumps([pin["id"] for pin in pins]),
             )
+            cam = self.camera(page)
+            if cam:
+                lat, lng = (float(v) for v in cam.split(","))
+                self.check(
+                    abs(lat - FIX["latitude"]) > 1 or abs(lng - FIX["longitude"]) > 1,
+                    "with no permission the camera is the trips' fit, not the traveler",
+                    f"{cam}",
+                )
+            else:
+                self.check(False, "with no permission the camera is the trips' fit, not the traveler", "no data-home-camera")
             self.shot(page, "02-no-permission-unchanged")
             ctx.close()
 

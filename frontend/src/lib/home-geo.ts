@@ -77,6 +77,71 @@ export function normalizeLng(lng: number): number {
 }
 
 /**
+ * Web-Mercator Y for a latitude, as a fraction of the world (0 = north pole,
+ * 1 = south) — the standard sine formula, clamped to the projection's own
+ * extent so a nonsense latitude still yields a usable number.
+ */
+export function mercatorY(lat: number): number {
+  const clamped = Math.max(-85.051129, Math.min(85.051129, lat));
+  const s = Math.sin((clamped * Math.PI) / 180);
+  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI);
+}
+
+/**
+ * The lowest zoom the overview ever asks for: below this the globe is a
+ * thumbnail, its pins cannot be read, and a camera stop is theatre anyway.
+ */
+export const MIN_FIT_ZOOM = -2;
+
+/** The room a camera has to fit its pins into: measured box minus sheet padding. */
+export interface FitBox {
+  width: number;
+  height: number;
+  padding: { top: number; right: number; bottom: number; left: number };
+}
+
+/**
+ * The zoom at which every pin still lands inside the padded box while the camera
+ * is CENTRED ON `center` (#393).
+ *
+ * `cameraForBounds` answers the inverse question: it picks the zoom for a camera
+ * sitting on the bounding box's OWN centre. Move that centre to a traveler
+ * standing outside the box — they usually do: they are home, the trips are not —
+ * and the same zoom quietly walks pins past the edge. This is the complement:
+ * fixed centre, how far out must the camera be for the FARTHEST pin to stay
+ * inside the room the sheet leaves? That is what lets the globe open on you
+ * without losing the trips the surface exists to show.
+ *
+ * Web-Mercator world maths on the 256px tile grid — no MapLibre and no map
+ * instance, which is the whole reason it can be pinned by a unit test. Returns
+ * `null` when the padding leaves no room at all (the #368 class, where
+ * `cameraForBounds` answers `null` too — both paths agree on "no room").
+ */
+export function fitZoomCenteredOn(
+  center: { lat: number; lng: number },
+  pins: readonly HomeMapPin[],
+  box: FitBox,
+  maxZoom: number,
+): number | null {
+  const availableW = box.width - box.padding.left - box.padding.right;
+  const availableH = box.height - box.padding.top - box.padding.bottom;
+  if (!(availableW > 0) || !(availableH > 0)) return null;
+  const halfW = availableW / 2;
+  const halfH = availableH / 2;
+  const centerMercY = mercatorY(center.lat);
+  let zoom = maxZoom;
+  for (const pin of pins) {
+    // Shortest signed longitude delta: a camera east of the antimeridian must
+    // not be made to walk the long way round to reach a pin on its own side.
+    const dx = Math.abs(normalizeLng(pin.lng - center.lng)) / 360;
+    const dy = Math.abs(mercatorY(pin.lat) - centerMercY);
+    if (dx > 0) zoom = Math.min(zoom, Math.log2(halfW / (dx * 256)));
+    if (dy > 0) zoom = Math.min(zoom, Math.log2(halfH / (dy * 256)));
+  }
+  return Math.max(zoom, MIN_FIT_ZOOM);
+}
+
+/**
  * Unfold longitudes into a continuous frame around the LARGEST GAP, so a pin
  * set that spans the antimeridian gets an honest west→east bounding box.
  *
