@@ -5,6 +5,7 @@ import { MapPin } from "lucide-react";
 import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
+import { deviceFixIfGranted, type DeviceFix } from "../lib/geolocation";
 import { clusterPins, isOnVisibleHemisphere, normalizeLng, placeHomeLabels, selectHomeLabels, unfoldLngs, type HomeLabelPlacement, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
@@ -77,6 +78,20 @@ interface HomeMapProps {
  * until the viewer moves the map themselves. After that, only `resize()` runs;
  * the camera is theirs.
  *
+ * ## The globe opens where the traveler is, when the browser already allows it
+ *
+ * The camera's STARTING point is the traveler's own position when this origin
+ * already holds a granted location permission (#393), so the first frame faces
+ * them instead of MapLibre's `[0,0]` default — and a camera the pin fit cannot
+ * claim (an unmeasurable box, a padding that leaves no room) falls back to the
+ * same place rather than leaving null island up. The pin fit still wins
+ * whenever it has something to say: the trips are what this surface is for.
+ *
+ * It never prompts — `deviceFixIfGranted` asks the browser only when the
+ * permission is ALREADY granted — and it never starts a tracked session: one
+ * question, asked once, and the trip map's locate control stays the app's only
+ * tracker.
+ *
  * SSR note (shared with `LandingMap`): nothing here may touch `document`
  * during render. The WebGL2 check and the map build live in effects, and the
  * placeholder is the only thing the server ever renders.
@@ -126,6 +141,12 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     let cancelled = false;
     let map: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    // The globe's starting centre (#393), asked for HERE — in parallel with
+    // the library load — so it can be handed to the constructor, which is the
+    // one way the FIRST painted frame is the traveler's own patch of the world
+    // instead of MapLibre's `[0,0]` default. Granted-only and never a session:
+    // see `deviceFixIfGranted`. A `null` answer is no fix, and changes nothing.
+    const startFixPromise = deviceFixIfGranted();
 
     const rebuildMarkers = () => {
       const lib = libRef.current;
@@ -212,21 +233,28 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       ref.current?.classList.toggle("route-map-focused", selectedRef.current != null);
     };
 
-    const framePins = () => {
+    /**
+     * Frame the pins. Returns whether a camera was actually APPLIED — the
+     * caller needs the negative, because a fit with nothing to say (no pins,
+     * an unmeasurable box, a padding that leaves no room) must fall back to
+     * the traveler's own starting point rather than leave null island up
+     * (#393). Every `return` below is deliberate.
+     */
+    const framePins = (): boolean => {
       const live = mapRef.current;
       const lib = libRef.current;
-      if (cancelled || !lib || !live) return;
+      if (cancelled || !lib || !live) return false;
       const current = pinsRef.current;
-      if (!current.length) return;
+      if (!current.length) return false;
       // Never fit into an empty box — that is the no-op that parks the camera
       // on null island (see the container note above).
       const el = ref.current;
-      if (el && (!el.clientWidth || !el.clientHeight)) return;
+      if (el && (!el.clientWidth || !el.clientHeight)) return false;
       if (current.length === 1) {
         const only = current[0];
         if (prefersReducedMotion()) live.jumpTo({ center: [only.lng, only.lat], zoom: 10 });
         else live.easeTo({ center: [only.lng, only.lat], zoom: 10, duration: CAMERA_MS });
-        return;
+        return true;
       }
       // Longitudes unfolded around their widest gap, so a set spanning the
       // antimeridian is measured by its SHORTEST arc and not the long way round
@@ -244,17 +272,24 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
         padding: paddingRef.current,
         maxZoom: MAX_FIT_ZOOM,
       });
-      if (!camera) return;
+      // A padding that leaves no room for the box answers `null` — the fit has
+      // nothing to say (the #368 class), so the caller falls back to the
+      // traveler's own starting point rather than leaving the default camera.
+      if (!camera) return false;
       const at = camera.center ? lib.LngLat.convert(camera.center) : null;
       const center: [number, number] = at ? [normalizeLng(at.lng), at.lat] : [unfolded[0], current[0].lat];
       const target = { center, zoom: camera.zoom };
       if (prefersReducedMotion()) live.jumpTo(target);
       else live.easeTo({ ...target, duration: CAMERA_MS });
+      return true;
     };
 
     // The box + padding a fit was last computed for. A fit is expensive and
     // camera-moving, so it only re-runs when one of those actually changed.
     let lastFitKey = "";
+    /** True once a pin fit has APPLIED a camera — from then on the fit owns the
+     *  camera, so the traveler's starting point is not the fallback any more. */
+    let framedPins = false;
     /**
      * Frame the pins, unless the viewer owns the camera now. Cheap to call: it
      * exits before touching the map whenever nothing relevant changed.
@@ -270,11 +305,32 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       const key = `${el.clientWidth}x${el.clientHeight}|${paddingKeyOf(paddingRef.current)}`;
       if (key === lastFitKey) return false;
       lastFitKey = key;
-      framePins();
+      if (framePins()) framedPins = true;
       rebuildMarkers();
       return true;
     };
     reframeRef.current = reframeIfOurs;
+
+    /**
+     * Centre the globe on the traveler's own starting point (#393) — the
+     * fallback for a camera no pin fit could claim, so the surface never opens
+     * on null island when the browser already told us where home is.
+     *
+     * Three ways this is a no-op, all of them load-bearing: no granted fix, a
+     * fit that already framed the trips (the trips are the answer, not the
+     * traveler's sofa), and a viewer who has moved the camera themselves
+     * (§10 — the camera is theirs, we only ever set it up).
+     *
+     * Instant (`jumpTo`), never an animation: this is the frame the map is
+     * BORN with, not a move to watch.
+     */
+    const applyStartFix = (startFix: DeviceFix | null): void => {
+      if (cancelled || !startFix || framedPins || tookOverRef.current) return;
+      const live = mapRef.current;
+      if (!live) return;
+      live.jumpTo({ center: [startFix.lng, startFix.lat] });
+      ref.current?.setAttribute("data-home-start", "device-fallback");
+    };
 
     /** The placeholder stays up until the canvas has a real box behind it. */
     const markReadyIfSized = () => {
@@ -284,15 +340,27 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
 
     void (async () => {
       try {
-        const lib = await loadMapLibre();
+        // The library and the starting point, waited for in PARALLEL: the fix
+        // is bounded (and `null` whenever the browser does not already grant
+        // location), so a granted one costs the globe no extra wait.
+        const [lib, startFix] = await Promise.all([loadMapLibre(), startFixPromise]);
         if (cancelled || !ref.current) return;
         libRef.current = lib;
         map = new lib.Map({
           container: ref.current,
           style: MAP_STYLE_URL,
           attributionControl: { compact: true },
+          // Start ON the traveler, when we have their own starting point
+          // (#393): the same world zoom as ever, facing them rather than the
+          // Gulf of Guinea. This is the constructor's centre, not a camera
+          // move — nothing animates and the viewer never sees a jump.
+          ...(startFix ? { center: [startFix.lng, startFix.lat] as [number, number] } : {}),
         });
         mapRef.current = map;
+        // Which face of the globe the camera opened on has no representation in
+        // the DOM (the canvas is WebGL), so the component states it — the seam
+        // the phone probe reads (`device` / `device-fallback` / `default`).
+        ref.current.setAttribute("data-home-start", startFix ? "device" : "default");
         // ONE zoom control for the whole app (2026-09-23): the landing used to
         // draw its own 44px chip pair while every trip surface used MapLibre's
         // NavigationControl, so the same gesture had two looks depending on
@@ -341,6 +409,10 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
         // through the same guard the resize path uses.
         map.resize();
         if (!reframeIfOurs()) rebuildMarkers();
+        // A camera the fit could not claim (a 0-sized box, a padding that
+        // leaves no room) falls back to the traveler rather than keeping the
+        // `[0,0]` the map was born with — see `applyStartFix`.
+        applyStartFix(startFix);
         markReadyIfSized();
         // A container-only size change (the rail dragging, a detent, a phone's
         // chrome collapsing, MapLibre's own class landing) is something
