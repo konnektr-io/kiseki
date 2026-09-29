@@ -6,8 +6,9 @@ import { fetchTrip, refetchTrip, downloadBooklet, TripAccessError } from "../lib
 import { isAuthConfigured } from "../lib/auth";
 import type { ChatFocus } from "../lib/chat";
 import { capture } from "../lib/posthog";
-import { formatDate, dayCount, shouldShowToday, todayDayIdx } from "../lib/dates";
+import { displayStage, formatDate, dayCount, shouldShowToday, todayDayIdx } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
+import { reconcileArchivedStage } from "../lib/stage-reconcile";
 import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
 import { EditModeProvider } from "../components/edit-mode";
@@ -197,6 +198,38 @@ export function TripLayout() {
       cancelled = true;
     };
   }, [tripId, authReady, isAuthenticated]);
+
+  // Persist the calendar's auto-archive (#396). `effectiveStage` already makes
+  // this trip READ as archived — this is the write-back, so the stored stage
+  // stops saying `live` in the places the derivation does not reach: a
+  // follower's feed entry, the stage facet, the owner's Settings stage machine.
+  //
+  // Deliberately a separate effect, not part of the load above: the page
+  // renders from the derived stage, so the write is never on the critical path
+  // to first paint, and its failure cannot strand a user on a loading screen.
+  // `putTrip` re-caches the canonical document, so the badge flips without a
+  // refetch. Owner-only, and skipped entirely for the PDF renderer (which has
+  // no user session — a headless render must never write to the graph).
+  useEffect(() => {
+    if (!trip || PDF_RENDER) return;
+    let cancelled = false;
+    (async () => {
+      let at: string | undefined;
+      if (isAuthenticated) {
+        try {
+          at = window.__KISEKI_ACCESS_TOKEN__ ?? (await getTokenRef.current());
+        } catch {
+          return; // no usable token: the reconcile is owner-gated anyway
+        }
+      }
+      if (!at) return;
+      const written = await reconcileArchivedStage(trip, at);
+      if (written && !cancelled) setTrip(written);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trip?.id, trip?.stage, trip?.endDate, isAuthenticated]);
 
   // Expose the app chrome's live heights as --kiseki-header-h /
   // --kiseki-nav-h. The sticky itinerary chapter headers dock below the
@@ -442,7 +475,7 @@ export function TripLayout() {
           }
           hideBrandOnPhone
           title={trip.title}
-          badge={<StageBadge stage={trip.stage} />}
+          badge={<StageBadge stage={displayStage(trip)} />}
           subtitle={
             <>
               <CalendarDays className="h-3 w-3 shrink-0" />

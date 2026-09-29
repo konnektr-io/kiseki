@@ -16,7 +16,7 @@ import {
   uploadMyAvatar,
 } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
-import { formatDate } from "../lib/dates";
+import { displayStage, formatDate } from "../lib/dates";
 import { setMyAvatar } from "../lib/my-avatar";
 import { usePageTitle } from "../lib/seo";
 import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib/types";
@@ -214,7 +214,7 @@ function TripRow({ trip }: { trip: ProfileTrip }) {
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
           <span className="truncate font-semibold">{trip.title}</span>
-          <StageBadge stage={trip.stage} />
+          <StageBadge stage={displayStage(trip)} />
         </span>
         {trip.subtitle ? (
           <span className="mt-0.5 block truncate text-xs text-muted-foreground">

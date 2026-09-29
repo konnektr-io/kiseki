@@ -160,7 +160,7 @@ function TripCard({ trip }: { trip: CardTrip }) {
         )}
         <div className="scrim absolute inset-0" />
         <div className="absolute left-3 top-3">
-          <StageBadge stage={trip.stage} />
+          <StageBadge stage={displayStage(trip)} />
         </div>
         <div className="absolute inset-x-0 bottom-0 p-4">
           <h3 className="font-heading text-xl font-semibold tracking-wide text-white drop-shadow">

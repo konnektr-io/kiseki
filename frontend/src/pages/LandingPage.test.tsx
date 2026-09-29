@@ -87,7 +87,11 @@ const net = vi.hoisted(() => ({
 const TRIPS: TripSummary[] = [
   {
     dtId: "live-1", visibility: "private", title: "Ski Week", subtitle: "",
-    stage: "live", startDate: "2026-09-01", endDate: "2026-09-20", slug: "ski",
+    // The live fixture's window must straddle the day the suite runs, or #396
+    // correctly retires it (`archive`) and every "happening now" assertion
+    // fails. A 2020→2030 window reads live on any run date — the same
+    // date-independent trick `dates-stage.test.ts` uses.
+    stage: "live", startDate: "2020-01-01", endDate: "2030-12-31", slug: "ski",
     role: "owner",
   },
   {

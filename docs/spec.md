@@ -90,6 +90,20 @@ idea → options → shortlist → planned → booked → live → archive
 
 - Every transition has behavior: `live` → capture mode + notify followers; `archive` → freeze + final booklet + "the trail" recap.
 - Any stage is skippable — last-minute planners jump straight to `live`. **The three P0 proof trips sit in three different stages** (booked / planned / idea) so the UI and the agent both learn to treat stage as real state.
+- **`stage` is stored intent; the calendar may derive on top of it.** A read never
+  mutates the twin, so what a trip *reads* as is computed from its dates in its
+  own timezone (`effectiveStage`, `backend/app/stage.py`): `planned`/`booked`
+  inside `[startDate, endDate]` read as `live` (#362), and a `live`/`planned`/
+  `booked` trip whose `endDate` has passed reads as `archive` (#396). The end
+  date is inclusive; `idea`/`options`/`shortlist` never move in either
+  direction (a passed date on an idea is a stale plan, not a finished trip), and
+  `archive` is terminal — re-planning an archived trip is an explicit un-archive.
+  The owner-facing surfaces (badges, Today, Up next, the stage facet) follow the
+  derived stage; the write API's stage machine still enforces authorial intent
+  and remains the only way to *set* a stage. The one write the calendar makes is
+  the auto-archive reconcile (#396): the derived `archive` is persisted once,
+  owner-gated, so a finished trip stops announcing itself as live in the places
+  the derivation does not reach (a follower's feed entry).
 
 ### Document shape
 
