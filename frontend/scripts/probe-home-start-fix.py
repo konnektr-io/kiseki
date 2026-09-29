@@ -41,7 +41,11 @@ import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-DIST = Path(__file__).resolve().parent.parent / "dist"
+DIST = (
+    Path(os.environ["KISEKI_PROBE_DIST"]).resolve()
+    if os.environ.get("KISEKI_PROBE_DIST")
+    else Path(__file__).resolve().parent.parent / "dist"
+)
 CHROME = (
     "/opt/hermes/.playwright/chromium_headless_shell-1243/"
     "chrome-headless-shell-linux64/chrome-headless-shell"
@@ -115,6 +119,46 @@ GEO_COUNTER = """
   g.getCurrentPosition = function () { window.__geo.current += 1; return current.apply(null, arguments); };
   const clear = g.clearWatch.bind(g);
   g.clearWatch = function () { window.__geo.cleared += 1; return clear.apply(null, arguments); };
+})();
+"""
+
+# Deliver the browser's answer LATE, the way a real first fix arrives.
+#
+# Playwright's mocked geolocation answers in ~0 ms, which is precisely why the
+# first version of #393 passed this probe while doing nothing on a real device:
+# a real first fix is a network round-trip to the platform's location service
+# (~1.5 s and up), and that version's 1 s window dropped it. The implementation
+# here is still Chromium's own (real permission + real position); only the
+# TIMING is made real — `__LATE_MS__` is how long the read takes.
+LATE_FIX = """
+(() => {
+  const LATE = __LATE_MS__;
+  const g = navigator.geolocation;
+  if (!g) return;
+  const current = g.getCurrentPosition.bind(g);
+  // No counting here: `GEO_COUNTER` already wrapped this method, and counting
+  // twice would report 2 for one question.
+  g.getCurrentPosition = function (ok, err, opts) {
+    // Generous browser timeout so the BROWSER does not error first: the shape
+    // being tested is our own deadline, not the engine's.
+    return current(function (pos) { setTimeout(() => ok(pos), LATE); }, err,
+                   Object.assign({}, opts, { timeout: 60000 }));
+  };
+})();
+"""
+
+# A map box with no height: the state in which the pin fit cannot claim the
+# camera (#368 — a padding that leaves no room), which a phone can measure while
+# its sheet is still laying out. Injected at document-start so the box is already
+# collapsed when the map's first frame is measured, which makes "the fit had
+# nothing to say" a fact of the fixture rather than a race.
+COLLAPSE_BOX = """
+(() => {
+  const style = document.createElement("style");
+  style.textContent = "[data-home-map]{height:0 !important}";
+  const add = () => document.head && document.head.appendChild(style);
+  if (document.head) add();
+  else document.addEventListener("DOMContentLoaded", add);
 })();
 """
 
@@ -255,9 +299,13 @@ class Probe:
                     body = {}
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
-            def context(**kwargs):
+            def context(late_ms: int = 0, collapse: bool = False, **kwargs):
                 ctx = browser.new_context(viewport=PHONE, **kwargs)
                 ctx.add_init_script(GEO_COUNTER)
+                if collapse:
+                    ctx.add_init_script(COLLAPSE_BOX)
+                if late_ms:
+                    ctx.add_init_script(LATE_FIX.replace("__LATE_MS__", str(late_ms)))
                 ctx.route(re.compile(r".*/api/.*$"), api)
                 return ctx
 
@@ -333,6 +381,42 @@ class Probe:
                 json.dumps([pin["id"] for pin in pins]),
             )
             self.shot(page, "02-no-permission-unchanged")
+            ctx.close()
+
+            # ------------- 3. a fix that takes a REAL device's time to arrive
+            print("phase 3 — the fix arrives as late as a real first fix does")
+            # The box is collapsed so the pin fit has nothing to claim (the #368
+            # shape: no room), which is the state a phone can be in while its
+            # sheet lays out and the ONLY state where the starting point decides
+            # the camera. The read takes 3 s: well past the 1 s window that
+            # shipped in v0.95.0 and dropped it, turning the globe back into
+            # null island for every traveler without a cached fix.
+            ctx = context(permissions=["geolocation"], geolocation=FIX, late_ms=3000, collapse=True)
+            page = ctx.new_page()
+            page.goto(f"{host}/?kiseki_e2e=1", wait_until="networkidle")
+            up = self.wait_for_map(page)
+            self.dismiss_consent(page)
+            self.check(up, "the home globe mounted with its pins")
+            # The canvas is up while the read is still in flight: the first paint
+            # never waits for the network.
+            self.check(
+                self.start_attr(page) in ("default", "device", "device-fallback"),
+                "the map is up before the fix arrives (the paint does not wait)",
+                str(self.start_attr(page)),
+            )
+            page.wait_for_timeout(4000)  # let the 3 s read land
+            calls = self.geo_calls(page)
+            self.check(
+                calls["current"] == 1 and calls["watch"] == 0,
+                "still one question, still no tracked session",
+                f"getCurrentPosition={calls['current']} watch={calls['watch']}",
+            )
+            self.check(
+                self.start_attr(page) == "device-fallback",
+                "the late fix STILL takes the camera instead of null island",
+                str(self.start_attr(page)),
+            )
+            self.shot(page, "03-late-fix-still-lands")
             ctx.close()
 
             browser.close()
