@@ -60,3 +60,7 @@ backend/data/seed/*.graph.json
 # carrying in the repo; the kiseki-* skills under .claude/skills ARE ours.
 .agents/
 .claude/skills/maplibre-*
+
+# Local agent scratch (plan/plan-dir output). Per-session, never shared —
+# committing it would put one machine's working notes in a public repo.
+.hermes/
