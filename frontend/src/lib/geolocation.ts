@@ -1,12 +1,15 @@
 /**
  * Device location — the browser Geolocation API, permission-first (#383).
  *
- * Kiseki asks for the traveler's position in exactly TWO ways, and nothing
+ * Kiseki asks for the traveler's position in exactly THREE ways, and nothing
  * else in the app may touch `navigator.geolocation`:
  *
  *  1. **Already-granted permission** — a returning traveler who allowed
  *     location for this origin before is tracked again without a prompt.
  *  2. **An explicit tap** on the trip map's locate control.
+ *  3. **A one-shot starting point** for the signed-in home globe (#393) —
+ *     also granted-only, and not a session at all: one question, asked once,
+ *     answered or dropped (`deviceFixIfGranted`).
  *
  * Why that pairing is load-bearing: a permission prompt on load trains people
  * to deny, and a denial is sticky — the browser never asks again. So the app
@@ -218,6 +221,75 @@ export function watchDeviceFix(
     WATCH_OPTIONS,
   );
   return () => navigator.geolocation.clearWatch(id);
+}
+
+/**
+ * How long a one-shot read may take before it is dropped.
+ *
+ * A starting point is decoration: it must never hold a surface's first paint,
+ * so a device that cannot answer within this window simply opens as it always
+ * did. A fix the browser already holds arrives in milliseconds (`maximumAge`
+ * below), and a coarse network fix is normally well inside the window.
+ */
+export const START_FIX_TIMEOUT_MS = 1000;
+
+/**
+ * The one-shot read's options. Coarse ON PURPOSE: this fix only decides which
+ * face of the globe opens, so high accuracy would spend battery — and seconds
+ * — on a question whose answer is already "somewhere near you".
+ */
+const START_FIX_OPTIONS: PositionOptions = {
+  enableHighAccuracy: false,
+  maximumAge: 10 * 60 * 1000,
+  timeout: START_FIX_TIMEOUT_MS,
+};
+
+/**
+ * A ONE-SHOT device fix, for a caller that needs a starting point and nothing
+ * more — the signed-in home globe (#393), which opens on the traveler's own
+ * patch of the world instead of MapLibre's `[0,0]` default.
+ *
+ * GRANTED-ONLY, and that is the whole contract: anything but an already
+ * `granted` permission answers `null` WITHOUT touching `navigator.geolocation`
+ * — a prompt on load is the exact thing #383 exists to prevent, and a denial
+ * is sticky. `unknown` (no Permissions API, or a refused query: older
+ * Safari/Firefox) therefore means "no starting fix", never "ask and see".
+ *
+ * It is not a session either: no watch, no store, nothing kept — the trip
+ * map's control (`device-location.ts`) stays the only thing in the app that
+ * TRACKS. This is one question, asked once.
+ *
+ * Never throws and never hangs: a refused, unavailable or timed-out read is
+ * `null`, and a nonsense position is dropped rather than handed on. The
+ * deadline is enforced here as well as in the browser's own options, so a
+ * wedged engine cannot hold a caller forever.
+ */
+export async function deviceFixIfGranted(): Promise<DeviceFix | null> {
+  if (!geolocationSupported()) return null;
+  if ((await queryLocationPermission()) !== "granted") return null;
+  return new Promise<DeviceFix | null>((resolve) => {
+    let settled = false;
+    const done = (fix: DeviceFix | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(fix);
+    };
+    const timer = setTimeout(() => done(null), START_FIX_TIMEOUT_MS);
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const fix = toFix(pos);
+          done(isValidFix(fix) ? fix : null);
+        },
+        () => done(null),
+        START_FIX_OPTIONS,
+      );
+    } catch {
+      /* asking is not a promise the browser keeps: a throw is just no fix */
+      done(null);
+    }
+  });
 }
 
 /**

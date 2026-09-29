@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   accuracyRadiusPx,
   describeLocationError,
+  deviceFixIfGranted,
   FIX_FRESH_MS,
   geolocationSupported,
   isFresh,
@@ -9,6 +10,7 @@ import {
   locateControl,
   metersPerPixel,
   queryLocationPermission,
+  START_FIX_TIMEOUT_MS,
   toChatLocation,
   toFix,
   watchDeviceFix,
@@ -259,5 +261,89 @@ describe("locateControl", () => {
     expect(control.action).toBe("recentre");
     expect(control.icon).toBe("locate-fixed");
     expect(control.following).toBe(false);
+  });
+});
+
+/**
+ * #393: the one-shot starting fix the home globe asks for.
+ *
+ * The rule that matters here is a NEGATIVE one, the same one #383 is built on:
+ * a caller wanting a starting point must never be the reason a traveler sees a
+ * permission prompt. So everything but an already-`granted` permission answers
+ * `null` without touching `navigator.geolocation` — and the read is a single
+ * question, never a watch.
+ */
+describe("deviceFixIfGranted", () => {
+  /** A navigator with a scripted permission, recording what was actually asked. */
+  function stub(state: string | null, script: { pos?: unknown; fail?: unknown } = {}) {
+    const getCurrentPosition = vi.fn(
+      (
+        ok: (pos: unknown) => void,
+        fail: (err: unknown) => void,
+        _options?: PositionOptions,
+      ) => {
+        if (script.fail !== undefined) fail(script.fail);
+        else if (script.pos !== undefined) ok(script.pos);
+        /* neither: the engine never calls back — the hang this must survive */
+      },
+    );
+    const watchPosition = vi.fn();
+    const clearWatch = vi.fn();
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition, watchPosition, clearWatch },
+      ...(state == null ? {} : { permissions: { query: () => Promise.resolve({ state }) } }),
+    });
+    return { getCurrentPosition, watchPosition, clearWatch };
+  }
+
+  const position = { coords: { latitude: 52.0907, longitude: 5.1214, accuracy: 120 } };
+
+  it("asks the browser once for a granted permission, and normalizes the answer", async () => {
+    const { getCurrentPosition, watchPosition } = stub("granted", { pos: position });
+    const fix = await deviceFixIfGranted();
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(fix).toMatchObject({ lat: 52.0907, lng: 5.1214, accuracy: 120 });
+    // Not a session: nothing is watched, nothing is kept.
+    expect(watchPosition).not.toHaveBeenCalled();
+    // Coarse ON PURPOSE — a starting point, not a track.
+    const options = getCurrentPosition.mock.calls[0][2] as PositionOptions;
+    expect(options.enableHighAccuracy).toBe(false);
+    expect(options.maximumAge).toBeGreaterThan(0);
+  });
+
+  it("asks nothing at all without an already-granted permission", async () => {
+    for (const state of ["prompt", "denied", null] as const) {
+      const { getCurrentPosition, watchPosition } = stub(state);
+      expect(await deviceFixIfGranted()).toBeNull();
+      expect(getCurrentPosition).not.toHaveBeenCalled();
+      expect(watchPosition).not.toHaveBeenCalled();
+    }
+  });
+
+  it("drops a refusal, a nonsense fix, and a device with no geolocation", async () => {
+    const refused = stub("granted", { fail: { code: 1 } });
+    expect(await deviceFixIfGranted()).toBeNull();
+    expect(refused.getCurrentPosition).toHaveBeenCalledTimes(1);
+
+    // A position that is not a real coordinate is never handed on.
+    stub("granted", { pos: { coords: { latitude: Number.NaN, longitude: 5.1214 } } });
+    expect(await deviceFixIfGranted()).toBeNull();
+
+    vi.stubGlobal("navigator", {});
+    expect(await deviceFixIfGranted()).toBeNull();
+  });
+
+  it("gives up at the deadline instead of holding a surface's first paint", async () => {
+    vi.useFakeTimers();
+    try {
+      stub("granted"); // an engine that never calls back
+      const pending = deviceFixIfGranted();
+      // Let the permission query settle and arm the deadline…
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(START_FIX_TIMEOUT_MS + 1);
+      expect(await pending).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

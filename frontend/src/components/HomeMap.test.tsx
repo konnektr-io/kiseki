@@ -16,6 +16,9 @@
  *   `route-map-focused` — no second marker language).
  * - **Colliding pins group into a count badge** that zooms in on tap.
  * - **Empty geo builds no map at all** — the home collapses the canvas.
+ * - **The globe opens on the traveler when location is already granted** — a
+ *   one-shot, prompt-free starting point (#393) that the pin fit still
+ *   overrides, and a fallback for a camera no fit could claim.
  */
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -772,5 +775,78 @@ describe("the container owns its size", () => {
     });
     expect(calls.fits).toBe(fitted); // theirs now — resize only
     expect(calls.resizes).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * #393 — the globe's starting point.
+ *
+ * Niko, on the signed-in home: "when the user has already approved
+ * geolocation, it would be nice to also set the middle of the globe (overview
+ * of trips) to the current location instead of 0,0" — and, explicitly, without
+ * forcing anything: no prompt, ever.
+ */
+describe("the traveler's own starting point (#393)", () => {
+  const at = (padding = { top: 0, right: 0, bottom: 0, left: 0 }) =>
+    <HomeMap pins={PINS} selectedDtId={null} onSelect={noop} padding={padding} />;
+
+  /** The browser's own answer about location, plus what it was asked. */
+  function stubLocation(
+    state: "granted" | "prompt" | "denied" | null,
+    fix = { lat: 52.0907, lng: 5.1214 },
+  ): { getCurrentPosition: ReturnType<typeof vi.fn>; watchPosition: ReturnType<typeof vi.fn> } {
+    const getCurrentPosition = vi.fn(
+      (ok: (pos: unknown) => void, _fail: (err: unknown) => void, _options?: PositionOptions) =>
+        ok({ coords: { latitude: fix.lat, longitude: fix.lng, accuracy: 120 } }),
+    );
+    const watchPosition = vi.fn();
+    vi.stubGlobal("navigator", {
+      geolocation: { getCurrentPosition, watchPosition, clearWatch: vi.fn() },
+      ...(state == null ? {} : { permissions: { query: () => Promise.resolve({ state }) } }),
+    });
+    return { getCurrentPosition, watchPosition };
+  }
+
+  it("opens on the traveler when location is already granted — and the pin fit still wins", async () => {
+    const { getCurrentPosition, watchPosition } = stubLocation("granted");
+    const el = await mount(at());
+    // The camera is BORN at the traveler (a constructor centre, so nothing
+    // animates and the viewer never watches a jump): the first painted frame
+    // faces them, not null island.
+    expect((calls.map as Record<string, unknown>).center).toEqual([5.1214, 52.0907]);
+    expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("device");
+    // …and the fit still owns the camera: this surface answers "where are my
+    // trips", so a starting point that beat the trips would be a bug.
+    const framed = calls.jumps[0] as { center: [number, number] };
+    expect(framed.center[0]).toBeCloseTo(-53.17585, 4);
+    // One question, asked once, and never a session — the trip map's locate
+    // control stays the only thing in the app that tracks.
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(watchPosition).not.toHaveBeenCalled();
+  });
+
+  it("asks nothing at all without an already-granted permission", async () => {
+    for (const state of ["prompt", "denied", null] as const) {
+      const { getCurrentPosition, watchPosition } = stubLocation(state);
+      const el = await mount(at());
+      expect(getCurrentPosition).not.toHaveBeenCalled();
+      expect(watchPosition).not.toHaveBeenCalled();
+      // MapLibre's own default camera — exactly what the app did before #393.
+      expect((calls.map as Record<string, unknown>).center).toBeUndefined();
+      expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("default");
+    }
+  });
+
+  it("falls back to the traveler when no fit can claim the camera", async () => {
+    // A 0-tall container is the state that used to leave null island up: the
+    // fit refuses to run (see the container note), so the starting point is
+    // what is left to open on.
+    box.w = 0;
+    box.h = 0;
+    stubLocation("granted");
+    const el = await mount(at());
+    expect(calls.fits).toBe(0);
+    expect(calls.jumps[0]).toMatchObject({ center: [5.1214, 52.0907] });
+    expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("device-fallback");
   });
 });
