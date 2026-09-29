@@ -83,20 +83,38 @@ export function isTodayInRange(trip: DateCarrier, todayIso?: string): boolean {
   return today >= trip.startDate && today <= trip.endDate;
 }
 
-/** The stage a carrier reads as — the "happening now" decision (#362).
+/** The stage a carrier reads as — the "happening now" decision (#362, #396).
  *
  *  Prefers the server's `effectiveStage` (trip-local derivation); falls back
  *  to the same rule locally so older servers still flip. Stored `stage` is
- *  authorial intent (badges, settings); this is what Today / Up-next follow.
+ *  authorial intent (badges, settings, the stage facet); this is what Today /
+ *  Up-next follow.
  */
 export type StageCarrier = DateCarrier & {
   stage: Stage;
   effectiveStage?: Stage;
 };
 
-export function displayStage(t: StageCarrier): Stage {
+/** Stored stages the calendar may auto-archive once the end date has passed.
+ *  Mirrors `_AUTO_ARCHIVE_FROM` in `backend/app/stage.py` — the early stages
+ *  are excluded there because a passed date on an idea is a stale plan, not a
+ *  finished trip. */
+const AUTO_ARCHIVE_FROM: readonly Stage[] = ["live", "planned", "booked"];
+
+/** True when the trip's own end date has passed trip-local (#396). */
+export function isPastTrip(t: DateCarrier, todayIso?: string): boolean {
+  if (!t.endDate) return false;
+  const today = todayIso ?? tripTodayIso(t);
+  return today > t.endDate;
+}
+
+export function displayStage(t: StageCarrier, todayIso?: string): Stage {
   if (t.effectiveStage) return t.effectiveStage;
-  if ((t.stage === "planned" || t.stage === "booked") && isTodayInRange(t)) return "live";
+  // Local mirror of `effective_stage()`. Auto-archive is checked first: a
+  // `booked` trip that ended last month would otherwise read "not in range,
+  // so `booked`" and keep presenting as an upcoming plan forever.
+  if (AUTO_ARCHIVE_FROM.includes(t.stage) && isPastTrip(t, todayIso)) return "archive";
+  if ((t.stage === "planned" || t.stage === "booked") && isTodayInRange(t, todayIso)) return "live";
   return t.stage;
 }
 

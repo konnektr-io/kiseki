@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { UserCheck } from "lucide-react";
 import { claimIdentity, fetchTripByClaim, fetchTripByFollow, followTrip, TripAccessError } from "../lib/api";
 import { isSessionExpiredError } from "../lib/auth";
+import { displayStage } from "../lib/dates";
 import { usePageTitle } from "../lib/seo";
 import type { Trip } from "../lib/types";
 import { AppHeader } from "../components/AppHeader";
@@ -139,7 +140,7 @@ export function JoinPage() {
         <AppHeader
           home={{ to: "/", label: "Home" }}
           title={trip.title}
-          badge={<StageBadge stage={trip.stage} />}
+          badge={<StageBadge stage={displayStage(trip)} />}
           subtitle={trip.subtitle}
         />
 

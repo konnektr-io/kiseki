@@ -8,7 +8,7 @@ import { InlineField } from "../components/inline-edit";
 import { TripMedia } from "../components/photos";
 import { ContentLink } from "../components/content-link";
 import { Markdown } from "../lib/markdown";
-import { formatDay } from "../lib/dates";
+import { displayStage, formatDay } from "../lib/dates";
 import { sectionRange } from "../lib/sections";
 import { splitCrew } from "../lib/crew";
 import { withTripFields } from "../lib/editing";
@@ -267,7 +267,7 @@ export function OverviewPage() {
             {/* StageBadge owns a readable pairing per stage (solid fills carry
                 their own foregrounds) — no colour override: forcing
                 text-foreground here painted near-black text on the teal fill. */}
-            <StageBadge stage={trip.stage} />
+            <StageBadge stage={displayStage(trip)} />
             <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums text-white/80">
               <CalendarDays className="h-3.5 w-3.5" />
               {trip.startDate && formatDay(trip.startDate)} → {trip.endDate && formatDay(trip.endDate)}

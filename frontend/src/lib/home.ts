@@ -24,11 +24,14 @@ import { sortShowcaseTrips } from "./marketing";
 /** Up next: the live trip, else the soonest-starting non-archived trip with a date. */
 export function nextUpTrip(trips: readonly TripSummary[]): TripSummary | null {
   // #362: liveness follows the derived stage (booked-but-in-range reads live).
+  // #396: so does the archive skip — a trip that ENDED reads archived, and
+  // must not fall through to the "soonest start" branch just because its
+  // stored stage is still `booked`.
   const live = trips.find((t) => displayStage(t) === "live");
   if (live) return live;
   let best: TripSummary | null = null;
   for (const t of trips) {
-    if (t.stage === "archive" || !t.startDate) continue;
+    if (displayStage(t) === "archive" || !t.startDate) continue;
     if (!best || (best.startDate && t.startDate < best.startDate)) best = t;
   }
   return best;
@@ -124,7 +127,11 @@ export function filterTrips<T extends FilterableTrip>(
   const origins = filter.origins ?? [];
   const visibility = filter.visibility ?? [];
   return trips.filter((t) => {
-    if (filter.stages.length > 0 && !filter.stages.includes(t.stage as Stage)) return false;
+    // #396: facet on the DERIVED stage. A finished trip reads `archive` (and
+    // its badge says "Archived"), so keying the chip off stored `stage` would
+    // leave it filed under Live while showing an Archived badge — a facet that
+    // lies about its own contents.
+    if (filter.stages.length > 0 && !filter.stages.includes(displayStage(t) as Stage)) return false;
     if (months.length > 0) {
       const m = monthOfTrip(t.startDate);
       if (m === null || !months.includes(m)) return false;
@@ -180,8 +187,11 @@ export function activeFacetCount(filter: TripFilter): number {
 export function presentStages(
   trips: readonly Pick<TripSummary, "stage">[],
 ): Stage[] {
+  // #396: derive, so a trip the calendar archived shows under an Archived
+  // chip. Facets and badges must agree, and this is where the chip set comes
+  // from — a derived archive with no chip would be unreachable in the UI.
   const order = sortShowcaseTrips(
-    trips.map((t) => ({ dtId: "", title: "", subtitle: "", stage: t.stage })),
+    trips.map((t) => ({ dtId: "", title: "", subtitle: "", stage: displayStage(t) as Stage })),
   ).map((t) => t.stage);
   return [...new Set(order)];
 }
