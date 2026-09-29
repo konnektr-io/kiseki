@@ -5,7 +5,7 @@
  * browser lives here and is pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { angularSeparationDeg, clusterPins, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
+import { angularSeparationDeg, clusterPins, fitZoomCenteredOn, homePinsFromGeo, homeRowId, isOnVisibleHemisphere, mercatorY, MIN_FIT_ZOOM, normalizeLng, pinStage, selectHomeLabels, unfoldLngs, type HomeMapPin } from "./home-geo";
 import { MAP_LABEL_MAX } from "./maps";
 
 import type { TripGeo } from "./types";
@@ -268,5 +268,65 @@ describe("selectHomeLabels — the landing map's title labels (#372 slice 2)", (
   it("leaves the trip-map floor alone — trip surfaces keep their clutter gate", async () => {
     const { MAP_LABEL_ZOOM_FLOOR } = await import("./maps");
     expect(MAP_LABEL_ZOOM_FLOOR).toBe(2);
+  });
+});
+
+/**
+ * `fitZoomCenteredOn` is the arithmetic behind "#393 the middle of the globe is
+ * my location": with the camera standing on a traveler who is NOT standing on
+ * their trips, how far out must it be for the farthest trip to still land inside
+ * the room the sheet leaves? The naive answer — reuse the fit's zoom — crops the
+ * trip that is furthest from home, which is the whole reason this is its own
+ * function rather than a `center:` override.
+ */
+describe("fitZoomCenteredOn", () => {
+  const box = { width: 390, height: 783, padding: { top: 0, right: 0, bottom: 0, left: 0 } };
+
+  it("zooms out until the farthest pin fits, instead of cropping it off the edge", () => {
+    const pins = [pin({ dtId: "a", lng: -114.06, lat: 51.18 }), pin({ dtId: "b", lng: 11.84, lat: 46.41 })];
+    // The traveler is in Amsterdam; Canada is 119° east-west away, and 195px of
+    // half-width can only hold that at a low zoom.
+    const zoom = fitZoomCenteredOn({ lat: 52.09, lng: 5.12 }, pins, box, 12);
+    expect(zoom).not.toBeNull();
+    expect(zoom!).toBeGreaterThan(0);
+    expect(zoom!).toBeLessThan(3);
+    // And the answer is exactly "the farthest pin just fits": nudge the box 1px
+    // tighter and the zoom must fall (it is a fit, not a vibe).
+    const tighter = { ...box, width: 389 };
+    expect(fitZoomCenteredOn({ lat: 52.09, lng: 5.12 }, pins, tighter, 12)!).toBeLessThan(zoom!);
+  });
+
+  it("leaves the zoom alone when every pin is already inside the room", () => {
+    // Two pins a few hundred metres from the traveller: nothing asks for a
+    // wider view than the ceiling, so the ceiling wins.
+    const near = [pin({ dtId: "a", lng: 5.11, lat: 52.08 }), pin({ dtId: "b", lng: 5.14, lat: 52.06 })];
+    expect(fitZoomCenteredOn({ lat: 52.09, lng: 5.12 }, near, box, 12)).toBe(12);
+  });
+
+  it("returns nothing when the padding leaves no room (the #368 class)", () => {
+    const pins = [pin({ dtId: "a", lng: 5, lat: 52 }), pin({ dtId: "b", lng: 6, lat: 51 })];
+    expect(fitZoomCenteredOn({ lat: 52.09, lng: 5.12 }, pins, { ...box, height: 400, padding: { ...box.padding, bottom: 420 } }, 12)).toBeNull();
+    expect(fitZoomCenteredOn({ lat: 52.09, lng: 5.12 }, pins, { ...box, width: 0 }, 12)).toBeNull();
+  });
+
+  it("measures across the antimeridian the SHORT way round", () => {
+    // 175°E and 175°W are 10° apart, not 350° — the naive delta would demand a
+    // zoom so low the pin is a speck.
+    const pins = [pin({ dtId: "a", lng: -175, lat: 52.09 })];
+    const zoom = fitZoomCenteredOn({ lat: 52.09, lng: 175 }, pins, box, 12)!;
+    expect(zoom).toBeGreaterThan(4);
+  });
+
+  it("never asks for a zoom the overview does not use", () => {
+    // A pole-to-pole span inside a 100px box needs a zoom BELOW the floor — the
+    // surface clamps instead of handing MapLibre an unrenderable number.
+    const tiny = { width: 100, height: 100, padding: { top: 0, right: 0, bottom: 0, left: 0 } };
+    const pins = [pin({ dtId: "a", lng: 5, lat: -85 })];
+    const zoom = fitZoomCenteredOn({ lat: 85, lng: 5.12 }, pins, tiny, 12)!;
+    expect(zoom).toBe(MIN_FIT_ZOOM);
+    // …and the projection it rests on is bounded at both poles.
+    expect(mercatorY(90)).toBeCloseTo(0, 6);
+    expect(mercatorY(-90)).toBeCloseTo(1, 6);
+    expect(mercatorY(0)).toBeCloseTo(0.5, 6);
   });
 });
