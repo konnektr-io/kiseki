@@ -226,12 +226,25 @@ export function watchDeviceFix(
 /**
  * How long a one-shot read may take before it is dropped.
  *
- * A starting point is decoration: it must never hold a surface's first paint,
- * so a device that cannot answer within this window simply opens as it always
- * did. A fix the browser already holds arrives in milliseconds (`maximumAge`
- * below), and a coarse network fix is normally well inside the window.
+ * Measured, not guessed: a FIRST fix is a network round-trip to the platform's
+ * location service, and a real Chromium takes ~1.5 s and up — the earlier 1 s
+ * budget only ever arrived in time when the browser already held a CACHED fix,
+ * so the globe opened on null island for every traveler without one while a
+ * mocked probe (Playwright answers in ~0 ms) stayed green. Long enough to
+ * survive a real cold read, still bounded so a wedged engine is let go.
  */
-export const START_FIX_TIMEOUT_MS = 1000;
+export const START_FIX_BUDGET_MS = 10_000;
+
+/**
+ * How long the map's CONSTRUCTOR will wait for an already-held fix.
+ *
+ * The globe's first paint never waits on the network — but a fix the browser
+ * already holds (`maximumAge` below: a read from the last 10 minutes on this
+ * origin) lands in this window, and taking it here is what makes the camera
+ * BORN on the traveler instead of jumping there a moment later. Anything slower
+ * is applied as a re-centre once it lands instead of holding the canvas.
+ */
+export const START_FIX_QUICK_MS = 250;
 
 /**
  * The one-shot read's options. Coarse ON PURPOSE: this fix only decides which
@@ -241,7 +254,7 @@ export const START_FIX_TIMEOUT_MS = 1000;
 const START_FIX_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
   maximumAge: 10 * 60 * 1000,
-  timeout: START_FIX_TIMEOUT_MS,
+  timeout: START_FIX_BUDGET_MS,
 };
 
 /**
@@ -262,7 +275,9 @@ const START_FIX_OPTIONS: PositionOptions = {
  * Never throws and never hangs: a refused, unavailable or timed-out read is
  * `null`, and a nonsense position is dropped rather than handed on. The
  * deadline is enforced here as well as in the browser's own options, so a
- * wedged engine cannot hold a caller forever.
+ * wedged engine cannot hold a caller forever — and it is a REAL budget
+ * (`START_FIX_BUDGET_MS`), because a caller that cannot wait at all races this
+ * promise instead of shortening it for everyone.
  */
 export async function deviceFixIfGranted(): Promise<DeviceFix | null> {
   if (!geolocationSupported()) return null;
@@ -275,7 +290,7 @@ export async function deviceFixIfGranted(): Promise<DeviceFix | null> {
       clearTimeout(timer);
       resolve(fix);
     };
-    const timer = setTimeout(() => done(null), START_FIX_TIMEOUT_MS);
+    const timer = setTimeout(() => done(null), START_FIX_BUDGET_MS);
     try {
       navigator.geolocation.getCurrentPosition(
         (pos) => {

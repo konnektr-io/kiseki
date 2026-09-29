@@ -18,7 +18,11 @@
  * - **Empty geo builds no map at all** — the home collapses the canvas.
  * - **The globe opens on the traveler when location is already granted** — a
  *   one-shot, prompt-free starting point (#393) that the pin fit still
- *   overrides, and a fallback for a camera no fit could claim.
+ *   overrides, and a fallback for a camera no fit could claim. A real first fix
+ *   takes seconds, so the map never waits for it: a fix the browser already
+ *   holds becomes the constructor's centre, and a slower one re-centres when it
+ *   lands (#393 follow-up); a fit that bailed stays retryable for the same
+ *   reason.
  */
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -45,6 +49,11 @@ const calls = vi.hoisted(() => ({
   /** Controls handed to the map: `{ control, position }`, for the one-control rule. */
   controls: [] as { control: Record<string, unknown>; position: string }[],
   fit: null as Record<string, unknown> | null,
+  /**
+   * Make the next fit bail the way MapLibre does when the padding leaves no
+   * room for the box (#368): `cameraForBounds` answers `null`.
+   */
+  fitFails: false,
   /** How many times a camera was computed for the pin set (a re-frame = a 2nd). */
   fits: 0,
   /** The options the fit asked MapLibre for (padding, maxZoom). */
@@ -139,6 +148,10 @@ vi.mock("../lib/maplibre", () => ({
         calls.fits += 1;
         calls.cameraOptions = options;
         calls.bounds = { ...bounds };
+        // A padding that leaves no room answers `null` — the #368 shape, which a
+        // test plays with `calls.fitFails` (and which must stay RETRYABLE: see
+        // the #393 follow-up tests).
+        if (calls.fitFails) return null;
         return {
           center: { lng: (bounds.minLng + bounds.maxLng) / 2, lat: (bounds.minLat + bounds.maxLat) / 2 },
           zoom: 3,
@@ -249,6 +262,7 @@ beforeEach(() => {
   calls.markers = [];
   calls.elements = [];
   calls.fit = null;
+  calls.fitFails = false;
   calls.fits = 0;
   calls.cameraOptions = null;
   calls.bounds = null;
@@ -794,10 +808,18 @@ describe("the traveler's own starting point (#393)", () => {
   function stubLocation(
     state: "granted" | "prompt" | "denied" | null,
     fix = { lat: 52.0907, lng: 5.1214 },
+    /** How long the browser takes to answer. A REAL first fix is a network
+     *  round-trip: measured at ~1.5 s and up on Chromium, and Playwright's
+     *  mocked answer (0 ms) is what hid the bug this default exists for. */
+    delayMs = 0,
   ): { getCurrentPosition: ReturnType<typeof vi.fn>; watchPosition: ReturnType<typeof vi.fn> } {
     const getCurrentPosition = vi.fn(
-      (ok: (pos: unknown) => void, _fail: (err: unknown) => void, _options?: PositionOptions) =>
-        ok({ coords: { latitude: fix.lat, longitude: fix.lng, accuracy: 120 } }),
+      (ok: (pos: unknown) => void, _fail: (err: unknown) => void, _options?: PositionOptions) => {
+        const answer = () =>
+          ok({ coords: { latitude: fix.lat, longitude: fix.lng, accuracy: 120 } });
+        if (delayMs > 0) setTimeout(answer, delayMs);
+        else answer();
+      },
     );
     const watchPosition = vi.fn();
     vi.stubGlobal("navigator", {
@@ -848,5 +870,51 @@ describe("the traveler's own starting point (#393)", () => {
     expect(calls.fits).toBe(0);
     expect(calls.jumps[0]).toMatchObject({ center: [5.1214, 52.0907] });
     expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("device-fallback");
+  });
+
+  it("re-centres when the fix lands AFTER the first paint", async () => {
+    // The shipped bug, reproduced against the live build: Playwright's mocked
+    // geolocation answers in ~0 ms, but a real first fix is a network
+    // round-trip measured at ~1.5 s and up — and the first version dropped
+    // anything slower than 1 s, so every traveller without a cached fix kept
+    // opening on `[0,0]` ("still centred somewhere in africa"). The map must
+    // neither wait for the read (the canvas is up either way) nor lose it.
+    box.w = 0;
+    box.h = 0; // no fit can claim the camera, so the starting point decides
+    stubLocation("granted", { lat: 50.8503, lng: 4.3517 }, 400);
+    const el = await mount(at());
+    // The read is still in flight when the constructor's quick window expires:
+    // the canvas is up at ~250ms with MapLibre's own default camera — the first
+    // paint never waited for the network.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+    expect(calls.map).not.toBeNull();
+    expect((calls.map as Record<string, unknown>).center).toBeUndefined();
+    // …and the fix is not LOST: it lands a moment later and takes the camera.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    });
+    expect(calls.jumps.at(-1)).toMatchObject({ center: [4.3517, 50.8503] });
+    expect(el.querySelector("[data-home-map]")!.getAttribute("data-home-start")).toBe("device-fallback");
+  });
+
+  it("retries a fit that bailed instead of skipping it for the session", async () => {
+    // A fit that answers `null` — a padding that leaves no room for the box
+    // (#368), the shape a phone can measure while its sheet is still laying out
+    // — used to be recorded as DONE for that box+padding, so a container event
+    // that re-measured the same box+padding was skipped as "already done" and
+    // the camera stayed on MapLibre's `[0,0]` for the rest of the session.
+    calls.fitFails = true;
+    await mount(at());
+    expect(calls.fits).toBe(1);
+    expect(calls.jumps).toHaveLength(0);
+
+    calls.fitFails = false;
+    await act(async () => {
+      fireResize(); // the SAME box+padding, re-measured
+    });
+    expect(calls.fits).toBe(2);
+    expect(calls.jumps.at(-1)).toMatchObject({ zoom: 3 });
   });
 });

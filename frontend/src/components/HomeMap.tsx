@@ -5,7 +5,7 @@ import { MapPin } from "lucide-react";
 import { hasWebGL2, makeMapLabelElement, MAP_LABEL_PIN_OFFSET_PX, MAP_STYLE_URL, pinClassForStage, prefersReducedMotion, type MapPadding } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { applyOverviewGlobe, shouldUseGlobe } from "../lib/globe";
-import { deviceFixIfGranted, type DeviceFix } from "../lib/geolocation";
+import { deviceFixIfGranted, START_FIX_QUICK_MS, type DeviceFix } from "../lib/geolocation";
 import { clusterPins, isOnVisibleHemisphere, normalizeLng, placeHomeLabels, selectHomeLabels, unfoldLngs, type HomeLabelPlacement, type HomeMapPin, type ProjectedPin } from "../lib/home-geo";
 
 /** Map camera durations (DESIGN.md §10) — 400–600ms, nothing else. */
@@ -142,9 +142,12 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
     let map: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
     // The globe's starting centre (#393), asked for HERE — in parallel with
-    // the library load — so it can be handed to the constructor, which is the
-    // one way the FIRST painted frame is the traveler's own patch of the world
-    // instead of MapLibre's `[0,0]` default. Granted-only and never a session:
+    // the library load — so a browser that ALREADY holds a fix can hand it to
+    // the constructor, the one way the FIRST painted frame is the traveler's
+    // own patch of the world instead of MapLibre's `[0,0]` default. A real
+    // first fix takes seconds, though, so the map never waits for it: what the
+    // constructor does not get inside `START_FIX_QUICK_MS` is applied as a
+    // re-centre when it lands (see below). Granted-only and never a session:
     // see `deviceFixIfGranted`. A `null` answer is no fix, and changes nothing.
     const startFixPromise = deviceFixIfGranted();
 
@@ -284,8 +287,9 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       return true;
     };
 
-    // The box + padding a fit was last computed for. A fit is expensive and
-    // camera-moving, so it only re-runs when one of those actually changed.
+    // The box + padding a fit last ACTUALLY APPLIED for. A fit is expensive and
+    // camera-moving, so it only re-runs when one of those changed — and a fit
+    // that bailed is not an answer, so it stays retryable (see below).
     let lastFitKey = "";
     /** True once a pin fit has APPLIED a camera — from then on the fit owns the
      *  camera, so the traveler's starting point is not the fallback any more. */
@@ -304,8 +308,18 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
       if (!el.clientWidth || !el.clientHeight) return false;
       const key = `${el.clientWidth}x${el.clientHeight}|${paddingKeyOf(paddingRef.current)}`;
       if (key === lastFitKey) return false;
-      lastFitKey = key;
-      if (framePins()) framedPins = true;
+      // Only a fit that APPLIED a camera is final for this box+padding. A fit
+      // that bailed — `cameraForBounds` answering `null` because the padding left
+      // no room for the box (#368), which a phone can measure while its sheet is
+      // still laying out — is not an answer, so it stays retryable: a container
+      // event that re-measures the SAME box+padding (MapLibre's own class
+      // landing, a detent settling on the same numbers) gets a second chance
+      // instead of being skipped as "already done" for the rest of the session,
+      // which would leave the camera on MapLibre's `[0,0]`.
+      if (framePins()) {
+        lastFitKey = key;
+        framedPins = true;
+      }
       rebuildMarkers();
       return true;
     };
@@ -340,10 +354,18 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
 
     void (async () => {
       try {
-        // The library and the starting point, waited for in PARALLEL: the fix
-        // is bounded (and `null` whenever the browser does not already grant
-        // location), so a granted one costs the globe no extra wait.
-        const [lib, startFix] = await Promise.all([loadMapLibre(), startFixPromise]);
+        // The library is the only thing the FIRST PAINT waits for (#393
+        // follow-up). A real first fix is a network round-trip measured at 1.5 s
+        // and up, so the constructor is handed one only when the browser already
+        // held it (a cached read lands inside `START_FIX_QUICK_MS`); anything
+        // slower re-centres the globe when it arrives (below) instead of holding
+        // the canvas — which is what the previous version, with its 1 s budget,
+        // silently failed to do on every real device.
+        const lib = await loadMapLibre();
+        const startFix = await Promise.race([
+          startFixPromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), START_FIX_QUICK_MS)),
+        ]);
         if (cancelled || !ref.current) return;
         libRef.current = lib;
         map = new lib.Map({
@@ -413,6 +435,16 @@ export function HomeMap({ pins, selectedDtId, onSelect, padding }: HomeMapProps)
         // leaves no room) falls back to the traveler rather than keeping the
         // `[0,0]` the map was born with — see `applyStartFix`.
         applyStartFix(startFix);
+        // A fix that missed the quick window still gets its say, under the same
+        // guards `applyStartFix` applies (no pin fit claimed the camera, and the
+        // viewer has not moved it themselves): a slow device lands on the
+        // traveler a couple of seconds in, instead of opening on null island and
+        // staying there for good.
+        if (!startFix) {
+          void startFixPromise.then((late) => {
+            if (late) applyStartFix(late);
+          });
+        }
         markReadyIfSized();
         // A container-only size change (the rail dragging, a detent, a phone's
         // chrome collapsing, MapLibre's own class landing) is something

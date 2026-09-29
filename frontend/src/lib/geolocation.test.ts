@@ -10,7 +10,7 @@ import {
   locateControl,
   metersPerPixel,
   queryLocationPermission,
-  START_FIX_TIMEOUT_MS,
+  START_FIX_BUDGET_MS,
   toChatLocation,
   toFix,
   watchDeviceFix,
@@ -309,6 +309,12 @@ describe("deviceFixIfGranted", () => {
     const options = getCurrentPosition.mock.calls[0][2] as PositionOptions;
     expect(options.enableHighAccuracy).toBe(false);
     expect(options.maximumAge).toBeGreaterThan(0);
+    // The browser is given the SAME realistic budget as our own deadline: a
+    // first fix is a network round-trip (measured: 1.5s+), and a 1s window only
+    // ever caught a CACHED fix — the bug that made a mocked, instant probe look
+    // healthy while real devices kept opening on null island.
+    expect(options.timeout).toBe(START_FIX_BUDGET_MS);
+    expect(options.timeout).toBeGreaterThan(1000);
   });
 
   it("asks nothing at all without an already-granted permission", async () => {
@@ -333,15 +339,39 @@ describe("deviceFixIfGranted", () => {
     expect(await deviceFixIfGranted()).toBeNull();
   });
 
-  it("gives up at the deadline instead of holding a surface's first paint", async () => {
+  it("gives up at the deadline instead of holding a caller forever", async () => {
     vi.useFakeTimers();
     try {
       stub("granted"); // an engine that never calls back
       const pending = deviceFixIfGranted();
       // Let the permission query settle and arm the deadline…
       await vi.advanceTimersByTimeAsync(0);
-      await vi.advanceTimersByTimeAsync(START_FIX_TIMEOUT_MS + 1);
+      await vi.advanceTimersByTimeAsync(START_FIX_BUDGET_MS + 1);
       expect(await pending).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a fix that took a real device's time to arrive", async () => {
+    // The measured bug behind "the globe is still centred somewhere in africa":
+    // a FIRST fix is a network round-trip to the platform's location service —
+    // ~1.5s on a real Chromium, and the first version's 1s window dropped it, so
+    // every device without a CACHED fix kept opening on `[0,0]`. Playwright's
+    // mocked geolocation answers in ~0ms, which is why the probe stayed green.
+    vi.useFakeTimers();
+    try {
+      const getCurrentPosition = vi.fn((ok: (pos: unknown) => void) => {
+        setTimeout(() => ok(position), 1500);
+      });
+      vi.stubGlobal("navigator", {
+        geolocation: { getCurrentPosition, watchPosition: vi.fn(), clearWatch: vi.fn() },
+        permissions: { query: () => Promise.resolve({ state: "granted" }) },
+      });
+      const pending = deviceFixIfGranted();
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(await pending).toMatchObject({ lat: 52.0907, lng: 5.1214 });
+      expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
