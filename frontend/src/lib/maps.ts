@@ -361,6 +361,129 @@ export function makeMapChipLabelElement(letter: string, title: string): HTMLDivE
   return el;
 }
 
+/**
+ * Excursion labels (#388 follow-up, Niko 2026-10-03): the hollow diamonds on
+ * the itinerary view finally name what they are.
+ *
+ * The complaint this answers: a diamond navigates correctly on tap (it selects
+ * the place and scrolls to its day) but says nothing about ITSELF, so scanning
+ * the itinerary means reading five numbered pins and a heap of anonymous
+ * lozenges. The diamonds were deliberately label-free until now — no ordinal,
+ * because an excursion must not claim a slot in the ① ② ③ index (#91) — but
+ * "no ordinal" never had to mean "no name".
+ *
+ * Same pill vocabulary as the place labels, a deliberately QUIETER one:
+ *
+ * - **The numbered stops keep the spine.** Their labels are the primary layer
+ *   (cap 8, selected-first). Diamond labels are secondary: a lower cap, muted
+ *   foreground, no accent ring unless the diamond is the one selected, and a
+ *   diamond badge instead of an ordinal so the label can never be misread as a
+ *   numbered place.
+ * - **The tapped diamond always wins**, at any zoom: the "or clicking them"
+ *   half of the ask. ONE label is a deliberate answer to a deliberate tap, not
+ *   a pile, so nothing may suppress it.
+ * - **Unselected diamonds are named only when there is room for each name** —
+ *   see `farEnoughApart`, which IS the display rule. There is deliberately NO
+ *   zoom floor here, and that is a measured decision, not an omission.
+ *   `scripts/probe-excursion-labels.py` fitted the real Canada registry: the
+ *   six stops span 4.19° of longitude, so the journey framing lands near z6,
+ *   while a same-town venue cluster (Revelstoke's six venues span ~1.1 km)
+ *   only separates four pills at z≈13. One global floor cannot serve both —
+ *   z6 silences a sparse trip's readable labels, z13 silences everything a
+ *   traveler actually looks at, which is the map skill's rule 5 exactly. So the
+ *   gate measures each diamond's ACTUAL on-screen separation instead, which
+ *   makes the layer self-tuning: dense trips reveal names as you zoom in,
+ *   sparse ones name them straight away, and Niko's "when zooming in or
+ *   clicking them" falls out of the geometry rather than a second constant
+ *   that has to be re-tuned against every new trip.
+ */
+export const EXCURSION_LABEL_MAX = 4;
+/** How far apart two named diamonds must sit on screen, in px, for both names
+ *  to read beside their markers — one pill's width (~70–90px), so this is the
+ *  distance at which two labels stop overlapping rather than a hair's breadth. */
+export const EXCURSION_LABEL_MIN_SEPARATION_PX = 92;
+/** Label pill offset below a diamond, in px: a touch tighter than the 28px
+ *  numbered pin's 15, because the diamond is 20px (`h-5`) and its label would
+ *  otherwise read as detached. */
+export const EXCURSION_LABEL_DIAMOND_OFFSET_PX = 11;
+
+/**
+ * Diamond names in draw order, the tapped one first. Pure — pinned by test.
+ *
+ * Ordering only. Whether a name FITS is `farEnoughApart`'s question, because
+ * fit depends on where the diamonds actually land on screen, which only the
+ * caller can measure.
+ */
+export function orderExcursionLabels(
+  names: string[],
+  selected: string | null,
+  max = EXCURSION_LABEL_MAX,
+): string[] {
+  if (names.length === 0) return [];
+  const ordered = [...names];
+  // Only a name that IS one of these diamonds can be pulled to the front — a
+  // selected chain stop must not conjure a diamond label out of thin air.
+  if (selected != null && ordered.includes(selected)) {
+    ordered.splice(ordered.indexOf(selected), 1);
+    ordered.unshift(selected);
+  }
+  return ordered.slice(0, max);
+}
+
+/**
+ * Which of the ordered names have room for THIS frame. Pure — pinned by test.
+ *
+ * `points` are the candidates' on-screen `[x, y]` in the same order as
+ * `ordered`. Greedy in draw order — the selected name is considered first and
+ * is exempt, then each later name only if it clears every name already kept.
+ * The result is returned in draw order, so the layer's DOM order never depends
+ * on which diamond was tapped.
+ */
+export function farEnoughApart(
+  ordered: string[],
+  points: Array<[number, number]>,
+  selected: string | null,
+  minSeparationPx = EXCURSION_LABEL_MIN_SEPARATION_PX,
+): string[] {
+  const index = new Map(ordered.map((n, i) => [n, i] as const));
+  const kept: Array<[number, number]> = [];
+  const out: string[] = [];
+  const candidates = ordered
+    .slice()
+    .sort((a, b) => Number(b === selected) - Number(a === selected));
+  for (const name of candidates) {
+    const p = points[index.get(name) ?? -1];
+    if (!p) continue;
+    if (name !== selected && kept.some(([x, y]) => Math.hypot(x - p[0], y - p[1]) < minSeparationPx)) {
+      continue;
+    }
+    kept.push(p);
+    out.push(name);
+  }
+  return out.sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
+}
+
+/**
+ * The DOM pill for an excursion label — browser-only (call inside effects).
+ *
+ * Same surface as `makeMapLabelElement` (so the label layer reads as one
+ * layer) but the diamond's own family: a tiny rotated square in place of the
+ * ordinal, the shape the marker actually is. `title` mirrors the marker's own
+ * so a hover says the same thing on the pill as on the diamond. Tokens only —
+ * no colour is ever written in JS (§8.4).
+ */
+export function makeMapExcursionLabelElement(name: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "map-place-label is-excursion";
+  el.setAttribute("aria-hidden", "true");
+  el.title = `${name} (excursion)`;
+  const glyph = document.createElement("span");
+  glyph.className = "map-excursion-glyph";
+  el.appendChild(glyph);
+  el.appendChild(document.createTextNode(name));
+  return el;
+}
+
 /** One leg of a route as the backend hands it over (see `app/maps.py:route_legs`). */
 export interface RouteLeg {
   from: string;
