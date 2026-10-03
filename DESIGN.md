@@ -717,8 +717,24 @@ surface adds a second
   (`A · Hotel X` via `selectChipLabels`/`formatChipLabel`/`makeMapChipLabelElement` — the same
   pill vocabulary and the same discipline: focused chip first, cap ~8, collision zoom floor,
   `pointer-events-none`). The letter rides its own square badge matching the card's inline badge,
-  so the label reads as the chip's, never as a numbered place. Excursion diamonds stay
-  label-free — no ordinal, no label.
+  so the label reads as the chip's, never as a numbered place.
+- **Excursion diamonds name themselves** (2026-10, #388 follow-up): the itinerary view's hollow
+  diamonds were navigable but anonymous — a tap landed on the right day, yet nothing said what the
+  diamond *was*, so scanning the whole trip meant reading five numbered pins and a heap of
+  anonymous lozenges (Niko, 2026-10-03). They now carry the same pill vocabulary, a deliberately
+  quieter one: a lower cap (`EXCURSION_LABEL_MAX` = 4), muted foreground, a tiny hollow diamond in
+  place of an ordinal — so a venue label can never be misread as a second numbered place — and the
+  accent ring reserved for the diamond the traveler actually tapped. The numbered stops keep the
+  spine (cap 8, full-strength foreground), which is what the ask required.
+  **The display rule is measured, not zoomed** (`orderExcursionLabels` + `farEnoughApart`,
+  `lib/maps.ts`): `map.project` measures each diamond's on-screen position and a name is drawn
+  only if it clears one pill's width (`EXCURSION_LABEL_MIN_SEPARATION_PX` = 92) from the names
+  already drawn. There is deliberately **no zoom floor** — one constant cannot serve both trip
+  shapes (measured on Canada's real registry: journey framing ≈ z6, while a ~1 km venue cluster
+  needs z14 to separate four pills), and the map skill's rule 5 is exactly this trap. Measuring
+  instead makes the layer self-tuning: dense trips reveal names as you zoom in, sparse ones name
+  themselves at once, and the tapped diamond is always named at any zoom (one deliberate answer to
+  one deliberate tap is never a pile).
 
 ### 8.4 Routes
 

@@ -81,6 +81,15 @@ Spec for the marker component (one component, every surface, plus print):
   for activities — a different glyph shape from the round pins, never a second numbering
   system. Excursions (#91) render as secondary markers, never chain stops. Full spec in
   DESIGN.md §8.3.
+- **Excursion diamonds carry labels; gate them by MEASURED screen separation, never a zoom
+  floor** (2026-10, #388 follow-up). A name is drawn only when `map.project` says it clears
+  ~one pill width from the names already drawn (`farEnoughApart` in `lib/maps.ts`). The obvious
+  `zoom >= N` gate is a trap and was measured to be one: Canada's journey framing sits at z6 while
+  a 1 km venue cluster needs z14 to separate four pills, so any single floor is wrong for one of
+  those two trips — and a wrong floor silently empties the layer instead of looking broken.
+  Tapping a diamond always names it. The numbered labels keep the spine: a lower cap, muted
+  foreground, and a diamond glyph instead of an ordinal so a venue can never read as a numbered
+  place.
 
 ## Route rendering
 
