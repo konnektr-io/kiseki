@@ -690,7 +690,22 @@ idea.** Formalize it:
   they read identically at any size. Excursion diamonds ride the same variable (20px → ~16px).
   **Hit target stays 44px** (transparent padding) at every zoom.
 - Selected: scale 1.15 + accent ring. Non-focused day: 45% opacity, never hidden.
-- Cluster below the zoom where pins collide; the cluster shows a count, not a number range.
+- **Colliding markers cluster into one count** (2026-10, #398): the cluster shows a **count, not a
+  number range**, drawn in the vocabulary of the markers it stands for — the excursion cluster is
+  hollow and dashed like a diamond, because a filled numbered-looking badge would read as a stop pin
+  and put a second numbering system on the map. A badge's one honest action is to **zoom in** until
+  its members separate; it never selects one of the places it represents. The radius is the marker's
+  own 44px hit target (`CLUSTER_PX` in `lib/marker-cluster.ts`), so the rule is one sentence at both
+  ends: markers a thumb cannot separate cluster. The rule is shared with the signed-in home, which
+  has clustered since #249 — one cartographic rule, one home.
+  **Stacking is an explicit ladder, not DOM order** (#388 → #398). MapLibre appends every marker to
+  one container, all `position: absolute` with `z-index: auto`, so for years the stacking order *was*
+  the order the component happened to add markers in, and #388 was that order being wrong. Clustering
+  makes membership camera-dependent, so a badge must be created and destroyed as the traveler zooms
+  and "add it in the right slot" stops being something the build can do. The ladder is CSS now —
+  cluster/diamond `0` < numbered stop `1` < activity chip `2`, matching `markerPaintRank`. A diamond
+  inside a badge is `hidden` (display:none, so it leaves the pointer path too) rather than removed,
+  which keeps the marker list — and therefore the tap order — stable across camera moves.
 - **On-map labels** (2026-09, #357): numbered pills (`3 · Healesville`) below their pins, in the
   trip's own vocabulary — `bg-surface/90` + `text-foreground` + the §2.4 floating recipe,
   `font-heading` — so the label and the pin can never read as two places. The pill anchors

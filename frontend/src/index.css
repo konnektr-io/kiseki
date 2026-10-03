@@ -347,7 +347,48 @@ h4 {
 /* ---------- route surface (#39) ----------
    The map pins are DOM elements, so selection is a class change and no colour
    is ever written in JS. Dimmed, never hidden (DESIGN.md §8.3): a place that
-   is not the current focus still tells you the shape of the trip. */
+   is not the current focus still tells you the shape of the trip.
+
+   STACKING (#388 → #398). MapLibre appends every marker element to one
+   container, all `position: absolute` with `z-index: auto`, so for years the
+   stacking order WAS the order the component happened to add markers in, and
+   #388 was that order being wrong: venue diamonds added after the stops stole
+   their taps. Ordering by DOM position is fragile in a way that fails
+   silently — #398 added markers whose membership depends on the CAMERA, so
+   "add them in the right slot" stopped being a thing the level build could do.
+
+   The ladder is therefore explicit, and it is the same ladder
+   `markerPaintRank` (lib/route-surface.ts) already describes: cluster badge 0
+   (lowest — it stands for the secondary diamonds), numbered stop pin 1 (the
+   trip's spine), activity chip 2 (it opens a block, so it keeps the top). A
+   badge can now be created or destroyed on any camera move and still land
+   under the stops. This is static positioning, not motion, so §10's
+   transform/opacity-only rule does not apply. */
+/* The marker element IS the marker: `new Marker({ element })` puts
+   `maplibregl-marker` on the SAME node as our own button, so these are
+   compound selectors on one element, never a parent/child pair. (Written as
+   `.maplibregl-marker .route-cluster` — descendant — the rules never match and
+   the ladder is silently dead while the stylesheet still looks correct; measured
+   `getComputedStyle(...).zIndex === 'auto'` on all three markers.)
+   The `:where()` keeps specificity at 0,1,0 so the rule cannot out-specify a
+   component's own utility classes. */
+.route-cluster:where(.maplibregl-marker),
+.route-pin-excursion:where(.maplibregl-marker) {
+  z-index: 0;
+}
+.route-pin:where(.maplibregl-marker):not(.route-pin-excursion) {
+  z-index: 1;
+}
+.route-chip:where(.maplibregl-marker) {
+  z-index: 2;
+}
+/* A cluster badge that is currently NOT representing anything (its members
+   separated) stays out of the tab order and the pointer path entirely —
+   `visibility`, not `opacity`, so it never intercepts a tap meant for a pin
+   underneath it. */
+.route-cluster[hidden] {
+  display: none;
+}
 .route-pin-dot {
   transition-property: transform, opacity;
 }
@@ -368,6 +409,28 @@ h4 {
   @apply outline-2 outline-offset-2 outline-accent;
 }
 .route-map-focused .route-pin-excursion:not(.is-selected) .route-pin-dot-excursion {
+  opacity: 0.45;
+}
+
+/* Cluster badges (#398) — colliding excursion diamonds drawn as ONE count
+   (§8.3: "the cluster shows a count, not a number range"). This closes the gap
+   v0.92.0 logged: Revelstoke's six venues sat ~4px apart, so five of six
+   lozenges could be neither tapped nor read.
+   The badge borrows the diamond's vocabulary deliberately — hollow, dashed,
+   marker-coloured, no ordinal — because it stands for diamonds. A filled
+   numbered-looking badge would read as a stop pin and put a second numbering
+   system on the map. Selection uses the same raise+ring grammar as every other
+   marker, and a selected badge carries the one member the rail picked. */
+.route-cluster.is-selected .route-cluster-badge {
+  transform: scale(1.15);
+  @apply outline-2 outline-offset-2 outline-accent;
+}
+.route-map-focused .route-cluster:not(.is-selected) .route-cluster-badge {
+  opacity: 0.45;
+}
+/* Same scroll-spy read as the diamonds: a cluster in the chapter in view stays
+   full strength, the rest recede (the badge is secondary either way). */
+.route-spy-active .route-cluster:not(.is-spy) .route-cluster-badge {
   opacity: 0.45;
 }
 
