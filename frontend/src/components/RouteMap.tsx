@@ -30,6 +30,7 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
+import { CLUSTER_PX, clusterMarkers, type PinCluster } from "../lib/marker-cluster";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { greatCircle, legModes, markerPaintRank, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
 import {
@@ -195,6 +196,16 @@ export function RouteMap({
    *  third, QUIETEST label layer: secondary names for the venues beside the
    *  numbered stops, owned by the scan build + its selection/zoom rebuilds. */
   const excursionLabelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Cluster badge bookkeeping (#398), so the selection effect can answer for a
+   *  venue that has no diamond of its own: member place name → its cluster's
+   *  key, cluster key → its badge element, and cluster key → its camera centre.
+   *  All three are set by the scan build and cleared in its teardown. */
+  const clusterMembersRef = useRef<Map<string, string>>(new Map());
+  const clusterMarkerElsRef = useRef<Map<string, HTMLElement>>(new Map());
+  const clusterCentersRef = useRef<Map<string, [number, number]>>(new Map());
+  /** Bumped whenever the cluster set changes, so the scroll-spy pass can re-run
+   *  for a badge that appeared after its own effect last fired (#398). */
+  const [clusterRevision, setClusterRevision] = useState(0);
   /** Transport sprite modes registered on the map (mount effect) — levels
    *  only add sources + layers on top. */
   const glyphModesRef = useRef<TransportMode[]>([]);
@@ -209,6 +220,9 @@ export function RouteMap({
    *  the scan build (it owns the excursion list), called by the selection
    *  effect and by camera settle. */
   const rebuildExcursionLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
+  /** Re-cluster the scan level's diamonds for the current camera (#398) —
+   *  assigned by the scan build, called by the zoomend backfill. */
+  const rebuildExcursionClustersRef = useRef<(() => void) | null>(null);
   const activeBlockRef = useRef(activeBlock);
   activeBlockRef.current = activeBlock;
 
@@ -492,6 +506,9 @@ export function RouteMap({
           if (excursionLabelMarkersRef.current.length === 0) {
             rebuildExcursionLabelsRef.current?.(selectedRef.current?.name ?? null);
           }
+          // Clustering is camera-dependent (#398): crossing the separation
+          // threshold on the way in must hand the venues back as diamonds.
+          rebuildExcursionClustersRef.current?.();
         });
         const syncOriented = () => {
           if (!map || !ref.current) return;
@@ -735,8 +752,16 @@ export function RouteMap({
      *  one pill's width from each other. A venue cluster therefore reveals its
      *  names as the traveler zooms in and a sparse trip names itself at once,
      *  with no floor constant to re-tune per trip (see `farEnoughApart`). The
-     *  tapped diamond is exempt, so a tap is always answered. */
-    const buildExcursionLabels = (byName: Map<string, TripLocation>, selectedName: string | null) => {
+     *  tapped diamond is exempt, so a tap is always answered.
+     *
+     *  Fed the diamonds the CLUSTER layer left visible, so a name never appears
+     *  for a place that is currently represented by a count badge (#398) — a
+     *  badge says "six venues here", and six labels under it would be the pile
+     *  clustering exists to prevent. */
+    const buildExcursionLabels = (
+      byName: Map<string, TripLocation>,
+      selectedName: string | null,
+    ) => {
       for (const m of excursionLabelMarkersRef.current) m.remove();
       excursionLabelMarkersRef.current = [];
       const candidates = [...byName.values()].filter((l) => l.lng != null && l.lat != null);
@@ -764,6 +789,63 @@ export function RouteMap({
             .addTo(map),
         );
       }
+    };
+
+    /** A cluster of colliding diamonds, drawn as ONE count badge (#398).
+     *
+     *  §8.3 has specified clustering since the marker system was written, and
+     *  v0.92.0 logged the gap: Revelstoke's six venues sat ~4px apart, so five
+     *  of six lozenges could not be tapped or read. A count badge is the honest
+     *  drawing — "six venues here" — and its one tap zooms in until they
+     *  separate. Same grammar as the home map's cluster (`marker-cluster.ts`),
+     *  which is where the rule now lives so the two surfaces cannot drift.
+     *
+     *  It sits at the members' screen centroid unprojected back to the map, NOT
+     *  snapped onto one member — a badge that inherits one venue's coordinates
+     *  claims that venue's identity and its day. */
+    const addClusterMarker = (cluster: PinCluster) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.tabIndex = -1;
+      el.setAttribute("aria-hidden", "true");
+      el.className = "route-cluster grid h-11 w-11 cursor-pointer place-items-center";
+      el.title = `${cluster.memberDtIds.length} places here — zoom in`;
+      el.dataset.cluster = cluster.key;
+      el.setAttribute("data-cluster-marker", cluster.key);
+      const badge = document.createElement("span");
+      // Token colours only, and a COUNT rather than a number range (§8.3).
+      // Hollow and DASHED like the diamond it stands for, so a cluster can
+      // never be read as a numbered stop — the one thing a count badge on this
+      // map must not do. `route-cluster-badge` is what the selection, dim and
+      // scroll-spy rules in index.css address.
+      badge.className =
+        "route-cluster-badge grid h-7 min-w-7 place-items-center rounded-full border-2 border-dashed border-marker bg-surface px-1.5 font-heading text-[12px] font-bold tabular-nums text-marker shadow-card transition-transform duration-120";
+      badge.textContent = String(cluster.memberDtIds.length);
+      el.appendChild(badge);
+      const at = map.unproject([cluster.x, cluster.y]);
+      const center: [number, number] = [at.lng, at.lat];
+      // Bookkeeping so the selection effect can answer for a member: the rail
+      // can select a venue that currently lives inside a badge, and the map has
+      // to say where that is (see the selection effect).
+      el.addEventListener("click", () => {
+        // Close in until the members separate, and never past the zoom where
+        // they are separate anyway (a step of 2 lands it either side; the
+        // component's own label rule takes over from there).
+        const zoom = Math.min(map.getZoom() + 2, 15);
+        const opts = { center, zoom, offset: paddingOffset(paddingRef.current) };
+        // `easeTo` takes the offset (it sets the transform's padding);
+        // `jumpTo` does not — one of the two paths would drop it, so the
+        // reduced-motion path jumps without it rather than silently differing.
+        if (prefersReducedMotion()) map.jumpTo({ center, zoom });
+        else map.easeTo({ ...opts, duration: CAMERA_MS });
+      });
+      // Registered in `markersRef` like every other marker, so the selection
+      // and scroll-spy passes iterate it too (a badge the decor passes cannot
+      // see would never dim or highlight — the whole focus story).
+      markersRef.current.set(cluster.key, el);
+      const marker = new lib.Marker({ element: el }).setLngLat(center).addTo(map);
+      markers.push(marker);
+      return marker;
     };
 
     /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
@@ -884,19 +966,113 @@ export function RouteMap({
       // landing map (`HomeMap`) and the signed-in overview feature map
       // (`OverviewPage` -> `MapView globe`). Nothing sets a projection on this
       // surface, so both levels are Mercator by construction.
-      // Paint order, lowest first: the excursion diamonds, then the numbered
-      // stops they stand on. MapLibre stacks marker elements in the order they
-      // are ADDED (all of them `position: absolute`, `z-index: auto`), so a
-      // diamond added after its pin wins the tap — the venue round added 23 of
-      // them and made the trip's own pins untappable at journey zoom (#388).
-      journeyRef.current.excursions.forEach((loc) => {
+      // Paint order, lowest first: the excursion diamonds — or, where they
+      // collide, their CLUSTER badges (#398) — then the numbered stops they
+      // stand on. MapLibre stacks marker elements in the order they are ADDED
+      // (all of them `position: absolute`, `z-index: auto`), so a diamond added
+      // after its pin wins the tap — the venue round added 23 of them and made
+      // the trip's own pins untappable at journey zoom (#388).
+      //
+      // The cluster badges are added in the SAME slot as the diamonds they
+      // replace, deliberately: #388 is a paint-order bug, and a "fix" that
+      // rebuilds clusters on camera move would append them after the stop pins
+      // and resurrect it. Clustering therefore never re-adds a marker after the
+      // level build — the camera's contribution is labels and the cluster SET
+      // is fixed per level (see `visibleExcursionNames` below).
+      const excursionByName = new Map(journeyRef.current.excursions.map((loc) => [loc.name, loc] as const));
+      const locatedExcursions = journeyRef.current.excursions.filter(
+        (l) => l.lng != null && l.lat != null,
+      );
+      // Every excursion keeps its OWN marker element for the lifetime of the
+      // build, so the DOM order that #388 depends on never changes. Clustering
+      // then decides per frame which diamonds SHOW and which are represented by
+      // a badge: a diamond is hidden while it is inside a cluster, never
+      // removed. That is what lets the cluster membership follow the camera
+      // without ever re-appending a marker (the bug that would put #388 back).
+      const excursionEls = new Map<string, HTMLElement>();
+      for (const loc of locatedExcursions) {
         const el = addPin(loc, true);
         el.addEventListener("click", () => onSelectRef.current(loc));
-      });
+        excursionEls.set(loc.name, el);
+      }
       journeyRef.current.chain.forEach((loc) => {
         const el = addPin(loc, false);
         el.addEventListener("click", () => onSelectRef.current(loc));
       });
+
+      /** Badge elements, reused across frames and keyed by membership. A badge
+       *  that already exists is only REPOSITIONED — never re-added — so the
+       *  stacking ladder (index.css) and the #388 order both hold. */
+      const badgePool = new Map<string, { marker: MapLibreMarker; el: HTMLElement }>();
+      /** The diamonds the cluster layer leaves visible — the label layer's
+       *  candidates. A clustered venue is represented by a count, so naming it
+       *  would reintroduce exactly the pile the badge replaced. */
+      let visibleExcursionNames = new Set<string>();
+
+      const syncExcursionClusters = () => {
+        const grouped = clusterMarkers(
+          locatedExcursions.map((l) => {
+            const pt = map.project([l.lng!, l.lat!]);
+            return { dtId: l.name, x: pt.x, y: pt.y };
+          }),
+          CLUSTER_PX,
+        );
+        visibleExcursionNames = new Set<string>();
+        const liveKeys = new Set<string>();
+        for (const item of grouped) {
+          if (item.kind === "pin") {
+            visibleExcursionNames.add(item.pin.dtId);
+            continue;
+          }
+          const { cluster } = item;
+          liveKeys.add(cluster.key);
+          let entry = badgePool.get(cluster.key);
+          if (!entry) {
+            const marker = addClusterMarker(cluster);
+            if (!marker) continue;
+            entry = { marker, el: marker.getElement() };
+            badgePool.set(cluster.key, entry);
+          } else {
+            // Reposition an existing badge: the count and title can change when
+            // the membership changes, the element identity may not.
+            entry.el.querySelector(".route-cluster-badge")!.textContent = String(cluster.memberDtIds.length);
+            entry.el.title = `${cluster.memberDtIds.length} places here — zoom in`;
+            entry.el.dataset.cluster = cluster.key;
+            const at = map.unproject([cluster.x, cluster.y]);
+            entry.marker.setLngLat([at.lng, at.lat]);
+          }
+          entry.el.removeAttribute("hidden");
+          for (const member of cluster.memberDtIds) {
+            excursionEls.get(member)?.setAttribute("hidden", "");
+            clusterMembersRef.current.set(member, cluster.key);
+          }
+        }
+        // Retire badges whose membership no longer exists (their venues split).
+        for (const [key, entry] of badgePool) {
+          if (liveKeys.has(key)) continue;
+          entry.marker.remove();
+          badgePool.delete(key);
+        }
+        // Re-show every diamond that is not currently inside a badge.
+        for (const [name, el] of excursionEls) {
+          if (visibleExcursionNames.has(name)) el.removeAttribute("hidden");
+          else el.setAttribute("hidden", "");
+        }
+        clusterCentersRef.current.clear();
+        for (const [key, entry] of badgePool) {
+          const at = entry.marker.getLngLat();
+          clusterCentersRef.current.set(key, [at.lng, at.lat]);
+        }
+        clusterMarkerElsRef.current.clear();
+        for (const [key, entry] of badgePool) clusterMarkerElsRef.current.set(key, entry.el);
+        // A badge created here has never seen the scroll-spy pass, so it would
+        // sit dimmed at 0.45 while the very pins it stands for are full
+        // strength. Measured: all five of Revelstoke's venues `is-spy`, the badge
+        // covering them not. Re-run the pass whenever the set changes.
+        setClusterRevision((n) => n + 1);
+      };
+      syncExcursionClusters();
+      rebuildExcursionClustersRef.current = syncExcursionClusters;
       const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
       buildLabels(scanByName, selectedRef.current?.name ?? null);
       rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
@@ -905,17 +1081,28 @@ export function RouteMap({
        * `journey.excursions`, which is by construction the complement of
        * `chain` (never a numbered stop — see `tripExcursions`), so this layer
        * can never double-label a pin or claim an ordinal. Same quiet
-       * discipline as the place labels above and the settle-rebuild below. */
-      const scanExcursions = new Map(journeyRef.current.excursions.map((loc) => [loc.name, loc] as const));
-      buildExcursionLabels(scanExcursions, selectedRef.current?.name ?? null);
-      rebuildExcursionLabelsRef.current = (sel) => buildExcursionLabels(scanExcursions, sel);
+       * discipline as the place labels above and the settle-rebuild below.
+       * Fed only the UNCLUSTERED diamonds (#398), for the reason on
+       * `visibleExcursionNames`. */
+      const currentExcursionLabels = () =>
+        new Map(
+          [...visibleExcursionNames]
+            .map((name) => excursionByName.get(name))
+            .filter((l): l is TripLocation => l != null)
+            .map((loc) => [loc.name, loc] as const),
+        );
+      buildExcursionLabels(currentExcursionLabels(), selectedRef.current?.name ?? null);
+      rebuildExcursionLabelsRef.current = (sel) => buildExcursionLabels(currentExcursionLabels(), sel);
       // #361 slice 2: the unselected overview names its places without a
       // tap — rebuild the capped layer every time the camera settles
       // (selected-first with a selection, top-8 chain stops without one).
       // The day level keeps its focus-driven behaviour: no settle rebuild.
       const onSettle = () => {
+        syncExcursionClusters();
         buildLabels(scanByName, selectedRef.current?.name ?? null);
-        buildExcursionLabels(scanExcursions, selectedRef.current?.name ?? null);
+        // The candidate set is whatever survived clustering THIS frame, so the
+        // label layer cannot name a venue that is currently a count badge.
+        buildExcursionLabels(currentExcursionLabels(), selectedRef.current?.name ?? null);
       };
       map.on("moveend", onSettle);
       settleDetach = () => {
@@ -1159,9 +1346,13 @@ export function RouteMap({
       chipLabelMarkersRef.current = [];
       for (const m of excursionLabelMarkersRef.current) m.remove();
       excursionLabelMarkersRef.current = [];
+      clusterMembersRef.current.clear();
+      clusterMarkerElsRef.current.clear();
+      clusterCentersRef.current.clear();
       rebuildLabelsRef.current = null;
       rebuildChipLabelsRef.current = null;
       rebuildExcursionLabelsRef.current = null;
+      rebuildExcursionClustersRef.current = null;
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -1184,6 +1375,31 @@ export function RouteMap({
       markersRef.current.forEach((el, name) => {
         el.classList.toggle("is-selected", selected?.name === name);
       });
+      // A clustered venue has no diamond of its own, but the RAIL can still
+      // select it (a venue lives in a day card, so the itinerary can name it
+      // from there). Mark the badge that CONTAINS the selection and pull the
+      // camera to it, so the map still answers WHERE the traveler picked.
+      // Without this the selection is invisible on the map: the sheet says
+      // "Day 3 is highlighted below" while no marker on the map is it.
+      const clusterKey = clusterMembersRef.current.get(selected?.name ?? "");
+      for (const [key, el] of clusterMarkerElsRef.current) {
+        el.classList.toggle("is-selected", key === clusterKey);
+      }
+      if (clusterKey != null) {
+        const center = clusterCentersRef.current.get(clusterKey);
+        const map = mapRef.current;
+        if (center && map) {
+          const zoom = Math.max(map.getZoom(), 13);
+          if (prefersReducedMotion()) map.jumpTo({ center, zoom });
+          else
+            map.easeTo({
+              center,
+              zoom,
+              offset: paddingOffset(paddingRef.current),
+              duration: CAMERA_MS,
+            });
+        }
+      }
       // The selected pin's label always wins — rebuild the capped layer
       // around the new selection (pins themselves only change classes).
       rebuildLabelsRef.current?.(selected?.name ?? null);
@@ -1191,6 +1407,9 @@ export function RouteMap({
       // clicking them" half of the ask. `farEnoughApart` exempts the selected
       // name from the separation test, so a tap is always answered; a selected
       // chain stop is not in this layer's list at all and leaves it untouched.
+      // Re-cluster first: a selection can change what is a badge (a selected
+      // member always gets its own diamond back), and the label layer must
+      // agree with the markers.
       rebuildExcursionLabelsRef.current?.(selected?.name ?? null);
     } else {
       container.classList.toggle("route-map-focused", !!activeBlock);
@@ -1226,13 +1445,29 @@ export function RouteMap({
     }
     const spy = new Set(spyPlaces);
     container.classList.add("route-spy-active");
-    // `.is-spy` = "this pin belongs to the chapter in view" — the CSS dims
-    // `.route-pin:not(.is-spy)` (everything outside the chapter). Getting this
-    // backwards dims the chapter itself and leaves the rest bright (#92).
+    // Cluster badges (#398) key their membership as cluster key → members, so a
+    // badge counts as in-view when ANY of its venues is in the chapter. Without
+    // this a badge's key (its members joined by "+") never matches a place name
+    // and every badge dims with the out-of-chapter markers.
+    const membersByCluster = new Map<string, Set<string>>();
+    for (const [member, key] of clusterMembersRef.current) {
+      const set = membersByCluster.get(key) ?? new Set<string>();
+      set.add(member);
+      membersByCluster.set(key, set);
+    }
     markersRef.current.forEach((el, name) => {
-      el.classList.toggle("is-spy", spy.has(name));
+      // `.is-spy` = "this pin belongs to the chapter in view" — the CSS dims
+      // `.route-pin:not(.is-spy)` (everything outside the chapter). Getting this
+      // backwards dims the chapter itself and leaves the rest bright (#92).
+      const members = membersByCluster.get(name);
+      const inSpy = spy.has(name) || (members != null && [...members].some((m) => spy.has(m)));
+      el.classList.toggle("is-spy", inSpy);
     });
-  }, [spyPlaces, selected, isDay, ready]);
+    // `clusterRevision` is in the deps because cluster membership is derived
+    // from the CAMERA (#398): a camera move can create a badge with no
+    // spy/selection change to trigger this effect, and that badge needs the
+    // same `is-spy` decoration the pins it stands for already have.
+  }, [spyPlaces, selected, isDay, ready, clusterRevision]);
 
   /* ------------------------------------------------------------------ */
   /* The traveler's own position (#383): the dot, its accuracy halo, and */
