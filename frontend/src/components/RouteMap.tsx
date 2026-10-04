@@ -5,15 +5,19 @@ import { Locate, LocateFixed, Maximize2, X } from "lucide-react";
 import { useTrip } from "./theme";
 import {
   applyBasemapTint,
+  EXCURSION_LABEL_DIAMOND_OFFSET_PX,
+  farEnoughApart,
   fetchRouteLegs,
   formatMapLabel,
   hasWebGL2,
   makeMapChipLabelElement,
+  makeMapExcursionLabelElement,
   makeMapLabelElement,
   MAP_LABEL_PIN_OFFSET_PX,
   MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
   markerPinClass,
+  orderExcursionLabels,
   pinScaleAtZoom,
   prefersReducedMotion,
   resolveMapStyle,
@@ -187,6 +191,10 @@ export function RouteMap({
   /** Day-level chip label markers (#361 slice 6) — a separate layer from the
    *  place labels above, owned by the day build + the chip-focus rebuild. */
   const chipLabelMarkersRef = useRef<MapLibreMarker[]>([]);
+  /** Excursion (diamond) label markers (#388 follow-up) — the scan level's
+   *  third, QUIETEST label layer: secondary names for the venues beside the
+   *  numbered stops, owned by the scan build + its selection/zoom rebuilds. */
+  const excursionLabelMarkersRef = useRef<MapLibreMarker[]>([]);
   /** Transport sprite modes registered on the map (mount effect) — levels
    *  only add sources + layers on top. */
   const glyphModesRef = useRef<TransportMode[]>([]);
@@ -197,6 +205,10 @@ export function RouteMap({
    *  the day build (it owns the chip list), called by the chip-focus effect
    *  so the focused chip's label always wins without rebuilding the level. */
   const rebuildChipLabelsRef = useRef<((active: string | null) => void) | null>(null);
+  /** Same seam for the scan level's excursion (diamond) labels — assigned by
+   *  the scan build (it owns the excursion list), called by the selection
+   *  effect and by camera settle. */
+  const rebuildExcursionLabelsRef = useRef<((selectedName: string | null) => void) | null>(null);
   const activeBlockRef = useRef(activeBlock);
   activeBlockRef.current = activeBlock;
 
@@ -457,16 +469,28 @@ export function RouteMap({
           const z = map.getZoom() ?? 0;
           ref.current.style.setProperty("--pin-scale", String(pinScaleAtZoom(z)));
           ref.current.classList.toggle("map-labels-off", z < MAP_LABEL_ZOOM_FLOOR);
+          // The DOM contract for the session, same idea as `data-device-location`
+          // below: the live zoom has no DOM representation of its own. Publishing
+          // it lets a probe assert a camera-dependent claim as a measured fact
+          // instead of a guess — and it is how the excursion label layer's own
+          // display curve (#388 follow-up) gets sampled zoom by zoom.
+          ref.current.dataset.mapZoom = z.toFixed(2);
           syncHalo();
         };
         map.on("zoom", syncZoom);
         syncZoom();
         // Zoomed in from below the floor with no labels built: build them now
         // (either layer — a chip-only day leaves the place layer empty).
+        // The excursion layer (#388 follow-up) joins the check because its own
+        // gate is camera-dependent too: closing on a venue cluster must reveal
+        // its names without needing a selection change to nudge them.
         map.on("zoomend", () => {
           if (labelMarkersRef.current.length === 0 && chipLabelMarkersRef.current.length === 0) {
             rebuildLabelsRef.current?.(selectedRef.current?.name ?? null);
             rebuildChipLabelsRef.current?.(activeBlockRef.current);
+          }
+          if (excursionLabelMarkersRef.current.length === 0) {
+            rebuildExcursionLabelsRef.current?.(selectedRef.current?.name ?? null);
           }
         });
         const syncOriented = () => {
@@ -703,6 +727,45 @@ export function RouteMap({
       }
     };
 
+    /** Excursion (diamond) labels (#388 follow-up): the scan level's quietest
+     *  label layer — venue names beside the numbered stops.
+     *
+     *  The display rule is MEASURED, not zoomed: `map.project` puts each
+     *  candidate on screen and `farEnoughApart` keeps only the names that clear
+     *  one pill's width from each other. A venue cluster therefore reveals its
+     *  names as the traveler zooms in and a sparse trip names itself at once,
+     *  with no floor constant to re-tune per trip (see `farEnoughApart`). The
+     *  tapped diamond is exempt, so a tap is always answered. */
+    const buildExcursionLabels = (byName: Map<string, TripLocation>, selectedName: string | null) => {
+      for (const m of excursionLabelMarkersRef.current) m.remove();
+      excursionLabelMarkersRef.current = [];
+      const candidates = [...byName.values()].filter((l) => l.lng != null && l.lat != null);
+      if (!candidates.length) return;
+      const ordered = orderExcursionLabels(candidates.map((l) => l.name), selectedName);
+      if (!ordered.length) return;
+      const points = ordered.map((name) => {
+        const loc = byName.get(name)!;
+        const p = map.project([loc.lng!, loc.lat!]);
+        return [p.x, p.y] as [number, number];
+      });
+      const shown = farEnoughApart(ordered, points, selectedName);
+      for (const name of shown) {
+        const loc = byName.get(name);
+        if (!loc || loc.lng == null || loc.lat == null) continue;
+        const el = makeMapExcursionLabelElement(loc.name);
+        if (name === selectedName) el.classList.add("is-selected");
+        excursionLabelMarkersRef.current.push(
+          new lib.Marker({
+            element: el,
+            anchor: "top",
+            offset: [0, EXCURSION_LABEL_DIAMOND_OFFSET_PX] as [number, number],
+          })
+            .setLngLat([loc.lng, loc.lat])
+            .addTo(map),
+        );
+      }
+    };
+
     /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
      *  above the route, below the basemap's labels. Glyph-less legs
      *  contribute nothing; a level with no declared modes draws no layer. */
@@ -837,11 +900,23 @@ export function RouteMap({
       const scanByName = new Map(journeyRef.current.chain.map((loc) => [loc.name, loc] as const));
       buildLabels(scanByName, selectedRef.current?.name ?? null);
       rebuildLabelsRef.current = (sel) => buildLabels(scanByName, sel);
+      /* Excursion labels (#388 follow-up): the diamonds name themselves, so
+       * the itinerary is readable without tapping every lozenge. Built from
+       * `journey.excursions`, which is by construction the complement of
+       * `chain` (never a numbered stop — see `tripExcursions`), so this layer
+       * can never double-label a pin or claim an ordinal. Same quiet
+       * discipline as the place labels above and the settle-rebuild below. */
+      const scanExcursions = new Map(journeyRef.current.excursions.map((loc) => [loc.name, loc] as const));
+      buildExcursionLabels(scanExcursions, selectedRef.current?.name ?? null);
+      rebuildExcursionLabelsRef.current = (sel) => buildExcursionLabels(scanExcursions, sel);
       // #361 slice 2: the unselected overview names its places without a
       // tap — rebuild the capped layer every time the camera settles
       // (selected-first with a selection, top-8 chain stops without one).
       // The day level keeps its focus-driven behaviour: no settle rebuild.
-      const onSettle = () => buildLabels(scanByName, selectedRef.current?.name ?? null);
+      const onSettle = () => {
+        buildLabels(scanByName, selectedRef.current?.name ?? null);
+        buildExcursionLabels(scanExcursions, selectedRef.current?.name ?? null);
+      };
       map.on("moveend", onSettle);
       settleDetach = () => {
         map.off("moveend", onSettle);
@@ -1082,8 +1157,11 @@ export function RouteMap({
       labelMarkersRef.current = [];
       for (const m of chipLabelMarkersRef.current) m.remove();
       chipLabelMarkersRef.current = [];
+      for (const m of excursionLabelMarkersRef.current) m.remove();
+      excursionLabelMarkersRef.current = [];
       rebuildLabelsRef.current = null;
       rebuildChipLabelsRef.current = null;
+      rebuildExcursionLabelsRef.current = null;
       for (const id of [...addedLayers].reverse()) {
         if (map.getLayer(id)) map.removeLayer(id);
       }
@@ -1109,6 +1187,11 @@ export function RouteMap({
       // The selected pin's label always wins — rebuild the capped layer
       // around the new selection (pins themselves only change classes).
       rebuildLabelsRef.current?.(selected?.name ?? null);
+      // …and so does a selected DIAMOND's label (#388 follow-up) — the "or
+      // clicking them" half of the ask. `farEnoughApart` exempts the selected
+      // name from the separation test, so a tap is always answered; a selected
+      // chain stop is not in this layer's list at all and leaves it untouched.
+      rebuildExcursionLabelsRef.current?.(selected?.name ?? null);
     } else {
       container.classList.toggle("route-map-focused", !!activeBlock);
       markersRef.current.forEach((el, id) => {

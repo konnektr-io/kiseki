@@ -522,6 +522,21 @@ h4 {
 .map-place-label .map-chip-letter {
   @apply grid h-5 w-5 shrink-0 place-items-center rounded bg-marker font-heading text-[11px] font-semibold leading-none text-marker-fg;
 }
+/* Excursion labels (#388 follow-up, Niko 2026-10-03): the diamonds finally say
+ * what they are, WITHOUT competing with the numbered stops. The numbered
+ * place labels are the map's spine (cap 8, full-strength foreground, accent
+ * ring when selected) and must stay that way — so this layer is deliberately
+ * quieter on every axis at once: muted foreground, no fill weight, a smaller
+ * hollow diamond glyph in place of an ordinal, and the accent ring reserved
+ * for the one diamond the traveler actually tapped. It reads as "beside the
+ * route", never as a second index. `is-selected` is the same class the place
+ * labels use, so the one place it means "you chose this" needs no new state. */
+.map-place-label.is-excursion {
+  @apply inline-flex items-center gap-1.5 border-dashed px-1.5 text-[10px] font-medium text-muted-foreground;
+}
+.map-place-label .map-excursion-glyph {
+  @apply inline-block h-2 w-2 shrink-0 rotate-45 rounded-[1.5px] border border-marker;
+}
 .map-labels-off .map-place-label {
   display: none;
 }
