@@ -179,9 +179,6 @@ READ = """() => {
     spineVisible: spine.filter(vis).length,
     spineTotal: spine.length,
     spineOutsideBox: outside(spine),
-<<<<<<< HEAD
-    diamonds: document.querySelectorAll('.route-pin-excursion').length,
-=======
     // Only SHOWN diamonds: one inside a badge is `hidden` (display:none — out
     // of the pointer path too) and is represented by that badge's count.
     diamonds: [...document.querySelectorAll('.route-pin-excursion')].filter(vis).length,
@@ -199,7 +196,6 @@ READ = """() => {
       })),
     clusterTotal: [...document.querySelectorAll('.route-cluster')]
       .reduce((sum, el) => sum + Number((el.querySelector('.route-cluster-badge') || {}).textContent || 0), 0),
->>>>>>> feat/398-excursion-clustering
     pairs,
     labelsOutsideBox: outside(labels),
     labelsInStrip: b
@@ -282,11 +278,6 @@ def run():
         # so a fixed settle read it too early and reported "0 diamonds" — a
         # flake that reads exactly like the feature being absent. The marker DOM
         # is the honest readiness signal.
-<<<<<<< HEAD
-        page.wait_for_selector(".route-pin", timeout=30000)
-        page.wait_for_timeout(4000)
-        wide = page.evaluate(READ)
-=======
         page.wait_for_selector(".route-pin:not([hidden])", timeout=30000)
         page.wait_for_timeout(4000)
         wide = page.evaluate(READ)
@@ -343,20 +334,10 @@ def run():
                     f"the scroll-spy is active (is-spy={badge_style['isSpy']}) — a badge "
                     "standing for venues in view must stay full strength"
                 )
->>>>>>> feat/398-excursion-clustering
         log(f"   zoom {wide['zoom']}: {wide['diamonds']} diamonds, "
             f"{len(wide['excursion'])} venue labels, {wide['spineVisible']} numbered labels")
         page.screenshot(path=str(out / "1-journey.png"))
 
-<<<<<<< HEAD
-        log(f"→ tap the '{TAP}' diamond at that zoom")
-        tapped = page.evaluate(
-            """(name) => {
-              const el = document.querySelector('.route-pin-excursion[data-place="' + name + '"]');
-              if (!el) return false;
-              el.click();
-              return true;
-=======
         log(f"→ tap the '{TAP}' cluster badge (#398: diamonds now cluster)")
         tapped = page.evaluate(
             """(name) => {
@@ -367,20 +348,14 @@ def run():
               const pin = document.querySelector('.route-pin-excursion[data-place="' + name + '"]');
               if (pin) { pin.click(); return 'diamond'; }
               return false;
->>>>>>> feat/398-excursion-clustering
             }""",
             TAP,
         )
         page.wait_for_timeout(2500)
         after_tap = page.evaluate(READ)
         log(f"   zoom {after_tap['zoom']}: labels {after_tap['excursion']}, "
-<<<<<<< HEAD
-            f"selected {after_tap['selectedExcursion']}")
-        page.screenshot(path=str(out / "2-tapped-diamond.png"))
-=======
             f"selected {after_tap['selectedExcursion']}, clusters {after_tap['clusters']}")
         page.screenshot(path=str(out / "2-tapped-cluster.png"))
->>>>>>> feat/398-excursion-clustering
 
         log("→ zoom in until the town separates")
         # The map's OWN zoom-in control, not a synthetic gesture: the control is
@@ -390,12 +365,9 @@ def run():
         # MapLibre binds zoom keys to the canvas, and the tap had already moved
         # focus to the tapped marker.)
         seen = {zoom_snap["zoom"]: len(zoom_snap["excursion"]) for zoom_snap in (after_tap,)}
-<<<<<<< HEAD
-=======
         # How many venues the badges hold at each camera: zooming in must SHRINK
         # this (the cluster unfolds) while the represented total stays constant.
         cluster_curve = {wide["zoom"]: wide["clusterTotal"], after_tap["zoom"]: after_tap["clusterTotal"]}
->>>>>>> feat/398-excursion-clustering
         # z15 is where a 1.05 km cluster resolves four pills (measured: z13 leaves
         # it at 88px, one short of the 92px a pill needs). Zoom from wherever the
         # tap left the camera, so the count is sampled along a real approach.
@@ -404,10 +376,7 @@ def run():
             page.wait_for_timeout(700)
             snap = page.evaluate(READ)
             seen[snap["zoom"]] = len(snap["excursion"])
-<<<<<<< HEAD
-=======
             cluster_curve[snap["zoom"]] = snap["clusterTotal"]
->>>>>>> feat/398-excursion-clustering
             if snap["zoom"] >= 15:
                 break
         page.wait_for_timeout(2500)
@@ -441,11 +410,6 @@ def run():
             f"{zoomed['spineVisible']} numbered labels")
         page.screenshot(path=str(out / "3-zoomed-in.png"))
 
-<<<<<<< HEAD
-        log("→ day level (must NOT inherit the excursion label layer)")
-        page.goto(f"{base}/t/{TRIP_ID}/day/0", wait_until="load")
-        page.wait_for_selector(".route-pin", timeout=30000)
-=======
         log("→ #388 regression: the stacking LADDER (badge under the stops)")
         # Zoom back out so the badge is whole again — a check that runs after the
         # cluster has unfolded finds nothing and asserts nothing, which is worse
@@ -526,7 +490,6 @@ def run():
         log("→ day level (must NOT inherit the excursion label layer)")
         page.goto(f"{base}/t/{TRIP_ID}/day/0", wait_until="load")
         page.wait_for_selector(".route-pin:not([hidden]), .route-chip", timeout=30000)
->>>>>>> feat/398-excursion-clustering
         page.wait_for_timeout(3500)
         day_level = page.evaluate(READ)
         chips = page.evaluate("() => document.querySelectorAll('.route-chip').length")
@@ -543,23 +506,17 @@ def run():
     curve = dict(sorted(seen.items(), reverse=True))
     peak = max(curve.values()) if curve else 0
 
-<<<<<<< HEAD
-=======
     # Computed here because the log block below reports it: how many venues the
     # map represents in total, as diamonds plus badge members.
     represented_wide = wide["diamonds"] + wide["clusterTotal"]
 
->>>>>>> feat/398-excursion-clustering
     log(f"\nlabel count by zoom (camera → names): {curve}")
     log(f"zooms measured (wide / tap / zoomed): "
         f"{wide['zoom']} / {after_tap['zoom']} / {zoomed['zoom']}")
     log(f"excursion diamonds in DOM            : {wide['diamonds']}")
-<<<<<<< HEAD
-=======
     log(f"cluster badges at journey zoom       : {wide['clusters'] or 'none'}")
     log(f"venues represented (diamonds+badges) : {represented_wide}/{len(VENUES)}")
     log(f"cluster count curve (zoom → badges)  : {cluster_curve}")
->>>>>>> feat/398-excursion-clustering
     log(f"venue labels at journey zoom         : {wide['excursion'] or 'none'}")
     log(f"venue labels after tapping a diamond : {after_tap['excursion'] or 'none'}")
     log(f"venue labels after zooming in        : {zoomed['excursion'] or 'none'}")
@@ -571,11 +528,6 @@ def run():
     log(f"page errors                          : {errors[:3] or 'none'}")
     log(f"shots: {out}")
 
-<<<<<<< HEAD
-    # 1. The diamonds must EXIST, or there is nothing to label.
-    if wide["diamonds"] < len(VENUES):
-        failures.append(f"expected {len(VENUES)} excursion diamonds, found {wide['diamonds']}")
-=======
     # 1. CONSERVATION. Every venue must still be REPRESENTED — as its own
     #    diamond or inside a badge. Counting only diamonds would pass a build
     #    that clustered the entire town into one badge and made four venues
@@ -602,7 +554,6 @@ def run():
             failures.append(f"badge title looks like a RANGE: {c['title']!r}")
         if TAP not in c["members"] and len(c["members"]) != len(VENUES):
             failures.append(f"badge membership {c['members']} does not contain {TAP}")
->>>>>>> feat/398-excursion-clustering
 
     # 2. THE MEASURED GATE. Two diamonds may be labelled together only if their
     #    pills clear each other, so assert the invariant directly from the DOM
@@ -617,16 +568,6 @@ def run():
             failures.append(f"{label} view: {len(near)} venue label pair(s) overlap "
                             f"(closer than {MIN_SEPARATION_PX}px): {near[:2]}")
 
-<<<<<<< HEAD
-    # 3. Tapping a diamond names it — whatever the separation rule decided.
-    if not tapped:
-        failures.append(f"could not tap the '{TAP}' diamond")
-    elif TAP not in after_tap["excursion"]:
-        failures.append(f"the tapped diamond is not labelled although it was "
-                        f"tapped (got {after_tap['excursion']})")
-    elif TAP not in after_tap["selectedExcursion"]:
-        failures.append("the tapped diamond's label is not marked selected")
-=======
     # 3. THE TAP. A badge's one honest action is to ZOOM IN until its members
     #    separate — it must not pretend to select one of the venues it stands
     #    for. A lone diamond still selects and labels its venue. Either is
@@ -664,7 +605,6 @@ def run():
             f"{dict(sorted(cluster_curve.items(), reverse=True))}) — the badge does not "
             "give its venues back"
         )
->>>>>>> feat/398-excursion-clustering
 
     # 4. Zooming in REVEALS more names, with no tap involved: the gate is
     #    screen separation, so the count can only rise as the camera closes on
