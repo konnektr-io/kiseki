@@ -409,6 +409,30 @@ def main() -> int:
                 )
             except Exception:
                 pass
+            # Wait for the SYMBOL tiles, not just the source: `isSourceLoaded` is
+            # about the tiles already requested, and on a tree where a sibling has
+            # since changed what the map renders, the label tiles are still in
+            # flight when it goes true. A fixed settle then queries an empty
+            # symbol set. Poll the rendered count until it stops being zero or the
+            # budget runs out, which distinguishes "not loaded yet" from "will
+            # never draw" — the two look identical in a single sample.
+            if z >= 13:
+                try:
+                    page.wait_for_function(
+                        """() => {
+                          const m = window.__mapRef;
+                          if (!m || m.isMoving()) return false;
+                          const ids = ['outdoor-lift-glyphs','outdoor-piste-labels',
+                                       'outdoor-trail-labels','outdoor-lift-labels'];
+                          return ids.some(i => {
+                            try { return m.queryRenderedFeatures({ layers: [i] }).length > 0; }
+                            catch (e) { return false; }
+                          });
+                        }""",
+                        timeout=20_000,
+                    )
+                except Exception:
+                    pass  # genuinely empty — the assertion below will say so
             page.wait_for_timeout(3_000)  # let the symbol tiles settle
             zoom_gate[z] = page.evaluate(
                 """() => {
@@ -424,6 +448,17 @@ def main() -> int:
                     catch (e) { out[id] = 'err:' + e.message; }
                   }
                   out.__zoom = Math.round(m.getZoom() * 100) / 100;
+                  // Applied layout, not intent: on a rebased/merged tree a sibling
+                  // may have changed how layers are added, and "the spec says X"
+                  // stops being evidence that X is what the map is running.
+                  try {
+                    const gl = (m.getStyle().layers ?? []).find(x => x.id === 'outdoor-lift-glyphs');
+                    out.__glyphSpacing = gl?.layout?.['symbol-spacing'] ?? 'no-layer';
+                    out.__glyphPlacement = gl?.layout?.['symbol-placement'] ?? 'no-layer';
+                    const pl = (m.getStyle().layers ?? []).find(x => x.id === 'outdoor-piste-labels');
+                    out.__pisteSpacing = pl?.layout?.['symbol-spacing'] ?? 'no-layer';
+                    out.__pisteMinzoom = pl?.minzoom ?? 'no-layer';
+                  } catch (e) { out.__styleErr = String(e.message || e); }
                   out.__srcLoaded = !!m.getSource('kiseki-outdoor') && m.isSourceLoaded('kiseki-outdoor');
                   // Distinguish "no lift features in the tiles" from "the sprites
                   // are missing" — both look identical from the render count alone,
@@ -599,7 +634,8 @@ def main() -> int:
                 f"@ z{z} (actual zoom {e.get('__zoom')}, source loaded {e.get('__srcLoaded')}): "
                 + ", ".join(f"{k.replace('outdoor-','')}={e.get(k)}" for k in LABEL_LAYERS)
             )
-            for k in ("__sprites", "__liftFeaturesInTiles", "__diagErr"):
+            for k in ("__sprites", "__liftFeaturesInTiles", "__glyphSpacing", "__glyphPlacement",
+                     "__pisteSpacing", "__pisteMinzoom", "__styleErr", "__diagErr"):
                 if e.get(k) is not None:
                     notes.append(f"    {k} = {str(e[k])[:230]}")
     if n11 is None or n14 is None:
