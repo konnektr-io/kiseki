@@ -690,33 +690,27 @@ idea.** Formalize it:
   they read identically at any size. Excursion diamonds ride the same variable (20px → ~16px).
   **Hit target stays 44px** (transparent padding) at every zoom.
 - Selected: scale 1.15 + accent ring. Non-focused day: 45% opacity, never hidden.
-- **Colliding markers cluster into one count** (2026-10, #398): the cluster shows a **count, not a
-  number range**, drawn in the vocabulary of the markers it stands for — the excursion cluster is
-  hollow and dashed like a diamond, because a filled numbered-looking badge would read as a stop pin
-  and put a second numbering system on the map. A badge's one honest action is to **zoom in** until
-  its members separate; it never selects one of the places it represents. The radius is the marker's
-  own 44px hit target (`CLUSTER_PX` in `lib/marker-cluster.ts`), so the rule is one sentence at both
-  ends: markers a thumb cannot separate cluster. The rule is shared with the signed-in home, which
-  has clustered since #249 — one cartographic rule, one home.
-- **A cluster too wide to badge is not drawn at all** (2026-10-04, #403): a badge is painted at its
-  members' centroid, so it is only honest while those members are close enough, *on this screen*,
-  for the middle of them to mean "here". When they are not, the centroid is the middle of nowhere
-  and a badge there confidently misplaces every place it counts. The gate is the members' own
-  on-screen spread against the radius that formed them (`clusterIsHonest`), so it needs no magic
-  zoom: a cluster drawn where it belongs at z6 reappears unchanged at z9. Suppressing the badge
-  **releases its members**, which is the point — a cluster too wide to badge is one whose venues
-  are further apart than the radius, so each has room to sit where it truly is. The badge is what
-  gets dropped, never the places. *Measured on the Chili+Peru trip:* Lima's nine venues span 1px at
-  journey zoom and keep their badge; the Cusco/Sacred-Valley group's 21 venues reach 78px and give
-  theirs up, restoring 21 individual diamonds.
-  **Stacking is an explicit ladder, not DOM order** (#388 → #398). MapLibre appends every marker to
+- **Excursion markers do NOT cluster** (2026-10-04, #412, superseding #398). A diamond is drawn at
+  **its own coordinates**, always; a diamond with no room — within one 44px hit target of another
+  diamond or a numbered stop — is **hidden** until the camera separates them. Measured separation,
+  not a zoom floor, so the rule is identical on the globe, at any container size, and for a trip
+  dense in one city and sparse across a continent. The numbered stop pins are never gated: the
+  spine of the trip always draws.
+  **Why #398 was withdrawn.** The count badge was drawn at its members' centroid and then nudged
+  clear of a numbered pin by up to **44 screen pixels** (#402), unprojected back to a coordinate. At
+  journey zoom a pixel is not a pixel: 44px is **385 km at z3.13**, 105 km at z5, 26 km at z7. Lima's
+  badge — drawn *for* Lima — therefore sat further from Lima than Lima is from Ica. Niko saw exactly
+  that on Chili+Peru and was right to want the mechanism gone. The lesson is the general one: **a
+  screen-space offset is a geographic displacement**, so never use one to place a marker that claims
+  to represent a place.
+  **Stacking is an explicit ladder, not DOM order** (#388 → #412). MapLibre appends every marker to
   one container, all `position: absolute` with `z-index: auto`, so for years the stacking order *was*
-  the order the component happened to add markers in, and #388 was that order being wrong. Clustering
-  makes membership camera-dependent, so a badge must be created and destroyed as the traveler zooms
-  and "add it in the right slot" stops being something the build can do. The ladder is CSS now —
-  cluster/diamond `0` < numbered stop `1` < activity chip `2`, matching `markerPaintRank`. A diamond
-  inside a badge is `hidden` (display:none, so it leaves the pointer path too) rather than removed,
-  which keeps the marker list — and therefore the tap order — stable across camera moves.
+  the order the component happened to add markers in, and #388 was that order being wrong. Which
+  excursion diamonds are visible depends on the camera, so "add it in the right slot" is not
+  something the level build can do. The ladder is CSS now — excursion diamond `0` < numbered stop
+  `1` < activity chip `2`, matching `markerPaintRank`. A crowded diamond is `hidden`
+  (`display: none`, so it leaves the pointer path too) rather than removed, which keeps the marker
+  list — and therefore the tap order — stable across camera moves.
 - **On-map labels** (2026-09, #357): numbered pills (`3 · Healesville`) below their pins, in the
   trip's own vocabulary — `bg-surface/90` + `text-foreground` + the §2.4 floating recipe,
   `font-heading` — so the label and the pin can never read as two places. The pill anchors
