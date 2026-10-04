@@ -691,11 +691,20 @@ idea.** Formalize it:
   **Hit target stays 44px** (transparent padding) at every zoom.
 - Selected: scale 1.15 + accent ring. Non-focused day: 45% opacity, never hidden.
 - **Excursion markers do NOT cluster** (2026-10-04, #412, superseding #398). A diamond is drawn at
-  **its own coordinates**, always; a diamond with no room — within one 44px hit target of another
-  diamond or a numbered stop — is **hidden** until the camera separates them. Measured separation,
-  not a zoom floor, so the rule is identical on the globe, at any container size, and for a trip
-  dense in one city and sparse across a continent. The numbered stop pins are never gated: the
-  spine of the trip always draws.
+  **its own coordinates**, always — never at a centroid, never nudged clear of anything.
+  The numbered stop pins are never gated: the spine of the trip always draws.
+- **Diamonds appear from `EXCURSION_DIAMOND_MIN_ZOOM` (z9)** (2026-10-04, #413, superseding #412's
+  separation test). Below it the itinerary map stays a clean route-and-spine overview; from it the
+  whole excursion set draws, **overlap accepted**. Niko's call, and the measured alternative was
+  worse: #412's "one hit target of room" test produced NO diamonds before z7 and only 3 of 41 ever,
+  on a trip whose venues are genuinely stacked. A zoom level is also easier to reason about than a
+  spacing test, and it behaves identically on the globe and at any container size.
+- **Every visible diamond gets its name** (2026-10-04, #413). The layer was capped at four names
+  and then dropped any name within 92px of one already kept, so with five or more diamonds visible
+  some names could never appear at any zoom — and which four won was `trip.locations` order, which
+  is why it looked arbitrary. Names that would collide are now **nudged** along a bounded row
+  ladder (`placeExcursionLabels`) at slightly reduced emphasis, never removed: a label that appears
+  only when you tap it is a tooltip, not a label.
   **Why #398 was withdrawn.** The count badge was drawn at its members' centroid and then nudged
   clear of a numbered pin by up to **44 screen pixels** (#402), unprojected back to a coordinate. At
   journey zoom a pixel is not a pixel: 44px is **385 km at z3.13**, 105 km at z5, 26 km at z7. Lima's

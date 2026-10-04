@@ -397,11 +397,28 @@ export function makeMapChipLabelElement(letter: string, title: string): HTMLDivE
  *   clicking them" falls out of the geometry rather than a second constant
  *   that has to be re-tuned against every new trip.
  */
+/** @deprecated #413 removed the four-name cap — every visible diamond is named
+ *  now. Kept only so an explicit caller can still pass a cap. Do not reintroduce
+ *  it as the layer's default: a cap makes names invisible for no good reason. */
 export const EXCURSION_LABEL_MAX = 4;
+
+/** From this zoom the excursion diamonds draw, all of them, wherever they sit
+ *  (#413). Replaces #412's separation test, which on a dense trip hid almost
+ *  everything: measured on Chili+Peru, no diamond appeared before z7 and only
+ *  3 of 41 ever did. Niko's call — a little overlap is fine, and a fixed level
+ *  is easier to reason about than a spacing test. Below it the itinerary map
+ *  stays a clean route-and-spine overview. */
+export const EXCURSION_DIAMOND_MIN_ZOOM = 9;
 /** How far apart two named diamonds must sit on screen, in px, for both names
  *  to read beside their markers — one pill's width (~70–90px), so this is the
  *  distance at which two labels stop overlapping rather than a hair's breadth. */
 export const EXCURSION_LABEL_MIN_SEPARATION_PX = 92;
+/** Vertical offsets a name may be nudged to, in px, tried top-down. Four rows
+ *  either side of the diamond: enough to resolve a dense cluster of names in
+ *  one city without flinging a label off its own marker. */
+export const EXCURSION_LABEL_ROWS_PX: readonly number[] = [
+  0, -34, 34, -68, 68, -102, 102,
+];
 /** Label pill offset below a diamond, in px: a touch tighter than the 28px
  *  numbered pin's 15, because the diamond is 20px (`h-5`) and its label would
  *  otherwise read as detached. */
@@ -410,14 +427,15 @@ export const EXCURSION_LABEL_DIAMOND_OFFSET_PX = 11;
 /**
  * Diamond names in draw order, the tapped one first. Pure — pinned by test.
  *
- * Ordering only. Whether a name FITS is `farEnoughApart`'s question, because
- * fit depends on where the diamonds actually land on screen, which only the
- * caller can measure.
+ * Ordering only. **Every** candidate is returned: #413 removed the four-name cap,
+ * because with five or more diamonds visible a cap means some names can never
+ * appear at any zoom, and which four won was `trip.locations` order — which is
+ * why the layer looked arbitrary. A caller may still pass an explicit `max`.
  */
 export function orderExcursionLabels(
   names: string[],
   selected: string | null,
-  max = EXCURSION_LABEL_MAX,
+  max = Number.POSITIVE_INFINITY,
 ): string[] {
   if (names.length === 0) return [];
   const ordered = [...names];
@@ -427,7 +445,7 @@ export function orderExcursionLabels(
     ordered.splice(ordered.indexOf(selected), 1);
     ordered.unshift(selected);
   }
-  return ordered.slice(0, max);
+  return Number.isFinite(max) ? ordered.slice(0, max) : ordered;
 }
 
 /**
@@ -439,28 +457,65 @@ export function orderExcursionLabels(
  * The result is returned in draw order, so the layer's DOM order never depends
  * on which diamond was tapped.
  */
-export function farEnoughApart(
+export type LabelPlacement = { name: string; offset: [number, number] };
+
+/**
+ * Where every name goes, this frame. Pure — pinned by test.
+ *
+ * Niko's report (2026-10-04): "only some labels seem to shown ... It seems
+ * completely random which labels get shown and which don't." It was not random:
+ * the layer was capped at FOUR names (#398's `EXCURSION_LABEL_MAX`) and then
+ * `farEnoughApart` DROPPED any name within 92px of one already kept — so with
+ * five or more diamonds visible, some names could never appear at any zoom, and
+ * which four won was decided by `trip.locations` order. Clicking a diamond
+ * pulled its name to the front of that cap, which is exactly why the set looked
+ * arbitrary: it changed with the selection and reverted when you clicked away.
+ *
+ * The rule now: **every visible diamond gets a name.** Names that would collide
+ * are NUDGED — a small, bounded vertical offset in a fixed ladder of rows —
+ * rather than removed. A label that cannot find a free row keeps its own place
+ * at reduced emphasis rather than vanishing, because a label that appears only
+ * when you tap is not a label, it is a tooltip.
+ *
+ * `rows` are the vertical offsets tried in order; the first that clears every
+ * already-placed name wins. Selected is placed first and never displaced.
+ */
+export function placeExcursionLabels(
   ordered: string[],
   points: Array<[number, number]>,
   selected: string | null,
   minSeparationPx = EXCURSION_LABEL_MIN_SEPARATION_PX,
-): string[] {
+  rows: ReadonlyArray<number> = EXCURSION_LABEL_ROWS_PX,
+): LabelPlacement[] {
   const index = new Map(ordered.map((n, i) => [n, i] as const));
-  const kept: Array<[number, number]> = [];
-  const out: string[] = [];
-  const candidates = ordered
-    .slice()
-    .sort((a, b) => Number(b === selected) - Number(a === selected));
+  const at = (name: string): [number, number] | undefined => points[index.get(name) ?? -1];
+  const placed: Array<{ name: string; x: number; y: number }> = [];
+  const out: LabelPlacement[] = [];
+  // Selected first so it always gets the un-nudged row, then draw order.
+  const candidates = [...ordered].sort(
+    (a, b) => Number(b === selected) - Number(a === selected),
+  );
   for (const name of candidates) {
-    const p = points[index.get(name) ?? -1];
+    const p = at(name);
     if (!p) continue;
-    if (name !== selected && kept.some(([x, y]) => Math.hypot(x - p[0], y - p[1]) < minSeparationPx)) {
-      continue;
+    let chosen: [number, number] = [0, 0];
+    let found = name === selected;
+    if (!found) {
+      for (const dy of rows) {
+        const cand: [number, number] = [0, dy];
+        if (!placed.some((q) => Math.hypot(q.x - p[0], q.y - (p[1] + dy)) < minSeparationPx)) {
+          chosen = cand;
+          found = true;
+          break;
+        }
+      }
     }
-    kept.push(p);
-    out.push(name);
+    placed.push({ name, x: p[0], y: p[1] + chosen[1] });
+    out.push({ name, offset: found ? chosen : [0, 0] });
   }
-  return out.sort((a, b) => (index.get(a) ?? 0) - (index.get(b) ?? 0));
+  // Draw order, so the layer's DOM order never depends on which diamond was
+  // tapped.
+  return out.sort((a, b) => (index.get(a.name) ?? 0) - (index.get(b.name) ?? 0));
 }
 
 /**
