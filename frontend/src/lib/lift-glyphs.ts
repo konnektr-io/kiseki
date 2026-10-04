@@ -76,32 +76,64 @@ export function liftGlyphClass(subtype: string | undefined | null): LiftGlyphCla
 export const LIFT_GLYPH_KINDS = ["gondola", "chair_lift", "t-bar", "funicular"] as const;
 export type LiftGlyphKind = (typeof LIFT_GLYPH_KINDS)[number];
 
+/**
+ * The four pictograms.
+ *
+ * ⚠️ **These are Claude's, not mine.** The first set in this file was drawn by
+ * hand and was, in Niko's words, "ridiculous — random strokes", which was fair:
+ * the chairlift read as an abstract bracket, not a chair. Mine also shipped
+ * without anyone ever looking at it, and a unit test asserting "four distinct
+ * SVGs" is no defence against a glyph that does not resemble its subject.
+ *
+ * So: **do not hand-draw these.** If a lift class needs a glyph, ask for one, or
+ * take it from a map-icon set (Mappicon, CC0 — the pictogram vocabulary basemaps
+ * use for `aerialway=*`), and check that licence before shipping it. Getting a
+ * pictogram right is a drawing problem, not a code problem.
+ *
+ * They share one construction — a cable on the diagonal, a pylon dot, a hanger,
+ * then the vehicle — which is what makes the set read as a family rather than as
+ * four unrelated marks. The cable sits on the diagonal deliberately: these never
+ * rotate with the line (`icon-rotation-alignment: viewport`), so a horizontal
+ * cable would point at nothing.
+ */
+const CABLE = '<path d="M2 6 22 2"/>';
+const PYLON = '<circle cx="12" cy="4" r="1.1" fill="{fg}" stroke="none"/>';
+
 const KIND_NODES: Record<LiftGlyphKind, string[]> = {
-  // Enclosed cabin: a box hung from a short arm.
+  // An enclosed cabin with a window band — a gondola or cable car.
   gondola: [
-    '<path d="M4.5 2.5h15"/>',
-    '<path d="M12 2.5v3.5"/>',
-    '<rect x="6.5" y="6" width="11" height="9" rx="2.5"/>',
+    CABLE,
+    PYLON,
+    '<path d="M12 4v4"/>',
+    '<rect x="5.5" y="8" width="13" height="12" rx="2.5"/>',
+    '<rect x="8" y="10.5" width="8" height="4" rx="1"/>',
+    '<path d="M12 10.5v4"/>',
   ],
-  // Open chair: a seat and a back, on an arm.
+  // A seat on an arm that curves away — an open chair, not a box.
   "chair_lift": [
-    '<path d="M4.5 2.5h15"/>',
-    '<path d="M12 2.5v4"/>',
-    '<path d="M7.5 6.5h9"/>',
-    '<path d="M7.5 6.5v5"/>',
-    '<path d="M7.5 11.5h9"/>',
+    CABLE,
+    PYLON,
+    '<path d="M12 4v2"/>',
+    '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
+    '<path d="M12 10v7a3 3 0 0 1-3 3H7"/>',
   ],
-  // Tow line with a hanging puck.
+  // A filled disc on a stem: a button/platter. Honest for the whole
+  // drag_lift / t-bar / j-bar / platter alias group it stands for.
   "t-bar": [
-    '<path d="M4.5 2.5h15"/>',
-    '<path d="M12 2.5v6"/>',
-    '<circle cx="12" cy="11.5" r="2.5"/>',
+    CABLE,
+    PYLON,
+    '<path d="M12 4v2"/>',
+    '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
+    '<path d="M12 10v5.5"/>',
+    '<circle cx="12" cy="18.5" r="2.75" fill="{fg}" stroke="none"/>',
   ],
-  // Funicular: a box on a slope.
+  // A car on a flat base — a funicular runs on rails, not on a cable.
   funicular: [
-    '<path d="M4.5 2.5h15"/>',
-    '<path d="M8 16.5l4-8 4 8"/>',
-    '<path d="M9.5 10.5h5"/>',
+    CABLE,
+    PYLON,
+    '<path d="M12 4v2"/>',
+    '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
+    '<path d="M12 10v8M7 18h10"/>',
   ],
 };
 
@@ -122,7 +154,7 @@ export function liftGlyphSvg(kind: LiftGlyphKind, stroke: string, casing: string
     `<svg xmlns="http://www.w3.org/2000/svg" width="${LIFT_GLYPH_SPRITE_PX}" ` +
     `height="${LIFT_GLYPH_SPRITE_PX}" viewBox="0 0 ${LIFT_GLYPH_SPRITE_PX} ${LIFT_GLYPH_SPRITE_PX}">` +
     `<circle cx="12" cy="12" r="11" fill="${casing}"/>` +
-    `<g fill="none" stroke="${stroke}" stroke-width="1.9" ` +
+    `<g fill="none" stroke="${stroke}" stroke-width="1.75" ` +
     `stroke-linecap="round" stroke-linejoin="round">${inner}</g></svg>`
   );
 }

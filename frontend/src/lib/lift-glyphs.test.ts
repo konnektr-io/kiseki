@@ -45,6 +45,27 @@ describe("liftGlyphClass", () => {
 });
 
 describe("liftGlyphSvg", () => {
+  it("gives every glyph the same cable and pylon, so the set reads as a family", () => {
+    // The shared construction IS the recognisability: a cable, a pylon dot, a
+    // hanger, then the vehicle. A glyph missing the cable does not read as a
+    // lift at all — it reads as a box on a stick. This also caught a bug in the
+    // screenshot tool, which silently dropped the bare `CABLE`/`PYLON`
+    // identifiers and photographed a pictogram that was not the one shipping.
+    const svgs = LIFT_GLYPH_KINDS.map((k) => liftGlyphSvg(k, "#111", "#fff"));
+    const cables = svgs.filter((s) => s.includes("M2 6 22 2")).length;
+    expect(cables, "every glyph must carry the diagonal cable").toBe(LIFT_GLYPH_KINDS.length);
+    const pylons = svgs.filter((s) => s.includes('cx="12" cy="4" r="1.1"')).length;
+    expect(pylons, "every glyph must carry the pylon dot").toBe(LIFT_GLYPH_KINDS.length);
+  });
+
+  it("keeps the cable on the diagonal, because these glyphs never rotate", () => {
+    // `icon-rotation-alignment` is `viewport`, so a horizontal cable would point
+    // at nothing. If that ever flips to `map`, the cable must turn with it.
+    const svg = liftGlyphSvg("gondola", "#000", "#fff");
+    expect(svg).toContain("M2 6 22 2"); // diagonal, not "M2 6 22 2" as a flat bar
+    expect(svg).not.toContain("M2 2h20");
+  });
+
   it("draws different geometry per kind — otherwise the glyph says nothing", () => {
     const svgs = LIFT_GLYPH_KINDS.map((k) => liftGlyphSvg(k, "#111", "#fff"));
     // Four kinds, four distinct drawings: the whole point of the glyph.
