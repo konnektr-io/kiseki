@@ -113,17 +113,25 @@ def read_kind_nodes() -> dict[str, list[str]]:
             out[name] = got
     if not out:
         raise SystemExit("could not read any KIND_NODES entries")
-    expected = {"gondola", "chair_lift", "t-bar", "funicular"}
+    expected = {"gondola", "chair_lift", "t-bar", "j-bar", "platter", "funicular"}
     missing = expected - set(out)
     if missing:
         raise SystemExit(
             f"KIND_NODES is missing {sorted(missing)} — the sheet would under-report. "
             "Fix the reader rather than shipping a partial sheet."
         )
-    # Every glyph must carry the cable and the pylon dot: they are what make the
-    # set read as one family, and a reader that silently drops them renders a
-    # plausible-looking but wrong pictogram.
+    # The CABLE-LIFT kinds must each carry the cable and the pylon dot. The
+    # funicular is deliberately different — it runs on a track, so it has a slope
+    # instead — so it is excluded by name rather than by loosening the check for
+    # everyone. Asserting this is what caught the reader dropping both parts.
     for name, items in out.items():
+        if name == "funicular":
+            if any(cable.group(1) in it for it in items):
+                raise SystemExit(
+                    "funicular should carry a sloped track, not the cable the "
+                    "cable lifts hang from"
+                )
+            continue
         for needed, label in ((cable.group(1), "CABLE"), (pylon.group(1), "PYLON")):
             if not any(needed in it for it in items):
                 raise SystemExit(f"{name} is missing {label} — the sheet would lie about it")

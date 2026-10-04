@@ -7,19 +7,25 @@
  * a small glyph — and deliberately a *small* one: this is reference furniture
  * on a quiet basemap, not the trip's own route (DESIGN.md §8.5).
  *
- * ## Why hand-drawn rather than a sprite sheet
+ * ## Where these shapes come from
  *
- * The transport glyphs already in the app (`lib/leg-glyphs.ts`) register
- * data-URI SVGs through `map.addImage`, and this follows that shape exactly so
- * there is one sprite mechanism in the codebase rather than two. These are
- * **not** lucide icons: lucide has no chairlift/gondola/platter, and the
- * distinction between a platter and a button is precisely what is being drawn.
+ * ⚠️ **Drawn by Niko, not by me.** I hand-drew the first set and it was, in his
+ * words, "ridiculous — random strokes that look nothing like it"; the chairlift
+ * read as an abstract bracket. I then had a second go at drawing them and got
+ * three of six wrong, because I was inferring each icon's identity from its path
+ * data instead of asking. Getting a pictogram right is a drawing problem, not a
+ * code problem, and it is not one to solve by inventing.
  *
- * The shapes are the conventional cartographic vocabulary (OSM
- * `aerialway=*` / MapLibre's own lift pictograms): a hanging cabin for a
- * gondola or cable car, an open two-seat frame for a chair, a tow line with a
- * small hanging puck for T-bar/platter/J-bar, and a box on a slope for a
- * funicular.
+ * **Do not hand-draw these.** If a class needs a glyph, ask for one or take it
+ * from a map-icon set (Mappicon, CC0 — the `aerialway=*` vocabulary basemaps
+ * use), and read that licence before shipping it.
+ *
+ * They share one construction — a cable on the diagonal, a pylon dot, a hanger,
+ * then the vehicle — which is what makes the set read as a family rather than as
+ * unrelated marks. The cable sits on the diagonal deliberately: these never
+ * rotate with the line (`icon-rotation-alignment: viewport`), so a horizontal
+ * cable would point at nothing. The funicular is the deliberate exception: it
+ * runs on a track, so its support line is the slope it climbs.
  *
  * ## Colour
  *
@@ -42,29 +48,55 @@ export const LIFT_GLYPH_CLASSES = [
 export type LiftGlyphClass = (typeof LIFT_GLYPH_CLASSES)[number];
 
 /**
- * `subtype` → glyph class. Aliases collapse: every kind of button lift reads as
- * a puck on a line (`t-bar`/`j-bar`/`platter`/`drag_lift`) and every enclosed
- * cabin reads as a cabin (`gondola`/`cable_car`), because at this size a
- * four-way distinction between them would be noise — and the *name* label sits
- * right beside it anyway, spelling out "Matterhorn Express".
+ * The glyphs drawn, one per distinct vehicle Niko supplied. Six, because the
+ * three surface lifts really do look different on a real ski map: a T-bar is a
+ * crossbar behind your legs, a J-bar a hooked bar, a platter a disc you straddle.
+ * Collapsing them into one puck — which I did first — throws away exactly the
+ * distinction the glyph exists to carry.
  *
- * Returns `null` for anything that is not an aerialway.
+ * The funicular carries a slope instead of the shared cable, so the family has
+ * one intentional exception rather than none.
  */
-export function liftGlyphClass(subtype: string | undefined | null): LiftGlyphClass | null {
+export const LIFT_GLYPH_KINDS = [
+  "gondola",
+  "chair_lift",
+  "t-bar",
+  "j-bar",
+  "platter",
+  "funicular",
+] as const;
+export type LiftGlyphKind = (typeof LIFT_GLYPH_KINDS)[number];
+
+/**
+ * `subtype` → the glyph KIND to draw.
+ *
+ * Named for its return, not its input: the argument is a Maptoolkit `subtype`,
+ * the result is one of `LIFT_GLYPH_KINDS`. (The two unions overlap but are not
+ * equal — `drag_lift` has no glyph of its own — and the earlier name invited
+ * exactly that confusion at the call site.)
+ *
+ * `gondola`/`cable_car` share a glyph (an enclosed cabin is an enclosed cabin),
+ * and `drag_lift` borrows the platter's — a drag lift is a rope loop you push
+ * around, which is not far off a disc, and no seventh icon was supplied. Both
+ * collapses are recorded rather than hidden, and the lift's NAME sits beside the
+ * glyph anyway ("Matterhorn Express").
+ */
+export function liftGlyphKindFor(subtype: string | undefined | null): LiftGlyphKind | null {
   switch (subtype) {
     case "chair_lift":
       return "chair_lift";
-    // Open two-seat frame.
     case "gondola":
     case "cable_car":
       return "gondola";
-    // Everything you hang onto.
-    case "drag_lift":
     case "t-bar":
-    case "j-bar":
-    case "platter":
       return "t-bar";
-    // A box on rails.
+    case "j-bar":
+      return "j-bar";
+    case "platter":
+      return "platter";
+    // A rope loop, borrowed from the platter — the closest drawn shape.
+    case "drag_lift":
+      return "platter";
     case "funicular":
       return "funicular";
     default:
@@ -72,35 +104,12 @@ export function liftGlyphClass(subtype: string | undefined | null): LiftGlyphCla
   }
 }
 
-/** The four distinct glyphs, after aliasing. */
-export const LIFT_GLYPH_KINDS = ["gondola", "chair_lift", "t-bar", "funicular"] as const;
-export type LiftGlyphKind = (typeof LIFT_GLYPH_KINDS)[number];
-
-/**
- * The four pictograms.
- *
- * ⚠️ **These are Claude's, not mine.** The first set in this file was drawn by
- * hand and was, in Niko's words, "ridiculous — random strokes", which was fair:
- * the chairlift read as an abstract bracket, not a chair. Mine also shipped
- * without anyone ever looking at it, and a unit test asserting "four distinct
- * SVGs" is no defence against a glyph that does not resemble its subject.
- *
- * So: **do not hand-draw these.** If a lift class needs a glyph, ask for one, or
- * take it from a map-icon set (Mappicon, CC0 — the pictogram vocabulary basemaps
- * use for `aerialway=*`), and check that licence before shipping it. Getting a
- * pictogram right is a drawing problem, not a code problem.
- *
- * They share one construction — a cable on the diagonal, a pylon dot, a hanger,
- * then the vehicle — which is what makes the set read as a family rather than as
- * four unrelated marks. The cable sits on the diagonal deliberately: these never
- * rotate with the line (`icon-rotation-alignment: viewport`), so a horizontal
- * cable would point at nothing.
- */
+/** The shared cable + pylon the five suspended lifts are built from. */
 const CABLE = '<path d="M2 6 22 2"/>';
 const PYLON = '<circle cx="12" cy="4" r="1.1" fill="{fg}" stroke="none"/>';
 
 const KIND_NODES: Record<LiftGlyphKind, string[]> = {
-  // An enclosed cabin with a window band — a gondola or cable car.
+  // An enclosed cabin with a window band.
   gondola: [
     CABLE,
     PYLON,
@@ -109,17 +118,31 @@ const KIND_NODES: Record<LiftGlyphKind, string[]> = {
     '<rect x="8" y="10.5" width="8" height="4" rx="1"/>',
     '<path d="M12 10.5v4"/>',
   ],
-  // A seat on an arm that curves away — an open chair, not a box.
+  // An open chair: grip, hanger, seat and back.
   "chair_lift": [
+    CABLE,
+    PYLON,
+    '<path d="M12 4v4H8v8h8"/>',
+    '<path d="M16 16v3h2"/>',
+  ],
+  // A crossbar behind the legs, on a stem.
+  "t-bar": [
+    CABLE,
+    PYLON,
+    '<path d="M12 4v2"/>',
+    '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
+    '<path d="M12 10v8M7 18h10"/>',
+  ],
+  // A seat on an arm that curves away — the hooked bar of a J-bar.
+  "j-bar": [
     CABLE,
     PYLON,
     '<path d="M12 4v2"/>',
     '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
     '<path d="M12 10v7a3 3 0 0 1-3 3H7"/>',
   ],
-  // A filled disc on a stem: a button/platter. Honest for the whole
-  // drag_lift / t-bar / j-bar / platter alias group it stands for.
-  "t-bar": [
+  // A filled disc on a stem — the platter you straddle.
+  platter: [
     CABLE,
     PYLON,
     '<path d="M12 4v2"/>',
@@ -127,17 +150,18 @@ const KIND_NODES: Record<LiftGlyphKind, string[]> = {
     '<path d="M12 10v5.5"/>',
     '<circle cx="12" cy="18.5" r="2.75" fill="{fg}" stroke="none"/>',
   ],
-  // A car on a flat base — a funicular runs on rails, not on a cable.
+  // A car on a steep track with two wheels: a funicular runs on rails, not on a
+  // cable, so the slope it climbs is the signal — and that is what separates it
+  // from a gondola cabin at a glance.
   funicular: [
-    CABLE,
-    PYLON,
-    '<path d="M12 4v2"/>',
-    '<rect x="10.5" y="6" width="3" height="4" rx="1"/>',
-    '<path d="M12 10v8M7 18h10"/>',
+    '<path d="M2 21 22 9"/>',
+    '<path d="M6 16.6 18 9.4V6.4h-6V10H6z"/>',
+    '<circle cx="8" cy="16.4" r="1.1" fill="{fg}" stroke="none"/>',
+    '<circle cx="16" cy="11.6" r="1.1" fill="{fg}" stroke="none"/>',
   ],
 };
 
-/** Sprite canvas, px — the glyph draws on the lucide 24-grid. */
+/** Sprite canvas, px — the glyph draws on a 24-unit grid. */
 export const LIFT_GLYPH_SPRITE_PX = 24;
 
 export function liftGlyphImageId(kind: LiftGlyphKind): string {
@@ -170,7 +194,7 @@ export interface LiftGlyphImageMap {
  *
  * Idempotent (`hasImage` guard). A sprite that will not load is skipped, never
  * thrown — the lift line still draws, just without its glyph. Returns the kinds
- * actually registered, so a caller can tell "no glyphs at all" from "all four".
+ * actually registered, so a caller can tell "no glyphs at all" from "all of them".
  */
 export async function registerLiftGlyphs(map: LiftGlyphImageMap, colors: { lift: string }): Promise<LiftGlyphKind[]> {
   if (typeof Image === "undefined") return [];
