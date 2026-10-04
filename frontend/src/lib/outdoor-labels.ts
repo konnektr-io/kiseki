@@ -75,9 +75,9 @@ const LABEL_SIZE: import("maplibre-gl").ExpressionSpecification = [
   ["linear"],
   ["zoom"],
   OUTDOOR_LABEL_MINZOOM,
-  9,
+  8.5,
   16,
-  11.5,
+  10.5,
 ];
 
 const HALO_SIZE: import("maplibre-gl").ExpressionSpecification = [
@@ -165,11 +165,22 @@ function glyphExpr(): import("maplibre-gl").ExpressionSpecification {
   ] as import("maplibre-gl").ExpressionSpecification;
 }
 
-/** `name` when it exists, else `ref` — a piste number is a real label. */
+/**
+ * What a label says.
+ *
+ * `name` alone when there is one — a name like *Riedweg* or *Matterhorn Express 1*
+ * is unmistakably a piste or a lift. `ref` alone (a bare "31") is unmistakably a
+ * ROAD number: it is the same grammar the basemap already uses for `N 10` and
+ * `H 4`, so a lone boxed numeral sitting on a map reads as a road shield. So
+ * when a feature has both, show them together — "Riedweg 31" — which is the
+ * piste-map convention and carries the name that identifies it. A bare number
+ * survives only when there is genuinely no name to pair it with.
+ */
 const TEXT_FIELD: import("maplibre-gl").ExpressionSpecification = [
-  "coalesce",
-  ["get", "name"],
-  ["get", "ref"],
+  "case",
+  ["all", ["has", "name"], ["has", "ref"]],
+  ["concat", ["get", "name"], " ", ["get", "ref"]],
+  ["coalesce", ["get", "name"], ["get", "ref"]],
 ];
 
 /**
@@ -241,7 +252,13 @@ export function outdoorLabelLayerSpecs(): LayerSpecification[] {
       "icon-image": glyphExpr(),
       "icon-size": ["interpolate", ["linear"], ["zoom"], OUTDOOR_LABEL_MINZOOM, 0.5, 16, 0.72],
       "icon-allow-overlap": false,
-      "icon-rotation-alignment": "map",
+      // `viewport`, NOT `map` — and this is a correction, not a preference.
+      // `map` aligns the icon to the LINE's bearing, so on a steep lift the whole
+      // pictogram turns with the slope: a 7x crop of a Zermatt cable car showed
+      // the cable running vertically down the right of the disc with the cabin
+      // beside it. A gondola on its side is not a gondola. The line already
+      // carries the gradient; the glyph only has to name the TYPE.
+      "icon-rotation-alignment": "viewport",
       "icon-padding": 2,
     },
   });
@@ -366,8 +383,9 @@ export function outdoorLabelLayerSpecs(): LayerSpecification[] {
       "text-rotation-alignment": "auto",
       "text-pitch-alignment": "viewport",
       "text-allow-overlap": false,
-      // Offset the name off the line so it does not sit on the dash pattern.
-      "text-offset": [0, -0.9],
+      // No `text-offset`: the name belongs ON the line's centre, the same as the
+      // piste and trail labels. Offsetting it read as a separate annotation
+      // rather than as this lift's name.
     },
     paint: {
       "text-color": labelColor("lift"),

@@ -69,9 +69,9 @@ FRONTEND = pathlib.Path(__file__).resolve().parent.parent
 DIST = FRONTEND / "dist"
 MTK = "maptoolkit.org"
 
-# Where the probe leaves a picture of the map it measured. Override with
-# PROBE_OUT_SHOT=/path.png — a failed run should still leave evidence behind.
-OUT_SHOT = os.environ.get("PROBE_OUT_SHOT") or "/tmp/kiseki-outdoor-overlay.png"
+# Where the probe leaves its pictures. A failed run should still leave evidence
+# behind, so this defaults outside the repo and is overridable.
+OUT_SHOT_DIR = os.environ.get("PROBE_OUT_SHOT_DIR") or "/opt/data/cache/shots"
 
 # Real trip used by the other map probes; overridable for a live trip.
 TRIP_ID = sys.argv[1] if len(sys.argv) > 1 else "b16680e7-a338-4c76-9cd7-fa13d45be594"
@@ -215,7 +215,7 @@ def main() -> int:
         browser = p.chromium.launch(
             args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
         )
-        ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+        ctx = browser.new_context(viewport={"width": 1600, "height": 1000})
         ctx.add_init_script("try{localStorage.setItem('kiseki_consent','declined')}catch(e){}")
         ctx.add_init_script(HIDE_OVERLAY)
         ctx.add_init_script(CAPTURE_MAP)
@@ -440,37 +440,54 @@ def main() -> int:
                 }"""
             )
 
-        # ---- a look at the map that actually carries the overlay -------------
-        # Screenshot the CONTAINER that owns `__mapRef`, not the whole page. An
+        # ---- pictures of the map that actually carries the overlay ----------
+        # Scoped to the CONTAINER that owns `__mapRef`, not the whole page: an
         # itinerary page also renders MapView thumbnails, so a full-page shot can
-        # show a small overview map and read as "no labels at all" while the trip
-        # map in the same frame is fine. Written next to the probe so a failed run
-        # still leaves evidence.
-        try:
-            page.evaluate(
-                """() => { const m = window.__mapRef; if (m) m.jumpTo({center:[7.7491,46.0207], zoom: 14}); }"""
-            )
-            page.wait_for_function(
-                "() => { const m = window.__mapRef; return !!m && !m.isMoving() && Math.abs(m.getZoom()-14) < 0.01; }",
-                timeout=25_000,
-            )
-            page.wait_for_timeout(6_000)
-            box = page.evaluate(
-                """() => {
-                  const m = window.__mapRef;
-                  if (!m) return null;
-                  const r = m.getContainer().getBoundingClientRect();
-                  return { x: r.x, y: r.y, width: r.width, height: r.height };
-                }"""
-            )
-            if box and box["width"] > 50 and box["height"] > 50:
-                out = Path(OUT_SHOT)
-                out.write_bytes(page.screenshot(clip=box))
-                notes.append(f"map screenshot: {out} ({int(box['width'])}x{int(box['height'])})")
-            else:
-                notes.append(f"map screenshot skipped — bad container box {box}")
-        except Exception as exc:  # evidence is best-effort; the assertions are not
-            notes.append(f"map screenshot failed: {exc}")
+        # show an unrelated overview map and read as "no labels at all".
+        # Three zooms, because the gate is the thing worth seeing: z11 (lines,
+        # no labels), z13 (labels switch on), z15 (real pistes + lifts).
+        for _z, _name in ((11, "z11-lines-only"), (13, "z13-labels-appear"), (15, "z15-pistes-lifts")):
+            try:
+                page.evaluate(
+                    "(z) => { const m = window.__mapRef; if (m) m.jumpTo({center:[7.7491,46.0207], zoom: z}); }",
+                    _z,
+                )
+                page.wait_for_function(
+                    """(z) => {
+                      const m = window.__mapRef;
+                      if (!m) return false;
+                      const s = m.getSource('kiseki-outdoor');
+                      return !!s && m.isSourceLoaded('kiseki-outdoor') && !m.isMoving()
+                             && Math.abs(m.getZoom() - z) < 0.01;
+                    }""",
+                    _z,
+                    timeout=30_000,
+                )
+                page.wait_for_timeout(5_000)
+                box = page.evaluate(
+                    """() => {
+                      const m = window.__mapRef;
+                      if (!m) return null;
+                      const r = m.getContainer().getBoundingClientRect();
+                      return { x: r.x, y: r.y, width: r.width, height: r.height };
+                    }"""
+                )
+                if box and box["width"] > 50 and box["height"] > 50:
+                    out = Path(OUT_SHOT_DIR) / f"{_name}.png"
+                    out.write_bytes(page.screenshot(clip=box))
+                    drawn = page.evaluate(
+                        """() => {
+                          const m = window.__mapRef;
+                          if (!m) return '?';
+                          const ids = ['outdoor-lift-glyphs','outdoor-piste-labels','outdoor-trail-labels','outdoor-lift-labels'];
+                          return ids.reduce((n, i) => n + m.queryRenderedFeatures({ layers: [i] }).length, 0);
+                        }"""
+                    )
+                    notes.append(f"shot {_name}: {out} ({int(box['width'])}x{int(box['height'])}, {drawn} label features)")
+                else:
+                    notes.append(f"shot {_name}: skipped, bad box {box}")
+            except Exception as exc:
+                notes.append(f"shot {_name} failed: {exc}")
 
         # ---- the print path must never touch Maptoolkit --------------------
         # The booklet renders the SAME MapLibre maps live through `MapView`
@@ -488,6 +505,7 @@ def main() -> int:
         ctx.close()
         browser.close()
 
+    Path(OUT_SHOT_DIR).mkdir(parents=True, exist_ok=True)
     httpd.shutdown()
 
     # ---- assertions -------------------------------------------------------

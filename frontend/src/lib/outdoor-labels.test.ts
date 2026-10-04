@@ -81,7 +81,7 @@ describe("outdoorLabelLayerSpecs", () => {
       const size = layout["text-size"];
       // An interpolate expression, not a constant — and its top stop is small.
       expect(Array.isArray(size)).toBe(true);
-      expect(Math.max(...stops(size))).toBeLessThanOrEqual(12);
+      expect(Math.max(...stops(size))).toBeLessThanOrEqual(11);
       // Overlap is how annotation starts shouting over the trip.
       expect(layout["text-allow-overlap"]).toBe(false);
     }
@@ -111,13 +111,30 @@ describe("outdoorLabelLayerSpecs", () => {
     }
   });
 
-  it("labels a piste by name, falling back to its number", () => {
-    // A piste's ref ("31") is often the only identifier it has — and it is what
-    // a skier actually looks for.
+  it("pairs a piste's name with its number, so a bare numeral never reads as a road", () => {
+    // A lone haloed "31" uses the SAME grammar the basemap uses for `N 10`, so it
+    // reads as a road shield. "Riedweg 31" is the piste-map convention and carries
+    // the name that identifies it; a bare number survives only with no name.
     const field = layoutOf("outdoor-piste-labels")["text-field"] as unknown[];
-    expect(field[0]).toBe("coalesce");
-    expect(JSON.stringify(field)).toContain("name");
-    expect(JSON.stringify(field)).toContain("ref");
+    expect(field[0]).toBe("case");
+    const flat = JSON.stringify(field);
+    expect(flat).toContain("concat");
+    expect(flat).toContain("name");
+    expect(flat).toContain("ref");
+  });
+
+  it("never rotates a lift glyph — a gondola on its side is not a gondola", () => {
+    // `map` alignment ties the icon to the LINE's bearing, so on a steep lift the
+    // pictogram turns with the slope. A 7x crop of a Zermatt cable car showed the
+    // cable running vertically down the disc with the cabin beside it.
+    expect(layoutOf("outdoor-lift-glyphs")["icon-rotation-alignment"]).toBe("viewport");
+  });
+
+  it("puts the lift name on its line, like the piste and trail names", () => {
+    // Offsetting it read as separate annotation rather than as this lift's name.
+    for (const id of ["outdoor-lift-labels", "outdoor-piste-labels", "outdoor-trail-labels"]) {
+      expect(layoutOf(id)["text-offset"]).toBeUndefined();
+    }
   });
 
   it("only labels features that have something to say", () => {
