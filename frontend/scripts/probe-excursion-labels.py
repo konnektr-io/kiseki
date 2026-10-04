@@ -163,34 +163,49 @@ def run():
                       f"{len(painted)}/{len(rects['ds'])}, labels: {len(rects['ls'])}")
                 for w in rects["why"]:
                     print("     ", w)
-                # Pill pairing + collision, measured (the substantive claim).
-                dia_rects, pill_rects = rects["ds"], rects["ls"]
-                print(f"   pill pairing: {len(dia_rects)} diamonds / "
-                      f"{len(pill_rects)} labels")
-                if len(dia_rects) != len(pill_rects):
-                    failures.append(f"z{snap['zoom']:.2f}: {len(dia_rects)} diamonds but "
-                                    f"{len(pill_rects)} labels")
-                # Two pills sharing a centre would read as one unreadable blob.
-                # NOTE: do not name these `b` — that is the Playwright browser
-                # handle in this scope, and shadowing it made `b.close()` raise
-                # "'list' object has no attribute 'close'" at teardown.
-                dupes = 0
-                for i in range(len(pill_rects)):
-                    for j in range(i + 1, len(pill_rects)):
-                        p1, p2 = pill_rects[i], pill_rects[j]
-                        if abs(p1[0] - p2[0]) < 12 and abs(p1[1] - p2[1]) < 12:
-                            dupes += 1
-                print(f"   labels stacked on identical pixels: {dupes}")
-                if dupes:
-                    failures.append(f"z{snap['zoom']:.2f}: {dupes} label pair(s) overlap "
-                                    f"completely")
-                # Same tick: DOM counts above, pixels here.
-                alive = page.evaluate("""() => {
-                  const c = document.querySelector('.maplibregl-canvas');
-                  return !!c && c.width > 0;
+                # The substantive claim (#415): every label sits AT its own
+                # diamond. Measure label-to-diamond distance, in the same tick,
+                # and fail if any name is further than the marker offset allows.
+                dia_by_name = page.evaluate(r"""() => {
+                  const out = {};
+                  for (const el of document.querySelectorAll('.route-pin[data-place]')) {
+                    const r = el.getBoundingClientRect();
+                    out[el.dataset.place] = [r.x + r.width / 2, r.y + r.height / 2];
+                  }
+                  return out;
                 }""")
-                page.screenshot(path=str(out / "labels.png"))
-                print(f"   (captured this frame; canvas={alive})")
+                pairs = page.evaluate(r"""() => {
+                  const ds = [...document.querySelectorAll('.route-pin-excursion')]
+                    .filter((el) => !el.hasAttribute('hidden')
+                                  && getComputedStyle(el).display !== 'none');
+                  const ls = [...document.querySelectorAll('.map-place-label.is-excursion')]
+                    .filter((el) => el.getBoundingClientRect().width > 0);
+                  return { diamonds: ds.map((el) => el.dataset.place),
+                           labels: ls.map((el) => el.textContent.trim()) };
+                }""")
+                far = 0
+                worst = (0, "")
+                for nm in pairs["labels"]:
+                    c = dia_by_name.get(nm)
+                    if not c:
+                        continue
+                    lp = page.evaluate("""(name) => {
+                      const el = [...document.querySelectorAll('.map-place-label.is-excursion')]
+                        .find((e) => e.textContent.trim() === name);
+                      if (!el) return null;
+                      const r = el.getBoundingClientRect();
+                      return [r.x + r.width / 2, r.y + r.height / 2];
+                    }""", nm)
+                    if not lp:
+                        continue
+                    d = ((lp[0] - c[0]) ** 2 + (lp[1] - c[1]) ** 2) ** 0.5
+                    if d > far:
+                        far, worst = d, nm
+                print(f"   labels: {len(pairs['labels'])}, worst label-to-own-diamond: "
+                      f"{far:.0f}px ({worst or 'n/a'})")
+                if far > 90:
+                    failures.append(f"z{snap['zoom']:.2f}: a label sits {far:.0f}px from its "
+                                    f"own diamond ({worst}) — #415 regression")
             # #413 invariants, per frame.
             if not snap["mapAlive"]:
                 print(f"   (z{snap['zoom']:.2f} read from a DEAD map — discarded)")

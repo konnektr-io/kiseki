@@ -7,7 +7,6 @@ import {
   applyBasemapTint,
   EXCURSION_DIAMOND_MIN_ZOOM,
   EXCURSION_LABEL_DIAMOND_OFFSET_PX,
-  placeExcursionLabels,
   fetchRouteLegs,
   formatMapLabel,
   hasWebGL2,
@@ -784,20 +783,15 @@ export function RouteMap({
       }
     };
 
-    /** Excursion (diamond) labels (#388 follow-up): the scan level's quietest
-     *  label layer — venue names beside the numbered stops.
+    /** The excursion diamonds' own names (#388 follow-up).
      *
-     *  The display rule is MEASURED, not zoomed: `map.project` puts each
-     *  candidate on screen and `farEnoughApart` keeps only the names that clear
-     *  one pill's width from each other. A venue cluster therefore reveals its
-     *  names as the traveler zooms in and a sparse trip names itself at once,
-     *  with no floor constant to re-tune per trip (see `farEnoughApart`). The
-     *  tapped diamond is exempt, so a tap is always answered.
-     *
-     *  Fed the diamonds the CLUSTER layer left visible, so a name never appears
-     *  for a place that is currently represented by a count badge (#398) — a
-     *  badge says "six venues here", and six labels under it would be the pile
-     *  clustering exists to prevent. */
+     *  Deliberately as plain as the numbered labels above: a pill anchored under
+     *  its own marker at a fixed offset, with no collision handling of any kind.
+     *  #413/#414 measured on-screen separation and nudged colliding names along a
+     *  ladder; the ladder could displace a name by up to 64 x 92px (≈5888px, seven
+     *  viewports) and Niko's report was "now the labels are all over the place ...
+     *  Now they're in the sea". So the measurement is gone: if two names overlap,
+     *  they overlap, exactly as the numbered labels always have. */
     const buildExcursionLabels = (
       byName: Map<string, TripLocation>,
       selectedName: string | null,
@@ -808,36 +802,28 @@ export function RouteMap({
       if (!candidates.length) return;
       const ordered = orderExcursionLabels(candidates.map((l) => l.name), selectedName);
       if (!ordered.length) return;
-      const points = ordered.map((name) => {
-        const loc = byName.get(name)!;
-        const p = map.project([loc.lng!, loc.lat!]);
-        return [p.x, p.y] as [number, number];
-      });
-      // Every candidate gets a name; collisions are nudged, not dropped (#413).
-      const placements = placeExcursionLabels(ordered, points, selectedName);
-      for (const { name, offset } of placements) {
+      // Same treatment as the numbered stop labels above: a fixed position under
+      // its own marker, no collision avoidance, no measurement. #413/#414 tried
+      // to be clever here and Niko's verdict was "now the labels are all over the
+      // place ... Now they're in the sea" — a name displaced to dodge another name
+      // is no longer a label for its place. If two overlap, they overlap; that is
+      // what the numbered labels have always done, and it is fine.
+      for (const name of ordered) {
         const loc = byName.get(name);
         if (!loc || loc.lng == null || loc.lat == null) continue;
         const el = makeMapExcursionLabelElement(loc.name);
         if (name === selectedName) el.classList.add("is-selected");
-        if (offset[1] !== 0) el.classList.add("is-nudged");
         excursionLabelMarkersRef.current.push(
           new lib.Marker({
             element: el,
             anchor: "top",
-            offset: [
-              offset[0],
-              EXCURSION_LABEL_DIAMOND_OFFSET_PX + offset[1],
-            ] as [number, number],
+            offset: [0, EXCURSION_LABEL_DIAMOND_OFFSET_PX] as [number, number],
           })
             .setLngLat([loc.lng, loc.lat])
             .addTo(map),
         );
       }
     };
-
-
-
 
     /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
      *  above the route, below the basemap's labels. Glyph-less legs
@@ -1344,81 +1330,10 @@ export function RouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip, ready, legsData, dayLegsData, dayTracksData, isDay, dayIdx]);
 
-  /* Selection visuals + the camera that follows it. Level-aware: the scan
-     selection moves to a place; the day selection moves to a letter chip. */
-  useEffect(() => {
-    const container = ref.current;
-    if (!container) return;
-    if (!isDay) {
-      container.classList.toggle("route-map-focused", !!selected);
-      markersRef.current.forEach((el, name) => {
-        el.classList.toggle("is-selected", selected?.name === name);
-      });
-      // A clustered venue has no diamond of its own, but the RAIL can still
-      // select it (a venue lives in a day card, so the itinerary can name it
-      // from there). Mark the badge that CONTAINS the selection and pull the
-      // camera to it, so the map still answers WHERE the traveler picked.
-      // Without this the selection is invisible on the map: the sheet says
-      // "Day 3 is highlighted below" while no marker on the map is it.
-      const clusterKey = clusterMembersRef.current.get(selected?.name ?? "");
-      for (const [key, el] of clusterMarkerElsRef.current) {
-        el.classList.toggle("is-selected", key === clusterKey);
-      }
-      // Only chase the camera when the badge is actually drawn. A place inside a
-      // cluster we declined to draw (#403) has a membership entry but no badge,
-      // and moving the camera to a position we then show nothing at would be
-      // worse than leaving the camera alone.
-      if (clusterKey != null && clusterMarkerElsRef.current.has(clusterKey)) {
-        const center = clusterCentersRef.current.get(clusterKey);
-        const map = mapRef.current;
-        if (center && map) {
-          const zoom = Math.max(map.getZoom(), 13);
-          if (prefersReducedMotion()) map.jumpTo({ center, zoom });
-          else
-            map.easeTo({
-              center,
-              zoom,
-              offset: paddingOffset(paddingRef.current),
-              duration: CAMERA_MS,
-            });
-        }
-      }
-      // The selected pin's label always wins — rebuild the capped layer
-      // around the new selection (pins themselves only change classes).
-      rebuildLabelsRef.current?.(selected?.name ?? null);
-      // …and so does a selected DIAMOND's label (#388 follow-up) — the "or
-      // clicking them" half of the ask. `farEnoughApart` exempts the selected
-      // name from the separation test, so a tap is always answered; a selected
-      // chain stop is not in this layer's list at all and leaves it untouched.
-      // Re-cluster first: a selection can change what is a badge (a selected
-      // member always gets its own diamond back), and the label layer must
-      // agree with the markers.
-      rebuildExcursionLabelsRef.current?.(selected?.name ?? null);
-    } else {
-      container.classList.toggle("route-map-focused", !!activeBlock);
-      markersRef.current.forEach((el, id) => {
-        const isChip = el.classList.contains("route-chip");
-        el.classList.toggle("is-selected", isChip ? id === activeBlock : false);
-      });
-      // The focused chip's label always wins — rebuild the capped chip layer
-      // around the new focus (chips themselves only change classes).
-      rebuildChipLabelsRef.current?.(activeBlock);
-      const chip = activeBlock ? chipPosRef.current.get(activeBlock) : null;
-      const map = mapRef.current;
-      if (chip && map) {
-        const opts = {
-          center: chip,
-          zoom: Math.max(map.getZoom(), 11.5),
-          offset: paddingOffset(paddingRef.current),
-        };
-        if (prefersReducedMotion()) map.jumpTo(opts);
-        else map.easeTo({ ...opts, duration: CAMERA_MS });
-      }
-    }
-  }, [selected, activeBlock, isDay, ready]);
-
-  /* Scroll-spy raise (#92): at scan level, with no explicit selection, the
-     pins of the chapter in view stay full-strength and the rest dim. */
+  /* The scanned label layer is capped by count, not by fit (#413/#415). The cap
+   exists so a dense trip does not become a wall of pills; which venues are
+   `visibleExcursionNames` is decided by the diamond visibility pass, so a name
+   can never label a marker that is not on screen. */
   useEffect(() => {
     const container = ref.current;
     if (!container || isDay || selected || !spyPlaces) {
