@@ -203,6 +203,10 @@ export function RouteMap({
   const clusterMembersRef = useRef<Map<string, string>>(new Map());
   const clusterMarkerElsRef = useRef<Map<string, HTMLElement>>(new Map());
   const clusterCentersRef = useRef<Map<string, [number, number]>>(new Map());
+  /** The numbered stop-pin ELEMENTS, by place name — a cluster badge needs their
+   *  screen positions to avoid being drawn underneath one (#402). Kept separate
+   *  from `markersRef`, whose keys are shared with cluster badges. */
+  const stopPinEls = useRef<Map<string, HTMLElement>>(new Map());
   /** Bumped whenever the cluster set changes, so the scroll-spy pass can re-run
    *  for a badge that appeared after its own effect last fired (#398). */
   const [clusterRevision, setClusterRevision] = useState(0);
@@ -791,6 +795,66 @@ export function RouteMap({
       }
     };
 
+    /** The numbered stop pins, in the MAP CONTAINER's coordinate space — the
+     *  space `map.project()` returns, and therefore the space `cluster.x/y`
+     *  live in. `getBoundingClientRect` is VIEWPORT-relative, so it must be
+     *  converted by subtracting the container's own origin; mixing the two
+     *  spaces silently offsets every pin by where the map sits on the page. */
+    const stopPinsInMapSpace = (): Array<[number, number]> => {
+      const origin = map.getContainer().getBoundingClientRect();
+      const out: Array<[number, number]> = [];
+      for (const el of stopPinEls.current.values()) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) out.push([r.x + r.width / 2 - origin.left, r.y + r.height / 2 - origin.top]);
+      }
+      return out;
+    };
+
+    /** Where a cluster's badge DRAWS, in container px: its members' centroid,
+     *  pushed clear of any numbered stop pin it lands on.
+     *
+     *  A venue cluster inside a re-base town has its centroid ON that town's
+     *  numbered stop pin, and the stacking ladder (correctly, #388) keeps the
+     *  pin on top — so the count painted underneath and was unreadable. Measured
+     *  live on the Japan trip: badge "8" and pin "1" one pixel apart, with
+     *  `elementFromPoint` at the badge's centre returning the pin's 28px dot.
+     *
+     *  A DRAWING offset only: membership, the count and the tap target are
+     *  untouched, and a cluster not sitting on a pin — the common case, and every
+     *  cluster on a sparse trip — never moves.
+     *
+     *  Returns SCREEN px, so every caller must `unproject` before handing the
+     *  value to a Marker. That is not a detail: the first attempt passed this
+     *  return value straight into `setLngLat`, which takes [lng, lat], so a y of
+     *  ~200 was read as latitude 200 and MapLibre threw "Invalid LngLat latitude
+     *  value" — the map vanished into the error boundary while `tsc`, `vitest`
+     *  and the build all stayed green. The offset is also CLAMPED so a nudge can
+     *  never walk off the container; when the clamped position still does not
+     *  clear the pin, the badge stays put, because a badge under a pin is a
+     *  cosmetic miss and a dead map is not. */
+    const drawPosition = (cluster: PinCluster): [number, number] => {
+      const el = map.getContainer();
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const clamp = (x: number, y: number): [number, number] =>
+        w > 0 && h > 0
+          ? [Math.min(Math.max(x, CLUSTER_PX / 2), w - CLUSTER_PX / 2),
+             Math.min(Math.max(y, CLUSTER_PX / 2), h - CLUSTER_PX / 2)]
+          : [x, y];
+      let [x, y] = clamp(cluster.x, cluster.y);
+      for (const [px, py] of stopPinsInMapSpace()) {
+        if (Math.hypot(x - px, y - py) >= CLUSTER_PX) continue;
+        const d = Math.hypot(cluster.x - px, cluster.y - py);
+        // Push out along the line from the pin, so the badge keeps pointing at
+        // the cluster it stands for instead of jumping to a fixed corner.
+        const angle = d < 1 ? -Math.PI / 2 : Math.atan2(cluster.y - py, cluster.x - px);
+        const moved = clamp(px + Math.cos(angle) * CLUSTER_PX, py + Math.sin(angle) * CLUSTER_PX);
+        // Only take the nudge if it clears the pin AFTER clamping.
+        if (Math.hypot(moved[0] - px, moved[1] - py) >= CLUSTER_PX / 2) [x, y] = moved;
+      }
+      return [x, y];
+    };
+
     /** A cluster of colliding diamonds, drawn as ONE count badge (#398).
      *
      *  §8.3 has specified clustering since the marker system was written, and
@@ -822,7 +886,7 @@ export function RouteMap({
         "route-cluster-badge grid h-7 min-w-7 place-items-center rounded-full border-2 border-dashed border-marker bg-surface px-1.5 font-heading text-[12px] font-bold tabular-nums text-marker shadow-card transition-transform duration-120";
       badge.textContent = String(cluster.memberDtIds.length);
       el.appendChild(badge);
-      const at = map.unproject([cluster.x, cluster.y]);
+      const at = map.unproject(drawPosition(cluster));
       const center: [number, number] = [at.lng, at.lat];
       // Bookkeeping so the selection effect can answer for a member: the rail
       // can select a venue that currently lives inside a badge, and the map has
@@ -998,6 +1062,7 @@ export function RouteMap({
       journeyRef.current.chain.forEach((loc) => {
         const el = addPin(loc, false);
         el.addEventListener("click", () => onSelectRef.current(loc));
+        stopPinEls.current.set(loc.name, el);
       });
 
       /** Badge elements, reused across frames and keyed by membership. A badge
@@ -1038,8 +1103,12 @@ export function RouteMap({
             entry.el.querySelector(".route-cluster-badge")!.textContent = String(cluster.memberDtIds.length);
             entry.el.title = `${cluster.memberDtIds.length} places here — zoom in`;
             entry.el.dataset.cluster = cluster.key;
-            const at = map.unproject([cluster.x, cluster.y]);
-            entry.marker.setLngLat([at.lng, at.lat]);
+            // `setLngLat` takes [lng, lat], not screen px — unproject first,
+            // exactly like the create path. Passing drawPosition()'s output
+            // directly read a y of ~200 as latitude 200 and threw
+            // "Invalid LngLat latitude value", taking the whole map down.
+            const moved = map.unproject(drawPosition(cluster));
+            entry.marker.setLngLat([moved.lng, moved.lat]);
           }
           entry.el.removeAttribute("hidden");
           for (const member of cluster.memberDtIds) {
@@ -1346,6 +1415,7 @@ export function RouteMap({
       chipLabelMarkersRef.current = [];
       for (const m of excursionLabelMarkersRef.current) m.remove();
       excursionLabelMarkersRef.current = [];
+      stopPinEls.current.clear();
       clusterMembersRef.current.clear();
       clusterMarkerElsRef.current.clear();
       clusterCentersRef.current.clear();

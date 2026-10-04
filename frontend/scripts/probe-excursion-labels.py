@@ -269,6 +269,16 @@ def run():
         page = ctx.new_page()
         errors: list[str] = []
         page.on("pageerror", lambda e: errors.append(str(e)))
+        # React's error boundary swallows render errors, so a crash can reach
+        # "Something went wrong" with NO pageerror. The console channel carries
+        # it — and this is exactly how the reverted badge-offset attempt hid:
+        # tsc green, vitest green, build green, map gone.
+        page.on(
+            "console",
+            lambda m: errors.append(f"console.error: {m.text[:200]}")
+            if m.type == "error" and "Failed to load resource" not in m.text
+            else None,
+        )
 
         log("→ itinerary, journey-fit framing")
         page.goto(f"{base}/t/{TRIP_ID}/itinerary", wait_until="load")
@@ -278,7 +288,18 @@ def run():
         # so a fixed settle read it too early and reported "0 diamonds" — a
         # flake that reads exactly like the feature being absent. The marker DOM
         # is the honest readiness signal.
-        page.wait_for_selector(".route-pin:not([hidden])", timeout=30000)
+        try:
+            page.wait_for_selector(".route-pin, .route-cluster", state="attached", timeout=30000)
+        except Exception:
+            diag = page.evaluate("""() => ({
+              canvas: !!document.querySelector('.map-pin-scaled canvas'),
+              markers: document.querySelectorAll('.maplibregl-marker').length,
+              body: (document.body.innerText || '').slice(0, 120),
+            })""")
+            log(f"FAIL: no markers attached. diag={diag}")
+            for e in errors[:4]:
+                log(f"   ERR {e[:200]}")
+            raise
         page.wait_for_timeout(4000)
         wide = page.evaluate(READ)
         # WHERE the badge is. A badge standing in for off-screen venues is a
@@ -472,6 +493,56 @@ def run():
                 f"#388 REGRESSION: an excursion diamond (z={ladder['diamond']}) outranks "
                 f"the stop pin (z={ladder['stop']})"
             )
+        # NO BADGE UNDER A STOP PIN (#402). Measured live on the Japan trip before
+        # this assertion existed: badge "8" and pin "1" one pixel apart, with
+        # elementFromPoint at the badge's centre returning the pin's 28px dot —
+        # the count was painted underneath and unreadable. A badge is now nudged
+        # clear of any stop it lands on; this pins that from the DOM.
+        overlap = page.evaluate("""() => {
+          const out = [];
+          for (const b of document.querySelectorAll('.route-cluster')) {
+            const br = b.getBoundingClientRect();
+            if (br.width === 0) continue;
+            const bc = [br.x + br.width / 2, br.y + br.height / 2];
+            for (const st of document.querySelectorAll('.route-pin:not(.route-pin-excursion)')) {
+              const sr = st.getBoundingClientRect();
+              if (sr.width === 0) continue;
+              const sc = [sr.x + sr.width / 2, sr.y + sr.height / 2];
+              const d = Math.hypot(bc[0] - sc[0], bc[1] - sc[1]);
+              // The painted dot is 28px across, so anything inside its radius
+              // is under it.
+              if (d < 14) out.push({
+                badge: (b.querySelector('.route-cluster-badge') || {}).textContent || '?',
+                stop: st.querySelector('.route-pin-dot')?.textContent || '?',
+                d: Math.round(d),
+              });
+            }
+          }
+          return out;
+        }""")
+        log(f"   badges under a stop pin: {overlap or 'none'}")
+        if overlap:
+            failures.append(
+                f"{len(overlap)} cluster badge(s) painted UNDER a numbered stop pin "
+                f"({overlap[:2]}) — the count is unreadable even though the tap is correct"
+            )
+
+        # A badge must stay INSIDE the map: the offset that clears a pin can walk
+        # off the container, and an off-map badge makes MapLibre throw on
+        # setLngLat, which takes the whole surface down (measured: "Invalid LngLat
+        # latitude value", map gone, error boundary).
+        offmap = page.evaluate("""() => {
+          const box = document.querySelector('.map-pin-scaled').getBoundingClientRect();
+          return [...document.querySelectorAll('.route-cluster')].filter((el) => {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0) return false;
+            return r.right < box.left || r.left > box.right
+                || r.bottom < box.top || r.top > box.bottom;
+          }).length;
+        }""")
+        if offmap:
+            failures.append(f"{offmap} cluster badge(s) drawn outside the map container")
+
         # A hidden diamond must be out of the pointer path, not merely invisible.
         hiddenHit = page.evaluate("""() => {
           const el = document.querySelector('.route-pin-excursion[hidden]');
@@ -489,7 +560,7 @@ def run():
 
         log("→ day level (must NOT inherit the excursion label layer)")
         page.goto(f"{base}/t/{TRIP_ID}/day/0", wait_until="load")
-        page.wait_for_selector(".route-pin:not([hidden]), .route-chip", timeout=30000)
+        page.wait_for_selector(".route-pin, .route-chip, .route-cluster", state="attached", timeout=30000)
         page.wait_for_timeout(3500)
         day_level = page.evaluate(READ)
         chips = page.evaluate("() => document.querySelectorAll('.route-chip').length")
