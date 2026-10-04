@@ -101,7 +101,7 @@ from .write import (
     TripPatch,
     WriteError,
 )
-from .maps import resolve_places, route_legs
+from .maps import parse_leg_modes, resolve_places, route_legs
 from .here import get_here_token, route_leg_v8
 from .places import place_details, search_place, photo_by_name as place_photo_bytes
 from .weather import forecast as weather_forecast
@@ -2025,19 +2025,29 @@ def maps_route(
     `modes` (optional, parallel to `places`) names the declared transport per
     leg — a `flight`/`ferry` leg skips the HERE query entirely and returns
     straight `road: false` geometry, so an SCL→CUZ flight never renders as a
-    drive down the Pan-American Highway. Modes shorter than the resolved
-    place list simply don't cover the tail legs.
+    drive down the Pan-American Highway.
+
+    Entries are **positional**: entry *i* describes leg *i*, and an EMPTY
+    entry means "no declared mode for this leg" (`mode: null`, road default)
+    — it is never dropped, because dropping it slides every later leg one
+    slot left and the trip's last flight gets answered with a road route
+    (#407). Modes shorter than the resolved place list simply don't cover
+    the tail legs, which come back `mode: null`.
     """
     _rate_limit(request, "route", 60)
     trip = _trip_for_map(trip_id)
     token = here_bearer_token()
     if not token:
         raise HTTPException(status_code=404, detail="Maps not configured")
-    mode_list = [m.strip() for m in modes.split(",") if m.strip()] if modes else []
+    mode_list = parse_leg_modes(modes)
     resolved = resolve_places(trip, [p for p in places.split(",") if p.strip()])
     if len(resolved) < 2:
         raise HTTPException(status_code=404, detail="Need at least two resolvable places")
-    cache_key = (trip.id, tuple(resolved), bool(loop), tuple(mode_list))
+    # The mode list is part of the key POSITIONALLY: `flight,,train` and
+    # `flight,train` are different requests (a gap in slot 1), so the tuple
+    # must keep the None holes — it is not a set, and `or ()` only guards the
+    # "no declarations at all" case (#407).
+    cache_key = (trip.id, tuple(resolved), bool(loop), tuple(mode_list or ()))
     hit = _route_cache.get(cache_key)
     now = time.monotonic()
     if hit and hit[0] > now:

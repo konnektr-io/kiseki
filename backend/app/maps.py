@@ -44,12 +44,35 @@ def resolve_places(trip, places: list[str]) -> list[tuple[str, float, float]]:
     return out
 
 
+def parse_leg_modes(modes: str | None) -> list[str | None] | None:
+    """Parse the ``modes`` query parameter into a POSITIONAL per-leg list (#407).
+
+    ``modes`` is parallel to ``places``: entry *i* describes the leg between
+    place *i* and place *i+1*. An **empty entry means "no declared mode for
+    this leg"** — not "drop this index". The client renders a chain gap (a
+    short hop between two registry places that has no transport block) as an
+    empty CSV slot, so filtering empties out shifted every later leg one slot
+    left: a flight after a gap came back as the previous leg's mode, and the
+    trip's final flight was answered with a road route (1094 km / 21 h drawn
+    as a drive). Silent, and the more gaps a trip had the worse it got.
+
+    So: split, trim, and keep the hole as ``None`` — ``route_legs`` already
+    treats ``None`` as "undeclared" and keeps its road default, and echoes it
+    back as ``mode: null``. ``None`` (or an empty string) for the whole
+    parameter means "no per-leg declarations at all" → ``None``, not ``[]``,
+    so callers can keep using truthiness to skip the whole feature.
+    """
+    if modes is None or not modes.strip():
+        return None
+    return [m.strip() or None for m in modes.split(",")]
+
+
 def route_legs(
     places: list[tuple[str, float, float]],
     token: str,
     *,
     loop: bool = False,
-    modes: list[str] | None = None,
+    modes: list[str | None] | None = None,
 ) -> list[dict]:
     """Per-leg GeoJSON for a set of places — the payload the MapLibre map draws.
 
@@ -66,7 +89,9 @@ def route_legs(
     When the mode is ``flight``/``ferry`` the call is skipped entirely
     and the leg comes back ``road: False`` with straight geometry — no
     road query, no misleading car route along the highway for a leg
-    that is a flight or ferry.
+    that is a flight or ferry. The list is **positional**: a ``None`` in
+    slot *i* is a leg with no declared mode, not a missing entry — later
+    slots never move up into it (#407).
 
     Every leg echoes its declared ``mode`` back (additive, #357) so the
     client can style a leg by transport type. ``road`` stays the
