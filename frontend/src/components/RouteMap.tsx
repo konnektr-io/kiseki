@@ -1099,12 +1099,88 @@ export function RouteMap({
         );
         visibleExcursionNames = new Set<string>();
         const liveKeys = new Set<string>();
+      /** Can this cluster be drawn WITHOUT lying about where it is?
+       *
+       *  A cluster badge is drawn at its members' centroid. That is only honest
+       *  while the members are close enough together, on THIS screen, for the
+       *  middle of them to be "here". When they are not, the centroid is the
+       *  middle of nowhere between them and a badge there confidently misplaces
+       *  every place it counts.
+       *
+       *  Measured on the Chili+Peru trip (Niko's screenshot, 2026-10-04): the
+       *  badge counting Lima's venues drew next to Ica. Those 9 places span
+       *  11.6 km — Magisch Watercircuit 2.9 km north-east, Pan Sal Aire 11.6 km
+       *  south — so the centroid sits **7.45 km** from the Lima pin. At journey
+       *  zoom that is a few pixels (invisible); by z10 the same offset is 45px
+       *  and the badge reads as a town of its own near Ica.
+       *
+       *  The test is the members' own on-screen spread against the cluster
+       *  radius — the same 44px that decides what clusters in the first place. If
+       *  a set of places cannot sit inside one cluster's worth of pixels, it is
+       *  not one place on this screen, and the honest answer is to draw nothing
+       *  until the traveler zooms in far enough for it to be. */
+      const clusterIsHonest = (cluster: PinCluster): boolean => {
+        const members = cluster.memberDtIds
+          .map((name) => excursionByName.get(name))
+          .filter((l): l is TripLocation => l != null && l.lng != null && l.lat != null);
+        if (members.length < 2) return true;
+        const pts = members.map((l) => {
+          const p = map.project([l.lng!, l.lat!]);
+          return [p.x, p.y] as [number, number];
+        });
+        // Widest gap between any two members, on screen.
+        let widest = 0;
+        for (let i = 0; i < pts.length; i++) {
+          for (let j = i + 1; j < pts.length; j++) {
+            widest = Math.max(widest, Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]));
+          }
+        }
+        // A cluster whose members do not fit inside the radius that formed it is
+        // not a place at this zoom.
+        return widest <= CLUSTER_PX;
+      };
         for (const item of grouped) {
           if (item.kind === "pin") {
             visibleExcursionNames.add(item.pin.dtId);
             continue;
           }
           const { cluster } = item;
+          // A cluster is only worth DRAWING when its members are close enough
+          // together to be one place on THIS screen. Niko's report (2026-10-04,
+          // Chili+Peru): the "9" counting Lima's venues drew next to Ica,
+          // because those 9 places span 11.6 km and the centroid sits 7.45 km
+          // from Lima — at journey zoom that is a badge in the desert wearing
+          // Lima's name. At z10 the same 7.45 km is 45px away and reads as a
+          // separate town.
+          //
+          // So the gate is the members' own on-screen spread: if they do not
+          // fit inside the cluster radius, there is no single honest spot to
+          // draw, and the honest answer is to draw NOTHING until the traveler
+          // zooms in far enough for the centroid to mean something. The places
+          // themselves are never lost — they reappear as individual diamonds the
+          // moment they separate.
+          // Membership is recorded even for a cluster we decline to draw, so
+          // the rail can still answer "where is the place I picked" with the
+          // honest answer — it is inside a cluster, just not one drawn here.
+          // It must be recorded BEFORE the honesty gate: a skipped cluster
+          // still owns its members, so the pass below hides their diamonds and
+          // releases them again as soon as the cluster separates.
+          for (const member of cluster.memberDtIds) {
+            clusterMembersRef.current.set(member, cluster.key);
+          }
+          if (!clusterIsHonest(cluster)) {
+            // We decline to draw the badge, so we must RELEASE its members too
+            // (they are hidden by name at the bottom of this pass). Leaving them
+            // suppressed would delete the venues outright — and a cluster too
+            // wide to badge is one whose members are, by definition, further
+            // apart than the radius, so each has room to sit where it truly is.
+            // The rule is "never move a place, never lose one": the badge is
+            // what gets dropped, not the venues.
+            for (const member of cluster.memberDtIds) {
+              visibleExcursionNames.add(member);
+            }
+            continue;
+          }
           liveKeys.add(cluster.key);
           let entry = badgePool.get(cluster.key);
           if (!entry) {
@@ -1137,7 +1213,11 @@ export function RouteMap({
           entry.marker.remove();
           badgePool.delete(key);
         }
-        // Re-show every diamond that is not currently inside a badge.
+        // Every remaining diamond is hidden unless it is genuinely on its own.
+        // A member of a cluster we chose NOT to draw is still inside a real
+        // cluster, so it stays hidden — re-showing it would put two diamonds
+        // back on the same pixels, which is the pile the cluster replaced. The
+        // places come back the moment they separate into their own groups.
         for (const [name, el] of excursionEls) {
           if (visibleExcursionNames.has(name)) el.removeAttribute("hidden");
           else el.setAttribute("hidden", "");
@@ -1470,7 +1550,11 @@ export function RouteMap({
       for (const [key, el] of clusterMarkerElsRef.current) {
         el.classList.toggle("is-selected", key === clusterKey);
       }
-      if (clusterKey != null) {
+      // Only chase the camera when the badge is actually drawn. A place inside a
+      // cluster we declined to draw (#403) has a membership entry but no badge,
+      // and moving the camera to a position we then show nothing at would be
+      // worse than leaving the camera alone.
+      if (clusterKey != null && clusterMarkerElsRef.current.has(clusterKey)) {
         const center = clusterCentersRef.current.get(clusterKey);
         const map = mapRef.current;
         if (center && map) {

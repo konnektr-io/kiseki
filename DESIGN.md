@@ -698,6 +698,17 @@ idea.** Formalize it:
   own 44px hit target (`CLUSTER_PX` in `lib/marker-cluster.ts`), so the rule is one sentence at both
   ends: markers a thumb cannot separate cluster. The rule is shared with the signed-in home, which
   has clustered since #249 — one cartographic rule, one home.
+- **A cluster too wide to badge is not drawn at all** (2026-10-04, #403): a badge is painted at its
+  members' centroid, so it is only honest while those members are close enough, *on this screen*,
+  for the middle of them to mean "here". When they are not, the centroid is the middle of nowhere
+  and a badge there confidently misplaces every place it counts. The gate is the members' own
+  on-screen spread against the radius that formed them (`clusterIsHonest`), so it needs no magic
+  zoom: a cluster drawn where it belongs at z6 reappears unchanged at z9. Suppressing the badge
+  **releases its members**, which is the point — a cluster too wide to badge is one whose venues
+  are further apart than the radius, so each has room to sit where it truly is. The badge is what
+  gets dropped, never the places. *Measured on the Chili+Peru trip:* Lima's nine venues span 1px at
+  journey zoom and keep their badge; the Cusco/Sacred-Valley group's 21 venues reach 78px and give
+  theirs up, restoring 21 individual diamonds.
   **Stacking is an explicit ladder, not DOM order** (#388 → #398). MapLibre appends every marker to
   one container, all `position: absolute` with `z-index: auto`, so for years the stacking order *was*
   the order the component happened to add markers in, and #388 was that order being wrong. Clustering
