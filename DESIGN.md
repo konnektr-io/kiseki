@@ -702,15 +702,15 @@ idea.** Formalize it:
 - **Every visible diamond gets its name** (2026-10-04, #413). The layer was capped at four names
   and then dropped any name within 92px of one already kept, so with five or more diamonds visible
   some names could never appear at any zoom — and which four won was `trip.locations` order, which
-  is why it looked arbitrary. Names that would collide are now **nudged** along a bounded row
-  ladder (`placeExcursionLabels`) at slightly reduced emphasis, never removed: a label that appears
-  only when you tap it is a tooltip, not a label. **The ladder's step is
-  `EXCURSION_LABEL_MIN_SEPARATION_PX`, not a fixed 34px** (#414): two names 10px apart horizontally
-  need ~92px of vertical offset to clear the spacing test, so a fixed ladder leaves a third name in
-  that line with nowhere to go and it falls back to offset 0 — landing on *identical pixels* as its
-  neighbour. Measured on the Peru trip at z9: 5 such pairs, every one unreadable. Placement also
-  widens the ladder past its last rung when a dense knot exhausts it, so "every name is placed"
-  stays true instead of quietly becoming "most names are placed".
+  is why it looked arbitrary. The layer now has
+  nothing that measures or displaces anything — **an excursion label is placed exactly like a
+  numbered stop label**: anchored under its own marker at a fixed offset, with no collision
+  handling, so if two names overlap they overlap. #413/#414 proved the alternative wrong by
+  measurement: nudging colliding names down a ladder, then scaling that ladder with the 92px
+  spacing and widening it, could displace a name by up to 64 × 92px ≈ 5888px — seven viewports —
+  and Niko's report was *"now the labels are all over the place … Now they're in the sea."* **A
+  label displaced to avoid another label is no longer a label for its place.** The layer's own
+  count cap is the only limit; on the Peru trip at z9 the worst label sits 24px from its own
   **Why #398 was withdrawn.** The count badge was drawn at its members' centroid and then nudged
   clear of a numbered pin by up to **44 screen pixels** (#402), unprojected back to a coordinate. At
   journey zoom a pixel is not a pixel: 44px is **385 km at z3.13**, 105 km at z5, 26 km at z7. Lima's

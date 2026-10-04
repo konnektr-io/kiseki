@@ -1,55 +1,48 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
+import * as maps from "./maps";
 import {
   EXCURSION_DIAMOND_MIN_ZOOM,
-  EXCURSION_LABEL_MIN_SEPARATION_PX,
-  EXCURSION_LABEL_ROWS_PX,
+  EXCURSION_LABEL_DIAMOND_OFFSET_PX,
+  MAP_LABEL_PIN_OFFSET_PX,
   makeMapExcursionLabelElement,
   orderExcursionLabels,
-  placeExcursionLabels,
 } from "./maps";
 
 /**
- * Excursion (diamond) labels (#388 follow-up, revised #413).
+ * Excursion (diamond) labels (#388 follow-up; revised #413, #415).
  *
- * Niko's report (2026-10-03): the diamonds navigate correctly but say nothing
- * about what they ARE, so the scan reads as numbered pins and anonymous
- * lozenges. He wanted them labelled, quietly, under the numbered spine.
+ * Niko's reports, in order:
+ *  - 2026-10-03: the diamonds navigate correctly but say nothing about what they
+ *    ARE, so the scan reads as numbered pins and anonymous lozenges. Label them,
+ *    quietly, under the numbered spine.
+ *  - 2026-10-04: "only some labels seem to shown ... It seems completely random."
+ *    Cause was a hard four-name cap plus a 92px drop-filter.
+ *  - 2026-10-04, after #413/#414 shipped: **"now the labels are all over the
+ *    place ... Now they're in the sea"**, and then the design question settled it:
+ *    the NUMBERED labels are "just fine", so why place excursion labels
+ *    differently? **"I don't need the collision avoidance."**
  *
- * His second report (2026-10-04), fully zoomed in with every diamond visible and
- * space between them: "only some labels seem to shown ... It seems completely
- * random which labels get shown and which don't." It was not random, and the
- * cause was this layer's own two limits:
+ * So #415 withdraws the placement machinery entirely. #413 nudged colliding names
+ * down a ladder; #414 scaled that ladder with the 92px spacing and added a
+ * widening loop; the net effect could displace a name up to 64 x 92px ≈ 5888px —
+ * seven viewports — to dodge another name. A label that far from its diamond is
+ * not a label for that place.
  *
- *   1. `EXCURSION_LABEL_MAX = 4` capped the layer outright, so with five or more
- *      diamonds visible some names could NEVER appear, at any zoom.
- *   2. `farEnoughApart` DROPPED any name within 92px of one already kept.
- *
- * Which four survived was decided by `trip.locations` order, and tapping a
- * diamond pulled its name to the front of the cap — so the set changed with the
- * selection and reverted on the next click. That is precisely "completely
- * random" from the outside.
- *
- * The rule now: **every visible diamond gets a name**, and colliding names are
- * NUDGED along a small row ladder rather than removed. A label that appears only
- * when you tap it is a tooltip, not a label.
+ * The rule now is the one that was already working: **an excursion label is placed
+ * exactly like a numbered stop label** — anchored to its own marker at a fixed
+ * offset, with no measurement and no collision handling. If two overlap, they
+ * overlap. That is what the numbered labels have always done and Niko says it is
+ * "just fine".
  */
-describe("excursion diamond labels (#388 follow-up, revised #413)", () => {
+describe("excursion diamond labels (#388 follow-up, revised #413 and #415)", () => {
   const venues = ["Rockford Bar", "The Village Idiot", "Abe's Cafe", "Minyuk Coffee", "Selkirk Cafe"];
-  // Revelstoke's venues are ~1.1 km across, so at journey zoom (z≈6) all five
-  // land on a handful of pixels; zoomed to the town they spread out. Real
-  // screen points, measured by the probe at those two cameras.
-  const clustered: Array<[number, number]> = [[100, 100], [104, 102], [98, 105], [103, 97], [96, 99]];
-  const spread: Array<[number, number]> = [[100, 100], [300, 120], [520, 90], [760, 130], [980, 100]];
 
   describe("orderExcursionLabels", () => {
-    it("no longer caps the layer — every visible diamond is a candidate", () => {
-      // The defect: five venues, four names, and which four was arbitrary.
+    it("offers every visible diamond as a candidate — no arbitrary cap", () => {
+      // The #398 defect: five venues, four names, and which four won was decided
+      // by `trip.locations` order.
       expect(orderExcursionLabels(venues, null)).toHaveLength(venues.length);
-    });
-
-    it("still honours an explicit cap when a caller wants one", () => {
-      expect(orderExcursionLabels(venues, null, 2)).toHaveLength(2);
     });
 
     it("pulls the tapped diamond to the front", () => {
@@ -58,108 +51,37 @@ describe("excursion diamond labels (#388 follow-up, revised #413)", () => {
 
     it("ignores a selection that is not one of its diamonds", () => {
       // A selected chain stop must not conjure a diamond label out of thin air.
-      const ordered = orderExcursionLabels(venues, "Calgary");
-      expect(ordered).toEqual(venues);
+      expect(orderExcursionLabels(venues, "Calgary")).toEqual(venues);
     });
   });
 
-  describe("placeExcursionLabels — every name, nudged not dropped", () => {
-    it("names EVERY diamond, even when they all sit on one spot", () => {
-      // The regression that matters: five venues on the same pixels used to
-      // yield exactly one name.
-      const ordered = orderExcursionLabels(venues, null);
-      const sameSpot: Array<[number, number]> = ordered.map(() => [50, 50]);
-      const placed = placeExcursionLabels(ordered, sameSpot, null);
-      expect(placed).toHaveLength(venues.length);
-      expect(placed.map((p) => p.name)).toEqual(ordered);
-    });
-
-    it("keeps a name on every diamond even in a tight pile", () => {
-      const ordered = orderExcursionLabels(venues, null);
-      const placed = placeExcursionLabels(ordered, clustered, null);
-      expect(placed).toHaveLength(venues.length);
-    });
-
-    it("uses the un-nudged row when there is room", () => {
-      const ordered = orderExcursionLabels(venues, null);
-      const placed = placeExcursionLabels(ordered, spread, null);
-      expect(placed.every((p) => p.offset[1] === 0)).toBe(true);
-    });
-
-    it("nudges a colliding name DOWN the row ladder rather than removing it", () => {
-      const ordered = orderExcursionLabels(venues, null);
-      const placed = placeExcursionLabels(ordered, clustered, null);
-      const nudged = placed.filter((p) => p.offset[1] !== 0);
-      expect(nudged.length).toBeGreaterThan(0);
-      // Every nudge is a real row, so a label can never drift off its marker.
-      for (const p of nudged) expect(EXCURSION_LABEL_ROWS_PX).toContain(p.offset[1]);
-    });
-
-    it("separates names that overlap only VERTICALLY", () => {
-      // Same x, 87px apart: closer than the pill width, so a horizontal-only
-      // test would call this clear.
-      const gap = EXCURSION_LABEL_MIN_SEPARATION_PX - 5;
-      const placed = placeExcursionLabels(["a", "b"], [[100, 100], [100, 100 + gap]], null);
-      expect(placed).toHaveLength(2);
-      expect(placed[1].offset[1]).not.toBe(0);
-    });
-
-    it("places the tapped name un-nudged and never displaces it", () => {
-      const ordered = orderExcursionLabels(venues, "Selkirk Cafe");
-      const sameSpot: Array<[number, number]> = ordered.map(() => [50, 50]);
-      const placed = placeExcursionLabels(ordered, sameSpot, "Selkirk Cafe");
-      const sel = placed.find((p) => p.name === "Selkirk Cafe")!;
-      expect(sel.offset[1]).toBe(0);
-    });
-
-    it("separates a COLUMN of labels — the case a fixed ladder silently fails", () => {
-      // Measured on the Peru trip at z9 before the fix: 5 pairs of names landed on
-      // IDENTICAL pixels. Cause: the ladder's step (34px) was smaller than the
-      // spacing test (92px), so a third label in a vertical line had nowhere to
-      // go and fell back to offset 0.
-      const names = ["a", "b", "c", "d", "e"];
-      // Five venues 10px apart horizontally: the worst case for a vertical nudge.
-      const column: Array<[number, number]> = names.map((_, i) => [100 + i * 10, 300]);
-      const placed = placeExcursionLabels(names, column, null);
-      expect(placed).toHaveLength(names.length);
-      const ys = placed.map((p) => 300 + p.offset[1]);
-      // Every pair must clear the separation, and none may share a position.
-      for (let i = 0; i < ys.length; i++) {
-        for (let j = i + 1; j < ys.length; j++) {
-          expect(Math.hypot(ys[i] - ys[j], (i - j) * 10))
-            .toBeGreaterThanOrEqual(EXCURSION_LABEL_MIN_SEPARATION_PX - 0.5);
-        }
+  describe("placement — identical to the numbered labels, by construction (#415)", () => {
+    it("has NO collision-avoidance machinery left in lib/maps.ts", () => {
+      // The strongest form of this test: assert the code that caused the bug is
+      // GONE, not merely unused. A helper that still exists can be re-wired, and
+      // a measurement-based placement that a well-meaning edit re-enables is
+      // exactly how the labels ended up in the sea.
+      // (Enforced at the source level in route-surface.test.ts, which reads the
+      // component's text; here we assert the exported surface has no such API.)
+      const api = maps as unknown as Record<string, unknown>;
+      for (const gone of [
+        "placeExcursionLabels",
+        "farEnoughApart",
+        "LabelPlacement",
+        "EXCURSION_LABEL_ROWS_PX",
+        "EXCURSION_LABEL_SLOT_OFFSETS_PX",
+        "EXCURSION_LABEL_MAX_OFFSET_PX",
+      ]) {
+        expect(api[gone]).toBeUndefined();
       }
-      expect(new Set(placed.map((p) => p.offset[1])).size).toBe(names.length);
     });
 
-    it("the nudge ladder scales with the separation constant, not a fixed step", () => {
-      // A step smaller than the spacing test is the bug above, restated as a
-      // property so a future edit cannot reintroduce it.
-      for (const dy of EXCURSION_LABEL_ROWS_PX) {
-        expect(Math.abs(dy) % EXCURSION_LABEL_MIN_SEPARATION_PX).toBe(0);
-      }
-      expect(Math.max(...EXCURSION_LABEL_ROWS_PX.map(Math.abs)))
-        .toBeGreaterThanOrEqual(2 * EXCURSION_LABEL_MIN_SEPARATION_PX);
-    });
-
-    it("returns draw order, so the DOM never depends on which was tapped", () => {
-      const ordered = orderExcursionLabels(venues, "Abe's Cafe");
-      const placed = placeExcursionLabels(ordered, clustered, "Abe's Cafe");
-      const positions = placed.map((p) => ordered.indexOf(p.name));
-      expect(positions).toEqual([...positions].sort((a, b) => a - b));
-    });
-
-    it("gives the SAME answer whatever was tapped — that is the 'random' fix", () => {
-      // Before #413 the visible label set changed with the selection, which is
-      // exactly why it looked arbitrary. Only the tapped name's own row may
-      // differ now; the set of names must not.
-      const ordered = orderExcursionLabels(venues, null);
-      const base = placeExcursionLabels(ordered, clustered, null).map((p) => p.name);
-      for (const sel of venues) {
-        const withSel = placeExcursionLabels(ordered, clustered, sel).map((p) => p.name);
-        expect(withSel).toEqual(base);
-      }
+    it("anchors below its own diamond at a fixed offset", () => {
+      // Same shape as `MAP_LABEL_PIN_OFFSET_PX` for the numbered pins: one
+      // constant, one anchor, no geometry.
+      expect(typeof EXCURSION_LABEL_DIAMOND_OFFSET_PX).toBe("number");
+      expect(EXCURSION_LABEL_DIAMOND_OFFSET_PX).toBeGreaterThan(0);
+      expect(EXCURSION_LABEL_DIAMOND_OFFSET_PX).toBeLessThan(MAP_LABEL_PIN_OFFSET_PX + 40);
     });
   });
 
@@ -174,27 +96,21 @@ describe("excursion diamond labels (#388 follow-up, revised #413)", () => {
     });
   });
 
-  describe("never double-labels", () => {
-    it("the layer is fed only the chain's complement", () => {
-      // Structural guarantee, pinned here as the contract the scan build
-      // relies on: `journey.excursions` is by construction the complement of
-      // `chain` (route-surface `tripExcursions`), so a stop can never appear
-      // twice — once as a numbered pin, once as a diamond.
-      const chain = ["Calgary", "Banff", "Revelstoke"];
-      const placed = placeExcursionLabels(orderExcursionLabels(venues, null), spread, null);
-      expect(placed.some((e) => chain.includes(e.name))).toBe(false);
-    });
-  });
-
   describe("the pill", () => {
     it("reads as a diamond, never as a second numbered place", () => {
       const el = makeMapExcursionLabelElement("Rockford Bar");
-      // Same pill vocabulary as a place label, so the layer reads as ONE layer…
       expect(el.classList.contains("map-place-label")).toBe(true);
-      // …but the diamond's own family, so it can never read as the spine.
       expect(el.classList.contains("is-excursion")).toBe(true);
       expect(el.classList.contains("is-chip")).toBe(false);
       expect(el.getAttribute("aria-hidden")).toBe("true");
+    });
+
+    it("carries no collision state class", () => {
+      // `is-nudged`/`is-offset` only existed to style a displaced label. With no
+      // displacement there is nothing to mark.
+      const el = makeMapExcursionLabelElement("Rockford Bar");
+      expect(el.classList.contains("is-nudged")).toBe(false);
+      expect(el.classList.contains("is-offset")).toBe(false);
     });
   });
 });

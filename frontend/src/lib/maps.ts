@@ -361,42 +361,14 @@ export function makeMapChipLabelElement(letter: string, title: string): HTMLDivE
   return el;
 }
 
-/**
- * Excursion labels (#388 follow-up, Niko 2026-10-03): the hollow diamonds on
- * the itinerary view finally name what they are.
+/** How the excursion layer caps itself.
  *
- * The complaint this answers: a diamond navigates correctly on tap (it selects
- * the place and scrolls to its day) but says nothing about ITSELF, so scanning
- * the itinerary means reading five numbered pins and a heap of anonymous
- * lozenges. The diamonds were deliberately label-free until now — no ordinal,
- * because an excursion must not claim a slot in the ① ② ③ index (#91) — but
- * "no ordinal" never had to mean "no name".
- *
- * Same pill vocabulary as the place labels, a deliberately QUIETER one:
- *
- * - **The numbered stops keep the spine.** Their labels are the primary layer
- *   (cap 8, selected-first). Diamond labels are secondary: a lower cap, muted
- *   foreground, no accent ring unless the diamond is the one selected, and a
- *   diamond badge instead of an ordinal so the label can never be misread as a
- *   numbered place.
- * - **The tapped diamond always wins**, at any zoom: the "or clicking them"
- *   half of the ask. ONE label is a deliberate answer to a deliberate tap, not
- *   a pile, so nothing may suppress it.
- * - **Unselected diamonds are named only when there is room for each name** —
- *   see `farEnoughApart`, which IS the display rule. There is deliberately NO
- *   zoom floor here, and that is a measured decision, not an omission.
- *   `scripts/probe-excursion-labels.py` fitted the real Canada registry: the
- *   six stops span 4.19° of longitude, so the journey framing lands near z6,
- *   while a same-town venue cluster (Revelstoke's six venues span ~1.1 km)
- *   only separates four pills at z≈13. One global floor cannot serve both —
- *   z6 silences a sparse trip's readable labels, z13 silences everything a
- *   traveler actually looks at, which is the map skill's rule 5 exactly. So the
- *   gate measures each diamond's ACTUAL on-screen separation instead, which
- *   makes the layer self-tuning: dense trips reveal names as you zoom in,
- *   sparse ones name them straight away, and Niko's "when zooming in or
- *   clicking them" falls out of the geometry rather than a second constant
- *   that has to be re-tuned against every new trip.
- */
+ *  Order only: which names are candidates is the caller's business (it knows what
+ *  is on screen). There is deliberately no fit or collision term here — #415
+ *  removed the on-screen separation test entirely, because a name displaced to
+ *  avoid another name stops reading as a label for its own place ("now they're in
+ *  the sea", Niko 2026-10-04). Placement is a fixed offset under the marker, the
+ *  same as the numbered pins. */
 /** @deprecated #413 removed the four-name cap — every visible diamond is named
  *  now. Kept only so an explicit caller can still pass a cap. Do not reintroduce
  *  it as the layer's default: a cap makes names invisible for no good reason. */
@@ -413,23 +385,6 @@ export const EXCURSION_DIAMOND_MIN_ZOOM = 9;
  *  to read beside their markers — one pill's width (~70–90px), so this is the
  *  distance at which two labels stop overlapping rather than a hair's breadth. */
 export const EXCURSION_LABEL_MIN_SEPARATION_PX = 92;
-/** Vertical offsets a name may be nudged to, in px, tried top-down: 0, then
- *  +/- one separation, +/- two, and so on.
- *
- *  The step MUST be `EXCURSION_LABEL_MIN_SEPARATION_PX`, not a fixed 34px. A
- *  fixed ladder looks reasonable and silently fails: two labels 10px apart
- *  horizontally need a vertical offset of ~92px to clear the spacing test, so
- *  with a 34px ladder a THIRD label in that line has nowhere to go and falls
- *  back to offset 0 — landing on exactly the same pixels as its neighbour.
- *  Measured on the Peru trip at z9: 5 such pairs, every one of them
- *  unreadable. Scaling the ladder with the spacing is what makes "every name
- *  is placed" true rather than aspirational. */
-export const EXCURSION_LABEL_ROWS_PX: readonly number[] = [
-  0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6,
-].map((k) => k * EXCURSION_LABEL_MIN_SEPARATION_PX);
-/** Label pill offset below a diamond, in px: a touch tighter than the 28px
- *  numbered pin's 15, because the diamond is 20px (`h-5`) and its label would
- *  otherwise read as detached. */
 export const EXCURSION_LABEL_DIAMOND_OFFSET_PX = 11;
 
 /**
@@ -465,84 +420,6 @@ export function orderExcursionLabels(
  * The result is returned in draw order, so the layer's DOM order never depends
  * on which diamond was tapped.
  */
-export type LabelPlacement = { name: string; offset: [number, number] };
-
-/**
- * Where every name goes, this frame. Pure — pinned by test.
- *
- * Niko's report (2026-10-04): "only some labels seem to shown ... It seems
- * completely random which labels get shown and which don't." It was not random:
- * the layer was capped at FOUR names (#398's `EXCURSION_LABEL_MAX`) and then
- * `farEnoughApart` DROPPED any name within 92px of one already kept — so with
- * five or more diamonds visible, some names could never appear at any zoom, and
- * which four won was decided by `trip.locations` order. Clicking a diamond
- * pulled its name to the front of that cap, which is exactly why the set looked
- * arbitrary: it changed with the selection and reverted when you clicked away.
- *
- * The rule now: **every visible diamond gets a name.** Names that would collide
- * are NUDGED — a small, bounded vertical offset in a fixed ladder of rows —
- * rather than removed. A label that cannot find a free row keeps its own place
- * at reduced emphasis rather than vanishing, because a label that appears only
- * when you tap is not a label, it is a tooltip.
- *
- * `rows` are the vertical offsets tried in order; the first that clears every
- * already-placed name wins. Selected is placed first and never displaced.
- */
-export function placeExcursionLabels(
-  ordered: string[],
-  points: Array<[number, number]>,
-  selected: string | null,
-  minSeparationPx = EXCURSION_LABEL_MIN_SEPARATION_PX,
-  rows: ReadonlyArray<number> = EXCURSION_LABEL_ROWS_PX,
-): LabelPlacement[] {
-  const index = new Map(ordered.map((n, i) => [n, i] as const));
-  const at = (name: string): [number, number] | undefined => points[index.get(name) ?? -1];
-  const placed: Array<{ name: string; x: number; y: number }> = [];
-  const out: LabelPlacement[] = [];
-  // Selected first so it always gets the un-nudged row, then draw order.
-  const candidates = [...ordered].sort(
-    (a, b) => Number(b === selected) - Number(a === selected),
-  );
-  for (const name of candidates) {
-    const p = at(name);
-    if (!p) continue;
-    const free = (dy: number): boolean =>
-      !placed.some((q) => Math.hypot(q.x - p[0], q.y - (p[1] + dy)) < minSeparationPx);
-    let chosen: [number, number] = [0, 0];
-    let found = name === selected;
-    if (!found) {
-      for (const dy of rows) {
-        if (free(dy)) {
-          chosen = [0, dy];
-          found = true;
-          break;
-        }
-      }
-    }
-    if (!found) {
-      // The ladder is exhausted — a dense knot of venues, or a tall column of
-      // them. Widen it until this label clears, so "every name is placed" stays
-      // true instead of quietly becoming "most names are placed". Bounded, so a
-      // pathological cluster cannot fling a name into another hemisphere.
-      for (let k = rows.length; k <= 64 && !found; k += 1) {
-        for (const sign of [1, -1]) {
-          const dy = sign * k * minSeparationPx;
-          if (free(dy)) {
-            chosen = [0, dy];
-            found = true;
-            break;
-          }
-        }
-      }
-    }
-    placed.push({ name, x: p[0], y: p[1] + chosen[1] });
-    out.push({ name, offset: found ? chosen : [0, 0] });
-  }
-  // Draw order, so the layer's DOM order never depends on which diamond was
-  // tapped.
-  return out.sort((a, b) => (index.get(a.name) ?? 0) - (index.get(b.name) ?? 0));
-}
-
 /**
  * The DOM pill for an excursion label — browser-only (call inside effects).
  *
