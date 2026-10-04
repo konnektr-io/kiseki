@@ -79,8 +79,15 @@ export function PracticalsPage() {  const trip = useTrip();
                     {t.done && <span className="text-[10px]">✓</span>}
                   </span>
                 )}
-                <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground line-through" : ""}`}>
-                  {t.label}
+                {/* The strike belongs to the LABEL, not the row: `text-decoration`
+                    is inherited, so `line-through` on this wrapper drew a line
+                    through every link pill under a finished item ("Manage
+                    flights", the booking link) — the affordance was struck out
+                    by the very completion it belonged to. The row keeps the
+                    muted text (a done item reads as done); only the label is
+                    struck. #400. */}
+                <span className={`min-w-0 flex-1 ${t.done ? "text-muted-foreground" : ""}`}>
+                  <span className={t.done ? "line-through" : undefined}>{t.label}</span>
                   {t.links?.length ? (
                     <span className="mt-1 flex flex-wrap gap-1.5">
                       {t.links.map((l) => (
