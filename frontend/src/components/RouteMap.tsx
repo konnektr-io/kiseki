@@ -44,7 +44,9 @@ import {
 import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
-import { addOutdoorOverlay } from "../lib/outdoor-overlay";
+import { OUTDOOR_COLORS, addOutdoorOverlay, overlayBeforeLayerId } from "../lib/outdoor-overlay";
+import { addOutdoorLabels } from "../lib/outdoor-labels";
+import { registerLiftGlyphs } from "../lib/lift-glyphs";
 import { mapColors } from "../lib/tokens";
 import { accuracyRadiusPx, locateControl, type DeviceFix } from "../lib/geolocation";
 import { startTrackingDeviceIfPermitted, useDeviceLocation } from "../lib/device-location";
@@ -582,6 +584,25 @@ export function RouteMap({
         // `data-maplibre` handshake, so the booklet's `MapView` path never loads
         // these tiles.
         addOutdoorOverlay(map);
+
+        // Names for those lines, plus a small glyph per lift class. The sprites
+        // register first because the glyph layer references them by id — a layer
+        // whose `icon-image` names a missing sprite throws on add, so ordering is
+        // the whole contract here. Both are no-ops that cannot fail: a missing
+        // glyph or font costs the traveller their reference labels, not the trip.
+        //
+        // Inserted below the basemap's first symbol layer, the same anchor the
+        // line overlay uses, so the trip's own labels and markers stay on top.
+        // Labels only appear from z13 (the lines start at z10) precisely so
+        // annotation never competes with trip content (DESIGN.md §8.5).
+        try {
+          // The glyph takes the lift line's own colour, so a glyph always reads
+          // as belonging to its line — one palette, one source of truth.
+          const registered = await registerLiftGlyphs(map, { lift: OUTDOOR_COLORS.lift });
+          if (registered.length) addOutdoorLabels(map, overlayBeforeLayerId(map));
+        } catch {
+          /* no reference labels this time */
+        }
 
         // Real geometry when the backend can give it; the trip's own
         // coordinates when it can't (maps unconfigured, or a leg with no road
