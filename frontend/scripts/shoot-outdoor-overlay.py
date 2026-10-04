@@ -3,7 +3,7 @@
 
 Two jobs, both of which exist because something shipped that nobody looked at:
 
-1. `shoot_glyph_sheet` renders the four lift pictograms at true size (11px, 1×
+1. `shoot_glyph_sheet` renders the six lift pictograms at true size (11px, 1×
    device pixels) AND large. The first chairlift shipped because the unit tests
    asserted "four distinct SVGs" — true, and worthless. A pictogram has to be
    LOOKED AT, and this is the artefact that makes that possible.
@@ -213,8 +213,16 @@ def main() -> int:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     local = serve_dist()
-    base = local[0] if local else BASE
-    print(f"using {'local build' if local else 'live deployment'}: {base}")
+    # An explicit base-url argument WINS over a local `dist/`. Silently
+    # photographing a local build when asked for production proves nothing about
+    # the release — and the "using local build: 127.0.0.1" line scrolls past
+    # easily, so the shots look valid while answering a different question.
+    # `--local` opts into the local build explicitly.
+    argv = [a for a in sys.argv[1:] if a != "--local"]
+    want_local = "--local" in sys.argv[1:] or not argv
+    base = local[0] if (want_local and local) else (argv[0] if argv else BASE)
+    kind = "LOCAL build" if base != BASE else "LIVE deployment"
+    print(f"using {kind}: {base}")
 
     try:
         print(f"  glyph sheet: {shoot_glyph_sheet()}")
