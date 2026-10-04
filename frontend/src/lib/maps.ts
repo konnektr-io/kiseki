@@ -413,12 +413,20 @@ export const EXCURSION_DIAMOND_MIN_ZOOM = 9;
  *  to read beside their markers — one pill's width (~70–90px), so this is the
  *  distance at which two labels stop overlapping rather than a hair's breadth. */
 export const EXCURSION_LABEL_MIN_SEPARATION_PX = 92;
-/** Vertical offsets a name may be nudged to, in px, tried top-down. Four rows
- *  either side of the diamond: enough to resolve a dense cluster of names in
- *  one city without flinging a label off its own marker. */
+/** Vertical offsets a name may be nudged to, in px, tried top-down: 0, then
+ *  +/- one separation, +/- two, and so on.
+ *
+ *  The step MUST be `EXCURSION_LABEL_MIN_SEPARATION_PX`, not a fixed 34px. A
+ *  fixed ladder looks reasonable and silently fails: two labels 10px apart
+ *  horizontally need a vertical offset of ~92px to clear the spacing test, so
+ *  with a 34px ladder a THIRD label in that line has nowhere to go and falls
+ *  back to offset 0 — landing on exactly the same pixels as its neighbour.
+ *  Measured on the Peru trip at z9: 5 such pairs, every one of them
+ *  unreadable. Scaling the ladder with the spacing is what makes "every name
+ *  is placed" true rather than aspirational. */
 export const EXCURSION_LABEL_ROWS_PX: readonly number[] = [
-  0, -34, 34, -68, 68, -102, 102,
-];
+  0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6,
+].map((k) => k * EXCURSION_LABEL_MIN_SEPARATION_PX);
 /** Label pill offset below a diamond, in px: a touch tighter than the 28px
  *  numbered pin's 15, because the diamond is 20px (`h-5`) and its label would
  *  otherwise read as detached. */
@@ -498,15 +506,32 @@ export function placeExcursionLabels(
   for (const name of candidates) {
     const p = at(name);
     if (!p) continue;
+    const free = (dy: number): boolean =>
+      !placed.some((q) => Math.hypot(q.x - p[0], q.y - (p[1] + dy)) < minSeparationPx);
     let chosen: [number, number] = [0, 0];
     let found = name === selected;
     if (!found) {
       for (const dy of rows) {
-        const cand: [number, number] = [0, dy];
-        if (!placed.some((q) => Math.hypot(q.x - p[0], q.y - (p[1] + dy)) < minSeparationPx)) {
-          chosen = cand;
+        if (free(dy)) {
+          chosen = [0, dy];
           found = true;
           break;
+        }
+      }
+    }
+    if (!found) {
+      // The ladder is exhausted — a dense knot of venues, or a tall column of
+      // them. Widen it until this label clears, so "every name is placed" stays
+      // true instead of quietly becoming "most names are placed". Bounded, so a
+      // pathological cluster cannot fling a name into another hemisphere.
+      for (let k = rows.length; k <= 64 && !found; k += 1) {
+        for (const sign of [1, -1]) {
+          const dy = sign * k * minSeparationPx;
+          if (free(dy)) {
+            chosen = [0, dy];
+            found = true;
+            break;
+          }
         }
       }
     }

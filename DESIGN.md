@@ -704,7 +704,13 @@ idea.** Formalize it:
   some names could never appear at any zoom — and which four won was `trip.locations` order, which
   is why it looked arbitrary. Names that would collide are now **nudged** along a bounded row
   ladder (`placeExcursionLabels`) at slightly reduced emphasis, never removed: a label that appears
-  only when you tap it is a tooltip, not a label.
+  only when you tap it is a tooltip, not a label. **The ladder's step is
+  `EXCURSION_LABEL_MIN_SEPARATION_PX`, not a fixed 34px** (#414): two names 10px apart horizontally
+  need ~92px of vertical offset to clear the spacing test, so a fixed ladder leaves a third name in
+  that line with nowhere to go and it falls back to offset 0 — landing on *identical pixels* as its
+  neighbour. Measured on the Peru trip at z9: 5 such pairs, every one unreadable. Placement also
+  widens the ladder past its last rung when a dense knot exhausts it, so "every name is placed"
+  stays true instead of quietly becoming "most names are placed".
   **Why #398 was withdrawn.** The count badge was drawn at its members' centroid and then nudged
   clear of a numbered pin by up to **44 screen pixels** (#402), unprojected back to a coordinate. At
   journey zoom a pixel is not a pixel: 44px is **385 km at z3.13**, 105 km at z5, 26 km at z7. Lima's

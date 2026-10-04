@@ -112,6 +112,37 @@ describe("excursion diamond labels (#388 follow-up, revised #413)", () => {
       expect(sel.offset[1]).toBe(0);
     });
 
+    it("separates a COLUMN of labels — the case a fixed ladder silently fails", () => {
+      // Measured on the Peru trip at z9 before the fix: 5 pairs of names landed on
+      // IDENTICAL pixels. Cause: the ladder's step (34px) was smaller than the
+      // spacing test (92px), so a third label in a vertical line had nowhere to
+      // go and fell back to offset 0.
+      const names = ["a", "b", "c", "d", "e"];
+      // Five venues 10px apart horizontally: the worst case for a vertical nudge.
+      const column: Array<[number, number]> = names.map((_, i) => [100 + i * 10, 300]);
+      const placed = placeExcursionLabels(names, column, null);
+      expect(placed).toHaveLength(names.length);
+      const ys = placed.map((p) => 300 + p.offset[1]);
+      // Every pair must clear the separation, and none may share a position.
+      for (let i = 0; i < ys.length; i++) {
+        for (let j = i + 1; j < ys.length; j++) {
+          expect(Math.hypot(ys[i] - ys[j], (i - j) * 10))
+            .toBeGreaterThanOrEqual(EXCURSION_LABEL_MIN_SEPARATION_PX - 0.5);
+        }
+      }
+      expect(new Set(placed.map((p) => p.offset[1])).size).toBe(names.length);
+    });
+
+    it("the nudge ladder scales with the separation constant, not a fixed step", () => {
+      // A step smaller than the spacing test is the bug above, restated as a
+      // property so a future edit cannot reintroduce it.
+      for (const dy of EXCURSION_LABEL_ROWS_PX) {
+        expect(Math.abs(dy) % EXCURSION_LABEL_MIN_SEPARATION_PX).toBe(0);
+      }
+      expect(Math.max(...EXCURSION_LABEL_ROWS_PX.map(Math.abs)))
+        .toBeGreaterThanOrEqual(2 * EXCURSION_LABEL_MIN_SEPARATION_PX);
+    });
+
     it("returns draw order, so the DOM never depends on which was tapped", () => {
       const ordered = orderExcursionLabels(venues, "Abe's Cafe");
       const placed = placeExcursionLabels(ordered, clustered, "Abe's Cafe");
