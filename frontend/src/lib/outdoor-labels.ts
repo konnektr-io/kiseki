@@ -52,7 +52,12 @@
  * names on it. The spacing below is what makes placement possible at all.
  */
 import type { ExpressionSpecification, FilterSpecification, LayerSpecification } from "maplibre-gl";
-import { LIFT_GLYPH_CLASSES, liftGlyphImageId } from "./lift-glyphs";
+import {
+  LIFT_GLYPH_CLASSES,
+  liftGlyphImageId,
+  liftGlyphKindFor,
+  type LiftGlyphKind,
+} from "./lift-glyphs";
 import { OUTDOOR_SOURCE_ID } from "./outdoor-overlay";
 
 /** The source-layer the names live in. */
@@ -144,25 +149,44 @@ function colorExpr(): import("maplibre-gl").ExpressionSpecification {
 /**
  * `subtype` → the registered sprite id.
  *
- * Must agree with `liftGlyphClass` in `lift-glyphs.ts`; the four branches are
- * the same four `LIFT_GLYPH_KINDS`. Kept as a data expression (not a
- * `match`) because the aliasing has to happen here too, and a `case` makes the
- * two sides easy to compare by eye.
+ * Built FROM `liftGlyphKindFor`, not restated beside it. The first version listed
+ * its own branches, so when the glyph set gained separate t-bar / j-bar / platter
+ * icons this expression still sent all three to the t-bar sprite — the kind of
+ * drift that renders a wrong-but-plausible icon and never errors.
  */
 function glyphExpr(): import("maplibre-gl").ExpressionSpecification {
+  // DERIVED from `liftGlyphKindFor` rather than hand-listed. This expression used
+  // to restate the aliasing independently, which is precisely how the two drifted
+  // apart: three surface lifts were collapsed into the t-bar sprite here while
+  // `liftGlyphKindFor` said otherwise, and the mismatch shipped a t-bar glyph on a
+  // platter line. One source, one mapping.
+  // One branch per KIND, listing every class that resolves to it. Grouping by
+  // kind (rather than one branch per class) is what keeps a shared glyph shared:
+  // `gondola` and `cable_car` must stay in ONE branch, and `drag_lift` must not
+  // get a branch of its own when it borrows the platter's glyph.
+  const byKind = new Map<LiftGlyphKind, string[]>();
+  for (const cls of LIFT_GLYPH_CLASSES) {
+    const kind = liftGlyphKindFor(cls);
+    if (!kind) continue;
+    const group = byKind.get(kind);
+    if (group) group.push(cls);
+    else byKind.set(kind, [cls]);
+  }
+  const cases: unknown[] = [];
+  for (const [kind, classes] of byKind) {
+    // A real array, NOT `JSON.stringify` — MapLibre needs `["gondola",
+    // "cable_car"]` and rejects the string form silently by falling back to the
+    // default sprite.
+    cases.push(classes, liftGlyphImageId(kind));
+  }
   return [
     "match",
     ["get", "subtype"],
-    ["gondola", "cable_car"],
+    ...cases,
+    // Unreachable default: keeps the expression total for any aerialway subtype
+    // without a drawn glyph of its own.
     liftGlyphImageId("gondola"),
-    ["chair_lift"],
-    liftGlyphImageId("chair_lift"),
-    ["drag_lift", "t-bar", "j-bar", "platter"],
-    liftGlyphImageId("t-bar"),
-    ["funicular"],
-    liftGlyphImageId("funicular"),
-    liftGlyphImageId("gondola"), // unreachable default; keeps the expression total
-  ] as import("maplibre-gl").ExpressionSpecification;
+  ] as unknown as import("maplibre-gl").ExpressionSpecification;
 }
 
 /**

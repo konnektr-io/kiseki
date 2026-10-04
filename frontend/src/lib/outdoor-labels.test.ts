@@ -9,7 +9,7 @@ import {
   type OutdoorLabelMap,
 } from "./outdoor-labels";
 import { OUTDOOR_MINZOOM, OUTDOOR_SOURCE_ID } from "./outdoor-overlay";
-import { LIFT_GLYPH_KINDS, liftGlyphImageId } from "./lift-glyphs";
+import { LIFT_GLYPH_CLASSES, LIFT_GLYPH_KINDS, liftGlyphImageId } from "./lift-glyphs";
 
 type LineSpec = Extract<ReturnType<typeof outdoorLabelLayerSpecs>[number], { type: "symbol" }>;
 
@@ -283,5 +283,73 @@ describe("addOutdoorLabels / removeOutdoorLabels", () => {
     map.getLayer = () => undefined;
     expect(() => removeOutdoorLabels(map)).not.toThrow();
     expect(map.removed).toEqual([]);
+  });
+});
+
+
+describe("the glyph match expression", () => {
+  // This expression used to restate the aliasing INDEPENDENTLY of
+  // `liftGlyphKindFor`. When the set gained separate t-bar/j-bar/platter icons,
+  // it still sent all three to the t-bar sprite — a wrong-but-plausible glyph
+  // that never errors. It is now derived, and this pins the emitted branches.
+  function branches(): Array<[string[], string]> {
+    const expr = specOf("outdoor-lift-glyphs").layout?.["icon-image"] as unknown as Array<unknown>;
+    const out: Array<[string[], string]> = [];
+    for (let i = 2; i + 1 < expr.length; i += 2) {
+      if (Array.isArray(expr[i]) && typeof expr[i + 1] === "string") {
+        out.push([expr[i] as string[], expr[i + 1] as string]);
+      }
+    }
+    return out;
+  }
+
+  // Look a class up by CONTENT: a Map keyed on the label arrays compares them
+  // by reference, so `map.get(["t-bar"])` misses even when the branch is there.
+  function spriteFor(cls: string): string | undefined {
+    for (const [classes, id] of branches()) {
+      if (classes.includes(cls)) return id;
+    }
+    return undefined;
+  }
+
+  it("routes each surface lift to its OWN sprite, not to t-bar", () => {
+    expect(spriteFor("t-bar")).toBe("lift-glyph-t-bar");
+    expect(spriteFor("j-bar")).toBe("lift-glyph-j-bar");
+    expect(spriteFor("platter")).toBe("lift-glyph-platter");
+  });
+
+  it("groups cable_car with gondola, as one glyph covers both", () => {
+    // One BRANCH, not two: a duplicate branch for cable_car would be dead code,
+    // and the first match wins.
+    expect(spriteFor("cable_car")).toBe("lift-glyph-gondola");
+    const gondolaBranches = branches().filter(([cs]) => cs.includes("gondola"));
+    expect(gondolaBranches).toHaveLength(1);
+    expect(gondolaBranches[0][0]).toEqual(["gondola", "cable_car"]);
+  });
+
+  it("gives drag_lift the platter's branch rather than one of its own", () => {
+    expect(spriteFor("drag_lift")).toBe("lift-glyph-platter");
+    expect(branches().filter(([cs]) => cs.includes("drag_lift"))).toHaveLength(1);
+  });
+
+  it("covers every aerialway class, so no lift falls to the default", () => {
+    const covered = branches().flatMap(([cs]) => cs);
+    for (const cls of LIFT_GLYPH_CLASSES) expect(covered).toContain(cls);
+  });
+
+  it("emits real arrays, not JSON strings", () => {
+    // `JSON.stringify(["gondola"])` is `'["gondola"]'` — a string. MapLibre
+    // does not error on that; it quietly falls through to the default sprite, so
+    // every lift would wear a gondola. The failure is invisible from the console.
+    for (const [classes] of branches()) {
+      expect(Array.isArray(classes)).toBe(true);
+      for (const c of classes) expect(typeof c).toBe("string");
+    }
+  });
+
+  it("emits no branch pointing at a sprite that is never registered", () => {
+    for (const [, id] of branches()) {
+      expect(LIFT_GLYPH_KINDS.map(liftGlyphImageId)).toContain(id);
+    }
   });
 });
