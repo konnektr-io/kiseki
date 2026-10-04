@@ -591,18 +591,44 @@ describe("markerPaintRank (#388: a venue diamond never covers the trip's pins)",
     expect(painted.lastIndexOf("diamond")).toBeLessThan(painted.indexOf("pin"));
   });
 
-  it("appends the diamonds before the stops on the scan level", () => {
-    // Source-level pin: MapLibre stacks marker elements in the order they are
-    // ADDED (this surface sets no z-index), so the order of these two loops IS
-    // the stacking order — chain-first is the #388 report, a tap at
-    // ③ Revelstoke opening The Village Idiot Bar & Grill.
+  it("keeps the excursion markers created before the stops (#388 stacking)", () => {
+    // MapLibre appends every marker element to one container. #398 gave this
+    // surface an explicit stacking ladder in index.css (cluster 0 < stop pin 1 <
+    // chip 2), so DOM order no longer decides the tap — but the excursion
+    // markers are still created first, and that ordering is what a reader (and
+    // a future refactor) should be able to see. The ladder is asserted in
+    // `marker-stacking.test.ts`; this pins the creation order it complements.
     const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
-    const diamonds = scan.indexOf("journeyRef.current.excursions.forEach");
+    const excursions = scan.indexOf("for (const loc of locatedExcursions)");
     const stops = scan.indexOf("journeyRef.current.chain.forEach");
-    expect(diamonds).toBeGreaterThanOrEqual(0);
+    expect(excursions).toBeGreaterThanOrEqual(0);
     expect(stops).toBeGreaterThanOrEqual(0);
-    expect(diamonds).toBeLessThan(stops);
+    expect(excursions).toBeLessThan(stops);
   });
+
+  it("never REMOVES an excursion marker element when the camera moves (#398)", () => {
+    // The trap #398 walked into. Clustering membership depends on the camera,
+    // and the obvious implementation rebuilds markers when it changes — which
+    // re-appends cluster badges AFTER the stop pins and puts #388 straight
+    // back, while every DOM-COUNT assertion stays green: the counts are
+    // identical, only the stacking changed. So clusters must be re-derivable
+    // without touching the marker list: `syncExcursionClusters` HIDES a diamond
+    // that is inside a badge and shows it again when the badge splits, and
+    // badges are reused from a pool rather than re-added.
+    const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
+    const sync = scan.slice(scan.indexOf("const syncExcursionClusters"));
+    const handler = sync.slice(0, sync.indexOf("syncExcursionClusters();"));
+    // Visibility toggles, not teardown.
+    expect(handler).toMatch(/setAttribute\("hidden", ""\)/);
+    expect(handler).toMatch(/removeAttribute\("hidden"\)/);
+    // A badge that outlives its membership is removed — that is its OWN element
+    // from the pool, not an excursion marker.
+    expect(handler).toMatch(/entry\.marker\.remove\(\)/);
+    // The excursion marker list is built once, before clustering exists.
+    expect(scan.indexOf("for (const loc of locatedExcursions)")).toBeLessThan(
+      scan.indexOf("const syncExcursionClusters"),
+    );
+});
 });
 
 describe("placeDays (#91: explicit days + clamped section refs)", () => {

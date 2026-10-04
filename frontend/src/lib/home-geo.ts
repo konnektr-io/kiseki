@@ -176,62 +176,16 @@ export function unfoldLngs(lngs: readonly number[]): number[] {
   return norm.map((lng) => (lng < start ? lng + 360 : lng));
 }
 
-/** One pin's screen position, ready to cluster. */
-export interface ProjectedPin {
-  dtId: string;
-  x: number;
-  y: number;
-}
-/** A cluster of pins too close to tap apart — drawn as one count badge. */
-export interface PinCluster {
-  key: string;
-  memberDtIds: string[];
-  x: number;
-  y: number;
-}
-
-export type ClusteredPin = { kind: "pin"; pin: ProjectedPin } | { kind: "cluster"; cluster: PinCluster };
-
 /**
- * Group pins that collide on screen (the same clustering vocabulary as the
- * trip maps: a count, not a range — DESIGN.md §8.3).
- *
- * Greedy and deterministic: in input order, each unclaimed pin seeds a group
- * with everything unclaimed within `radiusPx` of it. A lone pin is never a
- * "cluster of one" — callers draw it as its own pin.
+ * Clustering moved to `lib/marker-cluster.ts` (#398), where the trip map can
+ * share it: the home has clustered since #249 and the trip map had nothing, so
+ * two copies of one cartographic rule were one copy too many. Re-exported here
+ * because the home's own call sites and tests already speak this vocabulary
+ * (`ProjectedPin`, `clusterPins`), and a shared module is not worth a rename of
+ * working code.
  */
-export function clusterPins(points: readonly ProjectedPin[], radiusPx: number): ClusteredPin[] {
-  const claimed = new Set<string>();
-  const out: ClusteredPin[] = [];
-  for (const seed of points) {
-    if (claimed.has(seed.dtId)) continue;
-    claimed.add(seed.dtId);
-    const members = [seed];
-    for (const other of points) {
-      if (claimed.has(other.dtId)) continue;
-      if (Math.hypot(other.x - seed.x, other.y - seed.y) <= radiusPx) {
-        claimed.add(other.dtId);
-        members.push(other);
-      }
-    }
-    if (members.length === 1) {
-      out.push({ kind: "pin", pin: seed });
-    } else {
-      const cx = members.reduce((s, m) => s + m.x, 0) / members.length;
-      const cy = members.reduce((s, m) => s + m.y, 0) / members.length;
-      out.push({
-        kind: "cluster",
-        cluster: {
-          key: [...members.map((m) => m.dtId)].sort().join("+"),
-          memberDtIds: members.map((m) => m.dtId),
-          x: cx,
-          y: cy,
-        },
-      });
-    }
-  }
-  return out;
-}
+export type { ClusteredPin, PinCluster, ProjectedPin } from "./marker-cluster";
+export { clusterMarkers as clusterPins } from "./marker-cluster";
 
 /**
  * Great-circle separation in degrees between two points (haversine).

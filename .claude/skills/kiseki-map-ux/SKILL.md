@@ -75,7 +75,26 @@ Spec for the marker component (one component, every surface, plus print):
   dishonest for a marker (it would say the same thing about every place at once).
 - Visual ~28px, **hit target 44px** via transparent padding.
 - Selected: scale 1.15 + accent ring. Off-focus day: 45% opacity — dimmed, never hidden.
-- Cluster below the zoom where pins collide; clusters show a count, not a range.
+- **Colliding markers cluster into one count** (#398; a count, never a range). Shipped on the trip
+  map's scan level and shared with the home via `lib/marker-cluster.ts` — one rule, one home, or the
+  two surfaces drift. Radius = the marker's own 44px hit target. A badge **zooms in**; it never
+  selects one of the places it stands for, and it borrows the vocabulary of the markers it replaces
+  (the excursion cluster is hollow + dashed like a diamond) so it can never read as a numbered stop.
+- **Marker stacking is an explicit z-index ladder, never DOM order** (#388 → #398). MapLibre appends
+  every marker to one container, all `position: absolute; z-index: auto`, so DOM order *was* the
+  stacking order — #388 was that order being wrong, and it recurs silently the moment anything
+  rebuilds markers. Cluster/diamond `0` < numbered stop `1` < activity chip `2` (same ladder as
+  `markerPaintRank`), in `index.css`. Two traps paid for here:
+  - **A Marker element IS the marker.** `new Marker({ element })` puts `maplibregl-marker` on the
+    SAME node as your button, so `.maplibregl-marker .route-cluster` is a descendant selector that
+    matches nothing — the rules sit in the bundle and are dead. Measured `zIndex === "auto"` on a
+    live badge while the CSS read correctly. Use `:where(.maplibregl-marker)` compounds.
+  - **Cluster membership is camera-dependent, so never re-add a marker to re-cluster.** Hide a
+    diamond that a badge covers (`hidden`, i.e. display:none so it leaves the pointer path too) and
+    show it when the badge splits; reuse badges from a pool. Rebuilding them would re-append markers
+    after the stop pins and put #388 back with every DOM-count assertion still green.
+  - A badge must never promise a range in its `title`, and a `hidden` marker must be `display:none`
+    rather than `opacity: 0` — an invisible element still swallows the tap.
 - **Two marker roles (2026-09, #90/#92)**: the numbered pin is the *place* marker (stays,
   gateways, stops). The day map adds *letter chips* (A, B, C… in day order, matching the card)
   for activities — a different glyph shape from the round pins, never a second numbering
