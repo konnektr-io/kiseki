@@ -24,8 +24,13 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-DIST = Path("/opt/data/.worktrees/kiseki/fix-413-label-zoom/frontend/dist")
-PERU = "6b11a061-54c8-401e-9861-855dea2f7338"
+# Resolve the repo from this file so the probe keeps working after its worktree
+# is pruned: <repo>/frontend/scripts/probe.py -> <repo>/frontend/dist.
+DIST = Path(__file__).resolve().parents[1] / "dist"
+PERU = os.environ.get("SMOKE_TRIP", "6b11a061-54c8-401e-9861-855dea2f7338")
+# SMOKE_LIVE=1 runs against production instead of a local `vite build`, which is
+# the only way to prove a RELEASE is live rather than merely tagged.
+LIVE = os.environ.get("SMOKE_LIVE") == "1"
 EXCURSION_MIN_ZOOM = 9
 
 
@@ -64,8 +69,11 @@ def serve():
 
 def run():
     trip = json.loads(Path("/opt/data/cache/peru.json").read_text())
-    httpd, port = serve()
-    base = f"http://127.0.0.1:{port}"
+    if LIVE:
+        httpd, port, base = None, 0, "https://kiseki.konnektr.io"
+    else:
+        httpd, port = serve()
+        base = f"http://127.0.0.1:{port}"
     out = Path("/opt/data/cache/kiseki-probe-labels")
     out.mkdir(parents=True, exist_ok=True)
 
@@ -84,7 +92,8 @@ def run():
             else:
                 route.fulfill(status=404, content_type="application/json", body="{}")
 
-        page.route("**/api/**", handle)
+        if not LIVE:
+            page.route("**/api/**", handle)
         page.goto(f"{base}/t/{PERU}/itinerary", wait_until="load", timeout=60000)
         page.wait_for_selector(".map-pin-scaled", timeout=45000)
         for _ in range(20):
@@ -154,6 +163,27 @@ def run():
                       f"{len(painted)}/{len(rects['ds'])}, labels: {len(rects['ls'])}")
                 for w in rects["why"]:
                     print("     ", w)
+                # Pill pairing + collision, measured (the substantive claim).
+                dia_rects, pill_rects = rects["ds"], rects["ls"]
+                print(f"   pill pairing: {len(dia_rects)} diamonds / "
+                      f"{len(pill_rects)} labels")
+                if len(dia_rects) != len(pill_rects):
+                    failures.append(f"z{snap['zoom']:.2f}: {len(dia_rects)} diamonds but "
+                                    f"{len(pill_rects)} labels")
+                # Two pills sharing a centre would read as one unreadable blob.
+                # NOTE: do not name these `b` — that is the Playwright browser
+                # handle in this scope, and shadowing it made `b.close()` raise
+                # "'list' object has no attribute 'close'" at teardown.
+                dupes = 0
+                for i in range(len(pill_rects)):
+                    for j in range(i + 1, len(pill_rects)):
+                        p1, p2 = pill_rects[i], pill_rects[j]
+                        if abs(p1[0] - p2[0]) < 12 and abs(p1[1] - p2[1]) < 12:
+                            dupes += 1
+                print(f"   labels stacked on identical pixels: {dupes}")
+                if dupes:
+                    failures.append(f"z{snap['zoom']:.2f}: {dupes} label pair(s) overlap "
+                                    f"completely")
                 # Same tick: DOM counts above, pixels here.
                 alive = page.evaluate("""() => {
                   const c = document.querySelector('.maplibregl-canvas');
@@ -213,7 +243,8 @@ def run():
             # Re-frame and shoot while the map is still alive.
             page.screenshot(path=str(out / "labels.png"))
         b.close()
-    httpd.shutdown()
+    if httpd:
+        httpd.shutdown()
 
     print()
     for f in failures:
