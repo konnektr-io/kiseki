@@ -224,7 +224,13 @@ export function outdoorLayerSpecs(): LayerSpecification[] {
       filter:
         cls === "nordic"
           ? // The nordic subtypes are difficulty-suffixed, so match the prefix.
-            ["==", ["slice", ["get", "subtype"], 0, 6], "nordic"]
+            // The `["has","subtype"]` conjunct is REQUIRED, not defensive: a
+            // feature with no `subtype` makes `slice` error, MapLibre logs
+            // "Expected first argument to be of type array or string, but found
+            // null … Falling back to false", and the whole layer goes silent.
+            // The tile is full of features without a subtype, so this is the
+            // difference between the nordic lines drawing and not.
+            ["all", ["has", "subtype"], ["==", ["slice", ["get", "subtype"], 0, 6], "nordic"]]
           : inFilter(
               "subtype",
               Object.entries(SUBTYPE_TO_CLASS)
@@ -268,8 +274,12 @@ export function outdoorLayerSpecs(): LayerSpecification[] {
  *
  * Found by layer *type*, never by id, so it survives the style swap #40 will
  * make — same rule `lib/terrain.ts` follows for the same reason.
+ *
+ * Exported because the label layers (`lib/outdoor-labels.ts`) must use the SAME
+ * anchor: a second implementation of "where do the reference layers go" is
+ * exactly how the lines and their names end up in different stacks.
  */
-function overlayBeforeLayerId(map: MapLibreMap): string | undefined {
+export function overlayBeforeLayerId(map: MapLibreMap): string | undefined {
   const layers = map.getStyle().layers ?? [];
   return layers.find((l) => l.type === "symbol")?.id;
 }

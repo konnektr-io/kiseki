@@ -113,8 +113,17 @@ describe("outdoorLayerSpecs", () => {
     }
   });
 
-  it("matches nordic by prefix so a nordic subtype cannot leak into a downhill class", () => {
-    expect(filterOf("outdoor-piste-nordic")).toEqual(["==", ["slice", ["get", "subtype"], 0, 6], "nordic"]);
+  it("matches nordic by prefix, GUARDED, so the layer cannot go silent", () => {
+    // The `["has","subtype"]` conjunct is load-bearing, not defensive. MapLibre
+    // evaluates a filter against every feature in the tile, and the many features
+    // with NO subtype make `["slice", ["get","subtype"], …]` error; MapLibre then
+    // logs "Falling back to false" and the layer renders empty. Measured: this
+    // unguarded filter silenced the nordic lines AND every label layer.
+    const f = filterOf("outdoor-piste-nordic") as unknown[];
+    expect(f[0]).toBe("all");
+    expect(f[1]).toEqual(["has", "subtype"]);
+    expect(JSON.stringify(f)).toContain("nordic");
+    expect(JSON.stringify(f)).toContain("slice");
   });
 
   it("gives each piste class exactly its own subtypes", () => {

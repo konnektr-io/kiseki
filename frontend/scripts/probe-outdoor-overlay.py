@@ -28,9 +28,19 @@ So this one measures from the outside, with no app cooperation required:
 2. **Rendered output.** A screenshot diff: the same camera with the overlay
    layers hidden vs. shown. Pixels changing is proof that features arrived and
    drew; a layer id existing is not.
-3. **Print path.** Zero Maptoolkit requests while a booklet render happens is
+3. **Labels + lift glyphs.** Four label layers exist, all four lift sprites are
+   registered, and the labels sit *below* the trip's own layers. The zoom gate is
+   read through `queryRenderedFeatures`, not `getLayoutProperty('visibility')`:
+   minzoom is enforced by the renderer, not by that property, so asking the
+   property reports a layer as "visible" below its gate and proves nothing.
+4. **Print path.** Zero Maptoolkit requests while a booklet render happens is
    proof the overlay stayed out of the PDF (the Maptoolkit community licence's
    § 07(d) forbids printed media, so this is a licence assertion, not a nicety).
+
+Ordering note that cost a run: every map measurement happens BEFORE the
+print-path `page.goto`. That navigation loads a new document, so `__mapRef` is
+gone afterwards and anything read post-goto measures nothing while looking like
+a measurement.
 
 The one thing this needs from the app is `window.__probeMap`, which `RouteMap`
 already calls. It was missing while this was written — two older probes document
@@ -48,14 +58,20 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import pathlib
 import sys
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 FRONTEND = pathlib.Path(__file__).resolve().parent.parent
 DIST = FRONTEND / "dist"
 MTK = "maptoolkit.org"
+
+# Where the probe leaves a picture of the map it measured. Override with
+# PROBE_OUT_SHOT=/path.png — a failed run should still leave evidence behind.
+OUT_SHOT = os.environ.get("PROBE_OUT_SHOT") or "/tmp/kiseki-outdoor-overlay.png"
 
 # Real trip used by the other map probes; overridable for a live trip.
 TRIP_ID = sys.argv[1] if len(sys.argv) > 1 else "b16680e7-a338-4c76-9cd7-fa13d45be594"
@@ -219,6 +235,10 @@ def main() -> int:
         page = ctx.new_page()
         mtk: list[str] = []
         print_mtk: list[str] = []
+        console: list[str] = []
+
+        page.on("console", lambda msg: console.append(f"{msg.type}: {msg.text}") if msg.type in ("error", "warning") else None)
+        page.on("pageerror", lambda exc: console.append(f"pageerror: {exc}"))
         page.on(
             "request",
             lambda r: mtk.append(r.url) if MTK in r.url else None,
@@ -262,17 +282,195 @@ def main() -> int:
               return (m.getStyle()?.layers ?? []).map(l => l.id).filter(i => i.startsWith('outdoor-'));
             }"""
         )
+        # Ordering is checked PER TYPE. The first `symbol` layer is the basemap's
+        # own place labels, and the rule is "our lines sit below those" — but our
+        # LABEL layers are themselves symbols, so asserting every `outdoor-*` id
+        # precedes the first symbol is self-contradictory (it fails the moment the
+        # labels ship). What must hold:
+        #   lines  → below the basemap's first symbol
+        #   labels → below the trip's own layers
+        # ...which is what `label_below_trip` checks separately below.
         stack_ok = page.evaluate(
             """() => {
               const m = window.__mapRef;
               if (!m) return null;
               const ls = m.getStyle().layers ?? [];
               const firstSymbol = ls.findIndex(l => l.type === 'symbol');
-              const ours = ls.map((l,i)=>[l.id,i]).filter(([id])=>id.startsWith('outdoor-'));
-              if (!ours.length || firstSymbol < 0) return null;
-              return ours.every(([,i]) => i < firstSymbol);
+              const lines = ls.map((l, i) => [l.id, i])
+                .filter(([id]) => id.startsWith('outdoor-') && !id.includes('label') && !id.includes('glyph'));
+              if (!lines.length || firstSymbol < 0) return null;
+              return lines.every(([, i]) => i < firstSymbol);
             }"""
         )
+
+        # ---- labels + lift glyphs ------------------------------------------
+        # Measured BEFORE the print-path navigation below: that goto wipes
+        # `__mapRef` (a fresh page has a fresh probe hook), so anything read
+        # after it is measuring nothing.
+        label_layers = page.evaluate(
+            """() => {
+              const m = window.__mapRef;
+              if (!m) return null;
+              return (m.getStyle()?.layers ?? []).map(l => l.id)
+                .filter(i => i.startsWith('outdoor-') && (i.includes('label') || i.includes('glyph')));
+            }"""
+        )
+        sprites = page.evaluate(
+            """() => {
+              const m = window.__mapRef;
+              if (!m || typeof m.hasImage !== 'function') return null;
+              return ['lift-glyph-gondola','lift-glyph-chair_lift','lift-glyph-t-bar','lift-glyph-funicular']
+                .filter(id => m.hasImage(id));
+            }"""
+        )
+        # The trip-priority rule, asserted: the outdoor labels must sit BELOW the
+        # trip's own layers, so a piste name can never outrank a place pin.
+        label_below_trip = page.evaluate(
+            """() => {
+              const m = window.__mapRef;
+              if (!m) return null;
+              // The layer OBJECTS, not just their ids — the predicates below need
+              // `type` to tell our line layers from our symbol layers. An earlier
+              // version mapped to ids only, so `l.type` was undefined and every
+              // anchor came back -1 while the notes still read plausibly.
+              const ls = (m.getStyle()?.layers ?? []);
+              // The rule worth asserting is about OUR OWN stack, because that is
+              // what this change controls:
+              //   lines  <  labels            (a name sits on its own line)
+              //   labels <  every basemap symbol (place labels stay readable on top)
+              // An earlier version tried to locate "the trip's layers" by naming
+              // prefixes, and every guess was wrong in a way that FAILED THE
+              // ASSERTION rather than skipping it — `park` and `highway_*` are
+              // basemap layers, so "first non-outdoor layer" matched index 1 and
+              // reported the labels as being on top of the trip. The trip's own
+              // route layers are level-dependent and absent on the scan level, so
+              // they cannot be the anchor; the basemap symbol boundary can.
+              // NOTE: `ls` is built from `map.getStyle().layers`, and every entry
+              // has an id — but the predicates below must still tolerate one
+              // that does not, because `findIndex` hands the callback the raw
+              // element and a missing id then throws inside the page (which
+              // surfaces as an opaque "Cannot read properties of undefined").
+              const isOutdoor = (id) => typeof id === 'string' && id.startsWith('outdoor-');
+              const idx = (pred) => ls.findIndex((l, i) => pred(l, i));
+              const lines = idx((l) => isOutdoor(l.id) && l.type === 'line');
+              const labels = idx((l) => isOutdoor(l.id) && l.type === 'symbol');
+              const outdoorIdx = ls.map((l, i) => [l.id, i]).filter(([id]) => isOutdoor(id)).map(([, i]) => i);
+              const lastLabel = outdoorIdx.length ? outdoorIdx[outdoorIdx.length - 1] : null;
+              const firstBaseSymbol = idx((l) => l.type === 'symbol' && !isOutdoor(l.id));
+              return {
+                lines, labels, lastLabel, firstBaseSymbol,
+                ourStack: ls.map((l, i) => [l.id, i]).filter(([id]) => isOutdoor(id)),
+              };
+            }"""
+        )
+        # The zoom gate. MapLibre reports a below-minzoom layer's visibility as
+        # unset, and `visibility` is not what minzoom acts through — so the
+        # honest read is `queryRenderedFeatures`, which is what actually asks
+        # "did this draw".
+        zoom_gate = {}
+        for z in (11, 14):
+            # Move AND wait for the move to settle. `jumpTo` returns immediately;
+            # querying straight after reads the PREVIOUS camera's tiles, which is
+            # how an earlier run reported "0 labels at z14" while the screenshot
+            # taken at the same z14 showed the map on a different level entirely.
+            # `idle` is the only honest signal that the frame has been rendered.
+            page.evaluate(
+                """(z) => {
+                  const m = window.__mapRef;
+                  if (!m || typeof m.jumpTo !== 'function') return;
+                  m.jumpTo({ center: [7.7491, 46.0207], zoom: z });
+                }""",
+                z,
+            )
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const m = window.__mapRef;
+                      return !!m && !m.isMoving() && Math.abs(m.getZoom() - %d) < 0.01;
+                    }"""
+                    % z,
+                    timeout=25_000,
+                )
+            except Exception:
+                pass
+            # Wait for the SOURCE, not a timer. `isSourceLoaded` was still false
+            # at z14 while the previous zoom's tiles were on screen, so the query
+            # ran against a viewport whose symbol tiles had not arrived yet and
+            # reported zero for every layer.
+            try:
+                page.wait_for_function(
+                    """() => {
+                      const m = window.__mapRef;
+                      if (!m) return false;
+                      const s = m.getSource('kiseki-outdoor');
+                      return !!s && m.isSourceLoaded('kiseki-outdoor') && !m.isMoving();
+                    }""",
+                    timeout=30_000,
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(3_000)  # let the symbol tiles settle
+            zoom_gate[z] = page.evaluate(
+                """() => {
+                  const m = window.__mapRef;
+                  if (!m) return 'no-map';
+                  // EVERY label layer, not just the piste one — the fragments
+                  // differ in length per class, so a single layer can legitimately
+                  // place nothing while another places plenty. Counting one layer
+                  // and calling it "no labels" hides which half actually works.
+                  const out = {};
+                  for (const id of ['outdoor-lift-glyphs','outdoor-piste-labels','outdoor-trail-labels','outdoor-lift-labels']) {
+                    try { out[id] = m.queryRenderedFeatures({ layers: [id] }).length; }
+                    catch (e) { out[id] = 'err:' + e.message; }
+                  }
+                  out.__zoom = Math.round(m.getZoom() * 100) / 100;
+                  out.__srcLoaded = !!m.getSource('kiseki-outdoor') && m.isSourceLoaded('kiseki-outdoor');
+                  // Distinguish "no lift features in the tiles" from "the sprites
+                  // are missing" — both look identical from the render count alone,
+                  // and the second one is a silent failure worth catching.
+                  try {
+                    out.__sprites = ['lift-glyph-gondola','lift-glyph-chair_lift','lift-glyph-t-bar','lift-glyph-funicular']
+                      .filter(id => m.hasImage(id)).length;
+                    const feats = m.querySourceFeatures('kiseki-outdoor', { sourceLayer: 'road_label' });
+                    out.__liftFeaturesInTiles = feats.filter(f =>
+                      ['chair_lift','drag_lift','t-bar','j-bar','platter','gondola','cable_car','funicular']
+                        .includes((f.properties||{}).subtype)).length;
+                  } catch (e) { out.__diagErr = String(e.message || e); }
+                  return out;
+                }"""
+            )
+
+        # ---- a look at the map that actually carries the overlay -------------
+        # Screenshot the CONTAINER that owns `__mapRef`, not the whole page. An
+        # itinerary page also renders MapView thumbnails, so a full-page shot can
+        # show a small overview map and read as "no labels at all" while the trip
+        # map in the same frame is fine. Written next to the probe so a failed run
+        # still leaves evidence.
+        try:
+            page.evaluate(
+                """() => { const m = window.__mapRef; if (m) m.jumpTo({center:[7.7491,46.0207], zoom: 14}); }"""
+            )
+            page.wait_for_function(
+                "() => { const m = window.__mapRef; return !!m && !m.isMoving() && Math.abs(m.getZoom()-14) < 0.01; }",
+                timeout=25_000,
+            )
+            page.wait_for_timeout(6_000)
+            box = page.evaluate(
+                """() => {
+                  const m = window.__mapRef;
+                  if (!m) return null;
+                  const r = m.getContainer().getBoundingClientRect();
+                  return { x: r.x, y: r.y, width: r.width, height: r.height };
+                }"""
+            )
+            if box and box["width"] > 50 and box["height"] > 50:
+                out = Path(OUT_SHOT)
+                out.write_bytes(page.screenshot(clip=box))
+                notes.append(f"map screenshot: {out} ({int(box['width'])}x{int(box['height'])})")
+            else:
+                notes.append(f"map screenshot skipped — bad container box {box}")
+        except Exception as exc:  # evidence is best-effort; the assertions are not
+            notes.append(f"map screenshot failed: {exc}")
 
         # ---- the print path must never touch Maptoolkit --------------------
         # The booklet renders the SAME MapLibre maps live through `MapView`
@@ -331,6 +529,69 @@ def main() -> int:
     else:
         notes.append("overlay below first symbol layer: yes")
 
+    if label_layers:
+        notes.append(f"label/glyph layers on the map: {len(label_layers)}")
+    else:
+        failures.append("no outdoor label/glyph layers — the labels never installed")
+
+    if sprites is None:
+        failures.append("no map handle — could not read registered lift sprites")
+    else:
+        notes.append(f"lift sprites registered: {len(sprites)}/4")
+        if len(sprites) < 4:
+            failures.append(f"only {len(sprites)}/4 lift sprites registered")
+
+    if label_below_trip is None:
+        failures.append("no map handle — could not read the outdoor stack order")
+    else:
+        st = label_below_trip
+        notes.append(
+            f"outdoor lines @ {st['lines']}, labels @ {st['labels']}, "
+            f"basemap's first symbol @ {st['firstBaseSymbol']}"
+        )
+        if st["lines"] < 0 or st["labels"] < 0 or st["firstBaseSymbol"] < 0:
+            failures.append(f"could not locate all three stack anchors: {st}")
+        else:
+            if not st["lines"] < st["labels"]:
+                failures.append(f"outdoor labels ({st['labels']}) are not above their own lines ({st['lines']})")
+            else:
+                notes.append("labels sit above their own lines: yes")
+            last_label = st["lastLabel"] if st["lastLabel"] is not None else -1
+            if not last_label < st["firstBaseSymbol"]:
+                failures.append(
+                    f"outdoor labels (last @ {last_label}) are not below the basemap's "
+                    f"first symbol layer (@ {st['firstBaseSymbol']}) — basemap labels could be buried"
+                )
+            else:
+                notes.append("outdoor labels stay below the basemap's labels: yes")
+
+    # The trip-priority rule in pixels: below the gate nothing is drawn at all.
+    LABEL_LAYERS = ["outdoor-lift-glyphs", "outdoor-piste-labels", "outdoor-trail-labels", "outdoor-lift-labels"]
+
+    def total(entry):
+        if not isinstance(entry, dict):
+            return None
+        return sum(v for v in (entry.get(k) for k in LABEL_LAYERS) if isinstance(v, int))
+
+    n11, n14 = total(zoom_gate.get(11)), total(zoom_gate.get(14))
+    for z in (11, 14):
+        e = zoom_gate.get(z)
+        if isinstance(e, dict):
+            notes.append(
+                f"@ z{z} (actual zoom {e.get('__zoom')}, source loaded {e.get('__srcLoaded')}): "
+                + ", ".join(f"{k.replace('outdoor-','')}={e.get(k)}" for k in LABEL_LAYERS)
+            )
+            for k in ("__sprites", "__liftFeaturesInTiles", "__diagErr"):
+                if e.get(k) is not None:
+                    notes.append(f"    {k} = {str(e[k])[:230]}")
+    if n11 is None or n14 is None:
+        failures.append(f"lost the map handle during the zoom gate ({zoom_gate.get(11)!r}, {zoom_gate.get(14)!r})")
+    else:
+        if n11 != 0:
+            failures.append(f"outdoor labels already draw at z11 ({n11} features) — the zoom gate is not holding")
+        if not n14:
+            failures.append("no outdoor label or glyph draws at z14 — the annotation would never appear")
+
     if print_mtk:
         failures.append(
             f"the print path loaded Maptoolkit ({len(print_mtk)} requests) — § 07(d) forbids "
@@ -338,6 +599,15 @@ def main() -> int:
         )
     else:
         notes.append("print path loaded zero Maptoolkit requests (licence § 07(d) satisfied)")
+
+    interesting = [c for c in console if any(k in c.lower() for k in
+                    ("glyph", "font", "sprite", "icon", "symbol", "outdoor", "error"))]
+    if interesting:
+        notes.append(f"console/page errors ({len(interesting)}):")
+        for c in interesting[:8]:
+            notes.append(f"    {c[:170]}")
+    elif console:
+        notes.append(f"console had {len(console)} error/warning lines, none glyph-related")
 
     print("=" * 68)
     for n in notes:
