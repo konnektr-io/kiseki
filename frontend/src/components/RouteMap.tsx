@@ -30,7 +30,7 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { CLUSTER_PX, clusterMarkers, type PinCluster } from "../lib/marker-cluster";
+import { CLUSTER_PX } from "../lib/marker-cluster";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { greatCircle, legModes, markerPaintRank, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
 import {
@@ -825,107 +825,7 @@ export function RouteMap({
       return out;
     };
 
-    /** Where a cluster's badge DRAWS, in container px: its members' centroid,
-     *  pushed clear of any numbered stop pin it lands on.
-     *
-     *  A venue cluster inside a re-base town has its centroid ON that town's
-     *  numbered stop pin, and the stacking ladder (correctly, #388) keeps the
-     *  pin on top — so the count painted underneath and was unreadable. Measured
-     *  live on the Japan trip: badge "8" and pin "1" one pixel apart, with
-     *  `elementFromPoint` at the badge's centre returning the pin's 28px dot.
-     *
-     *  A DRAWING offset only: membership, the count and the tap target are
-     *  untouched, and a cluster not sitting on a pin — the common case, and every
-     *  cluster on a sparse trip — never moves.
-     *
-     *  Returns SCREEN px, so every caller must `unproject` before handing the
-     *  value to a Marker. That is not a detail: the first attempt passed this
-     *  return value straight into `setLngLat`, which takes [lng, lat], so a y of
-     *  ~200 was read as latitude 200 and MapLibre threw "Invalid LngLat latitude
-     *  value" — the map vanished into the error boundary while `tsc`, `vitest`
-     *  and the build all stayed green. The offset is also CLAMPED so a nudge can
-     *  never walk off the container; when the clamped position still does not
-     *  clear the pin, the badge stays put, because a badge under a pin is a
-     *  cosmetic miss and a dead map is not. */
-    const drawPosition = (cluster: PinCluster): [number, number] => {
-      const el = map.getContainer();
-      const w = el.clientWidth;
-      const h = el.clientHeight;
-      const clamp = (x: number, y: number): [number, number] =>
-        w > 0 && h > 0
-          ? [Math.min(Math.max(x, CLUSTER_PX / 2), w - CLUSTER_PX / 2),
-             Math.min(Math.max(y, CLUSTER_PX / 2), h - CLUSTER_PX / 2)]
-          : [x, y];
-      let [x, y] = clamp(cluster.x, cluster.y);
-      for (const [px, py] of stopPinsInMapSpace()) {
-        if (Math.hypot(x - px, y - py) >= CLUSTER_PX) continue;
-        const d = Math.hypot(cluster.x - px, cluster.y - py);
-        // Push out along the line from the pin, so the badge keeps pointing at
-        // the cluster it stands for instead of jumping to a fixed corner.
-        const angle = d < 1 ? -Math.PI / 2 : Math.atan2(cluster.y - py, cluster.x - px);
-        const moved = clamp(px + Math.cos(angle) * CLUSTER_PX, py + Math.sin(angle) * CLUSTER_PX);
-        // Only take the nudge if it clears the pin AFTER clamping.
-        if (Math.hypot(moved[0] - px, moved[1] - py) >= CLUSTER_PX / 2) [x, y] = moved;
-      }
-      return [x, y];
-    };
 
-    /** A cluster of colliding diamonds, drawn as ONE count badge (#398).
-     *
-     *  §8.3 has specified clustering since the marker system was written, and
-     *  v0.92.0 logged the gap: Revelstoke's six venues sat ~4px apart, so five
-     *  of six lozenges could not be tapped or read. A count badge is the honest
-     *  drawing — "six venues here" — and its one tap zooms in until they
-     *  separate. Same grammar as the home map's cluster (`marker-cluster.ts`),
-     *  which is where the rule now lives so the two surfaces cannot drift.
-     *
-     *  It sits at the members' screen centroid unprojected back to the map, NOT
-     *  snapped onto one member — a badge that inherits one venue's coordinates
-     *  claims that venue's identity and its day. */
-    const addClusterMarker = (cluster: PinCluster) => {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.tabIndex = -1;
-      el.setAttribute("aria-hidden", "true");
-      el.className = "route-cluster grid h-11 w-11 cursor-pointer place-items-center";
-      el.title = `${cluster.memberDtIds.length} places here — zoom in`;
-      el.dataset.cluster = cluster.key;
-      el.setAttribute("data-cluster-marker", cluster.key);
-      const badge = document.createElement("span");
-      // Token colours only, and a COUNT rather than a number range (§8.3).
-      // Hollow and DASHED like the diamond it stands for, so a cluster can
-      // never be read as a numbered stop — the one thing a count badge on this
-      // map must not do. `route-cluster-badge` is what the selection, dim and
-      // scroll-spy rules in index.css address.
-      badge.className =
-        "route-cluster-badge grid h-7 min-w-7 place-items-center rounded-full border-2 border-dashed border-marker bg-surface px-1.5 font-heading text-[12px] font-bold tabular-nums text-marker shadow-card transition-transform duration-120";
-      badge.textContent = String(cluster.memberDtIds.length);
-      el.appendChild(badge);
-      const at = map.unproject(drawPosition(cluster));
-      const center: [number, number] = [at.lng, at.lat];
-      // Bookkeeping so the selection effect can answer for a member: the rail
-      // can select a venue that currently lives inside a badge, and the map has
-      // to say where that is (see the selection effect).
-      el.addEventListener("click", () => {
-        // Close in until the members separate, and never past the zoom where
-        // they are separate anyway (a step of 2 lands it either side; the
-        // component's own label rule takes over from there).
-        const zoom = Math.min(map.getZoom() + 2, 15);
-        const opts = { center, zoom, offset: paddingOffset(paddingRef.current) };
-        // `easeTo` takes the offset (it sets the transform's padding);
-        // `jumpTo` does not — one of the two paths would drop it, so the
-        // reduced-motion path jumps without it rather than silently differing.
-        if (prefersReducedMotion()) map.jumpTo({ center, zoom });
-        else map.easeTo({ ...opts, duration: CAMERA_MS });
-      });
-      // Registered in `markersRef` like every other marker, so the selection
-      // and scroll-spy passes iterate it too (a badge the decor passes cannot
-      // see would never dim or highlight — the whole focus story).
-      markersRef.current.set(cluster.key, el);
-      const marker = new lib.Marker({ element: el }).setLngLat(center).addTo(map);
-      markers.push(marker);
-      return marker;
-    };
 
     /** Transport glyphs (#357 slice 3B): one symbol layer of leg midpoints,
      *  above the route, below the basemap's labels. Glyph-less legs
@@ -1090,149 +990,69 @@ export function RouteMap({
       let visibleExcursionNames = new Set<string>();
 
       const syncExcursionClusters = () => {
-        const grouped = clusterMarkers(
-          locatedExcursions.map((l) => {
-            const pt = map.project([l.lng!, l.lat!]);
-            return { dtId: l.name, x: pt.x, y: pt.y };
-          }),
-          CLUSTER_PX,
-        );
-        visibleExcursionNames = new Set<string>();
-        const liveKeys = new Set<string>();
-      /** Can this cluster be drawn WITHOUT lying about where it is?
-       *
-       *  A cluster badge is drawn at its members' centroid. That is only honest
-       *  while the members are close enough together, on THIS screen, for the
-       *  middle of them to be "here". When they are not, the centroid is the
-       *  middle of nowhere between them and a badge there confidently misplaces
-       *  every place it counts.
-       *
-       *  Measured on the Chili+Peru trip (Niko's screenshot, 2026-10-04): the
-       *  badge counting Lima's venues drew next to Ica. Those 9 places span
-       *  11.6 km — Magisch Watercircuit 2.9 km north-east, Pan Sal Aire 11.6 km
-       *  south — so the centroid sits **7.45 km** from the Lima pin. At journey
-       *  zoom that is a few pixels (invisible); by z10 the same offset is 45px
-       *  and the badge reads as a town of its own near Ica.
-       *
-       *  The test is the members' own on-screen spread against the cluster
-       *  radius — the same 44px that decides what clusters in the first place. If
-       *  a set of places cannot sit inside one cluster's worth of pixels, it is
-       *  not one place on this screen, and the honest answer is to draw nothing
-       *  until the traveler zooms in far enough for it to be. */
-      const clusterIsHonest = (cluster: PinCluster): boolean => {
-        const members = cluster.memberDtIds
-          .map((name) => excursionByName.get(name))
-          .filter((l): l is TripLocation => l != null && l.lng != null && l.lat != null);
-        if (members.length < 2) return true;
-        const pts = members.map((l) => {
+        // No clustering (#412). Every located excursion owns its own diamond,
+        // at its own coordinates, for the whole level build. The cluster badge
+        // was drawn at its members' CENTROID and then nudged up to 44 screen
+        // pixels clear of a numbered pin — at journey zoom one pixel is
+        // kilometres, so that nudge moved badges HUNDREDS of km (measured:
+        // 385 km at z3.13) and put them in the wrong country. Niko saw exactly
+        // that on Chili+Peru and was right to want it gone.
+        //
+        // Collisions are now the honest drawing: two diamonds on the same spot
+        // read as "several venues here", which is true, and each keeps its own
+        // tap target. `visibleExcursionNames` stays the label layer's candidate
+        // set, so naming a venue is unchanged by this removal.
+        // Which diamonds to draw, measured per frame in SCREEN space (#412).
+        //
+        // The rule is deliberately one-sided, and it is the answer to "just
+        // show the diamonds at a certain zoom level" — but keyed on measured
+        // separation rather than a zoom floor, so it behaves identically on the
+        // globe, at any container size, and for a trip that is dense in one
+        // city and sparse across a continent.
+        //
+        //   * A diamond that has room keeps its own marker, at its own
+        //     coordinates. Nothing is ever drawn anywhere else.
+        //   * A diamond in a genuine pile is HIDDEN, not merged into a count —
+        //     a count is what put badges in the wrong country in the first
+        //     place.
+        //
+        // "Room" is one hit target (44px, the same constant the removed cluster
+        // used) from every OTHER excursion and from every numbered stop, so
+        // what is drawn is always what can be tapped. Crucially this only ever
+        // removes a marker that is genuinely underneath another one: at journey
+        // zoom on a dense trip most venues are a few px apart and simply are
+        // not drawable, and the numbered stop pins — the trip's spine, and the
+        // thing you actually navigate by — are never gated.
+        const projected = locatedExcursions.map((l) => {
           const p = map.project([l.lng!, l.lat!]);
-          return [p.x, p.y] as [number, number];
+          return { name: l.name, x: p.x, y: p.y };
         });
-        // Widest gap between any two members, on screen.
-        let widest = 0;
-        for (let i = 0; i < pts.length; i++) {
-          for (let j = i + 1; j < pts.length; j++) {
-            widest = Math.max(widest, Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]));
-          }
-        }
-        // A cluster whose members do not fit inside the radius that formed it is
-        // not a place at this zoom.
-        return widest <= CLUSTER_PX;
-      };
-        for (const item of grouped) {
-          if (item.kind === "pin") {
-            visibleExcursionNames.add(item.pin.dtId);
-            continue;
-          }
-          const { cluster } = item;
-          // A cluster is only worth DRAWING when its members are close enough
-          // together to be one place on THIS screen. Niko's report (2026-10-04,
-          // Chili+Peru): the "9" counting Lima's venues drew next to Ica,
-          // because those 9 places span 11.6 km and the centroid sits 7.45 km
-          // from Lima — at journey zoom that is a badge in the desert wearing
-          // Lima's name. At z10 the same 7.45 km is 45px away and reads as a
-          // separate town.
-          //
-          // So the gate is the members' own on-screen spread: if they do not
-          // fit inside the cluster radius, there is no single honest spot to
-          // draw, and the honest answer is to draw NOTHING until the traveler
-          // zooms in far enough for the centroid to mean something. The places
-          // themselves are never lost — they reappear as individual diamonds the
-          // moment they separate.
-          // Membership is recorded even for a cluster we decline to draw, so
-          // the rail can still answer "where is the place I picked" with the
-          // honest answer — it is inside a cluster, just not one drawn here.
-          // It must be recorded BEFORE the honesty gate: a skipped cluster
-          // still owns its members, so the pass below hides their diamonds and
-          // releases them again as soon as the cluster separates.
-          for (const member of cluster.memberDtIds) {
-            clusterMembersRef.current.set(member, cluster.key);
-          }
-          if (!clusterIsHonest(cluster)) {
-            // We decline to draw the badge, so we must RELEASE its members too
-            // (they are hidden by name at the bottom of this pass). Leaving them
-            // suppressed would delete the venues outright — and a cluster too
-            // wide to badge is one whose members are, by definition, further
-            // apart than the radius, so each has room to sit where it truly is.
-            // The rule is "never move a place, never lose one": the badge is
-            // what gets dropped, not the venues.
-            for (const member of cluster.memberDtIds) {
-              visibleExcursionNames.add(member);
-            }
-            continue;
-          }
-          liveKeys.add(cluster.key);
-          let entry = badgePool.get(cluster.key);
-          if (!entry) {
-            const marker = addClusterMarker(cluster);
-            if (!marker) continue;
-            entry = { marker, el: marker.getElement() };
-            badgePool.set(cluster.key, entry);
+        const stopsPx = stopPinsInMapSpace();
+        const clearOfOthers = (me: { x: number; y: number }): boolean =>
+          !projected.some(
+            (other) => other !== me && Math.hypot(other.x - me.x, other.y - me.y) < CLUSTER_PX,
+          ) &&
+          !stopsPx.some(([px, py]) => Math.hypot(px - me.x, py - me.y) < CLUSTER_PX);
+        // Toggle visibility per frame — never remove the element. #388 is a
+        // paint-order bug and MapLibre stacks markers in the order they were
+        // added, so re-appending on camera move would put the excursion diamonds
+        // back on top of the trip's own pins.
+        visibleExcursionNames = new Set<string>();
+        for (const pin of projected) {
+          const el = excursionEls.get(pin.name);
+          if (clearOfOthers(pin)) {
+            visibleExcursionNames.add(pin.name);
+            el?.removeAttribute("hidden");
           } else {
-            // Reposition an existing badge: the count and title can change when
-            // the membership changes, the element identity may not.
-            entry.el.querySelector(".route-cluster-badge")!.textContent = String(cluster.memberDtIds.length);
-            entry.el.title = `${cluster.memberDtIds.length} places here — zoom in`;
-            entry.el.dataset.cluster = cluster.key;
-            // `setLngLat` takes [lng, lat], not screen px — unproject first,
-            // exactly like the create path. Passing drawPosition()'s output
-            // directly read a y of ~200 as latitude 200 and threw
-            // "Invalid LngLat latitude value", taking the whole map down.
-            const moved = map.unproject(drawPosition(cluster));
-            entry.marker.setLngLat([moved.lng, moved.lat]);
-          }
-          entry.el.removeAttribute("hidden");
-          for (const member of cluster.memberDtIds) {
-            excursionEls.get(member)?.setAttribute("hidden", "");
-            clusterMembersRef.current.set(member, cluster.key);
+            el?.setAttribute("hidden", "");
           }
         }
-        // Retire badges whose membership no longer exists (their venues split).
-        for (const [key, entry] of badgePool) {
-          if (liveKeys.has(key)) continue;
-          entry.marker.remove();
-          badgePool.delete(key);
-        }
-        // Every remaining diamond is hidden unless it is genuinely on its own.
-        // A member of a cluster we chose NOT to draw is still inside a real
-        // cluster, so it stays hidden — re-showing it would put two diamonds
-        // back on the same pixels, which is the pile the cluster replaced. The
-        // places come back the moment they separate into their own groups.
-        for (const [name, el] of excursionEls) {
-          if (visibleExcursionNames.has(name)) el.removeAttribute("hidden");
-          else el.setAttribute("hidden", "");
-        }
+        clusterMembersRef.current.clear();
         clusterCentersRef.current.clear();
-        for (const [key, entry] of badgePool) {
-          const at = entry.marker.getLngLat();
-          clusterCentersRef.current.set(key, [at.lng, at.lat]);
-        }
         clusterMarkerElsRef.current.clear();
-        for (const [key, entry] of badgePool) clusterMarkerElsRef.current.set(key, entry.el);
-        // A badge created here has never seen the scroll-spy pass, so it would
-        // sit dimmed at 0.45 while the very pins it stands for are full
-        // strength. Measured: all five of Revelstoke's venues `is-spy`, the badge
-        // covering them not. Re-run the pass whenever the set changes.
+        badgePool.forEach((entry) => entry.marker.remove());
+        badgePool.clear();
+        // A badge created by an earlier build must not survive this one.
         setClusterRevision((n) => n + 1);
       };
       syncExcursionClusters();

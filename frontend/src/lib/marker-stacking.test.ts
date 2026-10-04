@@ -17,7 +17,7 @@ import { CLUSTER_PX } from "../lib/marker-cluster";
 const rulesOnly = indexCss.replace(/\/\*[\s\S]*?\*\//g, "");
 
 /**
- * The marker stacking ladder (#388 → #398).
+ * The marker stacking ladder (#388 → #412).
  *
  * For years the stacking order of this surface's markers WAS the order the
  * component happened to add them in: MapLibre appends every marker element to
@@ -26,31 +26,31 @@ const rulesOnly = indexCss.replace(/\/\*[\s\S]*?\*\//g, "");
  * at journey zoom.
  *
  * #398 made DOM order unusable as the mechanism: cluster membership depends on
- * the CAMERA, so a badge has to be created and destroyed as the traveler zooms,
- * and "add it in the right slot" stopped being something the level build could
- * do. The ladder is now explicit in CSS. This test pins it at the level it can
- * actually be verified from — the stylesheet's own text — because a computed
- * z-index needs a browser, and a browser check that only proves the CURRENT
- * selectors match would not notice someone deleting a rule.
+ * the CAMERA, so a badge had to be created and destroyed as the traveler zoomed.
+ * #412 removed that cluster entirely, but the camera still decides which
+ * diamonds are VISIBLE, so the ladder stays explicit in CSS. This test pins it
+ * at the level it can actually be verified from — the stylesheet's own text —
+ * because a computed z-index needs a browser, and a browser check that only
+ * proves the CURRENT selectors match would not notice someone deleting a rule.
  */
-describe("marker stacking ladder (#388 → #398)", () => {
+describe("marker stacking ladder (#388 → #412)", () => {
   /** The z-index a selector group resolves to in the stylesheet. The argument
    *  is the selector's first member; a comma-list counts as a match, which is
-   *  how the ladder actually groups the badge with the lone diamond. */
+   *  how the ladder groups the two excursion selectors. */
   const zIndexFor = (first: string): string | undefined => {
     const escaped = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const rule = new RegExp(`${escaped}[^}]*?\\{[^}]*?z-index:\\s*(-?\\d+)`, "s").exec(indexCss);
     return rule?.[1];
   };
 
-  it("ranks a cluster badge below a numbered stop pin", () => {
+  it("ranks an excursion diamond below a numbered stop pin", () => {
     // The #388 report, as a rule: a venue marker must never win the tap at a
-    // stop. A badge now STANDS for several venues, so getting this backwards
-    // would hide the trip's own spine behind one count.
-    const badge = Number(zIndexFor(".route-cluster:where(.maplibregl-marker)"));
+    // stop. #412 removed the count badge that stood for several venues, so the
+    // diamond alone carries that weight now.
+    const diamond = Number(zIndexFor(".route-pin-excursion:where(.maplibregl-marker)"));
     const stop = Number(zIndexFor(".route-pin:where(.maplibregl-marker):not(.route-pin-excursion)"));
-    expect(Number.isNaN(badge) || Number.isNaN(stop)).toBe(false);
-    expect(badge).toBeLessThan(stop);
+    expect(Number.isNaN(diamond) || Number.isNaN(stop)).toBe(false);
+    expect(diamond).toBeLessThan(stop);
   });
 
   it("ranks a numbered stop pin below an activity chip", () => {
@@ -64,39 +64,39 @@ describe("marker stacking ladder (#388 → #398)", () => {
 
   it("matches the ranks markerPaintRank already declares", () => {
     // One ladder, two homes: `markerPaintRank` (lib/route-surface.ts) says
-    // cluster/diamond 0 < stop pin 1 < chip 2. If the CSS and the pure function
-    // ever disagree, the map and the tests would each be confidently wrong.
-    const ranks = { badge: 0, stop: 1, chip: 2 };
-    expect(Number(zIndexFor(".route-cluster:where(.maplibregl-marker)"))).toBe(ranks.badge);
+    // excursion 0 < stop pin 1 < chip 2. If the CSS and the pure function ever
+    // disagree, the map and the tests would each be confidently wrong.
+    const ranks = { excursion: 0, stop: 1, chip: 2 };
+    expect(Number(zIndexFor(".route-pin-excursion:where(.maplibregl-marker)"))).toBe(ranks.excursion);
     expect(Number(zIndexFor(".route-pin:where(.maplibregl-marker):not(.route-pin-excursion)"))).toBe(ranks.stop);
     expect(Number(zIndexFor(".route-chip:where(.maplibregl-marker)"))).toBe(ranks.chip);
   });
 
-  it("gives an excursion diamond the SAME rank as a cluster badge", () => {
-    // A lone diamond and the badge that replaces it occupy the same slot: both
-    // are secondary to the stops, and a venue marker that outranked a stop would
-    // be #388 all over again.
-    const badge = Number(zIndexFor(".route-cluster:where(.maplibregl-marker)"));
+  it("gives a hidden excursion diamond the same rank as a visible one", () => {
+    // #412 removed the count badge, so the diamond is the only secondary mark on
+    // the surface — and hiding one (crowded, at journey zoom) must not change its
+    // rank, or the stacking would depend on the camera.
     const diamond = Number(zIndexFor(".route-pin-excursion:where(.maplibregl-marker)"));
-    expect(Number.isNaN(badge) || Number.isNaN(diamond)).toBe(false);
-    expect(diamond).toBe(badge);
+    expect(Number.isNaN(diamond)).toBe(false);
+    expect(diamond).toBe(0);
   });
+
 
   it("takes a hidden diamond out of the pointer path, not just the paint", () => {
     // A diamond inside a badge must not intercept a tap meant for the pin
     // underneath it. `visibility`/`display` do that; `opacity: 0` does not — the
     // element still swallows the click, which is the same class of bug as #388.
-    expect(indexCss).toMatch(/\.route-cluster\[hidden\]\s*\{[^}]*display:\s*none/);
+    expect(indexCss).toMatch(/\.route-pin-excursion\[hidden\]\s*\{[^}]*display:\s*none/);
   });
 
   it("uses COMPOUND selectors — a marker element is not a child of a marker", () => {
     // The trap this whole file exists to catch. `new Marker({ element })` puts
     // `maplibregl-marker` on the SAME node as our own button, so
-    // `.maplibregl-marker .route-cluster` (descendant) matches nothing: the
+    // `.maplibregl-marker .route-pin` (descendant) matches nothing: the
     // ladder was in the stylesheet, in the built bundle, and dead — measured
     // `zIndex === "auto"` on a real badge while the CSS looked correct. Assert
     // the shape so a "tidier" descendant selector cannot come back.
-    for (const sel of [".route-cluster", ".route-pin-excursion", ".route-chip"]) {
+    for (const sel of [".route-pin-excursion", ".route-pin", ".route-chip"]) {
       expect(rulesOnly).toMatch(
         new RegExp(`${sel}:where\\(\\.maplibregl-marker\\)`),
       );

@@ -606,40 +606,38 @@ describe("markerPaintRank (#388: a venue diamond never covers the trip's pins)",
     expect(excursions).toBeLessThan(stops);
   });
 
-  it("never REMOVES an excursion marker element when the camera moves (#398)", () => {
-    // The trap #398 walked into. Clustering membership depends on the camera,
-    // and the obvious implementation rebuilds markers when it changes — which
-    // re-appends cluster badges AFTER the stop pins and puts #388 straight
-    // back, while every DOM-COUNT assertion stays green: the counts are
-    // identical, only the stacking changed. So clusters must be re-derivable
-    // without touching the marker list: `syncExcursionClusters` HIDES a diamond
-    // that is inside a badge and shows it again when the badge splits, and
-    // badges are reused from a pool rather than re-added.
+  it("never REMOVES an excursion marker element when the camera moves (#412)", () => {
+    // The trap #398 walked into, and the one #412 walked into. Showing which
+    // excursions are visible depends on the camera, and the obvious
+    // implementation rebuilds markers when it changes — which re-appends
+    // markers AFTER the stop pins and puts #388 straight back, while every
+    // DOM-COUNT assertion stays green: the counts are identical, only the
+    // stacking changed. So visibility must be re-derivable without touching
+    // the marker list.
     const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
     const sync = scan.slice(scan.indexOf("const syncExcursionClusters"));
     const handler = sync.slice(0, sync.indexOf("syncExcursionClusters();"));
     // Visibility toggles, not teardown.
     expect(handler).toMatch(/setAttribute\("hidden", ""\)/);
     expect(handler).toMatch(/removeAttribute\("hidden"\)/);
-    // A badge that outlives its membership is removed — that is its OWN element
-    // from the pool, not an excursion marker.
-    expect(handler).toMatch(/entry\.marker\.remove\(\)/);
-    // The excursion marker list is built once, before clustering exists.
+    // #412: the excursion marker list is built once, before any camera pass.
     expect(scan.indexOf("for (const loc of locatedExcursions)")).toBeLessThan(
       scan.indexOf("const syncExcursionClusters"),
     );
-});
-});
+  });
 
-describe("placeDays (#91: explicit days + clamped section refs)", () => {
-  it("canada-2027 live labels", () => {
-    const trip = canadaLive();
-    expect(placeDays(trip, "YYC")).toEqual([0, 14]); // Days 1, 15
-    expect(placeDays(trip, "Banff")).toEqual([0, 1, 2]); // Days 1–3
-    expect(placeDays(trip, "Revelstoke")).toEqual([2, 3, 4, 5, 6, 7, 8, 9]); // Days 3–10
-    expect(placeDays(trip, "Golden")).toEqual([9, 10, 11, 12]); // Days 10–13
-    expect(placeDays(trip, "Lake Louise")).toEqual([12, 13, 14]); // Days 13–15
-    expect(placeDays(trip, "Rogers Pass")).toEqual([4]); // Day 5 — the excursion
+  it("draws no cluster badge anywhere on the trip surface (#412)", () => {
+    // Clustering is gone (Niko, 2026-10-04: the badges sat in "totally wrong
+    // locations" on Chili+Peru). The count badge was drawn at its members'
+    // centroid and then nudged up to 44 screen px clear of a pin — at journey
+    // zoom a pixel is kilometres, so that nudge moved badges hundreds of km.
+    // Assert the whole drawing path is absent, not merely unused: a badge that
+    // can still be constructed is a badge that can still be misplaced.
+    expect(RouteMapSrc).not.toMatch(/route-cluster-badge/);
+    expect(RouteMapSrc).not.toMatch(/addClusterMarker/);
+    expect(RouteMapSrc).not.toMatch(/clusterMarkers\(/);
+    // And no screen-space nudge: that arithmetic is the actual defect.
+    expect(RouteMapSrc).not.toMatch(/drawPosition/);
   });
 
   it("chile-peru-2027 live labels — co-located chapters split, not smear", () => {
