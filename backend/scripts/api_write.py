@@ -1132,6 +1132,24 @@ def _trip_anchor(trip: dict) -> tuple[float, float] | None:
     return ((lats[mid - 1] + lats[mid]) / 2, (lngs[mid - 1] + lngs[mid]) / 2)
 
 
+def _nearest_trip_km(point: tuple[float, float], trip: dict) -> float | None:
+    """How far ``point`` sits from the closest location the trip has placed.
+
+    The write gate's measure, and deliberately *not* the same one the search bias
+    uses: the bias wants a single anchor to hand Google, while the gate asks the
+    question that actually matters — "is this hit near anything the trip is
+    already at?". Measuring to the median would reject a legitimate far end of a
+    long itinerary (a lodge at one tip of a 1,000 km trip is 500 km from the
+    middle yet 30 km from its neighbour), which is the false positive this must
+    not have. A namesake is far from *every* sibling, not just the middle one.
+    ``None`` when the trip has placed nothing yet — nothing to measure against.
+    """
+    points = [c for c in (_coords(loc) for loc in trip.get("locations") or []) if c]
+    if not points:
+        return None
+    return min(_haversine_km(point, other) for other in points)
+
+
 def _resolve_query(
     query: str,
     base: str,
@@ -1179,8 +1197,9 @@ def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None 
        toward the trip's own coordinates (``_trip_anchor``), because place names
        repeat across countries: "Hotel Presidente" is in Madrid as well as in San
        José, and an unbiased search silently returns one on another continent.
-       A hit that stays far from the trip is reported in ``locations_off_trip``
-       rather than written quietly.
+       A hit that stays far from every entry the trip has placed is reported in
+       ``locations_off_trip`` and **not written** (#405) — the pin stays curated
+       until the plan pins the right place explicitly.
     2. **Venue blocks without a ``placeId``** get one, copied from the registry
        entry their ``location`` points at once that entry has a ``placeId``.
        Blocks naming no resolvable venue are reported instead. Without this the
@@ -1226,15 +1245,29 @@ def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None 
                 if plain and _coords(plain) and _haversine_km(_coords(plain), anchor) < distance:  # type: ignore[arg-type]
                     hit = plain
                     distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
-            if distance > _OFF_TRIP_KM:
+            # The write gate, which is stricter than the bias above: it also
+            # accepts a hit that sits near *any* placed entry, so the far end of
+            # a long itinerary is never mistaken for a namesake.
+            nearest = _nearest_trip_km(_coords(hit), trip)  # type: ignore[arg-type]
+            if nearest is not None and nearest > _OFF_TRIP_KM:
+                # A namesake the bias could not save. REPORT it, never write it:
+                # persisting this moved a curated map pin onto another continent
+                # and the warning only arrived after the corruption was already
+                # live (#405 — Golden, BC resolved to a spa in Gent, 7,322 km
+                # away). The entry stays untouched, so the trip keeps whatever
+                # curated coordinates it had and the plan can pin the right one.
                 report["locations_off_trip"].append(
                     {
                         "name": name,
                         "matched": hit.get("name"),
                         "address": hit.get("address"),
                         "km_from_trip": round(distance, 1),
+                        "km_from_nearest": round(nearest, 1),
+                        "written": False,
                     }
                 )
+                report["locations_unresolved"].append(name)
+                continue
         entry: dict = {"name": name, "placeId": hit["placeId"]}
         if hit.get("lat") is not None:
             entry["lat"] = hit["lat"]
@@ -1331,7 +1364,8 @@ def resolve_places_verb(args) -> int:
         )
     if report.get("locations_off_trip"):
         print(
-            "warning: resolved OUTSIDE the trip's own area (a namesake?): "
+            "warning: resolved OUTSIDE the trip's own area (a namesake?) and NOT written — "
+            "the entries keep their curated coordinates: "
             + "; ".join(
                 f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km)"
                 for o in report["locations_off_trip"]
@@ -1711,12 +1745,12 @@ def fill_trip(args) -> int:
     if resolution.get("locations_off_trip"):
         print(
             f"warning: {len(resolution['locations_off_trip'])} location(s) resolved OUTSIDE the "
-            "trip's own area — a namesake, most likely: "
+            "trip's own area — a namesake, most likely. NOT written: the entries keep their "
+            "curated coordinates, so pin the right one with an explicit `placeId` "
             + "; ".join(
                 f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km away)"
                 for o in resolution["locations_off_trip"]
-            )
-            + ". Give the entry a qualified name or pass its `placeId` explicitly",
+            ),
             file=sys.stderr,
         )
     if resolution["blocks_without_venue"]:

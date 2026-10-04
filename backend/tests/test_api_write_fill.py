@@ -907,6 +907,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
         "sections": [],
     }
     seen: list[dict] = []
+    patched: list = []
 
     def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
         if method == "get" and path.startswith("/api/places/search"):
@@ -924,6 +925,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
                              "name": "Café Central", "address": "Vienna, Austria"}
             return 200, {"available": False}
         if method == "patch" and path.endswith("/locations"):
+            patched.append(body)
             return 200, trip
         raise AssertionError(f"unexpected {method} {path}")
 
@@ -946,12 +948,145 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
     assert by_name["A remote island"][-1] == {"q": ["A remote island"]}
     resolved = {entry["name"]: entry["placeId"] for entry in report["locations_resolved"]}
     assert resolved["Hotel Presidente"] == "P-SJ-HOTEL"  # not Madrid
-    assert resolved["Café Central"] == "P-VIENNA"        # resolvable, but wrong country
-    assert "San José" not in resolved                    # already pinned: untouched
+    assert "Café Central" not in resolved                    # #405: NEVER written
+    assert "San José" not in resolved                        # already pinned: untouched
     assert [entry["name"] for entry in report["locations_off_trip"]] == ["Café Central"]
     off = report["locations_off_trip"][0]
     assert off["km_from_trip"] > 5000
     # everything the CLI's "resolved OUTSIDE the trip's own area (a namesake?)"
-    # warning needs — the resolution is reported, never silently pinned
+    # warning needs — and the fact that it was NOT written, which is the whole
+    # point of #405: the pin must keep its curated coordinates, not jump to Vienna
     assert off["matched"] == "Café Central" and off["address"] == "Vienna, Austria"
-    assert report["locations_unresolved"] == ["A remote island"]
+    assert off["written"] is False
+    assert off["km_from_nearest"] > 5000
+    # the PATCH carries only the in-trip resolution: no Vienna placeId, no Vienna
+    # coordinates, no Vienna address ever reach the location twin
+    assert patched == [{"locations": [
+        {"name": "Hotel Presidente", "placeId": "P-SJ-HOTEL", "lat": 9.94, "lng": -84.09,
+         "address": "San José, Costa Rica"},
+    ]}]
+    # reported as unresolved too — from the caller's side nothing was resolved
+    assert report["locations_unresolved"] == ["Café Central", "A remote island"]
+
+
+def test_resolve_places_writes_a_far_end_that_near_its_neighbour(monkeypatch):
+    """#405: the write gate measures to the NEAREST placed entry, not the middle.
+
+    A lodge at one tip of a long itinerary sits far from the trip's median but
+    right next to the town the last day ended in. That is a real place and must
+    be written — measuring to the median instead would reject it and leave the
+    plan with an unresolvable venue forever.
+    """
+    trip = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "Lisbon", "placeId": "P-LIS", "lat": 38.72, "lng": -9.14},
+            {"name": "Faro", "placeId": "P-FAR", "lat": 37.02, "lng": -7.93},
+            # ~500 km from the Lisbon/Faro median, ~20 km from Faro itself
+            {"name": "Ria Formosa lodge"},
+        ],
+        "days": [],
+        "sections": [],
+    }
+    patched: list = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            return 200, {"available": True, "placeId": "P-LODGE", "lat": 37.10, "lng": -7.72,
+                         "name": "Ria Formosa lodge", "address": "Faro, Portugal"}
+        if method == "patch" and path.endswith("/locations"):
+            patched.append(body)
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert report["locations_off_trip"] == []
+    assert [e["name"] for e in report["locations_resolved"]] == ["Ria Formosa lodge"]
+    assert patched[0]["locations"][0]["placeId"] == "P-LODGE"
+
+
+def test_resolve_places_writes_the_first_entry_with_nothing_to_measure_against(monkeypatch):
+    """#405: the gate needs a placed sibling to measure against.
+
+    A trip whose registry holds no coordinates at all yet has nothing to check a
+    hit against — refusing to write there would strand every first fill on a fresh
+    trip. That hit is written, exactly as before the gate existed.
+    """
+    trip = {
+        "id": TRIP_ID,
+        "locations": [{"name": "Somewhere new"}],
+        "days": [],
+        "sections": [],
+    }
+    patched: list = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            return 200, {"available": True, "placeId": "P-NEW", "lat": 48.21, "lng": 16.37,
+                         "name": "Somewhere new", "address": "Vienna, Austria"}
+        if method == "patch" and path.endswith("/locations"):
+            patched.append(body)
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert report["locations_off_trip"] == []
+    assert [e["name"] for e in report["locations_resolved"]] == ["Somewhere new"]
+    assert patched[0]["locations"][0]["placeId"] == "P-NEW"
+
+
+def test_resolve_places_warns_that_the_off_trip_entry_was_not_written(monkeypatch, capsys):
+    """#405 point 2: the warning says whether the pin moved — here, it did not.
+
+    Read as prose it has to be unambiguous on its own: an agent seeing it must not
+    assume a repair is needed, because nothing was written.
+    """
+    import argparse as _argparse
+
+    trip = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "Golden", "lat": 51.292, "lng": -116.9656},  # curated, BC
+            {"name": "Tarn"},
+        ],
+        "days": [],
+        "sections": [],
+    }
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            q = urllib.parse.parse_qs(path.split("?", 1)[1])["q"][0]
+            if q == "Golden":
+                # the exact #405 miss: the BC entry resolves to a spa in Gent
+                return 200, {"available": True, "placeId": "P-GENT", "lat": 51.032, "lng": 3.743,
+                             "name": "The Golden Wellness",
+                             "address": "Hundelgemsesteenweg 118, 9050 Gent, Belgium"}
+            return 200, {"available": True, "placeId": "P-TARN", "lat": 51.00, "lng": -118.20,
+                         "name": "Tarn", "address": "Near Golden, BC"}
+        if method == "patch" and path.endswith("/locations"):
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+    monkeypatch.setattr(aw, "_credential", lambda args: "tok")
+    monkeypatch.setattr(aw, "_act_as", lambda args, token: None)
+
+    rc = aw.resolve_places_verb(
+        _argparse.Namespace(base="http://x", path=TRIP_ID, token=None, act_as=None)
+    )
+    assert rc == 0
+
+    err = capsys.readouterr().err
+    assert "NOT written" in err
+    assert "Golden → The Golden Wellness" in err
+    # the other entry is fine and must not drag the warning along
+    assert "Tarn" not in err

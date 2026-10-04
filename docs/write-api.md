@@ -369,8 +369,10 @@ run, and `resolve-places <trip_id>` re-runs just that pass:
    toward the trip's own coordinates (`GET /api/places/search?q=&lat=&lng=&radius=`).
    The bias matters: "Hotel Presidente" is a Madrid hotel as well as a San
    José one, and an unbiased search can place a venue on another continent
-   without anything in the response saying so. A hit still far from the trip
-   is reported in `locations_off_trip`, never written quietly.
+   without anything in the response saying so. A hit that is still far from
+   every entry the trip has placed is a namesake: it is reported in
+   `locations_off_trip` and **not written** (#405), so the pin keeps its
+   curated coordinates until the plan pins the right one explicitly.
 2. A **venue block** (`activity`, `lodging`, `meal`, `booking`) copies the
    `placeId` of the registry entry its `location` points at. There is
    deliberately no free-text venue field on a block (#220) — free text is
