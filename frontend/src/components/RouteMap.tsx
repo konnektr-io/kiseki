@@ -5,8 +5,9 @@ import { Locate, LocateFixed, Maximize2, X } from "lucide-react";
 import { useTrip } from "./theme";
 import {
   applyBasemapTint,
+  EXCURSION_DIAMOND_MIN_ZOOM,
   EXCURSION_LABEL_DIAMOND_OFFSET_PX,
-  farEnoughApart,
+  placeExcursionLabels,
   fetchRouteLegs,
   formatMapLabel,
   hasWebGL2,
@@ -30,7 +31,6 @@ import {
   type RouteLeg,
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
-import { CLUSTER_PX } from "../lib/marker-cluster";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
 import { greatCircle, legModes, markerPaintRank, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
 import {
@@ -813,17 +813,22 @@ export function RouteMap({
         const p = map.project([loc.lng!, loc.lat!]);
         return [p.x, p.y] as [number, number];
       });
-      const shown = farEnoughApart(ordered, points, selectedName);
-      for (const name of shown) {
+      // Every candidate gets a name; collisions are nudged, not dropped (#413).
+      const placements = placeExcursionLabels(ordered, points, selectedName);
+      for (const { name, offset } of placements) {
         const loc = byName.get(name);
         if (!loc || loc.lng == null || loc.lat == null) continue;
         const el = makeMapExcursionLabelElement(loc.name);
         if (name === selectedName) el.classList.add("is-selected");
+        if (offset[1] !== 0) el.classList.add("is-nudged");
         excursionLabelMarkersRef.current.push(
           new lib.Marker({
             element: el,
             anchor: "top",
-            offset: [0, EXCURSION_LABEL_DIAMOND_OFFSET_PX] as [number, number],
+            offset: [
+              offset[0],
+              EXCURSION_LABEL_DIAMOND_OFFSET_PX + offset[1],
+            ] as [number, number],
           })
             .setLngLat([loc.lng, loc.lat])
             .addTo(map),
@@ -831,20 +836,6 @@ export function RouteMap({
       }
     };
 
-    /** The numbered stop pins, in the MAP CONTAINER's coordinate space — the
-     *  space `map.project()` returns, and therefore the space `cluster.x/y`
-     *  live in. `getBoundingClientRect` is VIEWPORT-relative, so it must be
-     *  converted by subtracting the container's own origin; mixing the two
-     *  spaces silently offsets every pin by where the map sits on the page. */
-    const stopPinsInMapSpace = (): Array<[number, number]> => {
-      const origin = map.getContainer().getBoundingClientRect();
-      const out: Array<[number, number]> = [];
-      for (const el of stopPinEls.current.values()) {
-        const r = el.getBoundingClientRect();
-        if (r.width > 0) out.push([r.x + r.width / 2 - origin.left, r.y + r.height / 2 - origin.top]);
-      }
-      return out;
-    };
 
 
 
@@ -1023,46 +1014,28 @@ export function RouteMap({
         // read as "several venues here", which is true, and each keeps its own
         // tap target. `visibleExcursionNames` stays the label layer's candidate
         // set, so naming a venue is unchanged by this removal.
-        // Which diamonds to draw, measured per frame in SCREEN space (#412).
+        // Which diamonds to draw: a ZOOM LEVEL, not a spacing test (#413).
         //
-        // The rule is deliberately one-sided, and it is the answer to "just
-        // show the diamonds at a certain zoom level" — but keyed on measured
-        // separation rather than a zoom floor, so it behaves identically on the
-        // globe, at any container size, and for a trip that is dense in one
-        // city and sparse across a continent.
+        // #412 hid a diamond whenever it had less than one 44px hit target of
+        // room. Measured on Chili+Peru that was far too strict: nothing at all
+        // appeared before z7, and only 3 of 41 diamonds ever did. Niko's call:
+        // a little overlap is fine, and a fixed level is easier to reason about
+        // than a spacing test. So from `EXCURSION_DIAMOND_MIN_ZOOM` the whole
+        // excursion set draws, wherever it happens to sit.
         //
-        //   * A diamond that has room keeps its own marker, at its own
-        //     coordinates. Nothing is ever drawn anywhere else.
-        //   * A diamond in a genuine pile is HIDDEN, not merged into a count —
-        //     a count is what put badges in the wrong country in the first
-        //     place.
-        //
-        // "Room" is one hit target (44px, the same constant the removed cluster
-        // used) from every OTHER excursion and from every numbered stop, so
-        // what is drawn is always what can be tapped. Crucially this only ever
-        // removes a marker that is genuinely underneath another one: at journey
-        // zoom on a dense trip most venues are a few px apart and simply are
-        // not drawable, and the numbered stop pins — the trip's spine, and the
-        // thing you actually navigate by — are never gated.
-        const projected = locatedExcursions.map((l) => {
-          const p = map.project([l.lng!, l.lat!]);
-          return { name: l.name, x: p.x, y: p.y };
-        });
-        const stopsPx = stopPinsInMapSpace();
-        const clearOfOthers = (me: { x: number; y: number }): boolean =>
-          !projected.some(
-            (other) => other !== me && Math.hypot(other.x - me.x, other.y - me.y) < CLUSTER_PX,
-          ) &&
-          !stopsPx.some(([px, py]) => Math.hypot(px - me.x, py - me.y) < CLUSTER_PX);
-        // Toggle visibility per frame — never remove the element. #388 is a
-        // paint-order bug and MapLibre stacks markers in the order they were
-        // added, so re-appending on camera move would put the excursion diamonds
-        // back on top of the trip's own pins.
+        // The trade is deliberate and is the reason this is a zoom and not a
+        // rule about collision: at z9 in Lima you get ~40 diamonds stacked on
+        // one city. They overlap, they are individually hard to tap, and that
+        // is the honest picture of "41 venues in one place" — the numbered
+        // stop pin and its name are how you read the city, and tapping a
+        // diamond still selects it. Below the level the map stays a clean
+        // route-and-spine overview, which is what it is for.
+        const showAllExcursions = map.getZoom() >= EXCURSION_DIAMOND_MIN_ZOOM;
         visibleExcursionNames = new Set<string>();
-        for (const pin of projected) {
-          const el = excursionEls.get(pin.name);
-          if (clearOfOthers(pin)) {
-            visibleExcursionNames.add(pin.name);
+        for (const loc of locatedExcursions) {
+          const el = excursionEls.get(loc.name);
+          if (showAllExcursions) {
+            visibleExcursionNames.add(loc.name);
             el?.removeAttribute("hidden");
           } else {
             el?.setAttribute("hidden", "");

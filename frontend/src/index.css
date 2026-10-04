@@ -412,6 +412,14 @@ h4 {
   opacity: 0.45;
 }
 
+/* A nudged excursion name (#413): it was moved off its diamond to avoid another
+   name, so it reads at slightly reduced emphasis rather than pretending to sit
+   neatly under its own marker. Still fully legible — a name that appears only on
+   tap is a tooltip, not a label. */
+.map-place-label.is-excursion.is-nudged {
+  opacity: 0.82;
+}
+
 /* Letter chips (§8.3, #90) — the day level's activity markers. Square dots,
    selected = the same raise+ring grammar as the numbered pins; everything
    else dims while a chip is focused so the day's focus story matches the
