@@ -291,6 +291,92 @@ describe("practicals page — inline block edit (#296)", () => {
     expect(putSpy).not.toHaveBeenCalled();
   });
 });
+/* #400 — ticking a checklist item struck the whole row, INCLUDING its link
+ * pills. `text-decoration` is an inherited property, so `line-through` on the
+ * wrapper that holds both the label and the pills drew a line through every
+ * "Manage flights" / booking-link button — the affordance to do the thing was
+ * struck out by the very tick that marked it done. The LABEL is the done-state
+ * signal; the link is not part of that sentence and must stay legible.
+ *
+ * Asserted on the mounted DOM (not SSR text) because inheritance is a computed
+ * style: the class is absent from the markup either way, so the only true
+ * statement is "no ancestor-or-self of the pill carries line-through". */
+describe("practicals page — a done item's links are never struck (#400)", () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  const todos: NonNullable<Trip["practical"]["todos"]> = [
+    {
+      label: "Book the flights",
+      done: true,
+      links: [
+        { label: "Manage flights", url: "https://www.ryanair.com" },
+        { label: "Booking link", url: "/t/t-231/day/3" },
+      ],
+    },
+    { label: "Rent the camper", done: false, links: [{ label: "Campervan", url: "https://camper.example" }] },
+  ];
+
+  async function mount() {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const trip = { ...tripWith({ todos }), myRole: "viewer" } as unknown as Trip;
+    await act(async () => {
+      root!.render(
+        createElement(TripProvider, {
+          trip,
+          apply: () => {},
+          children: createElement(
+            MemoryRouter,
+            { initialEntries: ["/t/t-231/practical"] },
+            createElement(
+              Routes,
+              null,
+              createElement(Route, {
+                path: "/t/:tripId/practical",
+                element: createElement(PracticalsPage),
+              }),
+            ),
+          ),
+        }),
+      );
+    });
+  }
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root!.unmount();
+      });
+      root = null;
+    }
+    container?.remove();
+    container = null;
+  });
+
+  it("strikes the label of a done item but leaves every link pill undecorated", async () => {
+    await mount();
+    const struck = Array.from(container!.querySelectorAll(".line-through"));
+    // Positive control: the done item still reads as done — the strike exists,
+    // exactly one, on the label.
+    expect(struck.length).toBe(1);
+    expect(struck[0].textContent).toBe("Book the flights");
+
+    const pills = Array.from(container!.querySelectorAll("a")).filter((a) =>
+      ["Manage flights", "Booking link", "Campervan"].includes(a.textContent ?? ""),
+    );
+    expect(pills.map((a) => a.textContent)).toEqual(["Manage flights", "Booking link", "Campervan"]);
+    for (const pill of pills) {
+      expect(pill.className).not.toContain("line-through");
+      // And nothing it inherits from re-applies it.
+      expect(pill.closest(".line-through")).toBeNull();
+    }
+    // The pill is still a real, clickable target — not flattened by the fix.
+    expect(container!.querySelector('a[href="https://www.ryanair.com"]')).not.toBeNull();
+  });
+});
+
 /* #301 — `practical.links` and a todo's own links are content-supplied targets
  * too, and both rendered `<a target="_blank">`: an in-app target (the trip's own
  * day route) opened a second tab, an off-app one should. */
