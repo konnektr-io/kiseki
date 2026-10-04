@@ -44,6 +44,7 @@ import {
 import type { TransportMode } from "../lib/transport";
 import type { DaySurface } from "../lib/day-surface";
 import { addTerrain } from "../lib/terrain";
+import { addOutdoorOverlay } from "../lib/outdoor-overlay";
 import { mapColors } from "../lib/tokens";
 import { accuracyRadiusPx, locateControl, type DeviceFix } from "../lib/geolocation";
 import { startTrackingDeviceIfPermitted, useDeviceLocation } from "../lib/device-location";
@@ -531,6 +532,12 @@ export function RouteMap({
         });
         if (cancelled || !map) return;
 
+        // Probe hook for the map-surface scripts (`scripts/probe-*.py`). MapLibre
+        // v6 is not a global, so a rendered-browser check cannot otherwise reach
+        // this instance — it needs the app to hand it over. No-op unless a probe
+        // installed the function, and typed as the loose shape a probe needs.
+        (window as unknown as { __probeMap?: (m: unknown) => void }).__probeMap?.(map);
+
         // Preset tint of the base layers (#40 D2) — repaint, never re-author.
         applyBasemapTint(map, mapStyle.tint);
 
@@ -567,6 +574,14 @@ export function RouteMap({
         // Deliberately not awaited — a slow DEM must not hold up the line the
         // surface exists to draw.
         void addTerrain(map, lib, mapStyle.terrain);
+
+        // Outdoor reference: ski pistes, lifts and waymarked trails around the
+        // places on this trip. Thin and below the labels, so it informs an
+        // exploration of the day map without ever competing with the trip's own
+        // route or markers. Screen-only by construction — `RouteMap` carries no
+        // `data-maplibre` handshake, so the booklet's `MapView` path never loads
+        // these tiles.
+        addOutdoorOverlay(map);
 
         // Real geometry when the backend can give it; the trip's own
         // coordinates when it can't (maps unconfigured, or a leg with no road
