@@ -55,7 +55,7 @@ Companion pieces:
 | `PATCH` | `/api/trips/{trip_id}/crew/{person_id}` | `CrewPatch` | — |
 | `POST` | `/api/trips/{trip_id}/crew` | `CrewAdd` | Add a crew member (editor+). |
 | `DELETE` | `/api/trips/{trip_id}/crew/{person_id}` | `—` | — |
-| `PUT` | `/api/trips/{trip_id}/locations` | `LocationsPut` | — |
+| `PUT` | `/api/trips/{trip_id}/locations` | `LocationsPut` | Full-array replace of the trip's location registry (#417). |
 | `PATCH` | `/api/trips/{trip_id}/locations` | `LocationsPatch` | Incremental location edits — named upserts only (never a replace). |
 | `PUT` | `/api/trips/{trip_id}/features` | `FeaturesPut` | Full-array replace of the trip's editorial overview cards (issue #178). |
 | `PATCH` | `/api/trips/{trip_id}/features` | `FeaturesPatch` | Incremental feature edits — upserts by `id` else `title` (issue #178). |

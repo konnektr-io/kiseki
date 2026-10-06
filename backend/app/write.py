@@ -328,7 +328,10 @@ class CrewAdd(_Strict):
 
 
 class LocationWrite(_Strict):
-    """One registry entry for PUT /locations (full-array replace, diff-by-name).
+    """One registry entry for PUT /locations (full-array replace).
+
+    Matched by ``id`` when supplied (unknown id = 404), otherwise by ``name``
+    — an id-bearing entry renames its twin in place (#417).
 
     Explicit-clear contract: only fields PRESENT in the payload are written.
     A present ``null`` (or ``[]`` for a list field) clears that field on the
@@ -336,7 +339,10 @@ class LocationWrite(_Strict):
     clears to the positional default (marker is optional, never rejected).
     """
 
-    id: Optional[str] = None
+    id: Optional[str] = Field(
+        default=None,
+        description="Location twin id ($dtId). When supplied, the entry matches that twin (unknown id = 404); otherwise matching is by `name`.",
+    )
     name: str = Field(min_length=1)
     marker: Optional[int] = None
     alias: Optional[list[str]] = None
@@ -2512,10 +2518,13 @@ def remove_crew(trip_dtid: str, actor: dict, person_id: str) -> Trip:
 # ---------------------------------------------------------------- locations
 def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     """Full-array replace of the trip's location registry (marker order = list
-    position). Diff by name: kept locations are patched, gone ones deleted,
-    new ones created, root atLocation edges rebuilt with index = position.
-    Explicit-clear: a present ``null`` (or ``[]``) clears that field on a kept
-    location; absent fields keep their stored value."""
+    position). Match by ``id`` when one is supplied (unknown id = 404),
+    otherwise by name — the same contract as PATCH /locations and PUT
+    /features, so an entry that carries its id RENAMES its twin in place
+    instead of minting a new one (issue #417). Kept locations are patched,
+    gone ones deleted, new ones created, root atLocation edges rebuilt with
+    index = position. Explicit-clear: a present ``null`` (or ``[]``) clears
+    that field on a kept location; absent fields keep their stored value."""
     client = _client()
     graph = _fetch(client, trip_dtid)
     root = _trip_twin(graph, trip_dtid)
@@ -2524,40 +2533,100 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
     names = [e.name for e in entries]
     if len(names) != len(set(names)):
         raise WriteError(422, "Location names must be unique")
+    given_ids = [e.id for e in entries if e.id is not None]
+    if len(given_ids) != len(set(given_ids)):
+        raise WriteError(422, "Location ids must be unique")
 
     locations = {
-        t.get("name"): t for t in graph.get("twins", []) if _model_kind(t) == "Location"
+        t["$dtId"]: t for t in graph.get("twins", []) if _model_kind(t) == "Location"
     }
     root_at = [
         r for r in graph.get("relationships", [])
         if r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "atLocation"
     ]
-    old_by_name = {locations[r.get("$targetId")]["name"]: r.get("$targetId")
-                   for r in root_at if r.get("$targetId") in locations}
+
+    # Edges that are NOT the root registry edges (a section locationRef, a
+    # block's atLocation) also pin their Location: the graph server refuses a
+    # non-cascade twin delete (#89), so a removed twin that is still referenced
+    # stays put rather than 500-ing this write — dropping its registry edge
+    # below is what takes it out of the document.
+    referenced = {
+        r.get("$targetId") for r in graph.get("relationships", [])
+        if not (r.get("$sourceId") == trip_dtid and r.get("$relationshipName") == "atLocation")
+    }
+
+    # Resolve the WHOLE payload before touching the graph: unknown-id (404),
+    # rename-collision (409) and double-claim (409) are all #417 error paths,
+    # and firing one after the registry edges were dropped would leave the trip
+    # with no locations at all. This simulation only moves entries between two
+    # lookup maps — the twin dicts are never mutated, so the write pass below
+    # still sees their stored values.
+    sim_by_name = {t.get("name"): t for t in locations.values()}
+    plan: list[tuple[LocationWrite, str, dict | None]] = []
+    resolved: dict[str, str] = {}     # Location $dtId -> payload name it resolved to
+    taken: dict[str, str] = {}        # name -> id of the twin already holding it
+    for entry in entries:
+        if entry.id is not None:
+            twin = locations.get(entry.id)
+            if twin is None:
+                raise WriteError(404, f"Unknown location id {entry.id!r}")
+        else:
+            twin = sim_by_name.get(entry.name)
+        if twin is None:
+            lid = _new_id()
+            plan.append((entry, lid, None))
+            twin = {"$dtId": lid, "name": entry.name}
+        else:
+            lid = twin["$dtId"]
+            if lid in resolved:
+                raise WriteError(
+                    409,
+                    f"Payload entries {resolved[lid]!r} and {entry.name!r} "
+                    f"both resolve to location {lid!r}",
+                )
+            plan.append((entry, lid, twin))
+            if entry.name != twin.get("name"):
+                sim_by_name.pop(twin.get("name"), None)
+        holder = sim_by_name.get(entry.name)
+        if holder is not None and holder["$dtId"] != lid:
+            taken[entry.name] = holder["$dtId"]
+        resolved[lid] = entry.name
+        sim_by_name[entry.name] = twin
+
+    # Removals: twins nothing resolved. An id-bearing entry keeps its twin
+    # alive across a rename even though its old name left the payload (#417),
+    # and a twin another edge still points at survives too (#89, above).
+    drop_ids = {
+        lid for lid in locations
+        if lid not in resolved and lid not in referenced
+    }
+
+    # A rename may only claim a name whose current holder leaves this write.
+    # Checked here, after every entry resolved: dropping the old holder and
+    # renaming onto its name in one PUT is legal, taking a name that survives
+    # (because its own entry keeps it, or because another edge pins it) is not.
+    for name, holder in taken.items():
+        if holder not in drop_ids:
+            raise WriteError(409, f"{name!r} is already a location on this trip")
 
     # Deletes: old locations no longer in the list. The graph server does not
     # cascade twin deletes, and every fetched root atLocation edge is replaced
     # below anyway — so drop ALL of the old root edges first, then delete the
     # removed Location twins edge-free (same no-cascade rule as delete_block,
-    # issue #89 smoke), then re-upsert the new edge set at the end.
-    keep_names = set(names)
+    # issue #89 smoke), then apply the plan and re-upsert the new edge set.
     for r in root_at:
         if r.get("$relationshipId"):
             client.delete_relationship(
                 r.get("$sourceId") or trip_dtid, r["$relationshipId"],
                 x_user_id=actor["sub"],
             )
-    for name, lid in old_by_name.items():
-        if name not in keep_names:
-            client.delete_twin(trip_dtid, lid, x_user_id=actor["sub"])
-            locations.pop(name, None)
+    for lid in drop_ids:
+        client.delete_twin(trip_dtid, lid, x_user_id=actor["sub"])
 
-    # Upserts (new) + patches (existing).
-    current_ids: dict[str, str] = {}  # name -> Location $dtId
-    for entry in entries:
-        twin = locations.get(entry.name)
+    # Upserts (new) + patches (existing) in payload order.
+    current_ids: dict[str, str] = {}  # payload name -> Location $dtId
+    for entry, lid, twin in plan:
         if twin is None:
-            lid = _new_id()
             props: dict[str, Any] = {
                 "$dtId": lid,
                 "$metadata": {"$model": LOCATION_MODEL},
@@ -2567,13 +2636,14 @@ def put_locations(trip_dtid: str, actor: dict, body: LocationsPut) -> Trip:
                 if value is not None:
                     props[prop] = value
             client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
-            current_ids[entry.name] = lid
         else:
-            lid = twin["$dtId"]
-            current_ids[entry.name] = lid
-            ops = _scalar_ops(twin, _location_pairs(entry))
+            ops = _scalar_ops(
+                twin, [("name", entry.name)] if entry.name != twin.get("name") else []
+            )
+            ops += _scalar_ops(twin, _location_pairs(entry))
             if ops:
                 client.update_twin_props(trip_dtid, lid, ops, x_user_id=actor["sub"])
+        current_ids[entry.name] = lid
 
     # (Re)create the root atLocation edges: index = position (marker order).
     # The old edge set was deleted above (before the Location twin deletes).
