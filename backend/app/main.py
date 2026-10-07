@@ -1803,6 +1803,17 @@ def put_locations(
     body: LocationsPut,
     actor: dict = Depends(require_trip_role("editor")),
 ) -> dict:
+    """Full-array replace of the trip's location registry (#417).
+
+    Each entry matches by ``id`` when supplied (unknown ``id`` = 404),
+    otherwise by ``name`` — so an entry that carries its id renames its twin
+    IN PLACE and every section ``locationRef`` to it keeps resolving. A
+    location the payload no longer mentions is deleted, unless another edge
+    (section ref, block) still points at it. Entries are applied in payload
+    order, which is the registry's marker order. Duplicate names or ids in
+    the payload are a 422; a rename onto a location that survives the write
+    is a 409.
+    """
     trip = _write(write_svc.put_locations, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])
 
