@@ -1844,9 +1844,10 @@ def put_features(
 ) -> dict:
     """Full-array replace of the trip's editorial overview cards (issue #178).
 
-    Diff by title: kept features are patched, gone ones deleted, new ones
-    created; card order = list position (hasFeature edge index). Duplicated
-    titles are a 422. Mirrors PUT /locations.
+    Match by ``id`` else ``title`` (an id-bearing entry renames its twin in
+    place, #417); card order = list position (hasFeature edge index). The whole
+    payload resolves before anything is written, so a rejected PUT leaves the
+    feature registry untouched (#419). Mirrors PUT /locations.
     """
     trip = _write(write_svc.put_features, trip_dtid=trip_id.lower(), actor=actor, body=body)
     return _public_trip(trip, my_role=actor["role"])

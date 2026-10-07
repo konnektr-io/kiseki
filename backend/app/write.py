@@ -2840,10 +2840,20 @@ def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
 
     Diff by title: kept features are patched, gone ones deleted, new ones
     created; the hasFeature edge set is rebuilt with ``index`` = list position
-    (card order). Deleting a removed Feature twin requires its edges gone
-    first — the graph server refuses a non-cascade twin delete (#89 rule) —
-    so ALL old edges are dropped before the twin deletes, then the new edge
-    set is upserted (the same order put_locations established).
+    (card order). An id-bearing entry matches its twin, so it RENAMES it in
+    place (issue #417's contract, mirrored from PUT /locations).
+
+    The WHOLE payload resolves before the first write (issue #419): unknown
+    ``id`` = 404, retitle onto a surviving feature's title = 409, two payload
+    entries onto one twin = 409 — all decided up front, because these checks
+    used to run after every old hasFeature edge had been dropped and the
+    removed twins deleted, so a rejected write left the caller with an empty
+    registry and a retry that minted new twins.
+
+    Deleting a removed Feature twin requires its edges gone first — the graph
+    server refuses a non-cascade twin delete (#89 rule) — so ALL old edges are
+    dropped before the twin deletes, then the new edge set is upserted (the
+    same order put_locations established).
     """
     client = _client()
     graph = _fetch(client, trip_dtid)
@@ -2857,16 +2867,69 @@ def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
 
     features = _feature_features(graph)
     old_edges = _has_feature_edges(graph, trip_dtid)
-    keep_titles = set(titles)
-    # Survivors: explicit ids AND twins currently holding a payload title —
-    # an id-matched entry that RENAMES its feature keeps the twin even though
-    # its old title is gone from the payload.
-    survivor_ids = {e.id for e in entries if e.id is not None} | {
-        f["$dtId"] for f in features.values() if f.get("title") in keep_titles
-    }
 
-    # Deletes: old features no longer in the list. Drop every old edge first
-    # (they are replaced below anyway), then the removed twins are edge-free.
+    # Resolve the WHOLE payload before touching the graph (issue #419): the
+    # unknown-id 404, the retitle-collision 409 and the double-claim 409 used
+    # to be raised while walking the entries — AFTER every old hasFeature edge
+    # had been dropped and the removed twins deleted. A single bad id then
+    # answered 404 on a trip whose feature registry was already empty (the read
+    # path only returns features whose target still holds an edge), and the
+    # caller's retry minted NEW twins because nothing matched any more. Deciding
+    # every error up front makes a rejected write leave the registry untouched —
+    # the same shape put_locations got in #417. The simulation below only moves
+    # entries between two lookup maps; the twin dicts are never mutated, so the
+    # write pass still sees their stored values.
+    sim_by_title = {t.get("title"): t for t in features.values()}
+    plan: list[tuple[FeatureWrite, str, dict | None]] = []
+    resolved: dict[str, str] = {}     # Feature $dtId -> payload title it resolved to
+    taken: dict[str, str] = {}        # title -> id of the twin already holding it
+    for entry in entries:
+        if entry.id is not None:
+            twin = features.get(entry.id)
+            if twin is None:
+                raise WriteError(404, f"Unknown feature id {entry.id!r}")
+        else:
+            twin = sim_by_title.get(entry.title)
+        if twin is None:
+            fid = _new_id()
+            plan.append((entry, fid, None))
+            twin = {"$dtId": fid, "title": entry.title}
+        else:
+            fid = twin["$dtId"]
+            if fid in resolved:
+                raise WriteError(
+                    409,
+                    f"Payload entries {resolved[fid]!r} and {entry.title!r} "
+                    f"both resolve to feature {fid!r}",
+                )
+            plan.append((entry, fid, twin))
+            if entry.title != twin.get("title"):
+                sim_by_title.pop(twin.get("title"), None)
+        holder = sim_by_title.get(entry.title)
+        if holder is not None and holder["$dtId"] != fid:
+            taken[entry.title] = holder["$dtId"]
+        resolved[fid] = entry.title
+        sim_by_title[entry.title] = twin
+
+    # Deletes: old features no longer in the list — i.e. the twins nothing
+    # resolved. An id-matched entry keeps its twin alive across a rename even
+    # though its old title left the payload (#417's contract), which is exactly
+    # `resolved`; no other edge points at a Feature twin, so there is no
+    # pinned-but-dropped case here (locations has one, sections pin those).
+    drop_ids = {fid for fid in features if fid not in resolved}
+
+    # A retitle may only claim a title whose current holder leaves this write.
+    # Checked after every entry resolved, so the answer does not depend on
+    # payload order: dropping a card and moving another onto its title in one
+    # PUT is legal (the name frees up with its twin), taking a title that
+    # survives is not.
+    for title, holder in taken.items():
+        if holder not in drop_ids:
+            raise WriteError(409, f"{title!r} is already a feature on this trip")
+
+    # Drop every old edge first (they are all replaced below anyway), then the
+    # removed twins are edge-free: the graph server refuses a non-cascade twin
+    # delete (#89), the same order put_locations established.
     for r in old_edges:
         if r.get("$relationshipId"):
             client.delete_relationship(
@@ -2877,26 +2940,15 @@ def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
         fid = r.get("$targetId")
         if not isinstance(fid, str):
             continue
-        if fid not in survivor_ids and fid in features:
+        if fid in drop_ids and fid in features:
             client.delete_twin(trip_dtid, fid, x_user_id=actor["sub"])
             features.pop(fid, None)
 
-    # Upserts (new) + patches (existing) in payload order.
+    # Upserts (new) + patches (existing) in payload order — the plan resolved
+    # above, so this pass can no longer fail on a payload error.
     current_ids: list[str] = []
-    for entry in entries:
-        matched = next(
-            (f for f in features.values() if f.get("title") == entry.title), None
-        )
-        if entry.id is not None:
-            twin = features.get(entry.id)
-            if twin is None:
-                raise WriteError(404, f"Unknown feature id {entry.id!r}")
-            if entry.title != twin.get("title") and matched is not None:
-                raise WriteError(409, f"{entry.title!r} is already a feature on this trip")
-        else:
-            twin = matched
+    for entry, fid, twin in plan:
         if twin is None:
-            fid = _new_id()
             props: dict[str, Any] = {
                 "$dtId": fid,
                 "$metadata": {"$model": FEATURE_MODEL},
@@ -2906,10 +2958,7 @@ def put_features(trip_dtid: str, actor: dict, body: FeaturesPut) -> Trip:
                 if value is not None:
                     props[prop] = value
             client.upsert_twin(trip_dtid, props, x_user_id=actor["sub"])
-            twin = {"$dtId": fid, "title": entry.title}
-            features[fid] = twin
         else:
-            fid = twin["$dtId"]
             ops = _scalar_ops(twin, _feature_pairs(entry, include_title=(
                 entry.title != twin.get("title")
             )))
