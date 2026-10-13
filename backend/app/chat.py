@@ -1008,6 +1008,16 @@ def last_user_input(messages: list[ChatMessage]) -> dict:
 # attach. These functions are the IO seams tests monkeypatch; absent config →
 # 503 (there is no agent to relay to).
 
+# The virtual model name the gateway reads as "whichever model this profile is
+# configured with" — it resolves to the profile's own ``model.default``.
+# The relay deliberately names NO concrete model: a real model id here is a
+# per-request override that outranks the profile default (a bare id wins as
+# ``raw_request``, and an alias configured in the gateway's ``model_routes``
+# wins above even that), which is how a model change on the Hermes side
+# silently failed to reach this app. One source of truth: the kiseki profile's
+# ``model.default``.
+GATEWAY_DEFAULT_MODEL = "hermes-agent"
+
 
 def _require_hermes_config() -> None:
     """503 when the agent endpoint is not configured on this server."""
@@ -1553,9 +1563,13 @@ def build_run_body(
     keeps its history across trips and an already-running turn stays
     addressable by the same key. ``device_location`` rides the same channel
     (#383): the traveler's own position, in the ephemeral prompt only.
+
+    ``model`` is the gateway's virtual default (``GATEWAY_DEFAULT_MODEL``) —
+    the relay has no opinion about which model answers; the kiseki profile's
+    ``model.default`` decides. Never pin a concrete id here.
     """
     return {
-        "model": "kiseki",
+        "model": GATEWAY_DEFAULT_MODEL,
         "input": [last_user_input(messages)],
         "session_id": conversation_id_for(actor_sub, trip_id, thread_id),
         "instructions": identity_instructions(

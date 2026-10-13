@@ -11,7 +11,7 @@ React SPA (kiseki pod, ns kiseki)
    ▼
 kiseki FastAPI backend (same pod)          ← the NEW relay + files endpoints
    │  POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses
-   │        (API_SERVER_KEY bearer, model "kiseki", stream)
+   │        (API_SERVER_KEY bearer, model "hermes-agent" = gateway default, stream)
    ▼
 Hermes gateway api server (ns hermes, port 8642)   ← multiplexed gateway
    │  (gateway.multiplex_profiles: true → /p/kiseki/ scoped to the profile)
@@ -90,9 +90,16 @@ Behavior:
   transcript):
   `POST http://hermes.hermes.svc.cluster.local:8642/p/kiseki/v1/responses`,
   `Authorization: Bearer $KISEK...EY`,
-  `X-Hermes-Session-Key: <actor_sub>`, body `{model: "kiseki",
+  `X-Hermes-Session-Key: <actor_sub>`, body `{model: "hermes-agent",
   input: [<last user message>], conversation: "thread:<threadId>",
   instructions: "<identity envelope>", stream: true}`.
+  - **The model is the gateway's, not the relay's** (Niko, 2026-10-13):
+    `model` carries the virtual name `hermes-agent`, which the api server
+    resolves to the kiseki profile's `model.default`. Naming a concrete id
+    here — or configuring a `model_routes` alias for it in the gateway —
+    outranks that default, which is exactly how a model change on the Hermes
+    side failed to reach this app. The relay submits a turn and has no
+    opinion about which model answers.
   - **History lives server-side**: Hermes chains each turn to the stored
     response under `conversation` — the relay sends ONLY the new user
     message each turn. `conversation` distinguishes THREADS
