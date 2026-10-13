@@ -382,6 +382,42 @@ def test_chat_forwards_only_new_input_with_scoped_session(
     )
 
 
+def test_chat_submits_the_gateway_default_model_never_a_pinned_id(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The relay names NO concrete model — `model` is the gateway's virtual
+    default, so the kiseki profile's own `model.default` decides.
+
+    A concrete id here is a per-request override that outranks that default
+    (and a gateway `model_routes` alias outranks even the override), which is
+    how a model change on the Hermes side silently failed to reach this app.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+    state = _fake_run(
+        monkeypatch,
+        _runs_sse([{"event": "run.completed", "status": "completed", "output": ""}]),
+    )
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "turnKey": "turn-gateway-default-model",
+            "messages": [{"role": "user", "content": "Hoi"}],
+        },
+        headers={"Authorization": f"Bearer {_user_token(rsa_keypair)}"},
+    )
+    assert resp.status_code == 200
+    body = state["bodies"][0]
+    # the virtual name, not a concrete model id
+    assert body["model"] == "hermes-agent"
+    # pinned to the constant so a rename cannot drift
+    assert chat_module.GATEWAY_DEFAULT_MODEL == "hermes-agent"
+    # and no provider either: an explicit provider is ALWAYS honoured upstream,
+    # so sending one would re-introduce a per-request model decision here
+    assert "provider" not in body
+
+
 def test_chat_conversation_isolation_between_users(client, rsa_keypair, monkeypatch) -> None:
     """Two users on the same trip get DIFFERENT conversation names."""
     from app.chat import conversation_id_for
