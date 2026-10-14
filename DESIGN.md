@@ -145,8 +145,10 @@ button does the same on an open thread), so a second trip idea never lands
 in the previous planning conversation, while the header toggle reopens the
 existing thread (#351). The
 shelf below is the same `DiscoverBand` as the populated home, with
-**Follow** on every card, which is the first and only UI for
-`followPublicTrip` (#197's endpoint had no caller until now).
+**Follow** on every card, which is the first UI for
+`followPublicTrip` (#197's endpoint had no caller until now; the trip page's
+own menu offers the same action since #423, where the reader is already
+looking at the trip).
 `visibility: public` is the invitation, so a stranger can put a trip in their
 feed without an invite link.
 
@@ -517,8 +519,9 @@ Crew folds into Overview — it's a low-frequency page. There is **no Map nav it
 pages (§7.6), so Itinerary keeps its calendar glyph and no icon is surrendered. A future nav
 item must earn the slot under the same test: if it is a filtered view of its parent, it is a
 filter or an anchor, not a page. **Settings stays off-nav for the same reason** (#248): it is
-where the trip's own chrome sends you — the overflow menu keeps the per-visit action (the
-booklet) and links here for everything that configures the trip.
+where the trip's own chrome sends you — the overflow menu keeps the per-visit actions (the
+booklet for signed-in readers, plus the account rows that make a shared trip convertible:
+*Sign in* and *Follow this trip*, #423) and links here for everything that configures the trip.
 
 #### List vs. detail — keep both, and let each do one job
 
