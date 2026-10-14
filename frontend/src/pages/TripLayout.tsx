@@ -411,10 +411,12 @@ export function TripLayout() {
     setPdfBusy(true);
     try {
       // Public trips allow anonymous PDF download (#64); crew/followers send
-      // their token for private trips. getAccessTokenSilently only when signed
-      // in — an anonymous public viewer must not trip the Auth0 iframe flow.
-      // Token acquisition is best-effort: when the session renewal fails
-      // (expired refresh token — the #77 dead end), fall through to the
+      // their token for private trips. This runs for a signed-in reader only
+      // (#423 gated the row to them), but the anonymous fallback below is still
+      // the right answer when the session renewal fails: a public trip serves
+      // the booklet either way, and an empty token is what the bookmarkable
+      // URL takes. Token acquisition is best-effort: when the session renewal
+      // fails (expired refresh token — the #77 dead end), fall through to the
       // anonymous path instead of a silent dead click; a public trip ignores
       // an unusable token anyway.
       let at: string | undefined;
@@ -503,7 +505,8 @@ export function TripLayout() {
             </button>
           )}
             {/* One overflow menu keeps the header to a single row (#239): the
-                booklet PDF for everyone, and — since #248 — a link to the trip
+                booklet PDF for signed-in readers, the account rows (sign in /
+                follow this trip, #423), and — since #248 — a link to the trip
                 settings page for editor+. The trip-level actions it used to
                 carry (stage, theme, sharing, the invite links, TriCount,
                 delete) live on that page now. */}

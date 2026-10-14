@@ -29,12 +29,21 @@ const mocks = vi.hoisted(() => ({
   downloadBooklet: vi.fn(),
 }));
 
+/** Auth0 context, mutable per test: the trip page's anonymous variant (#423)
+ *  is the case that renders NO booklet row and a sign-in row instead. */
+const auth = vi.hoisted(() => ({
+  state: {
+    isAuthenticated: true,
+    loginWithRedirect: vi.fn(async () => undefined),
+  },
+}));
+
 vi.mock("@auth0/auth0-react", () => ({
   useAuth0: () => ({
-    isAuthenticated: true,
+    isAuthenticated: auth.state.isAuthenticated,
     isLoading: false,
     getAccessTokenSilently: async () => "test-token",
-    loginWithRedirect: async () => undefined,
+    loginWithRedirect: auth.state.loginWithRedirect,
     logout: async () => undefined,
   }),
 }));
@@ -147,6 +156,7 @@ function text() {
 
 beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  auth.state.isAuthenticated = true;
   globalThis.ResizeObserver = class {
     observe() {}
     unobserve() {}
@@ -243,6 +253,41 @@ describe("TripLayout", () => {
     });
     expect(text()).toContain("Download booklet PDF");
     expect(container.querySelector(`a[href="/t/${TRIP.id}/settings"]`)).toBeNull();
+  });
+
+  it("an anonymous visitor on a public trip gets sign-in + follow, never the booklet (#423)", async () => {
+    auth.state.isAuthenticated = false;
+    mocks.fetchTrip.mockResolvedValue({ ...TRIP, visibility: "public", myRole: undefined });
+    mount();
+    await flush();
+
+    const trigger = container.querySelector('button[aria-label="Trip actions"]');
+    expect(trigger, "the trip renders for an anonymous reader").not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(text()).toContain("Sign in");
+    expect(text()).toContain("Follow this trip");
+    // The booklet download is what a cold reader was being offered before.
+    expect(text()).not.toContain("Download booklet PDF");
+  });
+
+  it("a signed-in reader with no role on a public trip can follow it (#423)", async () => {
+    mocks.fetchTrip.mockResolvedValue({ ...TRIP, visibility: "public", myRole: undefined });
+    mount();
+    await flush();
+
+    const trigger = container.querySelector('button[aria-label="Trip actions"]');
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const follow = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("Follow this trip"),
+    );
+    expect(follow, "the follow row is live for a signed-in stranger").not.toBeUndefined();
+    expect((follow as HTMLButtonElement).disabled).toBe(false);
+    expect(text()).toContain("Download booklet PDF");
+    expect(text()).not.toContain("Sign in");
   });
 
   it("the /settings child route renders the page inside the layout shell", async () => {
