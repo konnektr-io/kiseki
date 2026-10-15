@@ -638,6 +638,21 @@ Contract:
   its own ids off the map first (`releaseLevelResources`) and its teardown removes layers by
   SOURCE as well as by name, never aborting on one stubborn layer. Pinned by
   `scripts/probe-map-source-leak.py`.
+- **The map's style is not the app's to assume.** A WebGL context loss makes MapLibre destroy the
+  style (`_contextLost` in map.ts: `style.destroy(); this.style = null`) and re-install it **as
+  captured** on the way back (`_contextRestored`: `setStyle(captured, {diff: false})`). While the
+  style is gone every `getLayer`/`getSource` answers `undefined`, so a teardown removes nothing
+  and the route of the level you left stays on the map; after the restore that level's route is
+  back and the one you moved to is not, because nothing re-adds it. So a build sweeps **every**
+  level's ids (`ALL_LEVEL_SOURCES`) and `RouteMap` rebuilds the level on every `style.load`
+  (`styleEpoch`) — the one signal that fires for the initial load and for each re-load. Reported
+  as "the full itinerary route stays on the map in the Day view" (2026-10-15).
+- **A WebGL capability check hands its context back.** Browsers cap live WebGL contexts
+  (Chromium: 16) and evict the **oldest** past the cap — the trip map, created first. `MapView`
+  calls `hasWebGL2()` per instance and the itinerary rail mounts one per card, so a probe that
+  allocates a context per call spends the budget by itself and gets the map's context evicted
+  ("Too many active WebGL contexts"). The check memoises its verdict for the page and releases
+  the probe context. Pinned by `scripts/probe-map-context-loss.py`.
 - **Two marker roles** (§8.3): numbered place pins for stops/gateways/stays; letter chips for
   that day's activities on the day level. Excursions render as secondary markers (#91), never
   chain stops.
