@@ -628,6 +628,16 @@ Contract:
 - **Level changes are state transitions with URL sync** (history pushState): `/itinerary` and
   `/day/<i>` deep-link to the right level; browser back/forward walks levels **without
   remounting the map**. Typed/external navigation may mount fresh.
+- **A level owns its map sources, and takes them back BEFORE it builds.** The scan level adds
+  `journey` + `journey-glyphs`, the day level `day` + `day-glyphs` + `day-tracks` — one list in
+  `RouteMap.tsx` (`LEVEL_SOURCES`). MapLibre v6 throws on a duplicate `addSource`, and
+  `removeSource` does not throw when a layer still reads the source — it fires an error and
+  returns — so a teardown can leave a source pinned with no trace, and the NEXT build of that
+  level dies with `Source "x" already exists.` into the app-wide error boundary (PostHog: 7
+  events in 6 sessions, 2026-09-21 → 10-15, both levels, phone and desktop). So a build sweeps
+  its own ids off the map first (`releaseLevelResources`) and its teardown removes layers by
+  SOURCE as well as by name, never aborting on one stubborn layer. Pinned by
+  `scripts/probe-map-source-leak.py`.
 - **Two marker roles** (§8.3): numbered place pins for stops/gateways/stays; letter chips for
   that day's activities on the day level. Excursions render as secondary markers (#91), never
   chain stops.
