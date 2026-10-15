@@ -47,6 +47,7 @@ import { OUTDOOR_COLORS, addOutdoorOverlay, overlayBeforeLayerId } from "../lib/
 import { addOutdoorLabels } from "../lib/outdoor-labels";
 import { registerLiftGlyphs } from "../lib/lift-glyphs";
 import { mapColors } from "../lib/tokens";
+import { capture } from "../lib/posthog";
 import { accuracyRadiusPx, locateControl, type DeviceFix } from "../lib/geolocation";
 import { startTrackingDeviceIfPermitted, useDeviceLocation } from "../lib/device-location";
 import type { TripLocation } from "../lib/types";
@@ -57,6 +58,20 @@ const CAMERA_MS = 500;
 /** MapLibre source + layer id for the device accuracy halo (#383). One id for
  *  both, so the zoom listener and the fix effect cannot drift apart. */
 const DEVICE_SOURCE = "device-accuracy";
+
+/**
+ * The GeoJSON sources each LEVEL of the trip map owns. ONE place: the build, the
+ * sweep that runs before it and the teardown that runs after it all read this,
+ * so the three can never disagree about what a level put on the map.
+ *
+ * `journey` / `journey-glyphs` are the scan level's (the whole-trip route and
+ * its transport glyphs); `day` / `day-glyphs` / `day-tracks` are the day
+ * level's (that day's legs, their glyphs, its recorded track).
+ */
+const LEVEL_SOURCES = {
+  scan: ["journey", "journey-glyphs"],
+  day: ["day", "day-glyphs", "day-tracks"],
+} as const;
 
 /**
  * The accuracy halo's geometry: one point at the fix — the RADIUS is a paint
@@ -105,6 +120,103 @@ interface LegFeature {
  */
 function paddingOffset(p: MapPadding): [number, number] {
   return [(p.left - p.right) / 2, (p.top - p.bottom) / 2];
+}
+
+/**
+ * Every layer in the style that READS one of `sources`, in style order.
+ *
+ * This is the teardown's ground truth, and it exists because MapLibre's
+ * `removeSource` REFUSES — it fires an error and returns, it does not remove —
+ * while ANY layer still references the source:
+ *
+ *     if (this._layers[layerId].source === id) {
+ *       return this.fire(new ErrorEvent(new Error(`Source "${id}" cannot be
+ *       removed while layer "${layerId}" is using it.`)));
+ *     }
+ *
+ * A layer that outlived the bookkeeping therefore pins its source on the map
+ * silently, and the NEXT build of that level dies on
+ * `addSource` → `throw new Error('Source "journey" already exists.')`
+ * (MapLibre v6 throws here; older versions only fired an event). That is an
+ * app-wide white screen — PostHog recorded 7 of them in 24 days on the trip
+ * surface, at both levels (`"journey"` on the itinerary, `"day"` on a day).
+ * Read from the style, not from an app-side array, so the sweep can never
+ * disagree with what the map actually holds.
+ */
+function layersReadingSources(map: MapLibreMap, sources: readonly string[]): string[] {
+  const wanted = new Set<string>(sources);
+  let layers: ReturnType<MapLibreMap["getStyle"]>["layers"] = [];
+  try {
+    // A map that has already been removed still answers `getStyle()` (an empty
+    // style), but `serialize()` is not total in every teardown state — and this
+    // helper's whole job is to be safe to call there.
+    layers = map.getStyle()?.layers ?? [];
+  } catch {
+    return [];
+  }
+  return layers
+    // `source` is absent on a background layer, so the union has to be narrowed
+    // rather than read directly.
+    .filter((l) => "source" in l && typeof l.source === "string" && wanted.has(l.source))
+    .map((l) => l.id);
+}
+
+/**
+ * Take the level's own map resources back OFF the map: the layers first, then
+ * the sources they read. Idempotent, never throwing, never stopping early.
+ *
+ * Called twice per level build, on purpose:
+ *   * BEFORE a build — so a source that survived an earlier teardown for any
+ *     reason is repaired rather than turned into a white screen. `addSource`
+ *     can then never throw for one of these ids.
+ *   * AFTER a build (the effect's cleanup) — removing `layers` (what this build
+ *     added, in reverse add order) plus anything still reading the sources.
+ *
+ * Each operation is guarded on its own: one stubborn layer or source must not
+ * strand the rest of the set, which is exactly how a half-cleaned map happens.
+ */
+function releaseLevelResources(
+  map: MapLibreMap,
+  sources: readonly string[],
+  layers: readonly string[] = [],
+): void {
+  const ids = new Set<string>([...layers.slice().reverse(), ...layersReadingSources(map, sources)]);
+  for (const id of ids) {
+    try {
+      if (map.getLayer(id)) map.removeLayer(id);
+    } catch {
+      /* a layer that cannot be removed must not strand the ones after it */
+    }
+  }
+  for (const id of sources) {
+    try {
+      if (map.getSource(id)) map.removeSource(id);
+    } catch {
+      /* same: the next build's sweep is the backstop, not this loop */
+    }
+  }
+}
+
+/**
+ * Classify a MapLibre style error by ID, ignoring everything else.
+ *
+ * The one that matters is otherwise INVISIBLE: `Style.removeSource` does not
+ * throw when a layer still reads the source — it fires an error event and
+ * returns — so a refused teardown leaves no trace for the app or the developer,
+ * and surfaces later as an unrelated white screen (`Source "x" already
+ * exists.`). Reporting the ids makes the cause measurable; the raw message is
+ * never sent, because a tile error can carry a signed URL.
+ */
+function classifyMapError(message: string): { kind: string; id?: string } {
+  const dup = /Source "([^"]+)" already exists/.exec(message);
+  if (dup) return { kind: "duplicate-source", id: dup[1] };
+  const busy = /Source "([^"]+)" cannot be removed while layer "([^"]+)" is using it/.exec(message);
+  if (busy) return { kind: "source-in-use", id: `${busy[1]}/${busy[2]}` };
+  const gone = /There is no source with this ID=([^\s]+)/.exec(message);
+  if (gone) return { kind: "missing-source", id: gone[1] };
+  const layers = /Layer "([^"]+)" already exists/.exec(message);
+  if (layers) return { kind: "duplicate-layer", id: layers[1] };
+  return { kind: "other" };
 }
 
 interface RouteMapProps {
@@ -523,7 +635,14 @@ export function RouteMap({
         map.on("rotate", syncOriented);
         map.on("pitch", syncOriented);
 
-        map.on("error", () => {
+        map.on("error", (e) => {
+          // A style error map is worth naming when it is one of the four ids
+          // above — that pair (a refused source removal, then a duplicate add)
+          // is silent until it is fatal.
+          const message =
+            (e as unknown as { error?: { message?: string } }).error?.message ?? "";
+          const { kind, id } = classifyMapError(message);
+          if (kind !== "other") capture("map_error", id ? { kind, source: id } : { kind });
           if (!cancelled && !map?.loaded()) setFailed(true);
         });
 
@@ -698,6 +817,13 @@ export function RouteMap({
     const d = dayRef.current;
     const levelIsDay = d != null && dayIdxRef.current != null;
     const colors = mapColors(map.getContainer());
+
+    // Sweep THIS level's resources before the build touches them. The previous
+    // build's cleanup has already run (React calls it first), so normally this
+    // is a no-op; when it is not, it is the difference between a re-drawn level
+    // and `Source "journey" already exists.` taking the whole app down. See
+    // `releaseLevelResources`.
+    releaseLevelResources(map, levelIsDay ? LEVEL_SOURCES.day : LEVEL_SOURCES.scan);
 
     const markers: MapLibreMarker[] = [];
     const addedLayers: string[] = [];
@@ -1318,12 +1444,10 @@ export function RouteMap({
       rebuildChipLabelsRef.current = null;
       rebuildExcursionLabelsRef.current = null;
       rebuildExcursionClustersRef.current = null;
-      for (const id of [...addedLayers].reverse()) {
-        if (map.getLayer(id)) map.removeLayer(id);
-      }
-      for (const source of addedSources) {
-        if (map.getSource(source)) map.removeSource(source);
-      }
+      // The level's own map resources, back off the map: this build's layers
+      // (reverse add order) plus anything else in the style still reading its
+      // sources — a source that survives here is the next build's white screen.
+      releaseLevelResources(map, addedSources, addedLayers);
     };
     // `trip` is read for marker numbers/roles and IS a dep: a content write
     // that changes the registry must restyle the pins.

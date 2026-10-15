@@ -14,6 +14,19 @@ the question is narrow and mechanical:
   does a scan <-> day level walk ever call `addSource("journey")` while the
   previous build's "journey" source is still on the map?
 
+Measured answer (2026-10-15, re-run against the #392 build): NO — a scan <-> day
+walk, a day -> up walk, a surface-mode resize mid-walk, a rapid sub-second
+prev/next walk with latency on the route API, and a 43s dwell-then-up all tear
+down and rebuild cleanly (153 balanced add/remove calls, 9 hops; every later
+walk too). SplitView's remount (#392) was the phone case; the DESKTOP
+occurrences PostHog kept recording (10-04, 10-13, 10-15) need a source that
+outlived its own teardown, and no walk can force that from outside — so that
+half is pinned by `scripts/probe-map-source-leak.py` instead: it injects exactly
+the state a refused/aborted teardown leaves (a live source of the level's own id
+plus a layer reading it, with no bookkeeping) and requires the level's next
+build to survive. That probe fails on the pre-fix build with the PostHog message
+and passes after the fix; this one stays as the walk's own guard.
+
 MapLibre lives in a WebGL canvas and exposes no global, so the probe cannot
 read it off the DOM. The app is therefore instrumented at the one place the map
 instance is created (`RouteMap.tsx` calls `window.__probeMap(map)` — a
