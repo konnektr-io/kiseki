@@ -162,7 +162,17 @@ function layersReadingSources(map: MapLibreMap, sources: readonly string[]): str
 }
 
 /**
- * Take the level's own map resources back OFF the map: the layers first, then
+ /**
+  * Every id any level can put on the style. A build sweeps ALL of them, not just
+  * its own: one level is live at a time, so the other level's resources are
+  * always leftovers — teardown that ran against a replaced style (a WebGL
+  * context loss destroys it), or a level that never got cleaned up. Sweeping
+  * them is what keeps `Source "journey" already exists.` and a stale route on
+  * the level you are NOT on from being possible.
+  */
+ const ALL_LEVEL_SOURCES: readonly string[] = [...LEVEL_SOURCES.scan, ...LEVEL_SOURCES.day];
+
+ /** Take the level's own map resources back OFF the map
  * the sources they read. Idempotent, never throwing, never stopping early.
  *
  * Called twice per level build, on purpose:
@@ -376,6 +386,17 @@ export function RouteMap({
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
   // preference — without WebGL2 the constructor throws (DESIGN.md §8.2).
   const [webgl2] = useState(hasWebGL2);
+  /**
+   * Bumped on every style (re)load of the map.
+   *
+   * A WebGL context loss makes MapLibre destroy the style and re-install it as
+   * captured on the way back (`_contextLost` / `_contextRestored` in map.ts), so
+   * the level that was live at the loss can reappear on top of the level you are
+   * on, while this level's own sources are gone. `style.load` fires once per
+   * (re)load — the initial one included — so it is the one signal that can
+   * rebuild the level onto whatever style the map now has.
+   */
+  const [styleEpoch, setStyleEpoch] = useState(0);
 
   /* A trip map never ASKS for location on its own (#383): it starts watching
    * only when the browser already grants it for this origin — a returning
@@ -537,6 +558,8 @@ export function RouteMap({
     if (!webgl2 || !ref.current || journeyRef.current.stops.length < 1) return;
     let cancelled = false;
     let map: MapLibreMap | null = null;
+    /** Detaches the style-load listener added once the map exists. */
+    let detachStyleLoad: (() => void) | null = null;
     const abort = new AbortController();
 
     (async () => {
@@ -579,6 +602,11 @@ export function RouteMap({
         };
         map.on("dragstart", onUserGesture);
         map.on("zoomstart", onUserGesture);
+        // Fires for the initial load and for every re-load after a context loss
+        // (MapLibre re-installs the captured style on `webglcontextrestored`).
+        const onStyleLoad = () => setStyleEpoch((e) => e + 1);
+        map.on("style.load", onStyleLoad);
+        detachStyleLoad = () => map?.off("style.load", onStyleLoad);
         /** The halo's radius is metres at the current ground resolution, and
          *  MapLibre's `circle-radius` is always PIXELS — so this is the one
          *  device-location value that has to be recomputed on zoom. Before the
@@ -777,6 +805,7 @@ export function RouteMap({
     return () => {
       cancelled = true;
       abort.abort();
+      detachStyleLoad?.();
       map?.remove();
       mapRef.current = null;
       libRef.current = null;
@@ -818,12 +847,12 @@ export function RouteMap({
     const levelIsDay = d != null && dayIdxRef.current != null;
     const colors = mapColors(map.getContainer());
 
-    // Sweep THIS level's resources before the build touches them. The previous
+    // Sweep the level resources before the build touches them. The previous
     // build's cleanup has already run (React calls it first), so normally this
     // is a no-op; when it is not, it is the difference between a re-drawn level
-    // and `Source "journey" already exists.` taking the whole app down. See
-    // `releaseLevelResources`.
-    releaseLevelResources(map, levelIsDay ? LEVEL_SOURCES.day : LEVEL_SOURCES.scan);
+    // and `Source "journey" already exists.` taking the whole app down — or a
+    // route from the level you are NOT on. See `releaseLevelResources`.
+    releaseLevelResources(map, ALL_LEVEL_SOURCES);
 
     const markers: MapLibreMarker[] = [];
     const addedLayers: string[] = [];
@@ -1452,7 +1481,7 @@ export function RouteMap({
     // `trip` is read for marker numbers/roles and IS a dep: a content write
     // that changes the registry must restyle the pins.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trip, ready, legsData, dayLegsData, dayTracksData, isDay, dayIdx]);
+  }, [trip, ready, legsData, dayLegsData, dayTracksData, isDay, dayIdx, styleEpoch]);
 
   /* The scanned label layer is capped by count, not by fit (#413/#415). The cap
    exists so a dense trip does not become a wall of pills; which venues are

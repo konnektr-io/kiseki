@@ -601,13 +601,29 @@ export async function fetchRouteLegs(
  * (DESIGN.md §8.2). In the PDF render the map runs under SwiftShader — see
  * backend/app/pdf.py.
  */
+
+/** Memoised verdict for the page; see `hasWebGL2`. */
+let webgl2Supported: boolean | null = null;
+
 export function hasWebGL2(): boolean {
+  if (webgl2Supported !== null) return webgl2Supported;
   try {
     const canvas = document.createElement("canvas");
-    return !!canvas.getContext("webgl2");
+    const ctx = canvas.getContext("webgl2");
+    webgl2Supported = !!ctx;
+    // Hand the probe context straight back. Browsers cap LIVE WebGL contexts
+    // (Chromium: 16) and, past the cap, EVICT THE OLDEST — which is the trip
+    // map, created first. An eviction is not cosmetic: MapLibre answers a lost
+    // context with `style.destroy(); this.style = null` and later re-installs
+    // the style AS CAPTURED (map.ts `_contextLost`/`_contextRestored`), so the
+    // level that was live comes back on top of the current one. One context per
+    // day-card has to be enough to evict it, so this check must not allocate
+    // one per caller — hence the memo, and the explicit release.
+    ctx?.getExtension("WEBGL_lose_context")?.loseContext();
   } catch {
-    return false;
+    webgl2Supported = false;
   }
+  return webgl2Supported;
 }
 
 /** The map camera's keep-out box, in CSS px. */
