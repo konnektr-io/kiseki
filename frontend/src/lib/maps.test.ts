@@ -126,7 +126,7 @@ describe("resolveMapStyle", () => {
     expect(r.styleUrl).toBe(MAP_STYLE_URL);
     expect(r.styleUrl).toBe(OPENFREEMAP_STYLES.positron);
     expect(r.tint).toBeUndefined();
-    expect(r.terrain).toEqual({ exaggeration: 0.7 });
+    expect(r.terrain).toEqual({ exaggeration: 0.9 });
   });
 
   it("picks the preset basemap (density varies per trip)", () => {
@@ -152,7 +152,7 @@ describe("resolveMapStyle", () => {
 
   it("hands the preset terrain through untouched", () => {
     expect(resolveMapStyle(themed({ preset: "nordic" })).terrain).toEqual({
-      exaggeration: 0.45,
+      exaggeration: 0.9,
     });
   });
 

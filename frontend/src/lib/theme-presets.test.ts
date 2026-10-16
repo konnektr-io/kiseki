@@ -75,7 +75,11 @@ describe("preset shape", () => {
       expect(p.radius, `${id} radius`).toMatch(/^\d+(\.\d+)?rem$/);
       expect(["positron", "bright", "liberty", "dark"], `${id} basemap`).toContain(p.mapStyle.basemap);
       expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeGreaterThan(0);
-      expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeLessThanOrEqual(2);
+      // The ceiling is MapLibre's, not ours: this one number also feeds
+      // `hillshade-exaggeration`, which the style spec caps at 1 (min 0,
+      // default 0.5). A value above 1 is out of spec, so the bound that
+      // matters is 1 — the old `<= 2` would have shipped one green.
+      expect(p.mapStyle.terrain.exaggeration, `${id} exaggeration`).toBeLessThanOrEqual(1);
       for (const hex of Object.values(p.mapStyle.tint ?? {})) {
         expect(parseHexColor(hex), `${id} tint ${hex}`).not.toBeNull();
       }

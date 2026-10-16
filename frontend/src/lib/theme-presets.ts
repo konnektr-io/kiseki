@@ -29,7 +29,14 @@ export interface PresetPalette {
 
 export interface PresetTerrain {
   /** Relief intensity. Elevation is always on (#201) — a preset picks only
-   *  how strongly the relief reads, never whether it exists. */
+   *  how strongly the relief reads, never whether it exists.
+   *
+   *  Range is the DEM's, not ours: this one number feeds BOTH the
+   *  `hillshade-exaggeration` paint property and the 3D mesh's
+   *  `setTerrain({ exaggeration })`, and MapLibre's style spec caps
+   *  `hillshade-exaggeration` at **1** (min 0, spec default 0.5). So 1 is the
+   *  ceiling for a preset here even though `setTerrain` itself has no upper
+   *  bound. Pinned by test — see theme-presets.test.ts. */
   exaggeration: number;
 }
 
@@ -83,7 +90,7 @@ const PRESETS: ThemePreset[] = [
     radius: "0.25rem",
     mapStyle: {
       basemap: "positron",
-      terrain: { exaggeration: 0.7 },
+      terrain: { exaggeration: 0.9 },
     },
   },
   {
@@ -108,7 +115,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "positron",
       tint: { background: "#fafafa", water: "#e2e2e6", landcover: "#f0f0f2", park: "#e8ebe8", boundary: "#c9c9cf" },
-      terrain: { exaggeration: 0.45 },
+      terrain: { exaggeration: 0.9 },
     },
   },
   {
@@ -233,7 +240,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "bright",
       tint: { background: "#f1f4ec", water: "#c3d8c9", landcover: "#dfe8d2", park: "#ccd9b8", boundary: "#a3b184" },
-      terrain: { exaggeration: 0.7 },
+      terrain: { exaggeration: 0.9 },
     },
   },
   {
@@ -258,7 +265,7 @@ const PRESETS: ThemePreset[] = [
     mapStyle: {
       basemap: "liberty",
       tint: { background: "#faf1ec", water: "#e8cdb8", landcover: "#f2e2d2", park: "#e6d5b8", boundary: "#c8a181" },
-      terrain: { exaggeration: 0.7 },
+      terrain: { exaggeration: 0.9 },
     },
   },
   {
