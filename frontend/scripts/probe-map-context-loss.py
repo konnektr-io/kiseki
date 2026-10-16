@@ -62,6 +62,13 @@ from playwright.sync_api import sync_playwright
 FRONTEND = Path(__file__).resolve().parent.parent
 DIST = Path(os.environ.get("KISEKI_PROBE_DIST", FRONTEND / "dist")).resolve()
 OUT = Path(os.environ.get("KISEKI_PROBE_OUT", "/tmp/kiseki-probe-map-context-loss"))
+# Live mode: drive the DEPLOYED site instead of a local dist. A bundle-hash check
+# proves the deploy, not the behaviour — this is the run that answers "is the fix
+# live", so it skips the local server and every route mock and uses the real API.
+LIVE = os.environ.get("KISEKI_PROBE_LIVE") == "1"
+LIVE_BASE = os.environ.get("KISEKI_PROBE_BASE", "https://kiseki.konnektr.io").rstrip("/")
+# Canada 2027 — Powder Highway: the public trip the bug was reported on.
+LIVE_TRIP = os.environ.get("KISEKI_PROBE_TRIP", "bf29a027-2ed2-46b3-b869-d9d81bbcf237")
 
 
 def _chromium() -> str | None:
@@ -218,12 +225,15 @@ def serve():
 
 
 def run():
-    if not DIST.is_dir():
-        log(f"FAIL: {DIST} missing — run `vite build` first")
-        return 2
-
-    httpd, port = serve()
-    base = f"http://127.0.0.1:{port}"
+    if LIVE:
+        httpd, base, trip_id = None, LIVE_BASE, LIVE_TRIP
+        log(f"→ LIVE MODE against {base} (trip {trip_id}); no mocks, real API")
+    else:
+        if not DIST.is_dir():
+            log(f"FAIL: {DIST} missing — run `vite build` first")
+            return 2
+        httpd, port = serve()
+        base, trip_id = f"http://127.0.0.1:{port}", TRIP_ID
     OUT.mkdir(parents=True, exist_ok=True)
 
     issues: list[str] = []
@@ -240,6 +250,9 @@ def run():
 
         def handle(route):
             url = route.request.url
+            if LIVE:                      # never intercept on the deployed site
+                route.continue_()
+                return
             if "/api/trips/" in url:
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(TRIP))
             elif "/api/maps/route/" in url:
@@ -251,7 +264,8 @@ def run():
             else:
                 route.fulfill(status=404, content_type="application/json", body="{}")
 
-        ctx.route("**/api/**", handle)
+        if not LIVE:
+            ctx.route("**/api/**", handle)
         # Consent is a COOKIE and this probe must write nothing into PostHog.
         ctx.add_init_script("try { document.cookie = 'kiseki_consent=denied; max-age=31536000; path=/; SameSite=Lax'; } catch (e) {}")
         ctx.add_init_script(INSTRUMENT)
@@ -261,7 +275,7 @@ def run():
         page.on("console", lambda m: console.append(m.text) if m.type in ("warning", "error") else None)
 
         log("→ boot the itinerary (scan level) with the rail mounted")
-        page.goto(f"{base}/t/{TRIP_ID}/itinerary", wait_until="load")
+        page.goto(f"{base}/t/{trip_id}/itinerary", wait_until="load")
         page.wait_for_selector(".route-pin", state="attached", timeout=40000)
         try:
             no = page.get_by_role("button", name=re.compile("no thanks", re.I))
@@ -339,7 +353,8 @@ def run():
 
         calls = page.evaluate("window.__mapCalls") or []
         browser.close()
-    httpd.shutdown()
+    if httpd:
+        httpd.shutdown()
 
     threw = [c for c in calls if c.get("threw")]
     log("\n=== map calls touching the level ids ===")
