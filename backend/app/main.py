@@ -2044,7 +2044,9 @@ def maps_route(
     — it is never dropped, because dropping it slides every later leg one
     slot left and the trip's last flight gets answered with a road route
     (#407). Modes shorter than the resolved place list simply don't cover
-    the tail legs, which come back `mode: null`.
+    the tail legs, which come back `mode: null`. The one non-transport value
+    is `gap` — a chain leg with no transport block at all, which skips
+    routing and comes back `road: false` (#433; see `app.maps.GAP_MODE`).
     """
     _rate_limit(request, "route", 60)
     trip = _trip_for_map(trip_id)

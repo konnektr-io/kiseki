@@ -22,6 +22,20 @@ from .here import route_leg_v8
 # 400 and a blank.
 _MODE_TRANSPORT: dict[str, str] = {"drive": "car"}
 
+# The sentinel the chain client sends for a leg with NO transport block of its
+# own — a chain GAP (#433). It is not a transport mode: nobody authored travel
+# on that pair, so a road would be an assertion the trip never made (a Lima →
+# Cusco flight leg came back as a 797 km drive across the Andes). Gaps skip
+# HERE entirely and are drawn as the client's great-circle arc, provisional
+# and dashed. Deliberately distinct from an EMPTY modes entry: an empty entry
+# means "this client has no declaration for leg i" (an unclassified transport
+# block, or a caller that sends fewer entries) and keeps the road default,
+# which is also what a request with no `modes` at all still gets.
+GAP_MODE = "gap"
+
+# Modes that are never road-routed: the traffic is not a car.
+_NO_ROAD_MODES = frozenset({"flight", "ferry", GAP_MODE})
+
 
 def resolve_places(trip, places: list[str]) -> list[tuple[str, float, float]]:
     """Resolve place names/aliases to (name, lat, lng) via trip.locations.
@@ -93,6 +107,12 @@ def route_legs(
     slot *i* is a leg with no declared mode, not a missing entry — later
     slots never move up into it (#407).
 
+    ``GAP_MODE`` ("gap") is the chain client's word for a leg with NO
+    transport block at all (#433): also skipped, also ``road: False``, but it
+    echoes ``mode: None`` because "gap" is not a transport. An empty slot and
+    an absent ``modes`` parameter keep the road default (an unclassified
+    transport block is still travel); only the gap says "nobody authored this".
+
     Every leg echoes its declared ``mode`` back (additive, #357) so the
     client can style a leg by transport type. ``road`` stays the
     authoritative road/not-road signal — a reader must never infer the
@@ -104,14 +124,16 @@ def route_legs(
     legs: list[dict] = []
     for i, (a, b) in enumerate(pairs):
         mode = modes[i] if modes and i < len(modes) else None
-        # Flights/ferries are never road legs — skip the car query.
-        if mode in ("flight", "ferry"):
+        # Flights/ferries/gaps are never road legs — skip the car query.
+        if mode in _NO_ROAD_MODES:
             legs.append(
                 {
                     "from": a[0],
                     "to": b[0],
                     "road": False,
-                    "mode": mode,
+                    # A gap is not a transport mode: echoing it back would put
+                    # a word the glyph/type layer does not know into `mode`.
+                    "mode": None if mode == GAP_MODE else mode,
                     "duration": None,
                     "distance": None,
                     "geometry": {"type": "LineString", "coordinates": [[a[2], a[1]], [b[2], b[1]]]},

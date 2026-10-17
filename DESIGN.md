@@ -824,6 +824,23 @@ surface adds a second
   with an unresolvable endpoint (`from`/`to` None — BRU→SCL, Lima→home) matches nothing. The
   matched mode flows through the existing echo (`legModes` → great-circle + glyphs at ¼/¾) and
   `legStage` inherits the match — a matched flight reads the trip stage, never `provisional`.
+- **A chain gap is not a road** (2026-10, #433). A leg the derivation joins between two
+  re-base stops but nobody authored travel for (no transport block of its own) is a GAP.
+  It draws provisional (§5.3) as a **great-circle arc**, never a road route: `legModes`
+  sends the `gap` sentinel for those pairs, `GET /api/maps/route` skips HERE and answers
+  `road: false`, and the client draws the arc off `resolveLegCoordinates` like any other
+  non-road leg. An undeclared/empty mode slot keeps the historical road default (an
+  unclassified transport block is still travel, #407); only the gap says "nobody wrote
+  this". Why it matters: on Peru 2027 a Lima → Cusco flight leg whose stops are two
+  re-visited bases came back as a 797 km drive across the Andes that no content shape
+  could remove while the chain sorted by first visit.
+- **A leg matches the block that agrees with its direction** (2026-10, #433). `legBlock`
+  tries exact-registry same-direction, then flight/ferry gateway same-direction, then the
+  same two passes reversed. A direction-insensitive exact pass used to win outright, so on
+  a trip that authors both directions of a hop (out and back) the reversed card shadowed
+  the flight: the traveller's `Luchthaven Lima → Huaraz` flight drew as a 282 km drive
+  carrying the night-bus card. Exact still beats proximity within a direction (§8.4
+  gateway rule above, #361 stands); a reversed block still matches when nothing agrees.
 - **Transport glyphs** (2026-09, #357): each declared leg carries two small mode glyphs
   (plane/train/ferry/car — BlockGlyph's shapes and classifier) at ¼ and ¾ along the drawn
   line; short legs (< 15 km) draw none. Sprites are data-URI SVGs registered with

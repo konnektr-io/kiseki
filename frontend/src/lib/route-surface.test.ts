@@ -12,6 +12,7 @@ import {
   legBlock,
   legModes,
   legStage,
+  LEG_GAP_MODE,
   locationsInText,
   LEG_STAGE_LABELS,
   markerPaintRank,
@@ -436,6 +437,134 @@ describe("legBlock gateway matching (#361 slice 4: airports are gateways)", () =
     expect(gatewayMatch(santiago, cusco, scl, cuz)).toBe(true);
     expect(gatewayMatch(santiago, cusco, cuz, scl)).toBe(true);
     expect(gatewayMatch(santiago, cusco, far, cuz)).toBe(false);
+  });
+});
+
+describe("legBlock direction wins over a reversed block (#433)", () => {
+  // The Peru 2027 repro: Lima is the arrival city, the night-bus arrival AND
+  // the departure city, so the trip authors BOTH directions of Lima↔Huaraz.
+  // The chain leg runs Lima's airport → Huaraz, where the traveller FLIES;
+  // the day-5 night bus is authored the other way round. Before the fix the
+  // direction-insensitive exact pass grabbed the bus and the flight drew as a
+  // 282 km drive carrying the night-bus card.
+  const lima = loc("Lima", -12.0464, -77.0428);
+  const limaAirport = loc("Luchthaven Lima", -12.0219, -77.1143);
+  const huaraz = loc("Huaraz", -9.5278, -77.5278);
+  const huarazAirport = loc("Luchthaven Huaraz", -9.3474, -77.5983);
+  const cusco = loc("Cusco", -13.5319, -71.9675);
+  const cuscoAirport = loc("Luchthaven Cusco", -13.5357, -71.9388);
+
+  const bus: Block = {
+    id: "bus",
+    kind: "transport",
+    mode: "drive",
+    title: "Nachtbus Huaraz → Lima",
+    from: "Huaraz",
+    to: "Luchthaven Lima",
+  };
+  const flight: Block = {
+    id: "fl",
+    kind: "transport",
+    mode: "flight",
+    title: "Vlucht LIM → CUZ",
+    from: "Luchthaven Lima",
+    to: "Luchthaven Huaraz",
+  };
+
+  const peru = (blocks: Block[]): Trip =>
+    ({
+      id: "t-peru",
+      slug: "peru",
+      title: "Peru",
+      stage: "planned",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [lima, limaAirport, huaraz, huarazAirport, cusco, cuscoAirport],
+      sections: [],
+      days: [dayAt(0, "Aankomst", blocks)],
+    }) as unknown as Trip;
+
+  it("the leg's own direction beats a reversed exact block", () => {
+    const t = peru([bus, flight]);
+    // Lima airport → Huaraz is the FLIGHT (gateway pass, same direction), not
+    // the reversed night bus the exact pass used to hand it.
+    expect(legBlock(t, limaAirport, huaraz)?.id).toBe("fl");
+    // The same pair reversed is the bus — each leg keeps its own card.
+    expect(legBlock(t, huaraz, limaAirport)?.id).toBe("bus");
+  });
+
+  it("block order never decides — a reversed block first still loses", () => {
+    const t = peru([flight, bus]);
+    expect(legBlock(t, limaAirport, huaraz)?.id).toBe("fl");
+  });
+
+  it("a reversed block still matches when nothing agrees with the direction", () => {
+    // The outbound flight only: the return leg must not fall back to a gap
+    // (that would make a return flight a chain gap, #91 regression).
+    const t = peru([flight]);
+    expect(legBlock(t, huaraz, limaAirport)?.id).toBe("fl");
+    expect(legStage(t, huaraz, limaAirport).stage).toBe("planned");
+  });
+
+  it("an exact forward block still beats a forward gateway flight (#361 stands)", () => {
+    const cityHop: Block = {
+      id: "city",
+      kind: "transport",
+      mode: "flight",
+      title: "Stadshopper",
+      from: "Lima",
+      to: "Huaraz",
+    };
+    const t = peru([flight, cityHop]);
+    expect(legBlock(t, lima, huaraz)?.id).toBe("city");
+  });
+});
+
+describe("a chain gap is never road-routed (#433)", () => {
+  // Two re-base stops with NOTHING authored between them: the pair is a
+  // derivation artifact. The map must not ask for (or draw) a road route —
+  // that was the traveller's "the flight LIM – CUZ is shown as a car route".
+  const here = loc("Here", -12.0, -77.0);
+  const there = loc("There", -13.5, -71.9);
+  const gapTrip = (): Trip =>
+    ({
+      id: "t-gap",
+      slug: "gap",
+      title: "Gap",
+      stage: "booked",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [here, there],
+      sections: [],
+      days: [dayAt(0, "Here", [{ id: "a", kind: "activity", title: "Wandelen", location: "Here" } as Block]), dayAt(3, "There", [{ id: "b", kind: "activity", title: "Markt", location: "There" } as Block])],
+    }) as unknown as Trip;
+
+  it("legModes labels the unauthored pair as a gap, not as a road", () => {
+    const t = gapTrip();
+    expect(legModes(t, ["Here", "There"], false)).toEqual([LEG_GAP_MODE]);
+  });
+
+  it("a gap is still provisional — the sentinel never dresses it as travel", () => {
+    const t = gapTrip();
+    expect(legStage(t, here, there)).toEqual({ stage: "provisional", block: undefined });
+    expect(tripJourney(t).legs.map((l) => l.stage)).toEqual(["provisional"]);
+  });
+
+  it("a declared leg keeps its own mode — no sentinel leaks onto travel", () => {
+    const t = gapTrip();
+    t.days[1] = dayAt(1, "Bus", [
+      { id: "bus", kind: "transport", mode: "drive", from: "Here", to: "There" } as Block,
+    ]);
+    expect(legModes(t, ["Here", "There"], false)).toEqual(["drive"]);
+  });
+
+  it("the closing leg of a loop is covered positionally too", () => {
+    // loop=true appends the return pair; both slots must be described, or the
+    // backend's positional contract would answer the tail with a road.
+    const t = gapTrip();
+    expect(legModes(t, ["Here", "There"], true)).toEqual([LEG_GAP_MODE, LEG_GAP_MODE]);
   });
 });
 
@@ -989,7 +1118,7 @@ describe("resolveLegCoordinates (#357 slice 3A: the §8.4 promise)", () => {
       locations: [a, b],
     } as unknown as Trip;
     expect(legModes(flight, ["Here", "There"], false)).toEqual(["flight"]);
-    expect(legModes(plain, ["Here", "There"], false)).toEqual([undefined]);
+    expect(legModes(plain, ["Here", "There"], false)).toEqual([LEG_GAP_MODE]);
   });
 });
 

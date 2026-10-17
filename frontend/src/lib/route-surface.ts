@@ -18,7 +18,9 @@
  * 2. `via`/`route` prose describes the ROAD, not a visit — it never
  *    attributes a day to a place ("into Banff NP" is a park boundary).
  * 3. A leg with no transport block of its own is a chain GAP — it draws
- *    provisional, never inheriting the trip's committed stage.
+ *    provisional, never inheriting the trip's committed stage, and it is
+ *    never road-routed (#433): the geometry for a gap is the great-circle
+ *    arc, because a road is a route nobody authored.
  */
 
 import { findLocation, locatedPlaces } from "./maps";
@@ -199,30 +201,59 @@ export function gatewayMatch(
  * "Drive Banff → Revelstoke — over the pass" mentions Rogers Pass too, and a
  * touches-both match hands the same card to the Revelstoke → Rogers Pass leg
  * as well: two rows, same text, and a leg claiming a status it was never
- * given. Direction-insensitive, because a leg is drawn once.
+ * given. A leg is drawn once, so a REVERSED block still matches — but only
+ * after every direction-respecting pass has missed (#433).
  *
- * Exact-registry matching runs first and always wins. Only when nothing
- * matches exactly does the gateway pass run — flight/ferry blocks whose
- * airport endpoints sit within GATEWAY_MATCH_KM of the leg's city ends
- * (#361 slice 4). The matched mode flows through the existing plumbing
- * (`legModes` echo → great-circle + glyphs); `legStage` inherits the match,
- * which is honest: a matched flight IS planned travel, not a chain gap.
+ * Match order, strongest evidence first:
+ *
+ * 1. exact-registry, as authored (`block.from` IS the leg's `from`);
+ * 2. flight/ferry gateway, as authored (airport endpoints within
+ *    GATEWAY_MATCH_KM of the leg's ends, #361 slice 4);
+ * 3. exact-registry, reversed;
+ * 4. flight/ferry gateway, reversed.
+ *
+ * Why direction outranks the exact registry (#433): a multi-base trip that
+ * returns to its start authors the outbound AND the return movement, so a
+ * reversed block is the common case. The Peru repro authored the night bus
+ * `Huaraz → Luchthaven Lima` for day 5 and the day-1 flight
+ * `Luchthaven Lima → Luchthaven Huaraz`; the chain leg ran
+ * `Luchthaven Lima → Huaraz`, the direction-insensitive exact pass grabbed
+ * the bus, and the leg the traveller FLIES drew as a 282 km drive carrying
+ * the night-bus card. A block whose direction contradicts the leg is weaker
+ * evidence than one that agrees with it, whichever pass finds it — and the
+ * gateway pass is how an airport-paired flight reaches a city leg at all.
+ *
+ * Exact-registry still wins over proximity WITHIN a direction (the #361
+ * rule: an airport flight must not hijack a city-to-city drive leg).
  */
 export function legBlock(trip: Trip, from: TripLocation, to: TripLocation): Block | undefined {
   if (from === to) return undefined;
   const transports = allBlocks(trip).filter((b) => b.kind === "transport");
-  const exact = transports.find((b) => {
-    const e = blockEndpoints(trip, b);
+  const ends = (b: Block) => blockEndpoints(trip, b);
+  const isGatewayMode = (b: Block) => b.mode === "flight" || b.mode === "ferry";
+  /** Leg ends on the block's own ends, gateway-close (flight/ferry only). */
+  const gateway = (b: Block, sameDirection: boolean) => {
+    if (!isGatewayMode(b)) return false;
+    const e = ends(b);
     if (!e.from || !e.to) return false;
-    return (e.from === from && e.to === to) || (e.from === to && e.to === from);
-  });
-  if (exact) return exact;
-  return transports.find((b) => {
-    if (b.mode !== "flight" && b.mode !== "ferry") return false;
-    const e = blockEndpoints(trip, b);
-    if (!e.from || !e.to) return false;
-    return gatewayMatch(from, to, e.from, e.to);
-  });
+    return sameDirection
+      ? withinGatewayKm(from, e.from) && withinGatewayKm(to, e.to)
+      : withinGatewayKm(from, e.to) && withinGatewayKm(to, e.from);
+  };
+  const exact = (b: Block, sameDirection: boolean) => {
+    const e = ends(b);
+    return sameDirection ? e.from === from && e.to === to : e.from === to && e.to === from;
+  };
+
+  // Strongest first: the leg's own direction, exact registry before gateways
+  // (a #361 airport flight must not hijack a city drive), then the same two
+  // passes reversed (#433).
+  return (
+    transports.find((b) => exact(b, true)) ??
+    transports.find((b) => gateway(b, true)) ??
+    transports.find((b) => exact(b, false)) ??
+    transports.find((b) => gateway(b, false))
+  );
 }
 
 /**
@@ -588,15 +619,33 @@ export const LEG_STAGE_LABELS: Record<LegStage, string> = {
 };
 
 /**
+ * The `modes` value that marks a leg as a chain GAP — a pair with no transport
+ * block of its own (#433).
+ *
+ * A transport mode describes travel the author COMMITTED to; a gap has none,
+ * and an empty CSV slot cannot say so (an unclassified transport block sends
+ * an empty slot too, and that leg must stay a road). So the gap gets its own
+ * word: the backend answers it `road: false` without asking HERE at all, and
+ * the client draws the great-circle arc, dashed and dim.
+ *
+ * Supersedes #407's "undeclared → historical car default" for the chain: a
+ * chain gap is a pair NOBODY authored, and a road across the country is an
+ * assertion the trip never made (Lima → Cusco came back as a 797 km drive on
+ * a leg the traveller flies). An absent `modes` parameter keeps the road
+ * default — the endpoint is unchanged for every caller that declares nothing.
+ */
+export const LEG_GAP_MODE = "gap";
+
+/**
  * The declared transport mode per leg of a place chain — the value the
  * backend's `modes` parameter wants (same order as the pairs `places` produce,
  * including the closing leg when `loop`).
  *
  * The matched transport block's own `mode` is the intent (a `flight` leg must
  * never be car-routed down a highway — SCL→CUZ is a plane, not the
- * Pan-American); `undefined` when no block describes the pair, so the backend
- * keeps its road default for chain gaps and drives. Unresolvable pairs ride
- * along as `undefined` so positions stay aligned.
+ * Pan-American); `LEG_GAP_MODE` when NO block describes the pair, so the
+ * backend draws an honest provisional arc instead of inventing a road (#433).
+ * Unresolvable pairs ride along as `undefined` so positions stay aligned.
  */
 export function legModes(trip: Trip, places: string[], loop: boolean): (string | undefined)[] {
   const names = places.map((p) => findLocation(trip, p));
@@ -604,7 +653,9 @@ export function legModes(trip: Trip, places: string[], loop: boolean): (string |
     .slice(0, -1)
     .map((loc, i) => [loc, names[i + 1]]);
   if (loop && names.length > 1) pairs.push([names[names.length - 1], names[0]]);
-  return pairs.map(([a, b]) => (a && b ? legBlock(trip, a, b)?.mode ?? undefined : undefined));
+  return pairs.map(([a, b]) =>
+    a && b ? legBlock(trip, a, b)?.mode ?? LEG_GAP_MODE : undefined,
+  );
 }
 
 /**
