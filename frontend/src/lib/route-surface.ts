@@ -11,10 +11,12 @@
  * places and days that are DERIVED, not authored, so a derivation must never
  * invent content. Three rules keep it honest:
  *
- * 1. A place is a journey STOP iff the trip re-bases there (section ref,
- *    transport endpoint, flight gateway). A place merely visited on days
- *    based elsewhere is an EXCURSION — secondary marker, never in the chain,
- *    never given legs (Rogers Pass is toured from Revelstoke, not stayed at).
+ * 1. A place is a journey STOP iff the trip STAYS there: a section
+ *    `locationRefs` base, or a movement endpoint it is still at the next day
+ *    (`placeRole`). A place merely visited on days based elsewhere — a day
+ *    trip, a venue — is an EXCURSION: secondary marker, never in the chain,
+ *    never given legs (Rogers Pass is toured from Revelstoke, not stayed at;
+ *    the Cebollapampa trailhead is driven to and back from on one day).
  * 2. `via`/`route` prose describes the ROAD, not a visit — it never
  *    attributes a day to a place ("into Banff NP" is a park boundary).
  * 3. A leg with no transport block of its own is a chain GAP — it draws
@@ -394,46 +396,103 @@ export function placeRailHandle(trip: Trip, name: string): PlaceRailHandle | nul
  * it visits from a base elsewhere (#91; DESIGN.md §7.6: "Excursions from a
  * base render as secondary markers, never chain stops").
  *
- * A place is a stop iff the trip re-bases there: it is a section
- * `locationRefs` base, or an endpoint of a transport block, or the
- * arrival/departure gateway a flight names. A place that is only ever an
- * activity/POI `location` on days based elsewhere is an excursion — Rogers
- * Pass is a same-day touring option from Revelstoke, not a re-base, and must
- * never be spliced into the chain between two stops.
+ * A place is a STOP when the trip is ANCHORED there — evidence that it stays:
+ *
+ * - a section `locationRefs` base ("this chapter is based here"), or
+ * - a movement endpoint (`from`/`to` of a transport block) with MORE THAN ONE
+ *   attributed day: it arrives and is still there the next day.
+ *
+ * A place that is only an ENDPOINT of a SINGLE day's movement is a DAY TRIP,
+ * not a re-base (#435): the trailhead you drive to and back from, the lake you
+ * hike to, the airport you land at and leave the same day. Counting any
+ * transport endpoint as a stop put those in the chain as if the trip moved
+ * base, so `Cebollapampa` and `Laguna 69` — both day trips from Huaraz on Peru
+ * 2027 — cut the Cordillera off from Lima and the authored
+ * `Nachtbus Huaraz → Lima` card had no leg to claim: the map drew a 665 km road
+ * from the lake to Lima. They are excursions now, while the gateway pass in
+ * `legBlock` still matches an airport-paired flight to a city leg (#361 slice 4)
+ * — the arrival/departure gateway does not have to be a chain stop to be
+ * matched.
+ *
+ * A place CIRCLED by a longer stay is a day trip however else it is evidenced
+ * (#435): `Laguna 69` is named in a chapter's `locationRefs` (a chip row lists
+ * day trips too — the Peru content round dropped `Heilige Vallei` and `Palccoyo`
+ * from refs for exactly this reason), yet the trip goes there on day 4 of a
+ * Huaraz stay that runs 1–5 and sleeps elsewhere. An endpoint with more than one
+ * day survives that test, and so does any place carrying the trip through the
+ * night.
+ *
+ * Deliberately NOT signals: "has a lodging card" (a lodging block's `location`
+ * is the HOTEL — anchoring on it promoted every hotel venue in canada-2027's
+ * registry to a chain stop and the chain ran
+ * `Banff → Peaks Hotel & Suites → Banff → …`) and a day count on its own (a
+ * hotel you sleep in for three nights has three days). #91 stands: a venue is
+ * not a base.
  *
  * Prose is deliberately NOT a signal: matching `via` text would re-base a
- * place on the strength of a road description ("over Rogers Pass"). A lodging
- * base relies on its section `locationRefs` (the #89 content convention) — a
- * bare `location` on a lodging block is not evidence enough on its own.
+ * place on the strength of a road description ("over Rogers Pass").
  */
 export type PlaceRole = "stop" | "excursion";
+
+/** Is this place an endpoint of an authored movement (`from`/`to` of a transport block)? */
+function isTransportEndpoint(trip: Trip, target: TripLocation): boolean {
+  return allBlocks(trip).some((b) => {
+    if (b.kind !== "transport") return false;
+    return [b.from, b.to].some((n) => !!n && findLocation(trip, n) === target);
+  });
+}
+
+function isSectionBase(trip: Trip, target: TripLocation): boolean {
+  return (trip.sections ?? []).some((s) =>
+    (s.locationRefs ?? []).some((r) => findLocation(trip, r) === target),
+  );
+}
+
+/**
+ * Does the trip STAY here? A chapter base, or a movement endpoint it is still
+ * at the next day.
+ *
+ * Deliberately NOT "has a lodging card": a lodging block's `location` is the
+ * HOTEL, so anchoring on it promotes every hotel venue in the registry to a
+ * chain stop — measured on canada-2027, whose chain became
+ * `Banff → Peaks Hotel & Suites → Banff → Coast Hillcrest Hotel → …`. Nor a day
+ * count on its own, for the same reason (a hotel you sleep in three nights has
+ * three days). #91's rule stands: a venue is not a base.
+ */
+function anchorsStay(trip: Trip, target: TripLocation): boolean {
+  if (isSectionBase(trip, target)) return true;
+  return isTransportEndpoint(trip, target) && placeDays(trip, target.name).length > 1;
+}
+
+/**
+ * Is this stay CIRCLED by a longer one — a day trip however else it is
+ * evidenced (#435)?
+ *
+ * `Laguna 69` is named in a chapter's `locationRefs` (a chip row lists day
+ * trips too — the Peru content round dropped `Heilige Vallei` and `Palccoyo`
+ * from refs for exactly this), yet the trip goes there on day 4 of a Huaraz
+ * stay that runs 1–5 and sleeps elsewhere. A movement endpoint with more than
+ * one day survives — it carries the trip through the night.
+ */
+function isCircledStay(trip: Trip, target: TripLocation): boolean {
+  const days = placeDays(trip, target.name);
+  if (!days.length) return false;
+  if (isTransportEndpoint(trip, target) && days.length > 1) return false;
+  const first = days[0];
+  const last = days[days.length - 1];
+  return locatedPlaces(trip).some((other) => {
+    if (other === target || !anchorsStay(trip, other)) return false;
+    const od = placeDays(trip, other.name);
+    return od.length > 0 && od[0] < first && od[od.length - 1] > last;
+  });
+}
 
 export function placeRole(trip: Trip, name: string): PlaceRole {
   const target = findLocation(trip, name);
   if (!target) return "excursion";
-
-  // A section base — "Revelstoke", "Valle Nevado & the Andes" — is a stay.
-  for (const s of trip.sections ?? []) {
-    if ((s.locationRefs ?? []).some((r) => findLocation(trip, r) === target)) return "stop";
-  }
-
-  // An endpoint of a transport block: something travels to/from it. Only the
-  // explicit `from`/`to` fields count — a `via`-only name between two explicit
-  // endpoints is the road, not the destination.
-  for (const b of allBlocks(trip)) {
-    if (b.kind !== "transport") continue;
-    const explicit = [b.from, b.to].filter((n): n is string => Boolean(n)).map((n) => findLocation(trip, n));
-    if (explicit.includes(target)) return "stop";
-  }
-
-  // The arrival/departure gateway — where the flights land and leave. Flights
-  // often carry no endpoint fields (pre-#89 content), so their titles speak.
-  for (const f of allBlocks(trip)) {
-    if (f.kind !== "transport" || f.mode !== "flight") continue;
-    if (locationsInText(trip, f.title).includes(target)) return "stop";
-  }
-
-  return "excursion";
+  if (!anchorsStay(trip, target)) return "excursion";
+  if (isCircledStay(trip, target)) return "excursion";
+  return "stop";
 }
 
 /**
