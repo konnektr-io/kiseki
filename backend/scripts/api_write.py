@@ -1090,8 +1090,14 @@ def _server_base(trip_id: str, base: str, token: str, act_as: str | None = None)
 #: Block kinds that name a real-world venue and therefore want a Maps key.
 _VENUE_KINDS = {"activity", "lodging", "meal", "booking"}
 #: Radius of the location bias sent with a venue query, in km. A hint to Google's
-#: ranking, not a filter.
-_BIAS_RADIUS_KM = 200
+#: ranking, not a filter — and **50 is Google's own maximum** for
+#: `locationBias.circle.radius`. A bigger circle is not widened, it is rejected
+#: (INVALID_ARGUMENT), which the server passes back as `{"available": false}`:
+#: the bias silently disappears and the answer is whatever Google ranks globally.
+#: That is how "Moray" became a village in Scotland (#431) — and why the pass
+#: also made two lookups per entry, tripping the endpoint's bucket halfway
+#: through a 44-entry registry.
+_BIAS_RADIUS_KM = 50
 #: How far a resolved hit may sit from the entry's OWN curated coordinates
 #: before it is treated as a namesake and reported instead of written (#431).
 #: Tight on purpose: when the plan already says where the venue is, an answer

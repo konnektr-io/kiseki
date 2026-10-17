@@ -120,11 +120,14 @@ activity/lodging/meal/booking block gets its `placeId` from the registry entry
 its `location` points at — there is deliberately no free-text venue field (#220:
 free text let a venue look pinned while its `place_id` stayed empty, killing its
 photos/reviews/location deep links). Each lookup is biased on the entry itself
-(its own curated `lat`/`lng`, else the placed entry nearest the trip's middle) and
-a hit beyond the write gate — 60 km from the entry's own coordinates, else 300 km
-from the nearest placed entry — is reported in `locations_off_trip` and never
-written (#405, #431: one trip median biased a 700 km Peru trip's every lookup on a
-point 540 km from Lima, mis-flagged 11 correct hits and let namesakes through).
+(its own curated `lat`/`lng`, else the placed entry nearest the trip's middle),
+with a circle no bigger than Google's own 50 km `locationBias` maximum — a larger
+one is *rejected*, and a rejected bias is indistinguishable from "no such venue",
+which is how namesakes got resolved in the first place (#431). A hit beyond the
+write gate — 60 km from the entry's own coordinates, else 300 km from the nearest
+placed entry — is reported in `locations_off_trip` and never written (#405, #431:
+one trip median biased a 700 km Peru trip's every lookup on a point 540 km from
+Lima, mis-flagged 11 correct hits and let namesakes through).
 Lookups are paced and retried, because `/api/places/search` is bucketed at 60/min;
 a lookup that never got an answer lands in `locations_throttled`, not in
 `locations_unresolved`. `fill` runs that pass

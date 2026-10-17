@@ -321,17 +321,60 @@ def test_search_endpoint_payload_and_unavailable(monkeypatch):
     # #255: a caller that knows where the trip is pins the ranking there
     r = client.get(
         "/api/places/search",
-        params={"q": "Café Central", "lat": 9.93, "lng": -84.08, "radius": 200_000},
+        params={"q": "Café Central", "lat": 9.93, "lng": -84.08, "radius": 30_000},
     )
     assert r.status_code == 200
     assert seen["q"] == "Café Central"
     assert seen["near"] == (9.93, -84.08)
-    assert seen["radius_m"] == 200_000
+    assert seen["radius_m"] == 30_000
+
+    # #431: Google rejects a bias circle above its own 50 km maximum, and a
+    # rejected bias reads exactly like "no such venue" — a silently dead bias.
+    # The endpoint refuses the dead value rather than forwarding it.
+    r = client.get(
+        "/api/places/search",
+        params={"q": "Café Central", "lat": 9.93, "lng": -84.08, "radius": 200_000},
+    )
+    assert r.status_code == 422
 
     # half a coordinate is not a bias: either both or none
     r = client.get("/api/places/search", params={"q": "Hotel Presidente", "lat": 9.93})
     assert r.status_code == 200
     assert seen["near"] is None and seen["radius_m"] is None
+
+
+def test_search_place_never_sends_google_a_bias_it_will_reject(monkeypatch):
+    """#431: the circle sent upstream never exceeds Google's own 50 km maximum.
+
+    An over-cap `locationBias` is not widened by Google — it is rejected
+    (INVALID_ARGUMENT), and the rejection reaches this module as "no result", so
+    the bias quietly vanishes and the answer is Google's global top hit (a Sacred
+    Valley "Moray" resolved to a village in Scotland, 10,052 km away). Whatever
+    the caller asks for, what goes on the wire is within the cap.
+    """
+    monkeypatch.setattr(places_mod, "GOOGLE_MAPS_API_KEY", "secret-key")
+    places_mod.clear_caches()
+    bodies: list[dict] = []
+
+    def fake_request(url, *, method="GET", field_mask=None, body=None):
+        bodies.append(json.loads(body))
+        return 200, json.dumps(_google_search_body()).encode()
+
+    monkeypatch.setattr(places_mod, "_request", fake_request)
+
+    # a caller asking for 200 km gets the cap, not a dead lookup
+    assert places_mod.search_place("Moray (over cap)", near=(-13.329, -72.196), radius_m=200_000)
+    assert bodies[0]["locationBias"]["circle"]["radius"] == 50_000.0
+
+    # a point with no radius at all: the same cap
+    assert places_mod.search_place("Moray (default)", near=(-13.329, -72.196))
+    assert bodies[1]["locationBias"]["circle"]["radius"] == 50_000.0
+
+    # a smaller circle is honoured, and the 1 km floor is the floor
+    assert places_mod.search_place("Moray (small)", near=(-13.329, -72.196), radius_m=30_000)
+    assert bodies[2]["locationBias"]["circle"]["radius"] == 30_000.0
+    assert places_mod.search_place("Moray (tiny)", near=(-13.329, -72.196), radius_m=100)
+    assert bodies[3]["locationBias"]["circle"]["radius"] == 1_000.0
 
 
 def test_search_endpoint_needs_a_query(monkeypatch):

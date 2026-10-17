@@ -373,13 +373,16 @@ run, and `resolve-places <trip_id>` re-runs just that pass:
    single trip median is wrong for a multi-region itinerary — on a 700 km
    Peru trip it biased every lookup on a point 540 km from Lima, flagged 11
    *correct* resolutions as off-trip, and left the namesake (Moray → a village
-   in Scotland) available (#431). The write gate then measures the answer:
-   **60 km from the entry's own coordinates**, or 300 km from the nearest
-   placed entry when the entry has no coordinates of its own. A hit beyond it
-   is a namesake: reported in `locations_off_trip` with `written: false` and
-   **not written** (#405, #431), so the pin keeps its curated coordinates
-   until the plan pins the right one explicitly. The block pass never copies a
-   `placeId` from an entry the gate flagged.
+   in Scotland) available (#431). The circle is capped at Google's own **50 km
+   maximum**: a bigger `radius` is not widened, it is rejected, and Google's
+   rejection arrives as "no such venue" — a silently dead bias that answers
+   with whatever Google ranks globally. The write gate then measures the
+   answer: **60 km from the entry's own coordinates**, or 300 km from the
+   nearest placed entry when the entry has no coordinates of its own. A hit
+   beyond it is a namesake: reported in `locations_off_trip` with
+   `written: false` and **not written** (#405, #431), so the pin keeps its
+   curated coordinates until the plan pins the right one explicitly. The
+   block pass never copies a `placeId` from an entry the gate flagged.
 2. A **venue block** (`activity`, `lodging`, `meal`, `booking`) copies the
    `placeId` of the registry entry its `location` points at. There is
    deliberately no free-text venue field on a block (#220) — free text is

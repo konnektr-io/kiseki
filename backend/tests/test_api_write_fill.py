@@ -627,7 +627,7 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch, no_pacing):
     assert "lat" not in state["queries"][0]
     assert float(state["queries"][1]["lat"][0]) == 35.0
     assert float(state["queries"][1]["lng"][0]) == 139.0
-    assert state["queries"][1]["radius"] == ["200000"]
+    assert state["queries"][1]["radius"] == ["50000"]  # Google's own bias maximum (#431)
     # both resolve from the registry entry their `location` points at
     assert report["blocks_resolved"] == 2
     assert {path.rsplit("/", 1)[-1] for path, _ in state["blocks"]} == {"blk-1", "blk-2"}
@@ -956,7 +956,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch, n
 
     assert all("lat" in lookups[0] for lookups in by_name.values())
     assert by_name["Hotel Presidente"][0]["lat"] == ["9.93000"]
-    assert by_name["Hotel Presidente"][0]["radius"] == ["200000"]
+    assert by_name["Hotel Presidente"][0]["radius"] == ["50000"]
     # a look that comes back empty is retried once without the bias, so a venue
     # genuinely somewhere else still gets an answer — and is reported as off-trip
     assert by_name["A remote island"][-1] == {"q": ["A remote island"]}
@@ -1191,7 +1191,7 @@ def test_resolve_places_biases_each_lookup_on_its_own_entry(monkeypatch, no_paci
                 continue
             assert params["lat"] == [f"{_PERU[name][0]:.5f}"], params
             assert params["lng"] == [f"{_PERU[name][1]:.5f}"], params
-            assert params["radius"] == ["200000"]
+            assert params["radius"] == ["50000"]  # the cap, never more (#431)
 
     # the namesake: reported, NOT written, and measured against the entry itself
     assert [o["name"] for o in report["locations_off_trip"]] == ["Moray"]

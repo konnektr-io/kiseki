@@ -2201,7 +2201,8 @@ def places_search_endpoint(
     q: str = Query(..., min_length=2),
     lat: float | None = Query(None, ge=-90, le=90),
     lng: float | None = Query(None, ge=-180, le=180),
-    radius: int | None = Query(None, ge=1000, le=500_000, description="metres"),
+    radius: int | None = Query(None, ge=1000, le=50_000,
+                              description="metres — Google's own maximum for a bias circle"),
 ) -> dict:
     """Resolve a venue NAME to its ``place_id`` + exact coordinates (#187).
 
@@ -2216,6 +2217,9 @@ def places_search_endpoint(
     a trip can acquire a venue on the wrong continent with nothing in the
     response to show it (#255). The bias is a Google ranking hint, not a filter.
     Both coordinates are required for it to apply; either one alone is ignored.
+    ``radius`` is capped at Google's own 50 km maximum: a bigger circle is not
+    widened, it is rejected, and a rejected bias is indistinguishable from "no
+    such venue" — a silently dead bias that resolves namesakes instead (#431).
 
     Same contract as the sibling proxies: the Google key stays server-side, a
     short-TTL in-process cache absorbs repeat lookups, and an unconfigured key /
