@@ -853,6 +853,23 @@ surface adds a second
   `Banff → Peaks Hotel & Suites → Banff → Coast Hillcrest Hotel → …`). The gateway pass in
   `legBlock` is what matches an airport-paired flight to a city leg, so an airport no longer has to
   be a chain stop to be matched.
+- **An IATA code in a day title is shorthand, not a stay** (2026-10, #435 follow-up). `daysLocated`
+  counts a day-title mention when the title names the place by its own name, or when the day has no
+  located content at all (a prose-only day whose title is its only evidence). A title that matched
+  only an ALIAS — route codes above all — does not locate the day when the day's own blocks already
+  speak: Peru 2027's day 14 is titled `CUZ → LIM: Lima en de kliffen` and `CUZ`/`LIM` are the
+  airports' aliases, so both airports opened same-day visits, were paired into a
+  `Luchthaven Lima → Luchthaven Cusco` leg and the map drew a second Cusco flight out of the tail.
+  Restricting the whole title path (the obvious alternative, tried first) strips real days —
+  `Santiago` loses days 1–2 on chile-peru, `New Chitose` and `Annupuri` lose days on the japow
+  trips — so the name/alias split is what keeps the fix narrow.
+- **A place you pass THROUGH is a chain node; a place you return FROM is not** (2026-10, #435
+  follow-up). `placeRole` treats a movement endpoint with two DIFFERENT counterparts as a stop even
+  on a single day: one movement brings the trip in, another takes it out (`Luchthaven Cusco` on Peru
+  2027 day 6 — `LIM → CUZ` in, the drive to Ollantaytambo out). It is not a day trip: the trailhead
+  or lake you drive back from has the SAME counterpart on both movements. Without the rule the
+  IATA fix demoted the Cusco airport and the flight arc re-anchored on Ollantaytambo (a flight card
+  drawing a 700 km hop) — the two rules only work together.
 - **A chain gap is not a road** (2026-10, #433). A leg the derivation joins between two
   re-base stops but nobody authored travel for (no transport block of its own) is a GAP.
   It draws provisional (§5.3) as a **great-circle arc**, never a road route: `legModes`

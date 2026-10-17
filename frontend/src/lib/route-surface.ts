@@ -11,14 +11,18 @@
  * places and days that are DERIVED, not authored, so a derivation must never
  * invent content. Three rules keep it honest:
  *
- * 1. A place is a journey STOP iff the trip STAYS there: a section
- *    `locationRefs` base, or a movement endpoint it is still at the next day
- *    (`placeRole`). A place merely visited on days based elsewhere — a day
- *    trip, a venue — is an EXCURSION: secondary marker, never in the chain,
- *    never given legs (Rogers Pass is toured from Revelstoke, not stayed at;
- *    the Cebollapampa trailhead is driven to and back from on one day).
+ * 1. A place is a journey STOP iff the trip STAYS there or passes THROUGH it:
+ *    a section `locationRefs` base, a movement endpoint it is still at the
+ *    next day, or an endpoint one movement brings it to and a DIFFERENT one
+ *    takes it from (`placeRole`). A place merely visited on days based
+ *    elsewhere — a day trip, a venue — is an EXCURSION: secondary marker,
+ *    never in the chain, never given legs (Rogers Pass is toured from
+ *    Revelstoke, not stayed at; the Cebollapampa trailhead is driven to and
+ *    back from on one day).
  * 2. `via`/`route` prose describes the ROAD, not a visit — it never
- *    attributes a day to a place ("into Banff NP" is a park boundary).
+ *    attributes a day to a place ("into Banff NP" is a park boundary). A day
+ *    TITLE does locate places, but an ALIAS hit is shorthand: `CUZ → LIM` in
+ *    a title is a route code, not two airports the trip sleeps at.
  * 3. A leg with no transport block of its own is a chain GAP — it draws
  *    provisional, never inheriting the trip's committed stage, and it is
  *    never road-routed (#433): the geometry for a gap is the great-circle
@@ -291,13 +295,32 @@ export function legStage(
  * Free-text matching stays deliberately narrow (#91): `via`/`route` are road
  * facts and never attribute a day — see `blockPlaces`.
  */
+/**
+ * Does a day TITLE put the trip at this place?
+ *
+ * A title naming a place by its OWN name speaks plainly ("Lima: Malecón &
+ * Barranco") and locates it. A title that only matched an ALIAS is shorthand —
+ * route codes above all: Peru 2027's day 14 is titled `CUZ → LIM: Lima en de
+ * kliffen` and `CUZ`/`LIM` are the airports' IATA aliases, so the two airports
+ * opened same-day visits, were paired into a `Luchthaven Lima → Luchthaven
+ * Cusco` leg nobody travels, and the map drew a second Cusco flight out of the
+ * day-14 tail (#435 follow-up). Shorthand still counts when the day has no
+ * located content of its own — that is the day whose ONLY evidence is its title.
+ */
+function dayTitleLocates(trip: Trip, title: string, target: TripLocation, blocks: Block[]): boolean {
+  const hits = locationsInText(trip, title);
+  if (!hits.includes(target)) return false;
+  if (!blocks.some((b) => blockPlaces(trip, b).length)) return true;
+  return new RegExp(`(^|[^\\p{L}\\p{N}])(${escapeRe(target.name)})(?=$|[^\\p{L}\\p{N}])`, "iu").test(title);
+}
+
 export function daysLocated(trip: Trip, name: string): number[] {
   const target = findLocation(trip, name);
   if (!target) return [];
   const days = new Set<number>();
   trip.days.forEach((day, i) => {
     if (day.blocks.some((b) => blockPlaces(trip, b).includes(target))) days.add(i);
-    else if (locationsInText(trip, day.title).includes(target)) days.add(i);
+    else if (dayTitleLocates(trip, day.title, target, day.blocks)) days.add(i);
   });
   return [...days].sort((a, b) => a - b);
 }
@@ -487,9 +510,34 @@ function isCircledStay(trip: Trip, target: TripLocation): boolean {
   });
 }
 
+/**
+ * Is this place a TRANSIT NODE — one movement brings the trip in and a
+ * DIFFERENT movement takes it out again?
+ *
+ * An airport you land at and drive on from is a chain node even though the trip
+ * never sleeps there (Peru 2027 day 6: `LIM → CUZ` in, then the drive to
+ * Ollantaytambo out). A place you return FROM is not: a day-trip trailhead or a
+ * lake has the SAME counterpart on both movements, so it stays an excursion
+ * (#435 follow-up — `anchorsStay` alone demoted the Cusco airport the moment
+ * its only second day, an IATA-alias artifact, went away).
+ */
+function isTransitNode(trip: Trip, target: TripLocation): boolean {
+  const counterparts = new Set<string>();
+  for (const block of allBlocks(trip)) {
+    if (block.kind !== "transport" || !block.from || !block.to) continue;
+    const from = findLocation(trip, block.from);
+    const to = findLocation(trip, block.to);
+    if (!from || !to) continue;
+    if (from === target) counterparts.add(to.name);
+    if (to === target) counterparts.add(from.name);
+  }
+  return counterparts.size > 1;
+}
+
 export function placeRole(trip: Trip, name: string): PlaceRole {
   const target = findLocation(trip, name);
   if (!target) return "excursion";
+  if (isTransitNode(trip, target)) return "stop";
   if (!anchorsStay(trip, target)) return "excursion";
   if (isCircledStay(trip, target)) return "excursion";
   return "stop";

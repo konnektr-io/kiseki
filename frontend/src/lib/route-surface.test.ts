@@ -1563,3 +1563,87 @@ describe("placeRailHandle (where a selected place lands in the itinerary)", () =
     });
   });
 });
+
+describe("day titles (#435 follow-up: an IATA code is shorthand, not a stay)", () => {
+  const lima = loc("Lima", -12.0464, -77.0428);
+  const airportLim = loc("Luchthaven Lima", -12.0219, -77.1143, ["LIM", "Aeropuerto Jorge Chávez"]);
+  const cusco = loc("Cusco", -13.5319, -71.9675);
+  const airportCuz = loc("Luchthaven Cusco", -13.5358, -71.9388, ["CUZ", "Aeropuerto Velasco Astete"]);
+  const ollanta = loc("Ollantaytambo", -13.2584, -72.2636);
+  const mirador = loc("Mirador de Taray", -13.42, -71.96);
+  const miraflores = loc("Miraflores", -12.1219, -77.0297);
+
+  // Peru 2027's real tail: day 0 lands at CUZ and drives on to Ollantaytambo;
+  // day 2 is titled `CUZ → LIM: Lima en de kliffen` with blocks that fly
+  // `Cusco → Lima` and sleep in Miraflores. `CUZ`/`LIM` are the airports'
+  // aliases, so both airports used to open same-day visits, be paired into a
+  // `Luchthaven Lima → Luchthaven Cusco` leg nobody travels, and draw a second
+  // Cusco flight out of the tail.
+  const tail = (): Trip =>
+    ({
+      id: "t-tail",
+      slug: "tail",
+      title: "Tail",
+      stage: "shortlisted",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [lima, airportLim, cusco, airportCuz, ollanta, mirador, miraflores],
+      sections: [{ id: "s0", title: "Cusco & Lima", days: [0, 2], locationRefs: ["Ollantaytambo", "Lima"] }],
+      days: [
+        dayAt(0, "Aankomst Cusco", [
+          { id: "f0", kind: "transport", mode: "flight", title: "Vlucht LIM → CUZ", from: "Luchthaven Lima", to: "Luchthaven Cusco" } as Block,
+          { id: "d0", kind: "transport", mode: "drive", title: "Rit luchthaven Cusco → Ollantaytambo", from: "Luchthaven Cusco", to: "Ollantaytambo" } as Block,
+          { id: "l0", kind: "lodging", title: "Verblijf: Ollantaytambo", location: "Ollantaytambo" } as Block,
+        ]),
+        dayAt(1, "Ollantaytambo", [
+          { id: "d1a", kind: "transport", mode: "drive", title: "Rit Ollantaytambo → Mirador", from: "Ollantaytambo", to: "Mirador de Taray" } as Block,
+          { id: "d1b", kind: "transport", mode: "drive", title: "Rit Mirador → Ollantaytambo", from: "Mirador de Taray", to: "Ollantaytambo" } as Block,
+        ]),
+        dayAt(2, "CUZ → LIM: Lima en de kliffen", [
+          { id: "f2", kind: "transport", mode: "flight", title: "Vlucht Cusco → Lima", from: "Cusco", to: "Lima" } as Block,
+          { id: "a2", kind: "activity", title: "Tandem-paragliding boven de kliffen", location: "Miraflores" } as Block,
+          { id: "l2", kind: "lodging", title: "Verblijf: Miraflores", location: "Miraflores" } as Block,
+        ]),
+      ],
+    }) as unknown as Trip;
+
+  it("a title that only matched an alias does not locate a day its own blocks speak for", () => {
+    const t = tail();
+    expect(placeDays(t, "Luchthaven Cusco")).toEqual([0]);
+    // departure day 0 only — the tail's `LIM` alias adds nothing
+    expect(placeDays(t, "Luchthaven Lima")).toEqual([0]);
+    expect(placeDays(t, "Cusco")).toContain(2);
+    expect(placeDays(t, "Lima")).toContain(2);
+  });
+
+  it("a proper name in the title still locates the day", () => {
+    const t = tail();
+    t.days[2] = dayAt(2, "Lima: Malecón & Barranco", [
+      { id: "a2", kind: "activity", title: "Malecón-wandeling", location: miraflores.name } as Block,
+    ]);
+    expect(placeDays(t, "Lima")).toContain(2);
+  });
+
+  it("an alias in the title of a day with no located content is all the evidence there is", () => {
+    const t = tail();
+    t.days[1] = dayAt(1, "LIM");
+    expect(daysLocated(t, "Luchthaven Lima")).toEqual([0, 1]);
+  });
+
+  it("a place you pass through is a chain node, a place you return from is not", () => {
+    const t = tail();
+    // CUZ airport: flight in, drive out — two different counterparts, ONE day.
+    expect(placeRole(t, "Luchthaven Cusco")).toBe("stop");
+    // The mirador: drive out and drive back, same counterpart on both.
+    expect(placeRole(t, "Mirador de Taray")).toBe("excursion");
+  });
+
+  it("the tail adds no leg between the airports", () => {
+    const t = tail();
+    const legs = tripJourney(t).legs.map((l) => `${l.from.name}→${l.to.name}:${l.block?.mode ?? "gap"}`);
+    expect(legs).not.toContain("Lima→Luchthaven Cusco:flight");
+    expect(legs).toContain("Luchthaven Cusco→Ollantaytambo:drive");
+    expect(legs).toContain("Cusco→Lima:flight");
+  });
+});
