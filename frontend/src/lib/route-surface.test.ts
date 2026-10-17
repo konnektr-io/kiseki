@@ -568,6 +568,49 @@ describe("a chain gap is never road-routed (#433)", () => {
     const t = gapTrip();
     expect(legModes(t, ["Here", "There", "Here"])).toEqual([LEG_GAP_MODE, LEG_GAP_MODE]);
   });
+
+  it("a card with NO declared mode is travel, not a gap", () => {
+    // `mode` is optional in the content model: a drive is authored as a plain
+    // transport card. Calling that a gap sends `gap` and the backend stops
+    // routing it — a drive drawn as a dashed arc. Caught by rendering
+    // canada-2027, pinned here.
+    const t = gapTrip();
+    t.days[1] = dayAt(1, "Rit", [
+      { id: "drive", kind: "transport", title: "Rit Here → There", from: "Here", to: "There" } as Block,
+    ]);
+    expect(legBlock(t, here, there)?.id).toBe("drive");
+    expect(legModes(t, ["Here", "There"])).toEqual([undefined]);
+  });
+
+  it("classifies a mode-less card with the SAME classifier as every other surface", () => {
+    // The chain used to read `Block.mode` alone, so it was the one surface that
+    // could not see a flight. The shared classifier (#88) decides now: explicit
+    // mode wins, drive evidence next, flight evidence after that, and
+    // `undefined` (the road default) when the card says nothing.
+    //
+    // Known limit, deliberately not "fixed" here: the flight heuristics match
+    // `flight|depart|arriv` and the IATA list — a card titled `Fly Cusco → Lima`
+    // with no `mode` and no airport code still falls through to the road
+    // default, exactly as it does on the day card. Real content declares `mode`
+    // (the Chile+Peru trips set flight/drive/train on every transport card, and
+    // `fill` warns on a transport without one), so the classifier is the
+    // fallback, not the contract.
+    const t = gapTrip();
+    const card = (extra: Partial<Block>): Block =>
+      ({ id: "x", kind: "transport", title: "Card", from: "Here", to: "There", ...extra }) as Block;
+
+    t.days[1] = dayAt(1, "Vlucht", [card({ id: "fly", title: "LATAM SCL → CUZ (rechtstreeks)" })]);
+    expect(legModes(t, ["Here", "There"])).toEqual(["flight"]);
+
+    t.days[1] = dayAt(1, "Rit", [card({ id: "km", title: "Transfer", distance: "133 km" })]);
+    expect(legModes(t, ["Here", "There"])).toEqual(["drive"]);
+
+    t.days[1] = dayAt(1, "Iets", [card({ id: "plain", title: "Onderweg" })]);
+    expect(legModes(t, ["Here", "There"])).toEqual([undefined]);
+
+    t.days[1] = dayAt(1, "Expliciet", [card({ id: "m", title: "Onderweg", mode: "ferry" })]);
+    expect(legModes(t, ["Here", "There"])).toEqual(["ferry"]);
+  });
 });
 
 

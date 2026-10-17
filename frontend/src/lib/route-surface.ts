@@ -25,6 +25,7 @@
 
 import { findLocation, locatedPlaces } from "./maps";
 import { expandSectionDays } from "./sections";
+import { classifyTransportMode } from "./transport";
 import type { Block, Stage, Trip, TripLocation } from "./types";
 
 /**
@@ -768,9 +769,16 @@ export const LEG_GAP_MODE = "gap";
  * The declared transport mode per leg of a place chain — the value the
  * backend's `modes` parameter wants (same order as the pairs `places` produce).
  *
- * The matched transport block's own `mode` is the intent (a `flight` leg must
- * never be car-routed down a highway — SCL→CUZ is a plane, not the
- * Pan-American); `LEG_GAP_MODE` when NO block describes the pair, so the
+ * The mode comes from THE classifier every other surface uses
+ * (`classifyTransportMode`, #88): an explicit `Block.mode` wins, drive evidence
+ * (distance/duration/route/via) next, flight evidence (booking code, IATA
+ * codes, flight words) after that, and `undefined` when the card says nothing —
+ * the caller's road default. Reading `Block.mode` alone made the chain the only
+ * surface that could not see a flight: `Fly Cusco → Lima (1h15)` with no `mode`
+ * field drew as a car route here while the day map drew the same card as a
+ * plane (the Chile+Peru trip, #433).
+ *
+ * `LEG_GAP_MODE` is reserved for a pair with NO transport block at all, so the
  * backend draws an honest provisional arc instead of inventing a road (#433).
  * Unresolvable pairs ride along as `undefined` so positions stay aligned.
  *
@@ -783,9 +791,12 @@ export function legModes(trip: Trip, places: string[]): (string | undefined)[] {
   const pairs: [TripLocation | undefined, TripLocation | undefined][] = names
     .slice(0, -1)
     .map((loc, i) => [loc, names[i + 1]]);
-  return pairs.map(([a, b]) =>
-    a && b ? legBlock(trip, a, b)?.mode ?? LEG_GAP_MODE : undefined,
-  );
+  return pairs.map(([a, b]) => {
+    if (!a || !b) return undefined;
+    const block = legBlock(trip, a, b);
+    if (!block) return LEG_GAP_MODE;
+    return classifyTransportMode(block);
+  });
 }
 
 /**
