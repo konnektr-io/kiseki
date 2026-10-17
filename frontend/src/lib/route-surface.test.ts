@@ -4,6 +4,7 @@ import {
   blockPlaces,
   dayRangeLabel,
   daysAtLocation,
+  daysLocated,
   GATEWAY_MATCH_KM,
   gatewayMatch,
   greatCircle,
@@ -18,8 +19,8 @@ import {
   LEG_STAGE_LABELS,
   markerPaintRank,
   placeDays,
-  placeRailHandle,
   placeRole,
+  placeRailHandle,
   resolveLegCoordinates,
   returnsToStart,
   stageToLegStage,
@@ -756,6 +757,129 @@ describe("journeyVisits (#433: a re-visited base chains)", () => {
     // And an un-attributed place never splits a real stay: canadaLive's chain
     // ends with the return visit, not with trailing ideas.
     expect(journeyVisits(canadaLive()).map((v) => v.place.name).at(-1)).toBe("YYC");
+  });
+});
+
+describe("placeRole (#435: a day trip is not a re-base)", () => {
+  // Peru 2027's Cordillera chapter: Huaraz is the base (section ref) for days
+  // 1–5; day 4 drives out to the Cebollapampa trailhead and hikes to Laguna 69,
+  // which its chapter ALSO names in `locationRefs` (a chip row lists day trips).
+  const lima = loc("Lima", -12.0464, -77.0428);
+  const huaraz = loc("Huaraz", -9.5278, -77.5278);
+  const trailhead = loc("Cebollapampa", -9.0206, -77.4708);
+  const lake = loc("Laguna 69", -9.0353, -77.4536);
+  const hotel = loc("Hotel Andino", -9.53, -77.53);
+  const airport = loc("Luchthaven Lima", -12.0219, -77.1143);
+
+  const cordillera = (): Trip =>
+    ({
+      id: "t-cordillera",
+      slug: "cordillera",
+      title: "Cordillera",
+      stage: "shortlisted",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [lima, huaraz, trailhead, lake, hotel, airport],
+      sections: [
+        { id: "s0", title: "Lima & de Cordillera Blanca", days: [0, 5], locationRefs: ["Huaraz", "Laguna 69"] },
+      ],
+      days: [
+        dayAt(0, "Aankomst Lima", [
+          { id: "f0", kind: "transport", mode: "flight", title: "Vlucht Brussel → Lima", to: "Lima", status: "booked" } as Block,
+        ]),
+        dayAt(1, "Naar Huaraz", [
+          { id: "d1", kind: "transport", mode: "drive", title: "Rit Lima → Huaraz", from: "Lima", to: "Huaraz", status: "booked" } as Block,
+          { id: "l1", kind: "lodging", title: "Verblijf: Hotel Andino", location: "Hotel Andino" } as Block,
+        ]),
+        dayAt(2, "Huaraz"),
+        dayAt(3, "Huaraz"),
+        dayAt(4, "Laguna 69", [
+          { id: "d4", kind: "transport", mode: "drive", title: "Rit Huaraz → Cebollapampa", from: "Huaraz", to: "Cebollapampa", status: "booked" } as Block,
+          { id: "a4", kind: "activity", title: "Trek naar Laguna 69", location: "Laguna 69" } as Block,
+        ]),
+        dayAt(5, "Nachtbus naar Lima", [
+          { id: "d5", kind: "transport", mode: "drive", title: "Nachtbus Huaraz → Lima", from: "Huaraz", to: "Luchthaven Lima", status: "booked" } as Block,
+        ]),
+      ],
+    }) as unknown as Trip;
+
+  it("an endpoint of a single day's movement is a day trip, not a stop", () => {
+    const t = cordillera();
+    // The trailhead is the `to` of one drive and nothing else — the traveller
+    // drives out and back the same day. It must not enter the chain (#435).
+    expect(placeRole(t, "Cebollapampa")).toBe("excursion");
+    // …and it is a marker, not a numbered stop pin.
+    expect(markerPaintRank(t, { role: "place", place: trailhead })).toBe(0);
+  });
+
+  it("a chapter chip that lists a day trip does not make it a stop", () => {
+    const t = cordillera();
+    // `Laguna 69` IS in the chapter's locationRefs, but its only day (4) is
+    // circle by the Huaraz stay (days 1–5): the trip slept elsewhere.
+    expect(placeRole(t, "Laguna 69")).toBe("excursion");
+    expect(placeRole(t, "Huaraz")).toBe("stop");
+  });
+
+  it("a hotel venue stays an excursion — a lodging card is not a base", () => {
+    const t = cordillera();
+    // Anchoring on "has a lodging card" would promote every hotel in the
+    // registry: canada-2027's chain became Banff → Peaks Hotel → Banff → …
+    expect(placeRole(t, "Hotel Andino")).toBe("excursion");
+  });
+
+  it("an endpoint the trip is still at the next day IS a stop", () => {
+    const t = cordillera();
+    t.sections = []; // no chapter refs: the place must anchor on its own
+    // Day 4 drives TO the trailhead, day 5 departs FROM it — the traveller
+    // slept there, so it is a stay, not a day trip.
+    t.days[5].blocks = [
+      { id: "d5b", kind: "transport", mode: "drive", title: "Rit Cebollapampa → Lima", from: "Cebollapampa", to: "Lima" } as Block,
+    ];
+    expect(placeRole(t, "Cebollapampa")).toBe("stop");
+  });
+
+  it("a chapter base stays a stop even for a single day", () => {
+    const t = cordillera();
+    t.sections![0].locationRefs = ["Huaraz", "Laguna 69", "Lima"];
+    expect(placeRole(t, "Lima")).toBe("stop");
+  });
+
+  it("the day trip never sits between the base and the next base", () => {
+    // The chain-level guard for the reported trip: with the trek's stops in the
+    // chain the sequence ran `… Huaraz → Cebollapampa → Laguna 69 → Lima → …`,
+    // so the authored night bus had no leg to claim and the map drew a 665 km
+    // road from the lake to Lima (#435). Neither day-trip place is in the chain
+    // now, and the base is followed by what the trip actually does next.
+    const t = cordillera();
+    const j = tripJourney(t);
+    // Lima → Huaraz → Lima: the trek day no longer interrupts anything, and the
+    // leg the traveller actually makes (the night bus back to Lima) is Huaraz's
+    // own departure. The single-day airport gateway in this fixture is a
+    // day-trip place too; on the real trip it anchors on three days (5, 6, 16)
+    // and takes its place in the chain.
+    expect(j.chain.map((c) => c.name)).toEqual(["Lima", "Huaraz", "Lima"]);
+    expect(j.legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
+      "Lima→Huaraz",
+      "Huaraz→Lima",
+    ]);
+    expect(j.excursions.map((e) => e.name).sort()).toEqual([
+      "Cebollapampa",
+      "Hotel Andino",
+      "Laguna 69",
+      "Luchthaven Lima",
+    ]);
+  });
+
+  it("a transport title still speaks when an endpoint is missing", () => {
+    // Attribution is untouched (#91's prose rules stand): a to-only card has
+    // nothing but its title to say where it goes.
+    const t = cordillera();
+    const oneEnded = { id: "x", kind: "transport", title: "Rit naar Huaraz", to: "Huaraz" } as Block;
+    expect(blockPlaces(t, oneEnded).map((p) => p.name)).toContain("Huaraz");
+    // …and the day title's prose still locates the day (the night bus day is
+    // titled "Nachtbus naar Lima", so the city is where the trip is heading).
+    expect(daysLocated(t, "Lima")).toEqual([0, 1, 5]);
   });
 });
 
