@@ -839,6 +839,20 @@ surface adds a second
   numbered marker. Two stays that start on the same transfer day (land in Cusco, drive into the
   valley) are ordered by that day's own transport block — the authored direction decides, never
   registry order.
+- **A day trip is not a re-base** (2026-10, #435). `placeRole` anchors a STOP on what proves the trip
+  STAYS: a section `locationRefs` base, or a movement endpoint it is still at the next day (>1
+  attributed day). Being an endpoint of a SINGLE day's movement is a day trip — the trailhead you
+  drive to and back from, the lake you hike to, the airport you land at and leave — and counting
+  those as stops put `Cebollapampa` and `Laguna 69` (both day trips from Huaraz on Peru 2027) into
+  the chain, so the Cordillera was cut off from Lima and the authored `Nachtbus Huaraz → Lima` card
+  had no leg to claim: a 665 km road from the lake to Lima. A place CIRCLED by a longer stay is a
+  day trip however else it is evidenced, chapter `locationRefs` included (a chip row lists day
+  trips; the Peru content round dropped two from refs for exactly that reason). Deliberately NOT
+  signals: "has a lodging card" and a day count alone — a lodging block's `location` is the HOTEL,
+  and anchoring on it promoted every hotel venue to a chain stop (canada-2027's chain became
+  `Banff → Peaks Hotel & Suites → Banff → Coast Hillcrest Hotel → …`). The gateway pass in
+  `legBlock` is what matches an airport-paired flight to a city leg, so an airport no longer has to
+  be a chain stop to be matched.
 - **A chain gap is not a road** (2026-10, #433). A leg the derivation joins between two
   re-base stops but nobody authored travel for (no transport block of its own) is a GAP.
   It draws provisional (§5.3) as a **great-circle arc**, never a road route: `legModes`
