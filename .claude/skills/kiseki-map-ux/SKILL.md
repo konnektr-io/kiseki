@@ -100,6 +100,13 @@ Spec for the marker component (one component, every surface, plus print):
   for activities — a different glyph shape from the round pins, never a second numbering
   system. Excursions (#91) render as secondary markers, never chain stops. Full spec in
   DESIGN.md §8.3.
+- **The journey chain is a sequence of VISITS, not places** (2026-10, #433). `journeyVisits`
+  emits one entry per STAY (`placeDays` → contiguous day runs), so `journey.chain` MAY repeat a
+  place and both surfaces send that repeated list to `/api/maps/route` (one leg per consecutive
+  pair, positional `modes`). Do not reintroduce a `loop`/closing-leg flag: a return is a visit
+  with its own transport block. Two consequences for marker code: stop pins must be deduped by
+  place (a base visited twice gets ONE numbered pin), and a leg with no transport block is a GAP
+  — it draws the great-circle arc, never a road route. Full spec in DESIGN.md §8.4.
 - **Excursion diamonds carry labels; gate them by MEASURED screen separation, never a zoom
   floor** (2026-10, #388 follow-up). A name is drawn only when `map.project` says it clears
   ~one pill width from the names already drawn (`farEnoughApart` in `lib/maps.ts`). The obvious

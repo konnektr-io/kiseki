@@ -824,6 +824,38 @@ surface adds a second
   with an unresolvable endpoint (`from`/`to` None — BRU→SCL, Lima→home) matches nothing. The
   matched mode flows through the existing echo (`legModes` → great-circle + glyphs at ¼/¾) and
   `legStage` inherits the match — a matched flight reads the trip stage, never `provisional`.
+- **The chain is a sequence of VISITS, not places** (2026-10, #433). `journeyVisits` derives one
+  entry per STAY at a re-base place: `placeDays` per stop, split into contiguous day runs, ordered
+  by first day and merged only when nothing sits between two runs of the same place (an excursion
+  day at a venue never splits a stay). A base the trip returns to — Lima on days 0–2, 5–7 and
+  14–16 — therefore appears once per stay, which is what makes `Huaraz → (night bus) Lima →
+  (flight) Cusco` chainable at all; a unique-place chain had Lima in one slot and drew the hop as
+  a road across the country. Consequences: `Journey.chain` may repeat a place (both map surfaces
+  ask the route endpoint for the repeated sequence, which the endpoint already tolerated);
+  `returnsToStart` is now a fact (the last stay is the start place) instead of the old
+  "visited near both ends" guess; a RETURN is a real leg with its own block, so there is no
+  synthetic closing pair and no `loop` flag anywhere in the client (`legModes`/`fetchRouteLegs`
+  lost the parameter); stop PINS are deduped by place, because a visited-twice base still gets one
+  numbered marker. Two stays that start on the same transfer day (land in Cusco, drive into the
+  valley) are ordered by that day's own transport block — the authored direction decides, never
+  registry order.
+- **A chain gap is not a road** (2026-10, #433). A leg the derivation joins between two
+  re-base stops but nobody authored travel for (no transport block of its own) is a GAP.
+  It draws provisional (§5.3) as a **great-circle arc**, never a road route: `legModes`
+  sends the `gap` sentinel for those pairs, `GET /api/maps/route` skips HERE and answers
+  `road: false`, and the client draws the arc off `resolveLegCoordinates` like any other
+  non-road leg. An undeclared/empty mode slot keeps the historical road default (an
+  unclassified transport block is still travel, #407); only the gap says "nobody wrote
+  this". Why it matters: on Peru 2027 a Lima → Cusco flight leg whose stops are two
+  re-visited bases came back as a 797 km drive across the Andes that no content shape
+  could remove while the chain sorted by first visit.
+- **A leg matches the block that agrees with its direction** (2026-10, #433). `legBlock`
+  tries exact-registry same-direction, then flight/ferry gateway same-direction, then the
+  same two passes reversed. A direction-insensitive exact pass used to win outright, so on
+  a trip that authors both directions of a hop (out and back) the reversed card shadowed
+  the flight: the traveller's `Luchthaven Lima → Huaraz` flight drew as a 282 km drive
+  carrying the night-bus card. Exact still beats proximity within a direction (§8.4
+  gateway rule above, #361 stands); a reversed block still matches when nothing agrees.
 - **Transport glyphs** (2026-09, #357): each declared leg carries two small mode glyphs
   (plane/train/ferry/car — BlockGlyph's shapes and classifier) at ¼ and ¾ along the drawn
   line; short legs (< 15 km) draw none. Sprites are data-URI SVGs registered with

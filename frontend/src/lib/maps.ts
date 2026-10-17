@@ -566,11 +566,15 @@ export function markerPinClass(trip: Trip, loc: TripLocation): string {
  * route — but the call happens server-side (app/here.py, #15), so no credential
  * reaches the browser. Returns null when maps are unconfigured or the request
  * fails; callers degrade rather than blow up.
+ *
+ * One call for the whole chain, with a positional `modes` entry per leg
+ * (#407). There is no `loop` flag: the chain is a VISIT sequence, so a return
+ * is one of its own pairs (#433) — nothing has to be closed on the client's
+ * behalf.
  */
 export async function fetchRouteLegs(
   trip: Trip,
   places: string[],
-  loop = false,
   signal?: AbortSignal,
   modes?: (string | null | undefined)[],
 ): Promise<RouteLeg[] | null> {
@@ -584,7 +588,7 @@ export async function fetchRouteLegs(
   const modeParam = modes?.length
     ? `&modes=${encodeURIComponent(modes.map((m) => m ?? "").join(","))}`
     : "";
-  const url = `/api/maps/route/${trip.id}?places=${encodeURIComponent(resolvable.join(","))}${modeParam}${loop ? "&loop=1" : ""}`;
+  const url = `/api/maps/route/${trip.id}?places=${encodeURIComponent(resolvable.join(","))}${modeParam}`;
   try {
     const resp = await fetch(url, { signal });
     if (!resp.ok) return null;
