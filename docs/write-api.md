@@ -366,17 +366,31 @@ into the actual place. `api_write.py fill` resolves them at the end of the
 run, and `resolve-places <trip_id>` re-runs just that pass:
 
 1. A registry location without a `placeId` is resolved **by name**, biased
-   toward the trip's own coordinates (`GET /api/places/search?q=&lat=&lng=&radius=`).
-   The bias matters: "Hotel Presidente" is a Madrid hotel as well as a San
-   José one, and an unbiased search can place a venue on another continent
-   without anything in the response saying so. A hit that is still far from
-   every entry the trip has placed is a namesake: it is reported in
-   `locations_off_trip` and **not written** (#405), so the pin keeps its
-   curated coordinates until the plan pins the right one explicitly.
+   on the entry itself — its own curated `lat`/`lng` when the plan carries
+   them, else the placed entry nearest the trip's middle
+   (`GET /api/places/search?q=&lat=&lng=&radius=`). The bias matters:
+   "Hotel Presidente" is a Madrid hotel as well as a San José one, and the
+   single trip median is wrong for a multi-region itinerary — on a 700 km
+   Peru trip it biased every lookup on a point 540 km from Lima, flagged 11
+   *correct* resolutions as off-trip, and left the namesake (Moray → a village
+   in Scotland) available (#431). The write gate then measures the answer:
+   **60 km from the entry's own coordinates**, or 300 km from the nearest
+   placed entry when the entry has no coordinates of its own. A hit beyond it
+   is a namesake: reported in `locations_off_trip` with `written: false` and
+   **not written** (#405, #431), so the pin keeps its curated coordinates
+   until the plan pins the right one explicitly. The block pass never copies a
+   `placeId` from an entry the gate flagged.
 2. A **venue block** (`activity`, `lodging`, `meal`, `booking`) copies the
    `placeId` of the registry entry its `location` points at. There is
    deliberately no free-text venue field on a block (#220) — free text is
    what let a venue look resolved while its `placeId` stayed empty.
+
+Lookups are **paced** (~1.2 s apart) and retried on a 429/5xx, because
+`/api/places/search` is bucketed at 60 requests/minute per client: an unpaced
+44-entry registry tripped the bucket about 26 venues in, and every remaining
+venue came back "could not resolve" (#431). A lookup that never got an answer
+is reported in `venue_locations_throttled`, with its HTTP status — never as a
+missing venue — and re-running `resolve-places` finishes the rest.
 
 So: put the venue in the `locations` registry, then point the block's
 `location` at that entry's name. `blocks_without_venue` in the run summary

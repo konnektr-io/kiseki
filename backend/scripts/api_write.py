@@ -204,11 +204,12 @@ import os
 import re
 import sys
 import tempfile
+import time
 import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
+from typing import Any, NamedTuple
 
 BASE_URL = os.environ.get("KISEKI_BASE_URL", "https://kiseki.konnektr.io")
 TIMEOUT = 30
@@ -1089,12 +1090,32 @@ def _server_base(trip_id: str, base: str, token: str, act_as: str | None = None)
 #: Block kinds that name a real-world venue and therefore want a Maps key.
 _VENUE_KINDS = {"activity", "lodging", "meal", "booking"}
 #: Radius of the location bias sent with a venue query, in km. A hint to Google's
-#: ranking, not a filter — big enough to hold a country-scale trip's spread.
+#: ranking, not a filter.
 _BIAS_RADIUS_KM = 200
-#: How far a hit may sit from the trip's own middle before it is treated as a
-#: namesake and reported. Generous on purpose: a trip legitimately spans a
-#: country; a different country is the failure this catches (#255).
+#: How far a resolved hit may sit from the entry's OWN curated coordinates
+#: before it is treated as a namesake and reported instead of written (#431).
+#: Tight on purpose: when the plan already says where the venue is, an answer
+#: 60 km away is a different venue. A long multi-region trip is not a reason to
+#: accept one — that is exactly how "Moray" became a village in Scotland.
+_WRITE_GATE_KM = 60
+#: Fallback gate for an entry that carries no coordinates of its own: how far a
+#: hit may sit from the nearest placed entry before it is treated as a namesake.
+#: Generous on purpose — a trip legitimately spans a country and such an entry
+#: has nothing tighter to measure against; a different country is the failure
+#: this catches (#255, #405).
 _OFF_TRIP_KM = 300
+#: Seconds between two ``/api/places/search`` lookups. The endpoint is bucketed
+#: at 60 requests/minute per client (#27) and this pass used to fire every lookup
+#: as fast as it could: on a 44-entry registry the bucket tripped about 26 venues
+#: in and every remaining venue came back ``could not resolve`` — a throttle and
+#: a genuine miss were the same sentence, so the registry finished half-resolved
+#: and read clean (#431). 1.2 s keeps ~50 lookups/minute, so a whole registry
+#: still resolves in one run.
+_LOOKUP_PACE_S = 1.2
+#: Attempts per lookup while the answer is not a verdict (429, 5xx, no answer).
+_LOOKUP_ATTEMPTS = 3
+#: First back-off after a non-verdict answer, in seconds; doubles per attempt.
+_LOOKUP_BACKOFF_S = 2.0
 
 
 def _haversine_km(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -1117,9 +1138,11 @@ def _trip_anchor(trip: dict) -> tuple[float, float] | None:
     """The trip's own middle, from the locations it has already placed.
 
     The median, not the mean: one namesake that resolved to the wrong continent
-    must not drag the anchor to the middle of the Atlantic. ``None`` when nothing
-    in the trip has coordinates yet — then there is nothing to bias toward and
-    the resolver stays unbounded (as it always was).
+    must not drag the point to the middle of the Atlantic. No longer the bias
+    every lookup uses (#431) — it only picks which placed entry a coord-less
+    entry should be biased toward (``_bias_anchor``). ``None`` when nothing in
+    the trip has coordinates yet — then there is nothing to bias toward and the
+    resolver stays unbounded (as it always was).
     """
     points = [c for c in (_coords(loc) for loc in trip.get("locations") or []) if c]
     if not points:
@@ -1132,7 +1155,9 @@ def _trip_anchor(trip: dict) -> tuple[float, float] | None:
     return ((lats[mid - 1] + lats[mid]) / 2, (lngs[mid - 1] + lngs[mid]) / 2)
 
 
-def _nearest_trip_km(point: tuple[float, float], trip: dict) -> float | None:
+def _nearest_trip_km(
+    point: tuple[float, float], trip: dict, *, skip: tuple[float, float] | None = None
+) -> float | None:
     """How far ``point`` sits from the closest location the trip has placed.
 
     The write gate's measure, and deliberately *not* the same one the search bias
@@ -1143,11 +1168,81 @@ def _nearest_trip_km(point: tuple[float, float], trip: dict) -> float | None:
     middle yet 30 km from its neighbour), which is the false positive this must
     not have. A namesake is far from *every* sibling, not just the middle one.
     ``None`` when the trip has placed nothing yet — nothing to measure against.
+
+    ``skip`` drops one placed entry from the measure — the entry being resolved,
+    when it carries its own coordinates — so a report answers "how far from the
+    REST of the trip" rather than the tautology of a point's distance to itself.
     """
-    points = [c for c in (_coords(loc) for loc in trip.get("locations") or []) if c]
+    points = [c for c in (_coords(loc) for loc in trip.get("locations") or []) if c and c != skip]
     if not points:
         return None
     return min(_haversine_km(point, other) for other in points)
+
+
+def _bias_anchor(loc: dict, trip: dict) -> tuple[float, float] | None:
+    """The point a lookup for ``loc`` should be biased toward (#431).
+
+    The entry's OWN coordinates when the plan curated them — the most precise
+    thing anyone knows about where that venue is — else the placed entry nearest
+    the trip's middle. Never one median for the whole trip: on a north-to-south
+    itinerary the middle sits hundreds of km from both ends, so a median bias
+    asks Google for the venue "around Cusco" while the entry already says
+    exactly where it is, and a namesake on another continent is what comes back
+    (#431 — a 17-day Peru trip, 700 km end to end, biased every lookup on one
+    southern point). ``None`` only when the trip has placed nothing at all.
+    """
+    own = _coords(loc)
+    if own is not None:
+        return own
+    placed = [c for c in (_coords(other) for other in trip.get("locations") or []) if c]
+    mid = _trip_anchor(trip)
+    if not placed or mid is None:
+        return None
+    return min(placed, key=lambda point: _haversine_km(point, mid))
+
+
+def _write_gate(hit: dict, loc: dict, trip: dict) -> float | None:
+    """The distance that makes ``hit`` a namesake, or ``None`` when it may be written.
+
+    Two measures, tightest first (#431):
+
+    * the entry's own curated coordinates — an answer more than
+      ``_WRITE_GATE_KM`` away is a different venue, however long the trip is;
+    * the nearest placed entry, for an entry that carries no coordinates of its
+      own — the #405 gate, unchanged.
+
+    Returning the distance (rather than a bool) is what lets the caller report
+    *how far* the candidate was, so a reader can tell "a spa in Belgium" from
+    "the next town over". A hit with no coordinates at all cannot be measured
+    and is written, exactly as before the gate existed.
+    """
+    coords = _coords(hit)
+    if coords is None:
+        return None
+    own = _coords(loc)
+    if own is not None:
+        distance = _haversine_km(coords, own)
+        return distance if distance > _WRITE_GATE_KM else None
+    nearest = _nearest_trip_km(coords, trip)
+    if nearest is None:
+        return None
+    return nearest if nearest > _OFF_TRIP_KM else None
+
+
+class _Lookup(NamedTuple):
+    """One lookup's outcome (#431) — a hit, and WHY when there is none.
+
+    The reason is the point: ``"miss"`` is a statement about the VENUE (the
+    server answered and Google knows no such name), while ``"throttled"`` and
+    ``"unreachable"`` are statements about the REQUEST. Collapsing the two is
+    how a half-resolved registry read clean — 19 venues came back as
+    ``could not resolve`` when the truth was that their lookup never got an
+    answer at all.
+    """
+
+    hit: dict | None
+    reason: str  # "ok" | "miss" | "throttled" | "unreachable"
+    status: int
 
 
 def _resolve_query(
@@ -1157,7 +1252,7 @@ def _resolve_query(
     near: tuple[float, float] | None = None,
     radius_km: int = _BIAS_RADIUS_KM,
     act_as: str | None = None,
-) -> dict | None:
+) -> _Lookup:
     """``GET /api/places/search?q=`` — venue name → place_id + coordinates.
 
     The server holds the Google key and caches the lookup; a miss (no key, no
@@ -1173,16 +1268,68 @@ def _resolve_query(
     """
     text = str(query or "").strip()
     if not text:
-        return None
+        return _Lookup(None, "miss", 0)
     path = f"/api/places/search?q={urllib.parse.quote(text)}"
     if near is not None:
         path += (
             f"&lat={near[0]:.5f}&lng={near[1]:.5f}&radius={int(radius_km) * 1000}"
         )
     status, body = _request("get", base, path, token, None, act_as=act_as)
-    if status != 200 or not isinstance(body, dict) or not body.get("available"):
-        return None
-    return body if body.get("placeId") else None
+    if status != 200:
+        # 429 is the endpoint's own bucket; anything else (5xx, 4xx, nothing at
+        # all) is still not a statement about the venue.
+        return _Lookup(None, "throttled" if status == 429 else "unreachable", status)
+    if not isinstance(body, dict):
+        return _Lookup(None, "unreachable", status)
+    if not body.get("available") or not body.get("placeId"):
+        # The honest miss: the server answered, and there is no such venue
+        # (or no Google key on it).
+        return _Lookup(None, "miss", status)
+    return _Lookup(body, "ok", status)
+
+
+#: When the previous lookup went out — the pacing clock (module state; this is a
+#: single-threaded CLI script, never a library).
+_last_lookup_at = 0.0
+
+
+def _lookup(
+    query: str,
+    base: str,
+    token: str,
+    near: tuple[float, float] | None = None,
+    act_as: str | None = None,
+) -> _Lookup:
+    """One paced, retried ``/api/places/search`` lookup (#431).
+
+    Pacing is not politeness: the endpoint is bucketed at 60 requests/minute per
+    client (#27), and the pass used to fire every lookup as fast as it could, so
+    a 44-entry registry tripped the bucket about 26 venues in and every
+    remaining venue was reported as "could not resolve". A non-verdict answer
+    (429, 5xx, no answer) is now retried with an exponential back-off before it
+    is reported as ``throttled`` — and it is never reported as a missing venue.
+    """
+    global _last_lookup_at
+    result = _Lookup(None, "unreachable", 0)
+    for attempt in range(1, _LOOKUP_ATTEMPTS + 1):
+        if _LOOKUP_PACE_S > 0:
+            wait = _last_lookup_at + _LOOKUP_PACE_S - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        _last_lookup_at = time.monotonic()
+        result = _resolve_query(query, base, token, near=near, act_as=act_as)
+        if result.reason in ("ok", "miss") or attempt == _LOOKUP_ATTEMPTS:
+            return result
+        backoff = _LOOKUP_BACKOFF_S * (2 ** (attempt - 1))
+        if backoff > 0:
+            print(
+                f"  lookup {query!r}: {result.reason} (HTTP {result.status}) — "
+                f"retrying in {backoff:g}s",
+                file=sys.stderr,
+            )
+            time.sleep(backoff)
+            _last_lookup_at = time.monotonic()
+    return result
 
 
 def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None = None) -> dict:
@@ -1194,80 +1341,100 @@ def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None 
     1. **Registry locations without a ``placeId``** are resolved by name and
        patched (``placeId`` + real ``lat``/``lng`` + address). A city entry
        resolves to the city, a venue entry to the venue. Each lookup is biased
-       toward the trip's own coordinates (``_trip_anchor``), because place names
-       repeat across countries: "Hotel Presidente" is in Madrid as well as in San
-       José, and an unbiased search silently returns one on another continent.
-       A hit that stays far from every entry the trip has placed is reported in
-       ``locations_off_trip`` and **not written** (#405) — the pin stays curated
-       until the plan pins the right place explicitly.
+       on the ENTRY ITSELF (``_bias_anchor``: its own curated coordinates, else
+       the placed entry nearest the trip's middle) — never on one anchor for the
+       whole trip, which on a 700 km multi-region itinerary both mis-flags the
+       local ends and hands back namesakes (#431).
+       A hit beyond the write gate is reported in ``locations_off_trip`` and
+       **not written**: ``_WRITE_GATE_KM`` from the entry's own coordinates when
+       it has them (#431), ``_OFF_TRIP_KM`` from the nearest placed sibling
+       otherwise (#405). The pin keeps its curated coordinates until the plan
+       pins the right place explicitly.
     2. **Venue blocks without a ``placeId``** get one, copied from the registry
-       entry their ``location`` points at once that entry has a ``placeId``.
-       Blocks naming no resolvable venue are reported instead. Without this the
-       Maps pill falls back to ``maps/search?api=1&query=<city>`` — the generic
-       link in the report.
+       entry their ``location`` points at once that entry has a ``placeId`` —
+       never from an entry the gate flagged. Blocks naming no resolvable venue
+       are reported instead. Without this the Maps pill falls back to
+       ``maps/search?api=1&query=<city>`` — the generic link in the report.
 
     Anything still without a venue is reported in ``blocks_without_venue`` /
     ``locations_unresolved``: that is content the plan has to supply, and it is
     the honest signal that the itinerary is anchored to cities, not places.
+    Lookups that never got an answer (429, 5xx, no reply) are reported apart, in
+    ``locations_throttled``: a throttle says nothing about the venue, and
+    reporting it as one is how a half-resolved registry read clean (#431).
     """
     trip = _server_base(trip_id, base, token, act_as)
     report: dict = {
         "locations_resolved": [],
         "locations_unresolved": [],
         "locations_off_trip": [],
+        "locations_throttled": [],
         "blocks_resolved": 0,
         "blocks_unresolved": [],
         "blocks_without_venue": [],
     }
 
-    # Bias every name lookup toward where the trip already is. Recomputed as the
-    # loop places entries, so the first resolved city anchors the rest (#255).
+    # Bias every lookup on its own entry. Recomputed as the loop places entries,
+    # so a coord-less entry still rides the nearest thing the trip has placed.
     upserts: list[dict] = []
     for loc in trip.get("locations") or []:
         name = str(loc.get("name") or "").strip()
         if not name or loc.get("placeId"):
             continue
-        anchor = _trip_anchor(trip)
-        hit = _resolve_query(name, base, token, near=anchor, act_as=act_as)
-        if not hit:
-            # Nothing yet to bias toward (or the bias changed nothing): the
-            # unbounded query is still the fallback, exactly as before.
-            hit = _resolve_query(name, base, token, act_as=act_as)
+        anchor = _bias_anchor(loc, trip)
+        looked_up = _lookup(name, base, token, near=anchor, act_as=act_as)
+        biased = anchor is not None
+        if looked_up.reason == "miss" and anchor is not None:
+            # Nothing under the bias: ask again unbounded, exactly as before —
+            # a venue genuinely somewhere else still gets an answer (#255).
+            looked_up = _lookup(name, base, token, act_as=act_as)
+            biased = False
+        if looked_up.reason in ("throttled", "unreachable"):
+            report["locations_throttled"].append(
+                {"name": name, "reason": looked_up.reason, "http_status": looked_up.status}
+            )
+            continue
+        hit = looked_up.hit
         if not hit:
             report["locations_unresolved"].append(name)
             continue
-        if anchor is not None and _coords(hit):
-            distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
-            if distance > _OFF_TRIP_KM:
-                # A namesake. Take the unbiased candidate only if it is nearer —
-                # never silently, and never without saying so.
-                plain = _resolve_query(name, base, token, act_as=act_as)
-                if plain and _coords(plain) and _haversine_km(_coords(plain), anchor) < distance:  # type: ignore[arg-type]
-                    hit = plain
-                    distance = _haversine_km(_coords(hit), anchor)  # type: ignore[arg-type]
-            # The write gate, which is stricter than the bias above: it also
-            # accepts a hit that sits near *any* placed entry, so the far end of
-            # a long itinerary is never mistaken for a namesake.
-            nearest = _nearest_trip_km(_coords(hit), trip)  # type: ignore[arg-type]
-            if nearest is not None and nearest > _OFF_TRIP_KM:
-                # A namesake the bias could not save. REPORT it, never write it:
-                # persisting this moved a curated map pin onto another continent
-                # and the warning only arrived after the corruption was already
-                # live (#405 — Golden, BC resolved to a spa in Gent, 7,322 km
-                # away). The entry stays untouched, so the trip keeps whatever
-                # curated coordinates it had and the plan can pin the right one.
-                report["locations_off_trip"].append(
-                    {
-                        "name": name,
-                        "matched": hit.get("name"),
-                        "address": hit.get("address"),
-                        "km_from_trip": round(distance, 1),
-                        "km_from_nearest": round(nearest, 1),
-                        "written": False,
-                    }
+        distance = _write_gate(hit, loc, trip)
+        if distance is not None and biased and anchor is not None:
+            # The biased search answered off-trip. One unbounded second opinion
+            # before refusing: the rescue #255 relies on, and the only case where
+            # a second answer can beat the first. Skipped when the first lookup
+            # was already unbounded — a repeat would buy nothing.
+            plain = _lookup(name, base, token, act_as=act_as)
+            if plain.reason in ("throttled", "unreachable"):
+                report["locations_throttled"].append(
+                    {"name": name, "reason": plain.reason, "http_status": plain.status}
                 )
-                report["locations_unresolved"].append(name)
                 continue
+            if plain.hit and _write_gate(plain.hit, loc, trip) is None:
+                hit, distance = plain.hit, None
+        if distance is not None:
+            # A namesake the bias could not save. REPORT it, never write it:
+            # persisting this moved a curated map pin onto another continent and
+            # the warning only arrived after the corruption was already live
+            # (#405 — Golden, BC resolved to a spa in Gent, 7,322 km away; #431 —
+            # Moray, Peru pinned to a village in Scotland, 10,052 km away). The
+            # entry stays untouched, so the trip keeps whatever curated
+            # coordinates it had and the plan can pin the right one.
+            coords = _coords(hit)
+            nearest = _nearest_trip_km(coords, trip, skip=_coords(loc)) if coords else None
+            report["locations_off_trip"].append(
+                {
+                    "name": name,
+                    "matched": hit.get("name"),
+                    "address": hit.get("address"),
+                    "km_from_trip": round(distance, 1),
+                    "km_from_nearest": round(nearest, 1) if nearest is not None else None,
+                    "gate": "entry" if _coords(loc) is not None else "nearest",
+                    "written": False,
+                }
+            )
+            report["locations_unresolved"].append(name)
+            continue
         entry: dict = {"name": name, "placeId": hit["placeId"]}
         if hit.get("lat") is not None:
             entry["lat"] = hit["lat"]
@@ -1297,10 +1464,17 @@ def resolve_trip_places(trip_id: str, base: str, token: str, act_as: str | None 
             report["locations_resolved"] = []
         trip = _server_base(trip_id, base, token, act_as)
 
-    # registry name/alias → placeId, for the block pass
+    # registry name/alias → placeId, for the block pass. An entry this run
+    # flagged as off-trip is NOT a source of truth: whatever placeId it still
+    # carries is a namesake, and copying it onto a block is how the block
+    # inherits the very pin the gate just refused (#431 point 2 — on the Peru
+    # trip 22 blocks took the Scottish place_id of "Moray").
+    flagged = {str(o["name"]).strip().lower() for o in report["locations_off_trip"]}
     known: dict[str, str] = {}
     for loc in trip.get("locations") or []:
         if not loc.get("placeId"):
+            continue
+        if str(loc.get("name") or "").strip().lower() in flagged:
             continue
         for key in [loc.get("name")] + list(loc.get("alias") or []):
             if key:
@@ -1362,12 +1536,25 @@ def resolve_places_verb(args) -> int:
             "(or that GOOGLE_MAPS_API_KEY is set on the server)",
             file=sys.stderr,
         )
+    if report.get("locations_throttled"):
+        print(
+            f"warning: {len(report['locations_throttled'])} lookup(s) never got an answer "
+            "(the endpoint is bucketed at 60/minute, or the server/Google was down) — these "
+            "are NOT missing venues, they were never asked: "
+            + "; ".join(
+                f"{o['name']} ({o.get('reason')}, HTTP {o.get('http_status')})"
+                for o in report["locations_throttled"]
+            )
+            + ". Re-run resolve-places for the rest",
+            file=sys.stderr,
+        )
     if report.get("locations_off_trip"):
         print(
             "warning: resolved OUTSIDE the trip's own area (a namesake?) and NOT written — "
             "the entries keep their curated coordinates: "
             + "; ".join(
-                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km)"
+                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km from the "
+                f"{'entry' if o.get('gate') == 'entry' else 'nearest entry'})"
                 for o in report["locations_off_trip"]
             ),
             file=sys.stderr,
@@ -1704,6 +1891,7 @@ def fill_trip(args) -> int:
         "locations_resolved": [],
         "locations_unresolved": [],
         "locations_off_trip": [],
+        "locations_throttled": [],
         "blocks_resolved": 0,
         "blocks_unresolved": [],
         "blocks_without_venue": [],
@@ -1731,6 +1919,7 @@ def fill_trip(args) -> int:
         "venue_locations_resolved": len(resolution["locations_resolved"]),
         "venue_locations_unresolved": resolution["locations_unresolved"],
         "venue_locations_off_trip": resolution.get("locations_off_trip") or [],
+        "venue_locations_throttled": resolution.get("locations_throttled") or [],
         "blocks_pinned_to_a_venue": resolution["blocks_resolved"],
         "blocks_without_venue": [
             f"{b.get('day')}: {b.get('title')}" for b in resolution["blocks_without_venue"]
@@ -1748,9 +1937,22 @@ def fill_trip(args) -> int:
             "trip's own area — a namesake, most likely. NOT written: the entries keep their "
             "curated coordinates, so pin the right one with an explicit `placeId` "
             + "; ".join(
-                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km away)"
+                f"{o['name']} → {o.get('matched')} ({o.get('km_from_trip')} km from the "
+                f"{'entry' if o.get('gate') == 'entry' else 'nearest entry'})"
                 for o in resolution["locations_off_trip"]
             ),
+            file=sys.stderr,
+        )
+    if resolution.get("locations_throttled"):
+        print(
+            f"warning: {len(resolution['locations_throttled'])} venue lookup(s) never got an "
+            "answer (bucket/429, server or Google down) — these are NOT missing venues and "
+            "must not be recorded as such: "
+            + "; ".join(
+                f"{o['name']} ({o.get('reason')}, HTTP {o.get('http_status')})"
+                for o in resolution["locations_throttled"]
+            )
+            + ". Re-run `resolve-places` on this trip to finish them",
             file=sys.stderr,
         )
     if resolution["blocks_without_venue"]:
