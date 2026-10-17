@@ -35,6 +35,20 @@ aw = _module()
 TRIP_ID = "11111111-1111-4111-8111-111111111111"
 
 
+@pytest.fixture
+def no_pacing(monkeypatch):
+    """Take the clock out of the resolution tests (#431).
+
+    `resolve_trip_places` paces its `/api/places/search` lookups (the endpoint
+    is bucketed at 60/minute) and backs off after a non-verdict answer. The
+    unit tests exercise the decision logic, not the wait: both constants are
+    zeroed so a 4-entry registry does not spend 5 s asleep. The pacing itself is
+    asserted in `test_resolve_places_paces_its_lookups`.
+    """
+    monkeypatch.setattr(aw, "_LOOKUP_PACE_S", 0)
+    monkeypatch.setattr(aw, "_LOOKUP_BACKOFF_S", 0)
+
+
 def test_admin_key_requires_an_explicit_act_as_sub(monkeypatch):
     """The client refuses to send an unattributable API-key call."""
     monkeypatch.delenv("KISEKI_ACT_AS_SUB", raising=False)
@@ -559,7 +573,7 @@ def test_photo_upload_with_a_local_file_prints_a_bare_name(monkeypatch, tmp_path
     assert seen["raw"][1].startswith("multipart/form-data")
 
 
-def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
+def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch, no_pacing):
     """The resolution pass is what kills the generic city links: registry names
     get their place_id + coordinates, blocks copy or resolve a venue key, and
     anything without a venue is REPORTED rather than silently left generic."""
@@ -613,7 +627,7 @@ def test_resolve_trip_places_pins_locations_and_blocks(monkeypatch):
     assert "lat" not in state["queries"][0]
     assert float(state["queries"][1]["lat"][0]) == 35.0
     assert float(state["queries"][1]["lng"][0]) == 139.0
-    assert state["queries"][1]["radius"] == ["200000"]
+    assert state["queries"][1]["radius"] == ["50000"]  # Google's own bias maximum (#431)
     # both resolve from the registry entry their `location` points at
     assert report["blocks_resolved"] == 2
     assert {path.rsplit("/", 1)[-1] for path, _ in state["blocks"]} == {"blk-1", "blk-2"}
@@ -893,7 +907,7 @@ def test_dry_run_rejects_the_plan_instead_of_writing_half_of_it(monkeypatch, cap
     assert "mode" in err
 
 
-def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
+def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch, no_pacing):
     """#255 → fix_places.py: the same venue name exists in several countries."""
     trip = {
         "id": TRIP_ID,
@@ -942,7 +956,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
 
     assert all("lat" in lookups[0] for lookups in by_name.values())
     assert by_name["Hotel Presidente"][0]["lat"] == ["9.93000"]
-    assert by_name["Hotel Presidente"][0]["radius"] == ["200000"]
+    assert by_name["Hotel Presidente"][0]["radius"] == ["50000"]
     # a look that comes back empty is retried once without the bias, so a venue
     # genuinely somewhere else still gets an answer — and is reported as off-trip
     assert by_name["A remote island"][-1] == {"q": ["A remote island"]}
@@ -969,7 +983,7 @@ def test_resolve_places_biases_by_the_trip_and_reports_a_namesake(monkeypatch):
     assert report["locations_unresolved"] == ["Café Central", "A remote island"]
 
 
-def test_resolve_places_writes_a_far_end_that_near_its_neighbour(monkeypatch):
+def test_resolve_places_writes_a_far_end_that_near_its_neighbour(monkeypatch, no_pacing):
     """#405: the write gate measures to the NEAREST placed entry, not the middle.
 
     A lodge at one tip of a long itinerary sits far from the trip's median but
@@ -1009,7 +1023,7 @@ def test_resolve_places_writes_a_far_end_that_near_its_neighbour(monkeypatch):
     assert patched[0]["locations"][0]["placeId"] == "P-LODGE"
 
 
-def test_resolve_places_writes_the_first_entry_with_nothing_to_measure_against(monkeypatch):
+def test_resolve_places_writes_the_first_entry_with_nothing_to_measure_against(monkeypatch, no_pacing):
     """#405: the gate needs a placed sibling to measure against.
 
     A trip whose registry holds no coordinates at all yet has nothing to check a
@@ -1043,7 +1057,7 @@ def test_resolve_places_writes_the_first_entry_with_nothing_to_measure_against(m
     assert patched[0]["locations"][0]["placeId"] == "P-NEW"
 
 
-def test_resolve_places_warns_that_the_off_trip_entry_was_not_written(monkeypatch, capsys):
+def test_resolve_places_warns_that_the_off_trip_entry_was_not_written(monkeypatch, capsys, no_pacing):
     """#405 point 2: the warning says whether the pin moved — here, it did not.
 
     Read as prose it has to be unambiguous on its own: an agent seeing it must not
@@ -1090,3 +1104,329 @@ def test_resolve_places_warns_that_the_off_trip_entry_was_not_written(monkeypatc
     assert "Golden → The Golden Wellness" in err
     # the other entry is fine and must not drag the warning along
     assert "Tarn" not in err
+
+
+# ------------------------------------------- #431: per-entry bias, gate, throttle
+
+#: A north-to-south itinerary with curated coordinates on every entry — the
+#: shape that raised #431 (Lima → Huaraz → Sacred Valley → Cusco). Three entries
+#: in the north, five in the south: one median anchor lands in the Sacred Valley,
+#: ~540 km from Lima.
+_PERU = {
+    "Lima": (-12.0464, -77.0428),
+    "Huaraz": (-9.5261, -77.5289),
+    "Laguna 69": (-9.0092, -77.6029),
+    "Ollantaytambo": (-13.2585, -72.2656),
+    "Moray": (-13.329, -72.196),
+    "Cusco": (-13.5319, -71.9675),
+    "Sacsayhuamán": (-13.5093, -71.9824),
+    "Palccoyo": (-14.0417, -71.2622),
+}
+
+
+def _peru_trip() -> dict:
+    return {
+        "id": TRIP_ID,
+        "title": "Peru",
+        "locations": [
+            {"name": name, "lat": lat, "lng": lng} for name, (lat, lng) in _PERU.items()
+        ],
+        "days": [],
+        "sections": [],
+    }
+
+
+def test_resolve_places_biases_each_lookup_on_its_own_entry(monkeypatch, no_pacing):
+    """#431 point 1: the bias is the entry itself, never one median for the trip.
+
+    Every lookup hands Google the ENTRY's own curated coordinates — Lima is
+    asked about around Lima. Under the single trip median the search was biased
+    on a point in the Sacred Valley, 540 km from Lima: the northern entries sat
+    "off-trip" of their own trip, and the same one-anchor bias is what made
+    namesakes (Moray → Scotland, San Blas → Panama) available in the first place.
+    """
+    trip = _peru_trip()
+    asked: list[dict] = []
+    patched: list = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            params = urllib.parse.parse_qs(path.split("?", 1)[1])
+            asked.append(params)
+            name = params["q"][0]
+            if name == "Moray":  # the one genuine namesake: Google ignores the bias
+                return 200, {"available": True, "placeId": "P-SCOTLAND", "lat": 57.5115,
+                             "lng": -3.2484, "name": "Moray", "address": "Moray, Scotland"}
+            lat, lng = _PERU[name]
+            return 200, {"available": True, "placeId": f"P-{name}", "lat": lat, "lng": lng,
+                         "name": name, "address": f"{name}, Peru"}
+        if method == "patch" and path.endswith("/locations"):
+            patched.append(body)
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    # every correct local hit is written — none of them is "off-trip"
+    assert {e["name"] for e in report["locations_resolved"]} == set(_PERU) - {"Moray"}
+    assert {e["name"] for e in patched[0]["locations"]} == set(_PERU) - {"Moray"}
+
+    # the regression this pins: the old single anchor sits >300 km from Lima, so
+    # Lima's lookup used to be biased ~540 km away from the entry it was about
+    mid = aw._trip_anchor(trip)
+    assert mid is not None and aw._haversine_km(mid, _PERU["Lima"]) > 300
+
+    by_name: dict[str, list[dict]] = {}
+    for params in asked:
+        by_name.setdefault(params["q"][0], []).append(params)
+    assert set(by_name) == set(_PERU)
+    for name, lookups in by_name.items():
+        for params in lookups:
+            if "lat" not in params:
+                # only the one namesake's unbounded second opinion goes out unbiased
+                assert name == "Moray"
+                continue
+            assert params["lat"] == [f"{_PERU[name][0]:.5f}"], params
+            assert params["lng"] == [f"{_PERU[name][1]:.5f}"], params
+            assert params["radius"] == ["50000"]  # the cap, never more (#431)
+
+    # the namesake: reported, NOT written, and measured against the entry itself
+    assert [o["name"] for o in report["locations_off_trip"]] == ["Moray"]
+    off = report["locations_off_trip"][0]
+    assert off["gate"] == "entry" and off["written"] is False
+    assert off["km_from_trip"] > 9000 and off["address"] == "Moray, Scotland"
+    assert "Moray" in report["locations_unresolved"]
+
+
+def test_resolve_places_refuses_an_answer_far_from_the_entrys_own_pin(monkeypatch, no_pacing):
+    """#431 point 2: the write gate measures from the entry's OWN coordinates.
+
+    A Sacred Valley entry whose answer is 122 km away is not that venue. Under
+    the old fixed 300 km radius it was written silently — which is exactly how a
+    curated pin acquires a namesake's place_id. The entry keeps its coordinates
+    and the candidate is reported instead.
+    """
+    trip = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "Moray", "lat": -13.329, "lng": -72.196},
+            {"name": "Cusco", "placeId": "P-CUSCO", "lat": -13.5319, "lng": -71.9675},
+        ],
+        "days": [],
+        "sections": [],
+    }
+    patched: list = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            # 1.1° north of the entry's own pin — 122 km, inside the old radius
+            return 200, {"available": True, "placeId": "P-NOT-MORAY", "lat": -12.229,
+                         "lng": -72.196, "name": "Moray", "address": "Somewhere else"}
+        if method == "patch" and path.endswith("/locations"):
+            patched.append(body)
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert report["locations_resolved"] == []
+    assert patched == []  # nothing reached the twin
+    assert [o["name"] for o in report["locations_off_trip"]] == ["Moray"]
+    off = report["locations_off_trip"][0]
+    assert off["gate"] == "entry" and off["written"] is False
+    assert off["km_from_trip"] == pytest.approx(122, abs=3)
+    assert report["locations_unresolved"] == ["Moray"]
+
+
+def test_resolve_places_paces_its_lookups(monkeypatch):
+    """#431 point 3: lookups are paced, not fired as fast as the loop runs.
+
+    `/api/places/search` is bucketed at 60 requests/minute per client. A 44-entry
+    registry fired at full speed tripped it about 26 venues in, and every venue
+    after that was reported as unresolvable. Two lookups must be seeded at least
+    `_LOOKUP_PACE_S` apart.
+    """
+    trip = {
+        "id": TRIP_ID,
+        "locations": [{"name": "A", "lat": 1.0, "lng": 2.0}, {"name": "B", "lat": 1.1, "lng": 2.1}],
+        "days": [],
+        "sections": [],
+    }
+    slept: list[float] = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            name = urllib.parse.parse_qs(path.split("?", 1)[1])["q"][0]
+            lat, lng = (1.0, 2.0) if name == "A" else (1.1, 2.1)
+            return 200, {"available": True, "placeId": f"P-{name}", "lat": lat, "lng": lng,
+                         "name": name, "address": name}
+        if method == "patch" and path.endswith("/locations"):
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_last_lookup_at", 0.0)  # cold clock: no wait on the 1st
+    monkeypatch.setattr(aw.time, "sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    # the first lookup pays nothing, the second waits out one full pace
+    assert len(slept) == 1
+    assert slept[0] == pytest.approx(aw._LOOKUP_PACE_S, abs=0.05)
+
+
+def test_resolve_places_retries_a_throttled_lookup_and_keeps_the_verdict(monkeypatch):
+    """#431 point 3: a 429 is retried with back-off, then the venue still resolves.
+
+    429 is the endpoint's own bucket, not an answer about the venue: retrying it
+    is what turns "19 venues came back could not resolve" into a resolved
+    registry. The two retries wait out an exponential back-off.
+    """
+    trip = {
+        "id": TRIP_ID,
+        "locations": [{"name": "ChocoMuseo Cusco", "lat": -13.51, "lng": -71.97}],
+        "days": [],
+        "sections": [],
+    }
+    slept: list[float] = []
+    calls = {"n": 0}
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            calls["n"] += 1
+            if calls["n"] < 3:  # the bucket, twice
+                return 429, "Too many map requests"
+            return 200, {"available": True, "placeId": "P-CHOCO", "lat": -13.51, "lng": -71.97,
+                         "name": "ChocoMuseo", "address": "Cusco, Peru"}
+        if method == "patch" and path.endswith("/locations"):
+            return 200, trip
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_LOOKUP_PACE_S", 0)
+    monkeypatch.setattr(aw.time, "sleep", lambda seconds: slept.append(seconds))
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert [e["name"] for e in report["locations_resolved"]] == ["ChocoMuseo Cusco"]
+    assert report["locations_throttled"] == []
+    assert report["locations_unresolved"] == []
+    assert calls["n"] == 3
+    assert slept == [pytest.approx(aw._LOOKUP_BACKOFF_S), pytest.approx(aw._LOOKUP_BACKOFF_S * 2)]
+
+
+def test_resolve_places_reports_a_throttled_lookup_apart_from_a_miss(monkeypatch, capsys):
+    """#431 point 3: a lookup that never got an answer is NOT a missing venue.
+
+    The two used to be the same sentence in the summary — which is how a
+    registry that resolved 26 of 44 venues read as finished. The throttle is
+    reported in its own list, with its HTTP status, and the CLI says so.
+    """
+    import argparse as _argparse
+
+    trip = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "ChocoMuseo Cusco", "lat": -13.51, "lng": -71.97},
+            {"name": "A remote island"},
+        ],
+        "days": [],
+        "sections": [],
+    }
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            name = urllib.parse.parse_qs(path.split("?", 1)[1])["q"][0]
+            if name == "ChocoMuseo Cusco":
+                return 429, "Too many map requests"
+            return 200, {"available": False}  # the honest miss
+        raise AssertionError(f"unexpected {method} {path}")
+
+    monkeypatch.setattr(aw, "_LOOKUP_PACE_S", 0)
+    monkeypatch.setattr(aw, "_LOOKUP_BACKOFF_S", 0)
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", lambda *a, **k: trip)
+    monkeypatch.setattr(aw, "_credential", lambda args: "tok")
+    monkeypatch.setattr(aw, "_act_as", lambda args, token: None)
+
+    rc = aw.resolve_places_verb(
+        _argparse.Namespace(base="http://x", path=TRIP_ID, token=None, act_as=None)
+    )
+    assert rc == 0
+
+    err = capsys.readouterr().err
+    # a miss and a throttle are two different sentences
+    assert "could not resolve ['A remote island']" in err
+    assert "never got an answer" in err and "ChocoMuseo Cusco (throttled, HTTP 429)" in err
+    assert "A remote island" not in err.split("never got an answer")[1]
+
+
+def test_resolve_places_never_lets_a_flagged_entry_pin_a_block(monkeypatch, no_pacing):
+    """#431 point 2: pass 2 does not copy a placeId from an entry the gate refused.
+
+    The gate protects the location twin; the block pass is the second way the
+    same namesake reaches the trip, and it reads the registry again AFTER the
+    write — so an entry the gate flagged is excluded even when that re-read hands
+    it a placeId anyway (a concurrent writer, a stale graph view). On the Peru
+    trip 22 blocks inherited "Moray"'s Scottish place_id exactly this way.
+    """
+    curated = {
+        "id": TRIP_ID,
+        "locations": [
+            {"name": "Lima", "lat": -12.0464, "lng": -77.0428},
+            {"name": "Moray", "lat": -13.329, "lng": -72.196},
+        ],
+        "days": [{
+            "id": "day-1",
+            "date": "2027-08-02",
+            "blocks": [
+                {"id": "blk-lima", "kind": "activity", "title": "Miraflores", "location": "Lima"},
+                {"id": "blk-moray", "kind": "activity", "title": "De terrassen", "location": "Moray"},
+            ],
+        }],
+        "sections": [],
+    }
+    # the re-read after the PATCH: Lima now carries its pin, and the namesake the
+    # gate refused is present with a place_id anyway
+    stale = json.loads(json.dumps(curated))
+    stale["locations"][0]["placeId"] = "P-LIMA"
+    stale["locations"][1]["placeId"] = "P-SCOTLAND"
+    reads = {"n": 0}
+    writes: list = []
+
+    def fake_request(method, base, path, token, body=None, raw=None, act_as=None):
+        if method == "get" and path.startswith("/api/places/search"):
+            name = urllib.parse.parse_qs(path.split("?", 1)[1])["q"][0]
+            if name == "Moray":
+                return 200, {"available": True, "placeId": "P-SCOTLAND", "lat": 57.5115,
+                             "lng": -3.2484, "name": "Moray", "address": "Moray, Scotland"}
+            return 200, {"available": True, "placeId": "P-LIMA", "lat": -12.0464, "lng": -77.0428,
+                         "name": "Lima", "address": "Lima, Peru"}
+        if method == "patch" and path.endswith("/locations"):
+            return 200, curated
+        if method == "put" and "/blocks/" in path:
+            writes.append((path.rsplit("/", 1)[-1], body))
+            return 200, curated
+        raise AssertionError(f"unexpected {method} {path}")
+
+    def fake_base(*args, **kwargs):
+        reads["n"] += 1
+        return curated if reads["n"] == 1 else stale
+
+    monkeypatch.setattr(aw, "_request", fake_request)
+    monkeypatch.setattr(aw, "_server_base", fake_base)
+
+    report = aw.resolve_trip_places(TRIP_ID, "http://x", "tok")
+
+    assert [o["name"] for o in report["locations_off_trip"]] == ["Moray"]
+    # only the trustworthy entry's block is pinned; the flagged one is reported
+    assert writes == [("blk-lima", {"placeId": "P-LIMA"})]
+    assert [b["title"] for b in report["blocks_without_venue"]] == ["De terrassen"]

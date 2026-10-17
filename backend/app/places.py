@@ -34,10 +34,16 @@ from .config import GOOGLE_MAPS_API_KEY, GOOGLE_PLACES_URL
 _DETAILS_TTL = 300.0  # 5 min — rating + review snippets + photo metadata
 _PHOTO_TTL = 900.0  # 15 min — proxied photo bytes (issue #95 decision)
 _SEARCH_TTL = 86400.0  # 24 h — venue name → place_id is effectively static
-#: Default radius of the location bias `search_place` sends, in metres, when the
-#: caller supplies a point but no radius: big enough to hold a country-scale
-#: trip's spread, since Google treats the circle as a ranking hint (#255).
-_BIAS_RADIUS_M = 200_000
+#: Radius of the location bias `search_place` sends, in metres, when the caller
+#: supplies a point but no radius. **Google's own maximum for
+#: `locationBias.circle.radius` is 50 km** — and a bigger circle is not clamped
+#: by Google, it is REJECTED (INVALID_ARGUMENT), which reaches this module as
+#: "no result" and the caller as `{"available": false}`. A rejected bias is
+#: therefore indistinguishable from a genuine miss, so an over-cap bias is
+#: silently dead (#431: the resolver asked for a 200 km circle on every lookup,
+#: got nothing back, fell back to an unbounded search, and wrote namesakes — a
+#: Sacred Valley "Moray" pinned to a village in Scotland, 10,052 km away).
+_BIAS_RADIUS_M = 50_000
 _MAX_REVIEW_SNIPPETS = 3
 
 _details_cache: dict[str, tuple[float, dict]] = {}
@@ -193,7 +199,9 @@ def search_place(
     countries — "Hotel Presidente" is a Madrid hotel and a San José hotel — and
     the unbiased top result is whatever Google ranks first, so a trip silently
     acquires a venue on another continent. It is a bias, not a filter: a genuine
-    far-away entry still resolves (the caller reports it instead, #255).
+    far-away entry still resolves (the caller reports it instead, #255). The
+    circle is capped at ``_BIAS_RADIUS_M`` — Google's own 50 km maximum, above
+    which it rejects the request instead of widening the circle (#431).
 
     Places API (New) ``places:searchText``. Compliance (#15/#95): this function
     returns Google content but persists nothing — the caller stores only
@@ -208,7 +216,11 @@ def search_place(
         return None
     bias = None
     if near is not None and isinstance(near[0], (int, float)) and isinstance(near[1], (int, float)):
-        bias = (round(float(near[0]), 5), round(float(near[1]), 5), int(radius_m or _BIAS_RADIUS_M))
+        # Never hand Google a radius it will reject: an over-cap circle comes
+        # back INVALID_ARGUMENT, which reads here exactly like "no such venue"
+        # and silently drops the bias (#431).
+        radius = min(max(int(radius_m or _BIAS_RADIUS_M), 1_000), _BIAS_RADIUS_M)
+        bias = (round(float(near[0]), 5), round(float(near[1]), 5), radius)
     cache_key = text.lower() if bias is None else f"{text.lower()}|{bias}"
     hit = _search_cache.get(cache_key)
     now = time.monotonic()
