@@ -454,7 +454,7 @@ export function RouteMap({
         const fetchedLists = await Promise.all(
           pairs.map((p) => {
             const [a, b] = p.split(">");
-            return fetchRouteLegs(trip, [a, b], false, abort.signal, [modeByPair.get(p) ?? null]);
+            return fetchRouteLegs(trip, [a, b], abort.signal, [modeByPair.get(p) ?? null]);
           }),
         );
         if (cancelled) return;
@@ -753,28 +753,29 @@ export function RouteMap({
         // Real geometry when the backend can give it; the trip's own
         // coordinates when it can't (maps unconfigured, or a leg with no road
         // route). A surface whose whole point is the route must draw SOMETHING.
-        // `chain` + `loop` is exactly the pair list `journey.legs` describes:
-        // the backend closes the loop itself, so the chain must NOT already
-        // repeat the first stop or the route gains a zero-length leg.
+        // The chain IS the pair list `journey.legs` describes (#433): it is a
+        // visit sequence, so a return appears in it as a stay and there is no
+        // closing leg to ask the backend for.
         const j = journeyRef.current;
+        const chainNames = j.chain.map((s) => s.name);
         if (j.legs.length) {
           const fetched = await fetchRouteLegs(
             trip,
-            j.chain.map((s) => s.name),
-            j.loop,
+            chainNames,
             abort.signal,
-            legModes(trip, j.chain.map((s) => s.name), j.loop),
+            legModes(trip, chainNames),
           );
           if (cancelled) return;
           const resolved: LegFeature[] | null =
             fetched == null
               ? null
               : j.legs.map((leg) => {
-                  const hit = fetched.find(
-                    (f) =>
-                      (f.from === leg.from.name && f.to === leg.to.name) ||
-                      (f.from === leg.to.name && f.to === leg.from.name),
-                  );
+                  // Same direction FIRST: a chain may run A→B and later B→A,
+                  // and the reversed match would hand each of them the other
+                  // leg's geometry/state.
+                  const hit =
+                    fetched.find((f) => f.from === leg.from.name && f.to === leg.to.name) ??
+                    fetched.find((f) => f.from === leg.to.name && f.to === leg.from.name);
                   return {
                     stage: leg.stage,
                     road: hit?.road ?? false,
@@ -1127,7 +1128,15 @@ export function RouteMap({
         el.addEventListener("click", () => onSelectRef.current(loc));
         excursionEls.set(loc.name, el);
       }
-      journeyRef.current.chain.forEach((loc) => {
+      // One pin per PLACE, in first-visit order: the chain is a visit sequence
+      // (#433), so a base the trip returns to appears once per stay — the map
+      // draws one marker per place, never a duplicate.
+      const chainPlaces = [
+        ...new Map<string, TripLocation>(
+          journeyRef.current.chain.map((loc) => [loc.name, loc] as const),
+        ).values(),
+      ];
+      chainPlaces.forEach((loc) => {
         const el = addPin(loc, false);
         el.addEventListener("click", () => onSelectRef.current(loc));
         stopPinEls.current.set(loc.name, el);

@@ -120,6 +120,28 @@ def test_gap_is_a_valid_positional_entry():
     assert parse_leg_modes(f"{GAP_MODE},") == [GAP_MODE, None]
 
 
+def test_a_repeated_place_is_just_consecutive_pairs(monkeypatch):
+    """A VISIT chain repeats a base (#433): Lima → Huaraz → Lima → Cusco.
+
+    The repeated name needs no special handling — the endpoint pairs the list
+    positionally, so the way back is a leg of its own with its own mode.
+    """
+    routed = _route_everything(monkeypatch)
+
+    legs = route_legs([A, B, A, C], "k", modes=parse_leg_modes("drive,drive,flight"))
+
+    assert [(leg["from"], leg["to"]) for leg in legs] == [
+        ("A", "B"),
+        ("B", "A"),
+        ("A", "C"),
+    ]
+    assert [leg["mode"] for leg in legs] == ["drive", "drive", "flight"]
+    assert [leg["road"] for leg in legs] == [True, True, False]
+    # The repeated pair is routed twice (there and back), and only the flight
+    # skips HERE.
+    assert routed == [("A", "B"), ("B", "A")]
+
+
 # --- the endpoint ----------------------------------------------------------
 
 

@@ -480,22 +480,20 @@ export function markerPaintRank(
 /**
  * Does the trip come back to where it started?
  *
- * This decides whether the route gets a closing leg. Asking the data beats
- * hardcoding `loop`, which the overview's route card does: on a trip that
- * flies home from its last stop the closing leg is a line nobody travels, and
- * on the flagship map surface a fictional leg is worse than a missing one.
+ * With the visit chain (#433) this is no longer a heuristic — it is a fact
+ * about the derived visits: the LAST stay is at the place the trip started
+ * at. The old test ("the first chain stop is visited both near the start and
+ * near the end") existed only because a unique-place chain could not express
+ * the return; it also mis-read trips whose start place merely had a late
+ * airport day.
  *
- * The test is deliberately blunt — the first CHAIN stop is visited both near
- * the start and near the end — because that is exactly what "returns to
- * start" means and it needs no new fields. Chain, not registry: the trip
- * starts where its journey starts, and excursions are not stops (#91).
+ * Unplaced stops (no attributed day) are ignored: they trail the chain as
+ * ideas and cannot decide where the trip ended.
  */
 export function returnsToStart(trip: Trip): boolean {
-  const chain = journeyOrder(trip);
-  const n = trip.days.length;
-  if (chain.length < 3 || n < 4) return false;
-  const visits = placeDays(trip, chain[0].name);
-  return visits.some((i) => i <= 1) && visits.some((i) => i >= n - 2);
+  const placed = journeyVisits(trip).filter((v) => v.days.length);
+  if (placed.length < 3) return false;
+  return placed[0].place === placed[placed.length - 1].place;
 }
 
 export interface JourneyLeg {
@@ -506,14 +504,49 @@ export interface JourneyLeg {
   block?: Block;
 }
 
+/**
+ * One stay at a re-base place (#433).
+ *
+ * A place is not a position in the journey — a base the trip RETURNS to
+ * (Lima: arrival on days 0–1, the night-bus arrival on 5–6, the departure on
+ * 14–16) is three visits, and only a visit sequence can chain
+ * `Huaraz → Lima → Cusco`. `days` is the contiguous run of days attributed to
+ * the place for THIS stay, so the surface can say which stay a leg belongs to;
+ * it is empty for a stop with no attributed day (an unplaced idea, tail of the
+ * chain).
+ */
+export interface JourneyVisit {
+  place: TripLocation;
+  /** 0-based day indices of this stay, ascending. Empty = no day attributed. */
+  days: number[];
+}
+
+/** Split an ascending day list into its contiguous runs. */
+function contiguousRuns(days: number[]): number[][] {
+  const runs: number[][] = [];
+  for (const d of days) {
+    const run = runs[runs.length - 1];
+    if (run && d === run[run.length - 1] + 1) run.push(d);
+    else runs.push([d]);
+  }
+  return runs;
+}
+
 export interface Journey {
   /** Every located place, in marker order — the trip's index (§8.3). */
   stops: TripLocation[];
-  /** The re-base stops in the order the trip visits them (see `journeyOrder`). */
+  /**
+   * The re-base stops in visit order — one entry per STAY, so a place the trip
+   * returns to appears once per stay (see `journeyVisits`).
+   */
   chain: TripLocation[];
-  /** Consecutive pairs along `chain`, plus the closing leg on a loop. */
+  /** Consecutive pairs of VISITS. A return is a visit, so there is no
+   *  synthetic closing leg: the chain carries the way home. */
   legs: JourneyLeg[];
+  /** The last stay is at the place the trip started at (`returnsToStart`). */
   loop: boolean;
+  /** The same sequence, with each stay's days — the derivation behind `chain`. */
+  visits: JourneyVisit[];
   /**
    * Excursions — located places the trip visits without re-basing there
    * (Rogers Pass from Revelstoke, a toured pass between two drives). Never in
@@ -522,33 +555,123 @@ export interface Journey {
   excursions: TripLocation[];
 }
 
+/** The stops that may appear in the chain: every located place on a scaffold
+ *  trip, only the re-base stops otherwise (#91). */
+function chainStops(trip: Trip): TripLocation[] {
+  return isRegistryScaffold(trip)
+    ? locatedPlaces(trip)
+    : locatedPlaces(trip).filter((l) => placeRole(trip, l.name) === "stop");
+}
+
 /**
- * The order the trip actually visits its re-base stops: earliest attributed
- * day first, registry position as the tie-break.
+ * The journey as a sequence of VISITS (#433): one entry per stay at a re-base
+ * place, earliest stay first.
  *
- * `trip.locations` is the ① ② ③ registry and is usually the journey order
- * too, but not reliably — a place added to the registry later lands at the
- * end regardless of when it is visited. Chaining the registry blind then
- * draws legs nobody travels. The itinerary knows better, so the itinerary
- * decides; places with no day attributed to them keep registry order at the
- * tail (first = Infinity), where an unplaced idea belongs.
+ * Why visits rather than places: `journeyOrder` used to emit each re-base
+ * stop ONCE, ordered by its first attributed day. A multi-base trip that
+ * returns to its start city (arrive Lima, night bus back to Lima, fly home
+ * from Lima) then had Lima in exactly one slot, so nothing sat between the
+ * Cordillera and the Cusco cluster and the movement
+ * `Huaraz → (night bus) Lima → (flight) Cusco` could not be chained at all —
+ * the hop was drawn as a road route across the country (#433). A place is
+ * not a position in an itinerary; a STAY is.
  *
- * Marker NUMBERS are untouched by this — they stay the registry index,
- * because they are the through-line to the drive cards and the booklet.
+ * The stays come from `placeDays` (the surface's one answer for "which days
+ * is the trip at this place"), split into CONTIGUOUS runs. No day-count knob:
+ * a stay ends when the trip is located somewhere else, and two runs of the
+ * same place are merged only when nothing sits between them — an excursion
+ * day at a venue (a ski day at a neighbouring hill, a pass toured from the
+ * base) must not split one stay in two.
+ *
+ * Ordering is by first day, registry position as the tie-break. Places with no
+ * attributed day keep registry order at the tail, where an unplaced idea
+ * belongs. Marker NUMBERS are untouched by any of this — they stay the
+ * registry index, the through-line to the drive cards and the booklet.
  *
  * EXCURSIONS (#91): a place that is never a re-base is excluded entirely. It
  * does not sit between two chain stops, so no leg to or from it exists and no
  * phantom through-route can be drawn through it — exclusion is structural,
  * not a styling choice.
  */
+export function journeyVisits(trip: Trip): JourneyVisit[] {
+  const stops = chainStops(trip);
+  const indexOf = new Map(stops.map((loc, i) => [loc, i] as const));
+  const daysByPlace = new Map(stops.map((loc) => [loc, placeDays(trip, loc.name)] as const));
+
+  const placed: { place: TripLocation; days: number[]; index: number }[] = [];
+  for (const place of stops) {
+    for (const run of contiguousRuns(daysByPlace.get(place) ?? [])) {
+      placed.push({ place, days: run, index: indexOf.get(place) ?? 0 });
+    }
+  }
+  placed.sort((a, b) => a.days[0] - b.days[0] || a.index - b.index);
+  orderSharedFirstDay(trip, placed);
+
+  const visits: JourneyVisit[] = [];
+  for (const v of placed) {
+    const last = visits[visits.length - 1];
+    if (last && last.place === v.place) last.days = [...last.days, ...v.days];
+    else visits.push({ place: v.place, days: [...v.days] });
+  }
+
+  // Ideas with no attributed day: registry order, after every real stay.
+  for (const place of stops) {
+    if (!(daysByPlace.get(place) ?? []).length) visits.push({ place, days: [] });
+  }
+  return visits;
+}
+
+/**
+ * Which of two places comes first on a day that names both — decided by the
+ * day's own transport blocks, when one connects the pair.
+ *
+ * A transfer day belongs to BOTH its endpoints (`placeDays`), so an arrival
+ * day can start two stays at once: "Land in Cusco — drive into the Sacred
+ * Valley" puts Cusco (day 7) and the valley (days 7–9) at the same first day,
+ * and registry order then had to guess. It guessed wrong: the valley came
+ * before Cusco, so the chain claimed a Cusco → Machu Picchu leg that nobody
+ * travels and lost the authored Cusco → valley drive into a reversed match.
+ * The block that describes the day already knows the direction, so it decides.
+ */
+function orderSharedFirstDay(
+  trip: Trip,
+  placed: { place: TripLocation; days: number[]; index: number }[],
+): void {
+  const dayOrder = (day: number, a: TripLocation, b: TripLocation): number | null => {
+    for (const block of trip.days[day]?.blocks ?? []) {
+      if (block.kind !== "transport") continue;
+      const e = blockEndpoints(trip, block);
+      if (e.from === a && e.to === b) return -1;
+      if (e.from === b && e.to === a) return 1;
+    }
+    return null;
+  };
+  // Insertion sort inside each same-first-day run: the comparator is only
+  // meaningful pairwise (a block connects two places, not a group), so a
+  // stable, local sort beats a global comparator that could contradict itself.
+  for (let i = 1; i < placed.length; i++) {
+    let j = i;
+    while (j > 0) {
+      const prev = placed[j - 1];
+      const cur = placed[j];
+      if (prev.days[0] !== cur.days[0]) break;
+      const order = dayOrder(cur.days[0], prev.place, cur.place);
+      if (order == null || order < 0) break;
+      placed[j - 1] = cur;
+      placed[j] = prev;
+      j--;
+    }
+  }
+}
+
+/**
+ * The order the trip actually visits its re-base stops — the visit sequence's
+ * places, so a place the trip returns to appears once per stay (#433). Kept as
+ * the plain place list because that is what the map and the booklet ask the
+ * route endpoint for; `journeyVisits` is the same sequence with the days.
+ */
 export function journeyOrder(trip: Trip): TripLocation[] {
-  const stops = isRegistryScaffold(trip)
-    ? locatedPlaces(trip)
-    : locatedPlaces(trip).filter((l) => placeRole(trip, l.name) === "stop");
-  return stops
-    .map((loc, index) => ({ loc, index, first: placeDays(trip, loc.name)[0] }))
-    .sort((a, b) => (a.first ?? Infinity) - (b.first ?? Infinity) || a.index - b.index)
-    .map((s) => s.loc);
+  return journeyVisits(trip).map((v) => v.place);
 }
 
 /** The trip's excursions in marker order — the complement of `journeyOrder`. */
@@ -568,23 +691,28 @@ export function daysAtLocation(trip: Trip, name: string): number[] {
  * The whole journey: every located place, the re-base chain between them, and
  * the excursions beside it.
  *
- * `stops` is registry order (marker numbers); `chain` and `legs` are journey
+ * `stops` is registry order (marker numbers); `chain` and `legs` are visit
  * order, which is what the map draws and what the list mirrors — so the list
  * reads down the route even where the marker numbers do not (§8.3: the number
  * is the index, the line is the journey). Only chain members are paired into
  * legs, so an excursion is structurally unable to gain one.
+ *
+ * A RETURN is a visit (#433): the chain ends at the place the trip comes back
+ * to, so `legs` simply pairs consecutive visits and there is no synthetic
+ * closing pair any more — the way home is a leg with its own block (a drive
+ * card, a flight), not a line the derivation invented.
  */
 export function tripJourney(trip: Trip): Journey {
   const stops = locatedPlaces(trip);
-  const chain = journeyOrder(trip);
-  const loop = returnsToStart(trip);
+  const visits = journeyVisits(trip);
+  const chain = visits.map((v) => v.place);
   const pairs: [TripLocation, TripLocation][] = [];
-  for (let i = 0; i + 1 < chain.length; i++) pairs.push([chain[i], chain[i + 1]]);
-  if (loop && chain.length > 2) pairs.push([chain[chain.length - 1], chain[0]]);
+  for (let i = 0; i + 1 < visits.length; i++) pairs.push([chain[i], chain[i + 1]]);
   return {
     stops,
     chain,
-    loop,
+    visits,
+    loop: returnsToStart(trip),
     excursions: tripExcursions(trip),
     legs: pairs.map(([from, to]) => ({ from, to, ...legStage(trip, from, to) })),
   };
@@ -638,21 +766,23 @@ export const LEG_GAP_MODE = "gap";
 
 /**
  * The declared transport mode per leg of a place chain — the value the
- * backend's `modes` parameter wants (same order as the pairs `places` produce,
- * including the closing leg when `loop`).
+ * backend's `modes` parameter wants (same order as the pairs `places` produce).
  *
  * The matched transport block's own `mode` is the intent (a `flight` leg must
  * never be car-routed down a highway — SCL→CUZ is a plane, not the
  * Pan-American); `LEG_GAP_MODE` when NO block describes the pair, so the
  * backend draws an honest provisional arc instead of inventing a road (#433).
  * Unresolvable pairs ride along as `undefined` so positions stay aligned.
+ *
+ * No `loop` parameter any more (#433): the chain is a VISIT sequence and a
+ * return is a real visit, so the pairs are exactly consecutive places — there
+ * is no synthetic closing pair for the caller to ask for.
  */
-export function legModes(trip: Trip, places: string[], loop: boolean): (string | undefined)[] {
+export function legModes(trip: Trip, places: string[]): (string | undefined)[] {
   const names = places.map((p) => findLocation(trip, p));
   const pairs: [TripLocation | undefined, TripLocation | undefined][] = names
     .slice(0, -1)
     .map((loc, i) => [loc, names[i + 1]]);
-  if (loop && names.length > 1) pairs.push([names[names.length - 1], names[0]]);
   return pairs.map(([a, b]) =>
     a && b ? legBlock(trip, a, b)?.mode ?? LEG_GAP_MODE : undefined,
   );

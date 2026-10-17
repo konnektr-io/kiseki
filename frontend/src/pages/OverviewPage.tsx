@@ -16,7 +16,7 @@ import { useTripWrite } from "../lib/useTripWrite";
 import { putTrip } from "../lib/api";
 import { capture } from "../lib/posthog";
 import { TripMap } from "../components/MapView";
-import { journeyOrder, returnsToStart } from "../lib/route-surface";
+import { journeyOrder } from "../lib/route-surface";
 import { tripTracks } from "../lib/tracks";
 import type { Feature } from "../lib/types";
 
@@ -24,9 +24,10 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
   const trip = useTrip();
   const [open, setOpen] = useState(false);
   // The feature map mirrors the itinerary surface: the re-base chain in
-  // journey order with the derived loop (#91). Registry venues (hotels,
-  // restaurants) are excursions — plotting every located place here drew
-  // them as numbered chain stops with a phantom closing leg.
+  // VISIT order (#433), so a base the trip returns to appears in the sequence
+  // and the way home is a real leg rather than a phantom closing one. Registry
+  // venues (hotels, restaurants) are excursions — plotting every located place
+  // here drew them as numbered chain stops.
   const chain = journeyOrder(trip);
   return (
     <Card className="overflow-hidden p-5">
@@ -41,7 +42,7 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
               had this one on the globe, which cost it the DEM). The globe is
               the landing map's alone — `components/HomeMap`. The booklet prints
               through this same TripMap, so screen and paper agree. */}
-          <TripMap places={chain.map((l) => l.name)} loop={returnsToStart(trip)} tracks={tripTracks(trip)} />
+          <TripMap places={chain.map((l) => l.name)} tracks={tripTracks(trip)} />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

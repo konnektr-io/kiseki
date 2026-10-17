@@ -41,7 +41,6 @@ import { Floating } from "./ui";
 
 interface MapViewProps {
   places: string[];
-  loop?: boolean;
   className?: string;
   showLiveTime?: boolean;
   /** Compact thumbnail (h-24) for block card media — single pin, minimal chrome. */
@@ -66,7 +65,7 @@ interface MapViewProps {
  * around this component. The booklet PDF renders the SAME map live via
  * Playwright+SwiftShader, so screen and paper share basemap/markers/routes.
  */
-export function MapView({ places, loop = false, className = "", showLiveTime = true, compact = false, tracks = [] }: MapViewProps) {
+export function MapView({ places, className = "", showLiveTime = true, compact = false, tracks = [] }: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
@@ -313,7 +312,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
             .filter((u): u is string => u != null);
           const [fetchedLegs, ...fetchedTracks] = await Promise.all([
             !single && located.length > 1
-              ? fetchRouteLegs(trip, places, loop, abort.signal, legModes(trip, places, loop))
+              ? fetchRouteLegs(trip, places, abort.signal, legModes(trip, places))
               : Promise.resolve(null),
             ...trackUrls.map((u) => fetchTrack(u, abort.signal).catch(() => null)),
           ]);
@@ -579,7 +578,7 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
       abort.abort();
       map?.remove();
     };
-  }, [trip, placesKey, tracksKey, loop, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
+  }, [trip, placesKey, tracksKey, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
 
   // No WebGL2 or tile/style load failure: placeholder so the page never has an
   // empty grey box and the PDF waiter can resolve via data-map-failed.
@@ -636,12 +635,12 @@ export function MapView({ places, loop = false, className = "", showLiveTime = t
  * This component is intentionally thin — it just validates there is something
  * to show and forwards to MapView.
  */
-export function TripMap({ places, loop = false, tracks }: { places: string[]; loop?: boolean; tracks?: string[] }) {
+export function TripMap({ places, tracks }: { places: string[]; tracks?: string[] }) {
   const trip = useTrip();
   const all = locatedPlaces(trip);
   if (all.length < 1) return null;
   // Route maps need at least one resolvable place in `places`; TripMap callers
   // already pass the relevant subset (e.g. [from,to] for a leg, all for overview).
   // We don't second-guess that here — MapView itself handles 1 vs 2+ places.
-  return <MapView places={places} loop={loop} tracks={tracks} />;
+  return <MapView places={places} tracks={tracks} />;
 }

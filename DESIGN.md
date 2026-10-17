@@ -824,6 +824,21 @@ surface adds a second
   with an unresolvable endpoint (`from`/`to` None — BRU→SCL, Lima→home) matches nothing. The
   matched mode flows through the existing echo (`legModes` → great-circle + glyphs at ¼/¾) and
   `legStage` inherits the match — a matched flight reads the trip stage, never `provisional`.
+- **The chain is a sequence of VISITS, not places** (2026-10, #433). `journeyVisits` derives one
+  entry per STAY at a re-base place: `placeDays` per stop, split into contiguous day runs, ordered
+  by first day and merged only when nothing sits between two runs of the same place (an excursion
+  day at a venue never splits a stay). A base the trip returns to — Lima on days 0–2, 5–7 and
+  14–16 — therefore appears once per stay, which is what makes `Huaraz → (night bus) Lima →
+  (flight) Cusco` chainable at all; a unique-place chain had Lima in one slot and drew the hop as
+  a road across the country. Consequences: `Journey.chain` may repeat a place (both map surfaces
+  ask the route endpoint for the repeated sequence, which the endpoint already tolerated);
+  `returnsToStart` is now a fact (the last stay is the start place) instead of the old
+  "visited near both ends" guess; a RETURN is a real leg with its own block, so there is no
+  synthetic closing pair and no `loop` flag anywhere in the client (`legModes`/`fetchRouteLegs`
+  lost the parameter); stop PINS are deduped by place, because a visited-twice base still gets one
+  numbered marker. Two stays that start on the same transfer day (land in Cusco, drive into the
+  valley) are ordered by that day's own transport block — the authored direction decides, never
+  registry order.
 - **A chain gap is not a road** (2026-10, #433). A leg the derivation joins between two
   re-base stops but nobody authored travel for (no transport block of its own) is a GAP.
   It draws provisional (§5.3) as a **great-circle arc**, never a road route: `legModes`

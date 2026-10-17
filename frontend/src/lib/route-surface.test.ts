@@ -9,6 +9,7 @@ import {
   greatCircle,
   isRegistryScaffold,
   journeyOrder,
+  journeyVisits,
   legBlock,
   legModes,
   legStage,
@@ -543,7 +544,7 @@ describe("a chain gap is never road-routed (#433)", () => {
 
   it("legModes labels the unauthored pair as a gap, not as a road", () => {
     const t = gapTrip();
-    expect(legModes(t, ["Here", "There"], false)).toEqual([LEG_GAP_MODE]);
+    expect(legModes(t, ["Here", "There"])).toEqual([LEG_GAP_MODE]);
   });
 
   it("a gap is still provisional — the sentinel never dresses it as travel", () => {
@@ -557,14 +558,161 @@ describe("a chain gap is never road-routed (#433)", () => {
     t.days[1] = dayAt(1, "Bus", [
       { id: "bus", kind: "transport", mode: "drive", from: "Here", to: "There" } as Block,
     ]);
-    expect(legModes(t, ["Here", "There"], false)).toEqual(["drive"]);
+    expect(legModes(t, ["Here", "There"])).toEqual(["drive"]);
   });
 
-  it("the closing leg of a loop is covered positionally too", () => {
-    // loop=true appends the return pair; both slots must be described, or the
-    // backend's positional contract would answer the tail with a road.
+  it("describes every pair of a repeated sequence positionally", () => {
+    // A visit chain repeats places (#433); one `modes` entry per LEG still
+    // holds, because the pairs are consecutive places and know nothing of the
+    // chain's shape.
     const t = gapTrip();
-    expect(legModes(t, ["Here", "There"], true)).toEqual([LEG_GAP_MODE, LEG_GAP_MODE]);
+    expect(legModes(t, ["Here", "There", "Here"])).toEqual([LEG_GAP_MODE, LEG_GAP_MODE]);
+  });
+});
+
+
+describe("journeyVisits (#433: a re-visited base chains)", () => {
+  // The Peru 2027 shape from the issue: Lima is the ARRIVAL city (days 0–2),
+  // the NIGHT-BUS arrival (days 5–7) and the DEPARTURE city (days 14–16).
+  // A unique-place chain could hold Lima once, so Huaraz → Lima → Cusco could
+  // never be expressed and the hop was drawn as a road across the Andes.
+  const lima = loc("Lima", -12.0464, -77.0428);
+  const huaraz = loc("Huaraz", -9.5278, -77.5278);
+  const cusco = loc("Cusco", -13.5319, -71.9675);
+
+  const peruVisitTrip = (): Trip =>
+    ({
+      id: "t-peru-visits",
+      slug: "peru-visits",
+      title: "Peru",
+      stage: "booked",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [lima, huaraz, cusco],
+      sections: [],
+      days: [
+        dayAt(0, "Aankomst", [
+          { id: "out", kind: "transport", mode: "flight", title: "Brussel → Lima", to: "Lima", status: "booked" } as Block,
+        ]),
+        dayAt(1, "Lima"),
+        dayAt(2, "Naar Huaraz", [
+          { id: "drive", kind: "transport", mode: "drive", title: "Rit Lima → Huaraz", from: "Lima", to: "Huaraz", status: "booked" } as Block,
+        ]),
+        dayAt(3, "Huaraz"),
+        dayAt(4, "Huaraz"),
+        dayAt(5, "Nachtbus", [
+          { id: "bus", kind: "transport", mode: "drive", title: "Nachtbus Huaraz → Lima", from: "Huaraz", to: "Lima", status: "booked" } as Block,
+        ]),
+        dayAt(6, "Lima"),
+        dayAt(7, "Vlucht", [
+          { id: "flight", kind: "transport", mode: "flight", title: "Vlucht LIM → CUZ", from: "Lima", to: "Cusco", status: "booked" } as Block,
+        ]),
+        dayAt(8, "Cusco"),
+        dayAt(9, "Cusco"),
+        dayAt(10, "Cusco"),
+        dayAt(11, "Cusco"),
+        dayAt(12, "Cusco"),
+        dayAt(13, "Cusco"),
+        dayAt(14, "Terug", [
+          { id: "back", kind: "transport", mode: "flight", title: "Vlucht CUZ → LIM", from: "Cusco", to: "Lima", status: "booked" } as Block,
+        ]),
+        dayAt(15, "Lima"),
+        dayAt(16, "Naar huis", [
+          { id: "home", kind: "transport", mode: "flight", title: "Lima → Brussel", from: "Lima", status: "booked" } as Block,
+        ]),
+      ],
+    }) as unknown as Trip;
+
+  it("splits a re-visited base into one visit per stay", () => {
+    const visits = journeyVisits(peruVisitTrip());
+    expect(visits.map((v) => `${v.place.name}@${v.days.join(",")}`)).toEqual([
+      "Lima@0,1,2",
+      "Huaraz@2,3,4,5",
+      "Lima@5,6,7",
+      "Cusco@7,8,9,10,11,12,13,14",
+      "Lima@14,15,16",
+    ]);
+  });
+
+  it("chains Huaraz → Lima → Cusco — the movement the issue could not express", () => {
+    const j = tripJourney(peruVisitTrip());
+    expect(j.chain.map((s) => s.name)).toEqual(["Lima", "Huaraz", "Lima", "Cusco", "Lima"]);
+    expect(j.legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
+      "Lima→Huaraz",
+      "Huaraz→Lima",
+      "Lima→Cusco",
+      "Cusco→Lima",
+    ]);
+    // Every hop carries its own block — no gap across the Cordillera.
+    expect(j.legs.map((l) => l.block?.id)).toEqual(["drive", "bus", "flight", "back"]);
+    expect(j.legs.some((l) => l.from.name === "Huaraz" && l.to.name === "Cusco")).toBe(false);
+    expect(j.legs.every((l) => l.stage === "booked")).toBe(true);
+    // The return is a VISIT: the route closes without a synthetic fifth leg.
+    expect(j.loop).toBe(true);
+    expect(j.legs).toHaveLength(4);
+    expect(legModes(peruVisitTrip(), j.chain.map((s) => s.name))).toEqual([
+      "drive",
+      "drive",
+      "flight",
+      "flight",
+    ]);
+  });
+
+  it("does not split one stay over an excursion day at a venue", () => {
+    // canadaLive's day 5 is a heli day at Rogers Pass (an excursion venue) in
+    // the middle of the Revelstoke stay: a stay ends when the trip is located
+    // somewhere ELSE, never because a day happened away from the base.
+    const visits = journeyVisits(canadaLive());
+    const revelstoke = visits.filter((v) => v.place.name === "Revelstoke");
+    expect(revelstoke).toHaveLength(1);
+    expect(revelstoke[0].days).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("orders two stays that start on the same transfer day by the day's own block", () => {
+    // Chile day 7 both lands in Cusco and drives into the Sacred Valley, so
+    // BOTH stays start that day. Registry order put the valley first; the
+    // drive block (Cusco → valley) is the authored order, and it wins (#433).
+    const visits = journeyVisits(chile());
+    const firstCusco = visits.findIndex((v) => v.place.name === "Cusco");
+    const valley = visits.findIndex((v) => v.place.name === "Sacred Valley");
+    expect(visits[firstCusco].days[0]).toBe(visits[valley].days[0]);
+    expect(firstCusco).toBeLessThan(valley);
+  });
+
+  it("keeps unplaced ideas in registry order at the tail of a scaffold trip", () => {
+    // A sketch: places curated, nothing scheduled yet. Every place is a chain
+    // stop (no re-base evidence either way), and none has a day — the chain is
+    // the registry order, and `days` is empty rather than invented.
+    const a = loc("Here", 1, 2);
+    const b = loc("There", 3, 4);
+    const c = loc("Elsewhere", 5, 6);
+    const sketch = {
+      id: "t-sketch",
+      slug: "sketch",
+      title: "Sketch",
+      stage: "idea",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: [a, b, c],
+      sections: [],
+      days: [dayAt(0, "Day one"), dayAt(1, "Day two")],
+    } as unknown as Trip;
+
+    const visits = journeyVisits(sketch);
+    expect(visits.map((v) => `${v.place.name}@${v.days.length}`)).toEqual([
+      "Here@0",
+      "There@0",
+      "Elsewhere@0",
+    ]);
+    expect(tripJourney(sketch).legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
+      "Here→There",
+      "There→Elsewhere",
+    ]);
+    // And an un-attributed place never splits a real stay: canadaLive's chain
+    // ends with the return visit, not with trailing ideas.
+    expect(journeyVisits(canadaLive()).map((v) => v.place.name).at(-1)).toBe("YYC");
   });
 });
 
@@ -729,7 +877,7 @@ describe("markerPaintRank (#388: a venue diamond never covers the trip's pins)",
     // `marker-stacking.test.ts`; this pins the creation order it complements.
     const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
     const excursions = scan.indexOf("for (const loc of locatedExcursions)");
-    const stops = scan.indexOf("journeyRef.current.chain.forEach");
+    const stops = scan.indexOf("chainPlaces.forEach");
     expect(excursions).toBeGreaterThanOrEqual(0);
     expect(stops).toBeGreaterThanOrEqual(0);
     expect(excursions).toBeLessThan(stops);
@@ -884,13 +1032,15 @@ describe("tripJourney (#91: chain + excursions)", () => {
       "Rogers Pass",
     ]);
     // The chain runs airport → Banff → Revelstoke → Golden → Lake Louise and
-    // back; Rogers Pass is NOT spliced between Revelstoke and Golden.
+    // BACK to YYC — the way home is a VISIT now (#433), not a synthetic
+    // closing pair; Rogers Pass is NOT spliced between Revelstoke and Golden.
     expect(j.chain.map((s) => s.name)).toEqual([
       "YYC",
       "Banff",
       "Revelstoke",
       "Golden",
       "Lake Louise",
+      "YYC",
     ]);
     expect(j.excursions.map((s) => s.name)).toEqual(["Rogers Pass"]);
     expect(j.loop).toBe(true);
@@ -901,6 +1051,8 @@ describe("tripJourney (#91: chain + excursions)", () => {
       "Golden→Lake Louise",
       "Lake Louise→YYC",
     ]);
+    // …and that last leg is the day-15 drive home, not a line nobody authored.
+    expect(j.legs[j.legs.length - 1].block?.id).toBe("b6");
   });
 
   it("never draws a leg through an excursion — structurally", () => {
@@ -920,27 +1072,43 @@ describe("tripJourney (#91: chain + excursions)", () => {
   it("chains chile by visit order with the multi-place chapters as single stops", () => {
     const j = tripJourney(chile());
     expect(j.excursions).toEqual([]); // every place is a chapter base
+    // Santiago is BOTH ends of the Andes chapter (in on day 4, back down on
+    // day 7) and the overnight flight leaves from there — three stays, so it
+    // appears twice, and Cusco appears twice too (#433). The arrival day
+    // starts two stays at once (Cusco airport → the valley); the day's own
+    // drive block decides that Cusco comes first, not the registry order.
     expect(j.chain.map((s) => s.name)).toEqual([
       "Santiago",
       "Valle Nevado",
-      "Sacred Valley",
+      "Santiago",
       "Cusco",
+      "Sacred Valley",
       "Machu Picchu",
+      "Cusco",
       "Lima",
     ]);
-    // Booked drive in; the overnight flight gateway-matches the valley hop
-    // (#361 slice 4: Santiago≈Valle Nevado 46 km, Cusco≈Sacred Valley 33 km —
-    // both inside the 50 km gateway rule), so the hop reads the trip stage
-    // instead of provisional. Honest: the leg's long-haul travel IS that
-    // flight, and a 2,500 km car route would be the lie. The Cusco arrival
-    // drive speaks (trip stage = planned); the train hops and the to-only
-    // Lima flight leave honest gaps.
+    // Every authored movement now chains with its OWN block: the booked drives
+    // in and back down, the overnight SCL→CUZ flight (exact endpoints, no
+    // gateway guesswork), the Cusco arrival drive, the train up to Machu
+    // Picchu, and the trip stage for the unstatused cards. The train back down
+    // and the to-only `Fly to Lima` card leave honest gaps (provisional).
     expect(j.legs.map((l) => [`${l.from.name}→${l.to.name}`, l.stage])).toEqual([
       ["Santiago→Valle Nevado", "booked"],
-      ["Valle Nevado→Sacred Valley", "planned"],
-      ["Sacred Valley→Cusco", "planned"],
-      ["Cusco→Machu Picchu", "provisional"],
-      ["Machu Picchu→Lima", "provisional"],
+      ["Valle Nevado→Santiago", "booked"],
+      ["Santiago→Cusco", "planned"],
+      ["Cusco→Sacred Valley", "planned"],
+      ["Sacred Valley→Machu Picchu", "planned"],
+      ["Machu Picchu→Cusco", "provisional"],
+      ["Cusco→Lima", "provisional"],
+    ]);
+    expect(j.legs.map((l) => l.block?.id ?? null)).toEqual([
+      "c1",
+      "c4",
+      "c5",
+      "c6",
+      "c7",
+      null,
+      null,
     ]);
     expect(j.loop).toBe(false);
   });
@@ -952,7 +1120,7 @@ describe("tripJourney (#91: chain + excursions)", () => {
     trip.days[3].blocks = [{ id: "b9", kind: "activity", title: "Tour Rogers Pass" }];
     expect(placeDays(trip, "Rogers Pass")).toEqual([3]);
     const j = tripJourney(trip);
-    expect(j.chain.map((s) => s.name)).toEqual(["YYC", "Banff", "Revelstoke", "Golden"]);
+    expect(j.chain.map((s) => s.name)).toEqual(["YYC", "Banff", "Revelstoke", "Golden", "YYC"]);
     expect(j.excursions.map((s) => s.name)).toEqual(["Rogers Pass"]);
     expect(j.legs.map((l) => `${l.from.name}→${l.to.name}`)).toEqual([
       "YYC→Banff",
@@ -964,7 +1132,9 @@ describe("tripJourney (#91: chain + excursions)", () => {
 
   it("tripExcursions is the marker-order complement of journeyOrder", () => {
     const trip = canadaLive();
-    const chain = journeyOrder(trip).map((l) => l.name);
+    // The chain repeats a re-visited base (#433); the EXCURSION complement is
+    // about membership, so compare the distinct places.
+    const chain = [...new Set(journeyOrder(trip).map((l) => l.name))];
     const excursions = tripExcursions(trip).map((l) => l.name);
     expect([...chain, ...excursions].sort()).toEqual(
       trip.locations!.map((l) => l.name).sort(),
@@ -1117,8 +1287,8 @@ describe("resolveLegCoordinates (#357 slice 3A: the §8.4 promise)", () => {
       days: [],
       locations: [a, b],
     } as unknown as Trip;
-    expect(legModes(flight, ["Here", "There"], false)).toEqual(["flight"]);
-    expect(legModes(plain, ["Here", "There"], false)).toEqual([LEG_GAP_MODE]);
+    expect(legModes(flight, ["Here", "There"])).toEqual(["flight"]);
+    expect(legModes(plain, ["Here", "There"])).toEqual([LEG_GAP_MODE]);
   });
 });
 
