@@ -1044,6 +1044,12 @@ def _hermes_headers(session_key: str | None = None) -> dict[str, str]:
     }
     if session_key:
         headers["X-Hermes-Session-Key"] = session_key
+        # The runs API adapter keeps the PERSON and the CONVERSATION apart: the
+        # conversation travels in the body's session_id, and the person is read
+        # from this header to derive the per-user Honcho peer. Sending only the
+        # session key leaves the adapter with user=unknown, so nothing is scoped
+        # to the user and Honcho creates one peer per thread instead.
+        headers["X-Hermes-User"] = session_key
     return headers
 
 

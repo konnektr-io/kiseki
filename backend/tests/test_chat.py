@@ -2207,3 +2207,17 @@ class _FakeConfig:
         self.KISEKI_S3_SECRET_KEY = ""
         self.KISEKI_S3_REGION = ""
         self.ASSETS_DIR = root
+
+
+def test_hermes_headers_carry_the_actor_as_the_user_identity(monkeypatch) -> None:
+    """The runs adapter reads the PERSON from ``X-Hermes-User``.
+
+    Sending only ``X-Hermes-Session-Key`` leaves the adapter with
+    ``user=unknown``: it derives no per-user peer, and Honcho falls back to one
+    peer per thread (observed live after the adapter cutover).
+    """
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_URL", "http://hermes:8643", raising=False)
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_KEY", "k", raising=False)
+    headers = chat_module._hermes_headers("auth0|abc")
+    assert headers["X-Hermes-Session-Key"] == "auth0|abc"
+    assert headers["X-Hermes-User"] == "auth0|abc"
