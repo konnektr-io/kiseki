@@ -235,6 +235,27 @@ async function relayErrorMessage(res: Response): Promise<string> {
   return text || `Request failed (${res.status})`;
 }
 
+/** The relay's own classification of a failed turn (issue #441).
+ *
+ * The relay is the only party that knows WHY the agent API failed, so it
+ * classifies at the source and streams the answer as a `data-kiseki-failure`
+ * part before the error chunk (the SDK hands the caller only the error TEXT,
+ * so this cannot ride the error chunk itself). `kind` is the decision:
+ * `"request"` = the agent REFUSED the request body (a byte-identical re-send
+ * fails identically — the reason is the only useful affordance); `"transient"`
+ * = a retry can still fix it, so the reconnect/re-run path stays as it is.
+ * Absent entirely = the relay said nothing (a dropped socket, an older
+ * relay), which is also the old behaviour. */
+export interface ChatFailure {
+  kind: "request" | "transient" | (string & {});
+  /** The agent API's own status — the datum that classifies a 4xx as
+   *  request-shaped and a 5xx as transient. */
+  status?: number;
+  /** The agent's own one-line reason, already redacted and shortened
+   *  server-side. Request-shaped failures only: a 5xx page is machinery. */
+  message?: string;
+}
+
 /** A turn in flight (issue #217): the relay's identity for it, how many of its
  *  frames this client has already rendered, and the anchors a later attach
  *  needs. Persisting them is what turns a dropped connection into a resumed
@@ -416,9 +437,16 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
       options.fetchImpl ??
       ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
     // Shared with the request hook below, which runs before `this` is usable.
-    const state: { turn: TurnState | null; focus: ChatFocus | null } = {
+    const state: {
+      turn: TurnState | null;
+      focus: ChatFocus | null;
+      /** The relay's classification of the LAST failed turn (#441). Cleared at
+       *  every new send: it describes one turn, never the thread. */
+      failure: ChatFailure | null;
+    } = {
       turn: options.turn ? { ...options.turn } : null,
       focus: options.focus ?? null,
+      failure: null,
     };
     super({
       api: "/api/chat",
@@ -461,6 +489,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
             typeof opening?.id === "string" && opening.id ? opening.id : null,
         };
         state.turn = turn;
+        state.failure = null; // #441: the classification belongs to one turn
         saveTurnState(threadId, turn);
         return {
           body: {
@@ -481,7 +510,11 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
     this.fetchImpl = fetchImpl;
   }
 
-  private readonly state: { turn: TurnState | null; focus: ChatFocus | null };
+  private readonly state: {
+    turn: TurnState | null;
+    focus: ChatFocus | null;
+    failure: ChatFailure | null;
+  };
   private readonly threadId: string;
   private readonly tripId?: string;
   private readonly getToken: () => Promise<string>;
@@ -509,6 +542,14 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
    *  reads this to know it must put that back. */
   get lastAttachFailed(): boolean {
     return this.attachFailed;
+  }
+
+  /** The relay's classification of the last FAILED turn (#441), or null when
+   *  it classified nothing (a dropped socket, an older relay). Read at render
+   *  time by the panel: `chatOutage` needs it to tell a refused request — show
+   *  the reason, offer no re-send — from a transient outage. */
+  get failure(): ChatFailure | null {
+    return this.state.failure;
   }
 
   /** Re-scope the drawer (#330): the next SUBMITTED turn carries this entity
@@ -618,6 +659,17 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
   }
 
   private onFrame(chunk: UIMessageChunk): void {
+    // #441: the relay's classification of a failing turn arrives as its own
+    // data part, one frame BEFORE the error chunk (the error chunk itself only
+    // carries text to the SDK's caller). Capture it first: the error chunk
+    // below drops the turn, and the panel reads this to decide between
+    // "show the reason, no re-send" and today's outage affordances.
+    if (chunk.type === FAILURE_PART) {
+      const data = (chunk as { data?: unknown }).data;
+      if (data !== null && typeof data === "object") {
+        this.state.failure = data as ChatFailure;
+      }
+    }
     const turn = this.state.turn;
     if (!turn) return;
     turn.cursor += 1;
@@ -835,6 +887,12 @@ export interface ChatActivity {
  *  tool needed. The SDK stores the chunk verbatim as a message part and
  *  updates `.data` in place on the completing chunk (same part `id`). */
 export const ACTIVITY_PART = "data-kiseki-activity";
+
+/** The relay's failure-classification data-part type (issue #441) — same
+ *  `data-*` custom-part mechanism as the activity feed, emitted one frame
+ *  before the terminal `error` chunk. The panel's outage rule reads it through
+ *  `KisekiChatTransport.failure`; nothing is executed client-side. */
+export const FAILURE_PART = "data-kiseki-failure";
 
 export function messageActivities(message: UIMessage): ChatActivity[] {
   const rows: ChatActivity[] = [];
@@ -1213,5 +1271,16 @@ export function useTripChat({
   // from "the turn is gone — say nothing, or offer an explicit re-run when
   // nothing arrived at all". Read at render time; every flip is accompanied by
   // a `recovery` transition, which re-renders.
-  return { ...chat, resumeTurn, recovery, resumable: transport.resumable };
+  //
+  // `failure` (#441) rides the same seam: the relay's own classification of
+  // the turn that just failed, so the panel can show WHY instead of offering a
+  // re-send that can only fail again. Read at render time, like `resumable`;
+  // the error state it accompanies re-renders the panel.
+  return {
+    ...chat,
+    resumeTurn,
+    recovery,
+    resumable: transport.resumable,
+    failure: transport.failure,
+  };
 }

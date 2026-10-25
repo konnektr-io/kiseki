@@ -43,6 +43,7 @@ from .chat import (
     attach_turn_stream,
     build_run_body,
     error_chunk,
+    failure_chunk,
     get_turn,
     latest_turn_for_thread,
     new_turn_key,
@@ -2782,6 +2783,12 @@ async def post_chat(
             except HTTPException as exc:
                 # Headers are already sent — the status can't change, so signal
                 # the failure in-stream (upstream 502/503 surfaces here).
+                # #441: the relay's classification rides FIRST, so the panel can
+                # tell "the agent refused this request" (show the reason, never
+                # offer a re-send) from "it broke" (offer the retry).
+                failure = getattr(exc, "failure", None)
+                if failure:
+                    yield sse_data(failure_chunk(key, failure))
                 yield sse_data(error_chunk(str(exc.detail)))
                 yield SSE_DONE
                 return
@@ -2789,6 +2796,9 @@ async def post_chat(
             async for frame in attach_turn_stream(turn, cursor=cursor):
                 yield frame
         except HTTPException as exc:
+            failure = getattr(exc, "failure", None)
+            if failure:
+                yield sse_data(failure_chunk(key, failure))
             yield sse_data(error_chunk(str(exc.detail)))
             yield SSE_DONE
 

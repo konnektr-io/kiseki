@@ -2221,3 +2221,183 @@ def test_hermes_headers_carry_the_actor_as_the_user_identity(monkeypatch) -> Non
     headers = chat_module._hermes_headers("auth0|abc")
     assert headers["X-Hermes-Session-Key"] == "auth0|abc"
     assert headers["X-Hermes-User"] == "auth0|abc"
+
+
+# --------------------------------------- request-shaped failures (#441)
+# A turn the agent REFUSES is not a turn that can be retried, and the surface
+# used to collapse both into one blind "Run again" that re-sent the identical
+# body while the reason sat unread in the relay's error text. The relay classifies
+# at the source (it is the only party that sees the upstream status) and streams
+# the classification as a `data-kiseki-failure` part before the error chunk.
+
+#: The exact refusal the issue was filed on: a message with an image, before the
+#: adapter learned part-shaped content — `POST /v1/runs` answered 400 in ~0.1 s.
+UPSTREAM_400 = (
+    '{"error":{"message":"No user message in the request body",'
+    '"code":"invalid_request"}}'
+)
+
+
+def test_upstream_4xx_is_a_request_failure_carrying_the_agents_reason() -> None:
+    failure = chat_module.classify_upstream_failure(400, UPSTREAM_400)
+    assert failure == {
+        "kind": chat_module.FAILURE_REQUEST,
+        "status": 400,
+        "message": "No user message in the request body",
+    }
+
+
+def test_upstream_reason_never_quotes_machinery() -> None:
+    """An HTML gateway page or a traceback is not a reason.
+
+    The failure still classifies as request-shaped (the status is what decides
+    that); it simply has nothing human to say, so no message travels.
+    """
+    for body in (
+        "<html><body><h1>502 Bad Gateway</h1></body></html>",
+        "Traceback (most recent call last):\n  File \"x\", line 1\nValueError",
+        "",
+    ):
+        assert chat_module.classify_upstream_failure(422, body) == {
+            "kind": chat_module.FAILURE_REQUEST,
+            "status": 422,
+        }
+
+
+def test_upstream_reason_is_redacted_and_shortened() -> None:
+    """The surface never carries a secret, and a reason is a line, not a body."""
+    body = json.dumps(
+        {
+            "detail": (
+                "bad token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln " + "x" * 500
+            )
+        }
+    )
+    failure = chat_module.classify_upstream_failure(400, body)
+    assert "eyJ" not in failure["message"]
+    assert "[redacted]" in failure["message"]
+    assert len(failure["message"]) <= chat_module._UPSTREAM_REASON_MAX
+
+
+def test_upstream_5xx_is_transient_and_carries_no_reason() -> None:
+    """A 5xx is machinery: retrying is honest, and a gateway page is not a
+    reason to show a traveller."""
+    assert chat_module.classify_upstream_failure(503, '{"detail":"down"}') == {
+        "kind": chat_module.FAILURE_TRANSIENT,
+        "status": 503,
+    }
+
+
+def test_start_chat_run_classifies_the_refusal_it_received(monkeypatch) -> None:
+    """Admission is where a request-shaped refusal happens — it must arrive as
+    a CLASSIFIED failure, not as a bare 502 with the status buried in prose."""
+
+    class _Resp:
+        status_code = 400
+        text = UPSTREAM_400
+        headers: dict = {}
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            return False
+
+        async def post(self, *args, **kwargs) -> _Resp:
+            return _Resp()
+
+    import httpx
+
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_URL", "http://agent.test", raising=False)
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_KEY", "k", raising=False)
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    with pytest.raises(chat_module.UpstreamFailure) as caught:
+        asyncio.run(
+            chat_module.start_chat_run(
+                {"session_id": "thread:refused"}, session_key=USER_SUB
+            )
+        )
+    assert caught.value.upstream_status == 400
+    assert caught.value.status_code == 502  # the browser's status was already sent
+    assert caught.value.failure["kind"] == chat_module.FAILURE_REQUEST
+    assert "No user message in the request body" in str(caught.value.detail)
+
+
+def test_chat_refusal_streams_its_classification_and_no_retry(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """The wire the panel branches on: classification FIRST, then the error.
+
+    A request-shaped failure must arrive with its kind and its reason, and
+    without a single text frame — nothing was produced, so there is nothing to
+    render and nothing a re-send could fix.
+    """
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+
+    async def _refuse(body, *, session_key=None, idempotency_key=None):
+        raise chat_module.UpstreamFailure(400, UPSTREAM_400)
+
+    monkeypatch.setattr(chat_module, "start_chat_run", _refuse)
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "hi"}],
+                }
+            ],
+            "turnKey": "turn-refused-441",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # Headers were out long before the refusal: the status cannot change.
+    assert resp.status_code == 200
+    frames = _payloads(resp.text)
+    assert [frame["type"] for frame in frames] == ["data-kiseki-failure", "error"]
+    failure = frames[0]["data"]
+    assert failure == {
+        "kind": "request",
+        "status": 400,
+        "message": "No user message in the request body",
+    }
+    # the reason travels as a human line — the raw payload (code field and all)
+    # stays in the error text the panel never renders
+    assert "invalid_request" not in failure["message"]
+    assert not any(frame["type"].startswith("text") for frame in frames)
+    assert frames[-1]["errorText"]
+
+
+def test_chat_transient_failure_keeps_the_plain_error_wire(
+    client, rsa_keypair, monkeypatch
+) -> None:
+    """A 5xx keeps today's behaviour: the classification says "transient" and
+    quotes nothing, so the panel's Reconnect / Run again affordances stand."""
+    _role(monkeypatch, "owner")
+    _fake_trip(monkeypatch, visibility="private")
+
+    async def _broken(body, *, session_key=None, idempotency_key=None):
+        raise chat_module.UpstreamFailure(503, '{"detail":"down"}')
+
+    monkeypatch.setattr(chat_module, "start_chat_run", _broken)
+    token = _user_token(rsa_keypair)
+    resp = client.post(
+        "/api/chat",
+        json={
+            "tripId": TRIP,
+            "messages": [{"role": "user", "content": "hi"}],
+            "turnKey": "turn-broken-441",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    frames = _payloads(resp.text)
+    assert [frame["type"] for frame in frames] == ["data-kiseki-failure", "error"]
+    assert frames[0]["data"] == {"kind": "transient", "status": 503}
+    assert frames[-1]["errorText"]

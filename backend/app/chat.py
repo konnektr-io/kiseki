@@ -291,6 +291,27 @@ def error_chunk(message: str) -> dict:
     return {"type": "error", "errorText": message}
 
 
+#: The relay's own classification of a failed turn (issue #441). A ``data-*``
+#: custom part rather than extra fields on the ``error`` chunk: the SDK hands
+#: the caller only the error TEXT, so anything else on that chunk is invisible
+#: to the panel, while a data part reaches both ``message.parts`` and the
+#: transport. Same rule as the activity feed (#157): synthetic feed signals
+#: ride ``data-*`` parts, never tool-lifecycle chunks.
+_FAILURE_PART = "data-kiseki-failure"
+
+
+def failure_chunk(part_id: str, failure: dict) -> dict:
+    """Classify the failing turn for the SPA (emitted BEFORE the error chunk).
+
+    ``kind`` is the decision the panel makes: ``request`` means the agent
+    refused the request BODY itself, so a byte-identical re-send fails
+    identically — the reason is the only useful thing to show and "Run again"
+    is a dead button; ``transient`` means the turn failed for a reason a retry
+    can still fix, so today's reconnect/re-run affordances are right.
+    """
+    return {"type": _FAILURE_PART, "id": f"{part_id}-failure", "data": failure}
+
+
 def sse_data(chunk: dict) -> str:
     """Serialize one v1 chunk dict as an SSE ``data:`` event."""
     return f"data: {json.dumps(chunk)}\n\n"
@@ -338,6 +359,92 @@ def scrub_jwt(text: str) -> str:
     must never reach the UI either.
     """
     return _JWT_RE.sub(_REDACTED, text)
+
+
+# ------------------------------------------- failure classification (#441)
+# A turn can fail in two very different ways, and the surface used to collapse
+# them into one: an `error` chunk with prose inside, no answer, no attachable
+# turn, so `chatOutage()` said "rerun" and "Run again" re-sent the byte-identical
+# body. For a REQUEST-shaped failure that is a button that can only fail again,
+# forever, and the one useful datum — WHY — was sitting unread in the relay's own
+# error text. The relay is the only party that knows the upstream status, so it
+# classifies here and the panel branches on the classification.
+
+#: The agent refused the request BODY (4xx): re-sending it unchanged fails
+#: identically, so the reason must be shown and no re-send may be offered.
+FAILURE_REQUEST = "request"
+
+#: The turn failed for a reason a retry can still fix (5xx, timeout, socket):
+#: today's reconnect / explicit re-run affordances are right for it.
+FAILURE_TRANSIENT = "transient"
+
+#: Longest upstream reason quoted to the user — a reason is a line, and the
+#: response body is a payload (the whole of it belongs in the server log).
+_UPSTREAM_REASON_MAX = 200
+
+
+def upstream_reason(text: str) -> str | None:
+    """The agent's own one-line reason from a failed response body, if any.
+
+    The agent's errors are JSON (``{"error": {"message": …, "code": …}}``, or
+    a ``detail``/``message`` string). Anything else — an HTML gateway page, a
+    traceback, a blank body — is NOT quoted: that is machinery, not a reason,
+    and the issue's rule is no stack traces and no secrets on the surface.
+    Redacted like every other relayed string (#158).
+    """
+    try:
+        doc = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    reason = doc.get("error")
+    if isinstance(reason, dict):
+        reason = reason.get("message")
+    if not isinstance(reason, str):
+        reason = doc.get("detail") or doc.get("message")
+    if isinstance(reason, dict):
+        reason = reason.get("message")
+    if not isinstance(reason, str):
+        return None
+    reason = " ".join(reason.split())  # collapse newlines/multiple spaces
+    return scrub_jwt(reason[:_UPSTREAM_REASON_MAX]) or None
+
+
+def classify_upstream_failure(status: int, text: str) -> dict:
+    """Classify one failed upstream call for the SPA (issue #441).
+
+    ``4xx`` → :data:`FAILURE_REQUEST`: the agent answered fast and refused the
+    request itself, which is permanent for that body. Everything else (5xx, a
+    proxy error page) → :data:`FAILURE_TRANSIENT`, where a retry is honest.
+    The reason travels only for a request-shaped failure: a 5xx page is
+    machinery, and the transient affordances say what they cost already.
+    """
+    kind = FAILURE_REQUEST if 400 <= status < 500 else FAILURE_TRANSIENT
+    failure: dict = {"kind": kind, "status": status}
+    if kind == FAILURE_REQUEST:
+        reason = upstream_reason(text)
+        if reason:
+            failure["message"] = reason
+    return failure
+
+
+class UpstreamFailure(HTTPException):
+    """The agent API refused or failed one relay request (issue #441).
+
+    The relay's own status is ``502`` (the browser's status was decided when
+    the SSE headers went out), so the UPSTREAM status — the thing that decides
+    whether a retry can ever help — rides on ``failure``, which the chat route
+    streams as a ``data-kiseki-failure`` part before the error chunk.
+    """
+
+    def __init__(self, upstream_status: int, body: str) -> None:
+        super().__init__(
+            status_code=502,
+            detail=f"Kiseki agent upstream error {upstream_status}: {body[:500]}",
+        )
+        self.upstream_status = upstream_status
+        self.failure = classify_upstream_failure(upstream_status, body)
 
 
 def iter_wire_frames(
@@ -1084,10 +1191,10 @@ async def start_chat_run(
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(_hermes_url("/v1/runs"), json=body, headers=headers)
     if resp.status_code >= 400:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Kiseki agent upstream error {resp.status_code}: {resp.text[:500]}",
-        )
+        # #441: admission is the ONE place a request-shaped refusal happens —
+        # the agent answers a bad body with a 4xx in ~0.1 s. Classifying here is
+        # what lets the surface say why instead of re-sending the same bytes.
+        raise UpstreamFailure(resp.status_code, resp.text)
     doc = resp.json()
     if not isinstance(doc, dict) or not doc.get("run_id"):
         raise HTTPException(502, "Kiseki agent upstream returned no run id")
