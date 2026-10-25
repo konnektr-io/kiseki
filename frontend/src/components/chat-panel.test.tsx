@@ -123,6 +123,8 @@ function stubChat(overrides: Record<string, unknown> = {}) {
     // other side pass `recovery: "unavailable"` / `resumable: false`.
     recovery: "idle" as TurnRecovery,
     resumable: true,
+    // #441: the relay's classification of the last failed turn, when it sent one
+    failure: null,
     sendMessage: async () => {},
     stop: async () => {},
     regenerate: async () => {},
@@ -552,6 +554,43 @@ describe("ChatPanel reconnect (issue #152: dropped turn)", () => {
     expect(html).not.toContain("Try again");
     expect(html).not.toContain("Reconnect");
   });
+
+  /* #441: the surface a refused request gets. No button at all — a re-send is
+   * byte-identical and therefore guaranteed to fail — and the agent's own
+   * reason on screen, which is the one thing that was never shown. */
+  it("shows the agent's reason and no re-send when the request was refused", () => {
+    stubChat({
+      messages: [userText("Look at this photo")],
+      status: "error",
+      error: new Error("Kiseki agent upstream error 400: …"),
+      recovery: "unavailable",
+      resumable: false,
+      failure: {
+        kind: "request",
+        status: 400,
+        message: "No user message in the request body",
+      },
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("The agent refused this message.");
+    expect(html).toContain("No user message in the request body");
+    expect(html).not.toContain("Run again");
+    expect(html).not.toContain("Reconnect");
+  });
+
+  it("still offers Run again for a transient failure (#441 keeps the old path)", () => {
+    stubChat({
+      messages: [userText("Create a trip")],
+      status: "error",
+      error: new Error("upstream 503"),
+      recovery: "unavailable",
+      resumable: false,
+      failure: { kind: "transient", status: 503 },
+    });
+    const html = renderPanel("trip-1");
+    expect(html).toContain("Run again");
+    expect(html).not.toContain("The agent refused this message.");
+  });
 });
 
 /* What the panel owes the user about the turn its transcript ends on
@@ -658,6 +697,67 @@ describe("chatOutage (#256)", () => {
         error: new ChatAuthError(401, "gone"),
         lastMessage: userText("hi"),
       }),
+    ).toBe("none");
+  });
+
+  /* #441: a request-shaped failure is the server telling us the message ITSELF
+   * was refused. Offering "Run again" there re-sent byte-identical bytes into
+   * the same 4xx (five times in 54 s in the report), so the reason is the only
+   * affordance — and no re-send. */
+  it("refuses to offer a re-send for a request-shaped failure", () => {
+    const gone = { ...base, resumable: false, recovery: "unavailable" as const };
+    const refused = { kind: "request", status: 400, message: "No user message" };
+    expect(
+      chatOutage({
+        ...gone,
+        error: new Error("upstream error"),
+        lastMessage: userText("hi with a photo"),
+        failure: refused,
+      }),
+    ).toBe("refused");
+    // ...even while the client still believes a turn is attachable: a refused
+    // request was never admitted upstream, so there is nothing to attach to.
+    expect(
+      chatOutage({
+        ...base,
+        error: new Error("upstream error"),
+        lastMessage: userText("hi"),
+        failure: refused,
+      }),
+    ).toBe("refused");
+    // a turn that produced part of an answer is a different case
+    expect(
+      chatOutage({
+        ...gone,
+        error: new Error("upstream error"),
+        lastMessage: assistantText("partial answer"),
+        failure: refused,
+      }),
+    ).toBe("none");
+  });
+
+  it("keeps today's behaviour for a transient failure", () => {
+    const gone = { ...base, resumable: false, recovery: "unavailable" as const };
+    const transient = { kind: "transient", status: 503 };
+    expect(
+      chatOutage({
+        ...gone,
+        error: new Error("upstream error"),
+        lastMessage: userText("hi"),
+        failure: transient,
+      }),
+    ).toBe("rerun");
+    expect(
+      chatOutage({
+        ...base,
+        error: new Error("network error"),
+        lastMessage: cut,
+        failure: transient,
+      }),
+    ).toBe("reconnect");
+    // and the stale classification must not resurrect a banner on a good turn
+    expect(
+      chatOutage({ ...base, lastMessage: userText("hi"), failure: transient }),
     ).toBe("none");
   });
 });

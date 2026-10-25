@@ -27,14 +27,21 @@ import {
   uploadChatPoster,
   useTripChat,
   type ChatFocus,
+  type ChatFailure,
   type TurnRecovery,
   type UploadedChatFile,
 } from "../lib/chat";
 
 /**
  * What the panel owes the user about the turn its transcript ends on:
- * `"none"` (say nothing), `"reconnect"` (there is a live turn to attach to) or
- * `"rerun"` (nothing arrived and nothing is left to attach to).
+ * `"none"` (say nothing), `"reconnect"` (there is a live turn to attach to),
+ * `"rerun"` (nothing arrived and nothing is left to attach to) or `"refused"`
+ * (the AGENT refused the request itself — show its reason, never a re-send).
+ *
+ * Issue #441: the last of those is the one state a retry can never fix. The
+ * relay knows it, because it saw the upstream status; a 4xx there means the
+ * body itself was refused, so "Run again" re-sent byte-identical bytes and
+ * failed identically, endlessly, with the reason unread.
  *
  * Issue #256: this used to be "may I offer Reconnect?" only, and the caller
  * turned "the relay no longer holds this turn" into `chat.regenerate()` — a
@@ -64,7 +71,7 @@ import {
  * when the UPSTREAM stream ends early, and a phone whose socket dies with the
  * screen never receives a terminal chunk at all.
  */
-export type ChatOutage = "none" | "reconnect" | "rerun";
+export type ChatOutage = "none" | "reconnect" | "rerun" | "refused";
 
 export function chatOutage(args: {
   working: boolean;
@@ -73,6 +80,9 @@ export function chatOutage(args: {
   /** Whether the transport still holds a turn key this thread can attach to. */
   resumable: boolean;
   lastMessage: UIMessage | null;
+  /** The relay's own classification of the failed turn (#441); `null`/absent
+   *  when it classified nothing (a dropped socket, an older relay). */
+  failure?: ChatFailure | null;
 }): ChatOutage {
   // A turn that is still arriving is the attach path's business (see
   // `attachLostTurn`), not a banner's.
@@ -84,6 +94,16 @@ export function chatOutage(args: {
   if (last === null) return "none";
   const cut = last.role === "assistant" && messageInterrupted(last);
   if (args.error === undefined && !cut) return "none";
+  // #441: a request-shaped failure is the server TELLING us the request itself
+  // was refused. Re-sending it byte-identical fails identically, so the only
+  // honest affordance is the reason — never "Run again". Checked before
+  // `resumable`, because a refused turn was never admitted upstream: the relay
+  // has nothing to attach to, whatever the client still believes.
+  if (args.failure?.kind === "request") {
+    const answered =
+      last.role === "assistant" && messageToText(last).trim() !== "";
+    return answered ? "none" : "refused";
+  }
   if (args.resumable) return "reconnect";
   // Nothing left to attach to. An answer on screen — even a cut one — is the
   // transcript a manual refresh renders: say nothing, and never re-send.
@@ -366,7 +386,7 @@ function ChatThread({
       }
     },
   });
-  const { messages, status, error, recovery, resumable } = chat;
+  const { messages, status, error, recovery, resumable, failure } = chat;
   const busy = status === "submitted" || status === "streaming";
   // Re-attaching a turn this thread was left in the middle of (#217) is live
   // work from the user's point of view, even though the SDK hasn't started
@@ -411,6 +431,7 @@ function ChatThread({
     recovery,
     resumable,
     lastMessage,
+    failure,
   });
 
   const reconnect = async () => {
@@ -727,6 +748,10 @@ function ChatThread({
 
       {outage === "rerun" && (
         <ChatRerunBanner onRunAgain={() => void chat.regenerate()} />
+      )}
+
+      {outage === "refused" && (
+        <ChatRefusedBanner message={failure?.message ?? null} />
       )}
 
       {error instanceof ChatAuthError && (
@@ -1110,6 +1135,39 @@ function ChatRerunBanner({ onRunAgain }: { onRunAgain: () => void }) {
       >
         Run again
       </Button>
+    </div>
+  );
+}
+
+/**
+ * A turn the AGENT refused (issue #441) — no answer, and no re-send.
+ *
+ * The relay classifies an upstream 4xx as a request-shaped failure: it was the
+ * BODY the agent would not take, so "Run again" re-sent byte-identical bytes and
+ * failed identically — five times in 54 s in the case that filed this issue —
+ * while the one useful datum, the reason, sat unread in the error text. So this
+ * banner has no button at all. It shows the agent's own one-line reason (already
+ * redacted and trimmed server-side: never a stack trace, never a secret) and
+ * says what actually helps — change the message. A transient failure keeps the
+ * Reconnect / Run again affordances above; those are the paths where a retry is
+ * honest.
+ */
+function ChatRefusedBanner({ message }: { message: string | null }) {
+  return (
+    <div
+      role="alert"
+      className="mx-3 mb-1 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2.5 text-center"
+    >
+      <p className="text-xs font-medium text-foreground">
+        The agent refused this message.
+      </p>
+      {message && (
+        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+      )}
+      <p className="mt-1 text-xs text-muted-foreground">
+        Sending it again unchanged would fail the same way — edit it and try
+        once more.
+      </p>
     </div>
   );
 }

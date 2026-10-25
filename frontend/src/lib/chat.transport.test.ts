@@ -39,6 +39,23 @@ const INTERRUPTED_SSE_BODY = [
   "",
 ].join("\n");
 
+/* Issue #441: the relay classifies a failed turn. A request-shaped refusal
+ * arrives as a `data-kiseki-failure` part one frame BEFORE the error chunk —
+ * the only place that classification can ride, because the SDK hands the
+ * caller just `errorText` (it calls `onError(new Error(errorText))` and drops
+ * the rest). So the transport has to see the frame itself, and the test has to
+ * drive the INSTALLED SDK's stream processor rather than a hand-built part —
+ * a fabricated fixture proves nothing about the wire. */
+const REFUSED_SSE_BODY = [
+  'data: {"type":"data-kiseki-failure","id":"turn-1-failure","data":{"kind":"request","status":400,"message":"No user message in the request body"}}',
+  "",
+  'data: {"type":"error","errorText":"Kiseki agent upstream error 400: {…}"}',
+  "",
+  "data: [DONE]",
+  "",
+  "",
+].join("\n");
+
 async function readAll(
   stream: ReadableStream<UIMessageChunk>,
 ): Promise<UIMessageChunk[]> {
@@ -370,6 +387,60 @@ describe("KisekiChatTransport", () => {
     await expect(
       transport.sendMessages(sendOptions([])),
     ).rejects.toMatchObject({ name: "ChatAuthError", status: 401 });
+  });
+
+  /* #441 — the classification of a FAILED turn. The SDK's own stream
+   * processor is in the path here (`sendMessages` → `processResponseStream` →
+   * our `counted`), so this asserts the real wire contract: a `data-*` frame
+   * survives parsing, reaches the transport before the terminal error, and
+   * lands on `transport.failure` for the panel's outage rule. */
+  it("captures a request-shaped refusal from the relay's wire", async () => {
+    const transport = new KisekiChatTransport({
+      threadId: "thread-441",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(REFUSED_SSE_BODY)) as typeof fetch,
+    });
+    await readAll(
+      await transport.sendMessages(
+        sendOptions([
+          { id: "u1", role: "user", parts: [{ type: "text", text: "hi" }] },
+        ]),
+      ),
+    );
+    expect(transport.failure).toEqual({
+      kind: "request",
+      status: 400,
+      message: "No user message in the request body",
+    });
+    // A refused turn was never admitted upstream, so nothing can be attached
+    // to — the panel must not offer a reconnect either.
+    expect(transport.resumable).toBe(false);
+  });
+
+  it("captures nothing when the relay sent no classification", async () => {
+    const transport = new KisekiChatTransport({
+      threadId: "thread-441b",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(V1_SSE_BODY)) as typeof fetch,
+    });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    expect(transport.failure).toBeNull();
+  });
+
+  it("forgets the failure at the next send", async () => {
+    // The classification describes ONE turn: a thread that hit a refusal and
+    // then sent a working message must not keep showing the old reason.
+    let body = REFUSED_SSE_BODY;
+    const transport = new KisekiChatTransport({
+      threadId: "thread-441c",
+      getToken: async () => "test-token",
+      fetchImpl: (async () => sseResponse(body)) as typeof fetch,
+    });
+    await readAll(await transport.sendMessages(sendOptions([])));
+    expect(transport.failure).toMatchObject({ kind: "request" });
+    body = V1_SSE_BODY;
+    await readAll(await transport.sendMessages(sendOptions([])));
+    expect(transport.failure).toBeNull();
   });
 });
 
