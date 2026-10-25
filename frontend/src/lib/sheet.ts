@@ -43,6 +43,64 @@ export function nearestDetent(fraction: number): Detent {
   );
 }
 
+/**
+ * Pixels where the sheet's VISIBLE region ends — the sheet's content floor.
+ *
+ * The sheet is always laid out at 90% of the surface and translated DOWN, so
+ * at every detent but `full` its own bottom edge sits below the fold; what the
+ * user actually sees ends at the surface's bottom edge (or at the viewport's,
+ * when the surface runs under the browser's own chrome). Everything the body
+ * height is measured against lives in THIS frame.
+ */
+export function sheetFloorPx(surfaceTop: number, surfaceHeight: number, viewportHeight: number): number {
+  return Math.min(surfaceTop + surfaceHeight, viewportHeight);
+}
+
+/**
+ * Height of the sheet's scroll body, in px: from the body's top to the sheet's
+ * visible floor.
+ *
+ * The body is a scroll window onto the content, so it must END exactly where
+ * the sheet's visible region ends — a body sized to the sheet's own (hidden)
+ * bottom lets the last rows scroll under the fold (#109), and one sized for a
+ * detent the sheet is no longer at paints the revealed part blank.
+ *
+ * `dragPx` is the live finger offset (negative = pulled up), so at `dragPx !==
+ * 0` this returns the height for where the sheet IS, not for the detent it
+ * started from: dragging the sheet up must reveal more list, never a blank
+ * strip. Every parameter is a LAYOUT number (no transforms), so the result is
+ * correct mid-animation too.
+ *
+ * All the call sites are percentages of a definite height chain (surface
+ * h-full → section 90% → body), so no measurement is needed beyond these.
+ */
+export function sheetBodyHeightPx(params: {
+  surfaceTop: number;
+  surfaceHeight: number;
+  sheetHeight: number;
+  viewportHeight: number;
+  detent: Detent;
+  /** Live drag offset in px; 0 when settled. */
+  dragPx?: number;
+  /** The body's `offsetTop` inside the sheet (its top under the drag chrome). */
+  bodyOffsetTop: number;
+}): number {
+  const { surfaceTop, surfaceHeight, sheetHeight, viewportHeight, detent, bodyOffsetTop } = params;
+  const dragPx = params.dragPx ?? 0;
+  const bodyTop =
+    surfaceTop +
+    surfaceHeight -
+    sheetHeight +
+    (detentOffsetPct(detent) / 100) * sheetHeight +
+    dragPx +
+    bodyOffsetTop;
+  // Ceil, not round: the body must always reach the floor. A rounded-down
+  // half-pixel shows ~1.5 device px of map above the content on a 3x phone —
+  // "a few pixels of padding" (#109).
+  return Math.max(0, Math.ceil(sheetFloorPx(surfaceTop, surfaceHeight, viewportHeight) - bodyTop));
+}
+
+
 /** One detent up (`peek` → `half` → `full`); clamped at the top. */
 export function nextDetent(detent: Detent): Detent {
   return DETENTS[Math.min(DETENTS.indexOf(detent) + 1, DETENTS.length - 1)];

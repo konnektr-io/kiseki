@@ -8,6 +8,7 @@ import {
   nearestDetent,
   nextDetent,
   prevDetent,
+  sheetBodyHeightPx,
   type Detent,
 } from "../lib/sheet";
 import { prefersReducedMotion } from "../lib/maps";
@@ -166,44 +167,118 @@ export function Sheet({ detent, onDetentChange, label, header, children, classNa
   // over: its box can extend past the viewport, and during the 200ms snap the
   // rect is mid-animation. Everything below is therefore read transform-
   // immune: layout offsets (`offsetTop`, `offsetHeight`, parent client box)
-  // plus the PARENT's viewport rect (the parent never transforms). Body
-  // height = min(final sheet bottom, viewport bottom) − final body top.
-  // An element-height body would let the last rows (the day nav) scroll into
-  // the hidden region and become unreachable — at `half` that hid the nav
-  // entirely; at `full` it left it hanging below the floor.
+  // plus the PARENT's viewport rect (the parent never transforms).
+  // Body height = min(surface bottom, viewport bottom) − body top, where the
+  // body top includes the LIVE drag offset — see `sheetBodyHeightPx`.
   const [bodyHeightPx, setBodyHeightPx] = useState<number | null>(null);
+
+  // The measurement's inputs, read fresh every time it runs: the effect that
+  // owns the observers must not be rebuilt on every pointermove.
+  const live = useRef<{ detent: Detent; dragPx: number | null }>({ detent, dragPx: null });
+
+  const measureBody = useCallback(() => {
+    const sheet = sheetRef.current;
+    const body = bodyRef.current;
+    const surface = sheet?.parentElement;
+    if (!sheet || !body || !surface) return;
+    const next = sheetBodyHeightPx({
+      surfaceTop: surface.getBoundingClientRect().top, // stable: never transforms
+      surfaceHeight: surface.clientHeight,
+      sheetHeight: sheet.offsetHeight, // layout height, transform-immune
+      viewportHeight: window.innerHeight,
+      detent: live.current.detent,
+      dragPx: live.current.dragPx ?? 0,
+      bodyOffsetTop: body.offsetTop, // the settled top of the body inside the sheet
+    });
+    // Only when it actually changed: this runs per pointermove while dragging,
+    // and re-rendering on an unchanged number would cost the 1:1 drag.
+    setBodyHeightPx((prev) => (prev === next ? prev : next));
+  }, []);
+
+  // Runs on EVERY render — the detent changes (with the sheet's snap) and the
+  // drag offset changes (while the sheet follows the finger), and both move the
+  // floor the body has to reach. A body frozen at the detent the drag STARTED
+  // from leaves the revealed part of the sheet blank under the content, which
+  // is what a phone showed when a gesture was taken away mid-travel.
+  useLayoutEffect(() => {
+    live.current = { detent, dragPx };
+    measureBody();
+  });
+
+  // Everything else that can move the floor or the body's top: the surface
+  // resizing (mobile browser chrome), the sheet's own box, the handle and the
+  // peek-line header above the body (a font swap re-wraps the stats line), the
+  // visual viewport, and the end of the snap itself. Coalesced through one
+  // rAF: a resize storm must not set state per box. The BODY is deliberately
+  // not observed — its height is what this effect computes.
   useLayoutEffect(() => {
     const sheet = sheetRef.current;
     const body = bodyRef.current;
     const surface = sheet?.parentElement;
     if (!sheet || !body || !surface) return;
-    const measure = () => {
-      const surfaceTop = surface.getBoundingClientRect().top; // stable
-      const surfaceH = surface.clientHeight;
-      const sheetH = sheet.offsetHeight; // layout height, transform-immune
-      const finalBottom =
-        surfaceH - (detentOffsetPct(detent) / 100) * sheetH; // sheet's settled bottom in surface coords
-      const bodyTop =
-        surfaceH - sheetH + body.offsetTop; // body's settled top in surface coords
-      const visibleBottom = Math.min(surfaceTop + finalBottom, window.innerHeight);
-      // Ceil, not round: the body must always reach the sheet's visible
-      // floor. A rounded-down half-pixel shows ~1.5 device px of map above
-      // the content on a 3x phone — "a few pixels of padding" (#109).
-      setBodyHeightPx(Math.max(0, Math.ceil(visibleBottom - (surfaceTop + bodyTop))));
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        measureBody();
+      });
     };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(surface!);
-    window.addEventListener("resize", measure);
+    const ro = new ResizeObserver(schedule);
+    ro.observe(surface);
+    ro.observe(sheet);
+    for (const child of Array.from(sheet.children)) {
+      if (child !== body) ro.observe(child);
+    }
+    window.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("resize", schedule);
+    sheet.addEventListener("transitionend", schedule);
+    // Web fonts land after first paint and re-wrap the header.
+    void document.fonts?.ready.then(schedule).catch(() => {});
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("resize", measure);
+      window.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      sheet.removeEventListener("transitionend", schedule);
     };
-  }, [detent]);
+  }, [measureBody]);
 
   // `dragPx` is only ever set once a gesture is active, so it doubles as the
   // "finger is down" flag — no ref read during render.
   const dragging = dragPx != null;
+
+  // A pointer stream can end without this component ever seeing it: the browser
+  // claims the touch for a system gesture, the tab is backgrounded, or the
+  // capture dies with the handle's DOM node when React re-renders it. Left
+  // alone the sheet stays parked wherever the finger last was — `dragging` on
+  // forever (no snap, and the transition stays off), while `detent` never left
+  // the one the drag started from. On a phone that reads as a sheet that looks
+  // `full` with the bottom 40% of it blank and the handle's chevron still
+  // pointing up. Settle it as soon as the stream can no longer deliver:
+  // commit to the nearest detent on a release we merely missed, revert on an
+  // outright cancellation.
+  useEffect(() => {
+    if (!dragging) return;
+    const settle = () => endGesture(true);
+    const abandon = () => endGesture(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") settle();
+    };
+    // Capture phase: the window handler must win even when the pointerup is
+    // retargeted, and it is a no-op once the gesture is already settled.
+    window.addEventListener("pointerup", settle, true);
+    window.addEventListener("pointercancel", abandon, true);
+    window.addEventListener("blur", settle);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pointerup", settle, true);
+      window.removeEventListener("pointercancel", abandon, true);
+      window.removeEventListener("blur", settle);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dragging, endGesture]);
+
   const transform = dragging
     ? `translateY(calc(${baseOffsetPct}% + ${dragPx}px))`
     : `translateY(${baseOffsetPct}%)`;
