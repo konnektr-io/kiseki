@@ -17,6 +17,7 @@ import os
 import re
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -130,6 +131,7 @@ from .media import (
     upload_kind,
     upload_limit,
 )
+from .media import POSTER_SUFFIX
 from .fit import FitError, parse_fit
 from .gpx import GpxError, parse_gpx
 from .models import Trip
@@ -142,6 +144,9 @@ from .store import get_graph_client
 from .store import list_showcase_trips
 from .store import list_geo_trips
 from .store import list_trips_for_user
+
+# Sort key for media listings (#440): entries without a store timestamp last.
+_EPOCH = datetime(1, 1, 1, tzinfo=timezone.utc)
 
 app = FastAPI(title="Kiseki", version="0.1.0")
 
@@ -3149,6 +3154,103 @@ async def promote_file(
     store.copy(inbox_key, object_key_for(trip_id, body.file_name))
     store.delete(inbox_key)
     return {"url": f"/media/{trip_id}/{body.file_name}"}
+
+
+@app.get("/api/trips/{trip_id}/media")
+async def list_trip_media(
+    trip_id: str,
+    limit: int = 50,
+    x_act_as_sub: str | None = Header(default=None),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Enumerate the trip's stored media objects (issue #440) — READ-ONLY.
+
+    An upload that landed in the trip's namespace but was never attached to a
+    block was previously invisible: ``POST /api/files`` returns ONE
+    unguessable content-addressed URL, so nobody — not even the agent — could
+    answer "do you still have my photos?" without re-uploading. This route
+    lists what actually exists, each item with ``referencedBy``: the blocks /
+    documents that point at it, empty for an ORPHAN (the flag the recovery
+    flow needs — list → propose → confirm, feeding ``photos/propose``).
+
+    Editor+ on the trip (``require_actor_trip_access``): a listing hands out
+    every capability URL in the namespace at once, so a follower must not get
+    it even though each single object was already readable. There is
+    deliberately NO inbox listing here: ``inbox/<sha>`` is one shared
+    namespace with no per-user partition, so enumerating it would hand every
+    user's unguessable capability URLs to any authenticated caller.
+
+    Newest-first by the store-side upload timestamp (S3 last-modified / local
+    mtime), capped by ``limit`` (default 50, max 200) — a recovery
+    affordance, not a gallery API. ``referencedBy`` lists the innermost
+    document ids (block / day / section / feature) that point at the object —
+    the trip's own ``$dtId`` for a trip-level reference such as the cover —
+    and ``[]`` is
+    the orphan flag. A poster (``<stem>_poster.jpg``) counts as referenced
+    exactly when its video is: it is derived from the video's URL alone and
+    is never named in the document.
+    """
+    actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
+    trip_id = trip_id.lower()
+    trip = require_actor_trip_access(actor_sub, trip_id, min_role="editor")
+    store = get_media_store()
+    if store is None:
+        raise HTTPException(503, "Media storage is not configured")
+    entries = await asyncio.to_thread(store.list_keys, f"{trip_id}/")
+    # Referenced-by comes from the trip document itself: the RAW document
+    # stores bare filenames (the serializer prefixes /media/<trip>/ URLs), so
+    # a name lookup over the dumped model catches cover, gallery, block
+    # images and track attachments without walking every field's shape (which
+    # a serializer change would silently desync).
+    doc = trip.model_dump()
+
+    def _referencing_ids(needle: str) -> set[str]:
+        """Innermost document ids (block/day/section/feature) naming ``needle``."""
+        out: set[str] = set()
+
+        def _walk(node: object, stack: list[str]) -> None:
+            if isinstance(node, dict):
+                nid = node.get("id")
+                inner = stack + [nid] if isinstance(nid, str) else stack
+                for value in node.values():
+                    _walk(value, inner)
+            elif isinstance(node, list):
+                for value in node:
+                    _walk(value, stack)
+            elif isinstance(node, str) and needle in node:
+                out.add(stack[-1] if stack else "trip")
+
+        _walk(doc, [])
+        return out
+
+    items = []
+    for entry in sorted(
+        entries,
+        key=lambda e: e.uploaded or _EPOCH,
+        reverse=True,
+    ):
+        name = entry.key.split("/", 1)[1]
+        refs = _referencing_ids(name)
+        if not refs and name.endswith(POSTER_SUFFIX):
+            # A poster is referenced exactly when its video is — it is derived
+            # from the video's URL alone and never named in the document.
+            stem = name[: -len(POSTER_SUFFIX)]
+            for ext in (".mp4", ".m4v", ".mov", ".webm"):
+                refs = _referencing_ids(stem + ext)
+                if refs:
+                    break
+        items.append(
+            {
+                "name": name,
+                "url": f"/media/{trip_id}/{name}",
+                "bytes": entry.size,
+                "contentType": media_content_type(name),
+                "uploaded": entry.uploaded.isoformat() if entry.uploaded else None,
+                "referencedBy": sorted(refs),
+            }
+        )
+    items = items[: max(1, min(limit, 200))]
+    return {"tripId": trip_id, "count": len(items), "items": items}
 
 
 @app.post("/api/trips/{trip_id}/photos/propose")
