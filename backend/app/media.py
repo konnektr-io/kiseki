@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import io
 import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Protocol
 
@@ -514,6 +516,21 @@ def resolve_media_urls(doc: dict | list, trip_id: str) -> dict | list:
     return doc
 
 
+@dataclass(frozen=True)
+class MediaEntry:
+    """One object enumerated from the store (#440).
+
+    ``key`` is the logical store key WITHOUT the ``media/`` prefix (the same
+    namespace ``stat``/``get`` take); ``uploaded`` is the store-side timestamp
+    when the backend knows it (S3 last-modified / local mtime) and ``None``
+    otherwise — callers sort it last, it is metadata, not a guarantee.
+    """
+
+    key: str
+    size: int
+    uploaded: Optional[datetime]
+
+
 class MediaStore(Protocol):
     """A source of trip-media bytes keyed by ``<trip>/<file>``."""
 
@@ -565,6 +582,18 @@ class MediaStore(Protocol):
 
     def delete(self, key: str) -> None:
         """Delete the object at ``key``; a missing object is a no-op."""
+        ...
+
+    def list_keys(self, prefix: str) -> list[MediaEntry]:
+        """Enumerate objects under ``prefix`` (read-only, #440).
+
+        Returns every object whose key starts with ``prefix``, WITHOUT the
+        ``media/`` prefix. This is what makes an uploaded-but-never-referenced
+        object recoverable: the upload route only ever returns one
+        unguessable URL, so without an enumeration the bytes are unreachable
+        no matter how many times they were stored. Read-only by contract —
+        no route may use it to mutate anything.
+        """
         ...
 
 
@@ -644,6 +673,30 @@ class LocalMediaStore:
             target.unlink()
         except FileNotFoundError:
             pass  # already gone — delete is idempotent
+
+    def list_keys(self, prefix: str) -> list[MediaEntry]:
+        base = self._target(prefix.rstrip("/"))
+        if not base.is_dir():
+            return []
+        # Walk the subtree and keep keys that really start with the prefix —
+        # ``_target`` resolves, so a prefix with a ``..`` can only ever land
+        # on paths under the root, and the relative walk keeps it that way.
+        entries: list[MediaEntry] = []
+        for path in sorted(base.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(base).as_posix()
+            full_key = f"{prefix}{rel}" if prefix.endswith("/") else f"{prefix}/{rel}"
+            entries.append(
+                MediaEntry(
+                    key=full_key,
+                    size=path.stat().st_size,
+                    uploaded=datetime.fromtimestamp(
+                        path.stat().st_mtime, tz=timezone.utc
+                    ),
+                )
+            )
+        return entries
 
 
 class S3MediaStore:
@@ -751,6 +804,23 @@ class S3MediaStore:
             if exc.code in ("NoSuchKey", "NoSuchBucket", "NotFound"):
                 return
             raise
+
+    def list_keys(self, prefix: str) -> list[MediaEntry]:
+        entries: list[MediaEntry] = []
+        # Recursive listing under the key prefix (#440): Garage/S3 lists in
+        # lexical key order and streams the result, so a big namespace is
+        # paginated by the caller (limit) rather than read into memory twice.
+        for obj in self._client.list_objects(
+            self.bucket, prefix=KEY_PREFIX + prefix, recursive=True
+        ):
+            entries.append(
+                MediaEntry(
+                    key=obj.object_name[len(KEY_PREFIX) :],
+                    size=obj.size or 0,
+                    uploaded=obj.last_modified,
+                )
+            )
+        return entries
 
 
 _STORE: Optional[MediaStore] = None
