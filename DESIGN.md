@@ -721,13 +721,26 @@ idea.** Formalize it:
 - **Excursion markers do NOT cluster** (2026-10-04, #412, superseding #398). A diamond is drawn at
   **its own coordinates**, always — never at a centroid, never nudged clear of anything.
   The numbered stop pins are never gated: the spine of the trip always draws.
-- **Diamonds appear from `EXCURSION_DIAMOND_MIN_ZOOM` (z9)** (2026-10-04, #413, superseding #412's
-  separation test). Below it the itinerary map stays a clean route-and-spine overview; from it the
-  whole excursion set draws, **overlap accepted**. Niko's call, and the measured alternative was
-  worse: #412's "one hit target of room" test produced NO diamonds before z7 and only 3 of 41 ever,
-  on a trip whose venues are genuinely stacked. A zoom level is also easier to reason about than a
-  spacing test, and it behaves identically on the globe and at any container size.
-- **Every visible diamond gets its name** (2026-10-04, #413). The layer was capped at four names
+- **Diamonds are never zoom-gated; their NAMES are** (2026-11-01, #447, superseding #413's marker
+  gate). A diamond draws at **every** zoom, overlap accepted — the same rule the numbered pins have
+  always had ("the spine of the trip always draws"), because a place that draws nothing does not read
+  as *secondary*, it reads as **missing**. Measured on Peru 2027: the overview frames the trip at
+  **z4.95 on a 390×844 phone and z6.38 on a 1400×900 desktop** (both measured live) with **38 side
+  trips**, so #413's z9 gate hid every one
+  of them at exactly the zoom the whole itinerary is read at, and a day trip that exists in the
+  document (Palccoyo) was filed as a bug against the map. The measured alternative was worse in the
+  other direction too: #412's "one hit target of room" test produced NO diamonds before z7 and only
+  3 of 41 ever, on a trip whose venues are genuinely stacked.
+- **The NAMES keep a floor — `EXCURSION_LABEL_ZOOM_FLOOR` (z9)**, and below it only the **tapped**
+  diamond is named (`selectExcursionLabels`, pure, pinned by test). Naming every diamond at overview
+  zoom is soup, measured: that trip has 102 diamond pairs within 12px and 207 mutually overlapping
+  label boxes at the desktop overview's z6.38 (261 at the phone's z4.95). Two overlapping names are unreadable where two overlapping diamonds are the
+  honest picture of "several venues here". The selected-wins rule is the numbered layer's own
+  ("the selected pin is always labelled"), so a side trip is identifiable at any zoom by tapping it.
+  A floor and not a cap, deliberately: #413 measured that a count cap makes some names unreachable at
+  every zoom, and which of them won was registry order — which is why the layer looked arbitrary.
+- **Every diamond above the label floor gets its name** (2026-10-04, #413; floor scoped #447). The
+  layer was capped at four names
   and then dropped any name within 92px of one already kept, so with five or more diamonds visible
   some names could never appear at any zoom — and which four won was `trip.locations` order, which
   is why it looked arbitrary. The layer now has

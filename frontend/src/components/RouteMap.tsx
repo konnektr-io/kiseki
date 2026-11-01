@@ -5,7 +5,6 @@ import { Locate, LocateFixed, Maximize2, X } from "lucide-react";
 import { useTrip } from "./theme";
 import {
   applyBasemapTint,
-  EXCURSION_DIAMOND_MIN_ZOOM,
   EXCURSION_LABEL_DIAMOND_OFFSET_PX,
   fetchRouteLegs,
   formatMapLabel,
@@ -17,7 +16,6 @@ import {
   MAP_LABEL_ZOOM_FLOOR,
   markerNumber,
   markerPinClass,
-  orderExcursionLabels,
   pinScaleAtZoom,
   prefersReducedMotion,
   resolveMapStyle,
@@ -25,6 +23,7 @@ import {
   ROUTE_CASING_OPACITY,
   ROUTE_CASING_WIDTH,
   selectChipLabels,
+  selectExcursionLabels,
   selectMapLabels,
   type MapPadding,
   type RouteLeg,
@@ -956,7 +955,16 @@ export function RouteMap({
       excursionLabelMarkersRef.current = [];
       const candidates = [...byName.values()].filter((l) => l.lng != null && l.lat != null);
       if (!candidates.length) return;
-      const ordered = orderExcursionLabels(candidates.map((l) => l.name), selectedName);
+      // Which of them are NAMED is a zoom decision (#447): every diamond is drawn
+      // at every zoom, but at overview zoom a dense trip's names collide into
+      // soup (measured on Peru 2027: 228 overlapping label boxes at z6). Below the
+      // floor the tapped diamond is still named, so a side trip is identifiable
+      // without zooming in — the numbered layer's "selected is always labelled".
+      const ordered = selectExcursionLabels(
+        candidates.map((l) => l.name),
+        selectedName,
+        map.getZoom() ?? 0,
+      );
       if (!ordered.length) return;
       // Same treatment as the numbered stop labels above: a fixed position under
       // its own marker, no collision avoidance, no measurement. #413/#414 tried
@@ -1164,32 +1172,28 @@ export function RouteMap({
         // read as "several venues here", which is true, and each keeps its own
         // tap target. `visibleExcursionNames` stays the label layer's candidate
         // set, so naming a venue is unchanged by this removal.
-        // Which diamonds to draw: a ZOOM LEVEL, not a spacing test (#413).
+        // Which diamonds to draw: ALL of them, at every zoom (#447).
         //
-        // #412 hid a diamond whenever it had less than one 44px hit target of
-        // room. Measured on Chili+Peru that was far too strict: nothing at all
-        // appeared before z7, and only 3 of 41 diamonds ever did. Niko's call:
-        // a little overlap is fine, and a fixed level is easier to reason about
-        // than a spacing test. So from `EXCURSION_DIAMOND_MIN_ZOOM` the whole
-        // excursion set draws, wherever it happens to sit.
+        // #413 gated this on a zoom level (z9) to keep the overview a clean
+        // route-and-spine view, and #412 before it hid a diamond whenever it had
+        // less than one 44px hit target of room. Both were measured wrong for the
+        // same reason: the overview is where the whole itinerary is read, and it
+        // frames this kind of trip below z8, so the gate hid EVERY side trip at
+        // exactly the zoom that is supposed to say where the trip goes. A place
+        // that draws nothing does not read as "secondary", it reads as missing —
+        // that is how a day trip that exists in the document (Palccoyo, Peru 2027)
+        // was filed as a bug against the map.
         //
-        // The trade is deliberate and is the reason this is a zoom and not a
-        // rule about collision: at z9 in Lima you get ~40 diamonds stacked on
-        // one city. They overlap, they are individually hard to tap, and that
-        // is the honest picture of "41 venues in one place" — the numbered
-        // stop pin and its name are how you read the city, and tapping a
-        // diamond still selects it. Below the level the map stays a clean
-        // route-and-spine overview, which is what it is for.
-        const showAllExcursions = map.getZoom() >= EXCURSION_DIAMOND_MIN_ZOOM;
+        // The numbered pins were never gated ("the spine of the trip always
+        // draws"); the diamonds now follow the same rule, and overlap is accepted
+        // exactly as #413 already accepted it from z9 on: two diamonds on the same
+        // spot read as "several venues here", which is true, and each keeps its own
+        // tap target. What stays gated is the NAMING (`selectExcursionLabels`), so
+        // the overview does not become a pile of collided names.
         visibleExcursionNames = new Set<string>();
         for (const loc of locatedExcursions) {
-          const el = excursionEls.get(loc.name);
-          if (showAllExcursions) {
-            visibleExcursionNames.add(loc.name);
-            el?.removeAttribute("hidden");
-          } else {
-            el?.setAttribute("hidden", "");
-          }
+          visibleExcursionNames.add(loc.name);
+          excursionEls.get(loc.name)?.removeAttribute("hidden");
         }
         clusterMembersRef.current.clear();
         clusterCentersRef.current.clear();
