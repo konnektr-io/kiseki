@@ -374,13 +374,31 @@ export function makeMapChipLabelElement(letter: string, title: string): HTMLDivE
  *  it as the layer's default: a cap makes names invisible for no good reason. */
 export const EXCURSION_LABEL_MAX = 4;
 
-/** From this zoom the excursion diamonds draw, all of them, wherever they sit
- *  (#413). Replaces #412's separation test, which on a dense trip hid almost
- *  everything: measured on Chili+Peru, no diamond appeared before z7 and only
- *  3 of 41 ever did. Niko's call — a little overlap is fine, and a fixed level
- *  is easier to reason about than a spacing test. Below it the itinerary map
- *  stays a clean route-and-spine overview. */
-export const EXCURSION_DIAMOND_MIN_ZOOM = 9;
+/** From this zoom the excursion NAMES draw. The MARKERS are never gated (#447).
+ *
+ *  #413 gated the diamonds themselves at z9 and kept the overview a "clean
+ *  route-and-spine" view. Measured on Peru 2027 (#447) that hid every one of the
+ *  trip's 38 side trips at exactly the zoom the itinerary is read at — the
+ *  overview frames the trip at **z4.95** on a 390x844 phone and **z6.38** on a
+ *  1400x900 desktop, both measured live — and a
+ *  place that draws nothing reads as "this trip does not go there", which is how
+ *  the content agent filed it: a venue that exists in the document but is
+ *  invisible on the map. A diamond is secondary, but **absent is not the same as
+ *  secondary**: the numbered pins were never gated either ("the spine of the
+ *  trip always draws"), and overlap was already accepted from z9 on.
+ *
+ *  The NAMES keep a floor, and it is this one. At the overview's own zoom that
+ *  trip has 102 diamond pairs within 12px and 207 mutually overlapping label
+ *  boxes (261 at the phone's z4.95), so naming every diamond there is soup, not
+ *  information. Below the floor
+ *  only the tapped diamond is named (`selectExcursionLabels`) — the numbered
+ *  layer's own rule, "the selected pin is always labelled", extended to the
+ *  diamonds, so a side trip is still identifiable at any zoom.
+ *
+ *  A floor rather than a cap, deliberately: #413 measured that a count cap makes
+ *  some names unreachable at every zoom, and which of them won was registry
+ *  order — which is why the layer looked arbitrary. */
+export const EXCURSION_LABEL_ZOOM_FLOOR = 9;
 /** How far apart two named diamonds must sit on screen, in px, for both names
  *  to read beside their markers — one pill's width (~70–90px), so this is the
  *  distance at which two labels stop overlapping rather than a hair's breadth. */
@@ -409,6 +427,31 @@ export function orderExcursionLabels(
     ordered.unshift(selected);
   }
   return Number.isFinite(max) ? ordered.slice(0, max) : ordered;
+}
+
+/**
+ * Which diamonds get their NAME this frame. Pure — pinned by test.
+ *
+ * The markers themselves are never gated (#447): every located excursion draws a
+ * diamond at every zoom, so a place can never read as "the trip does not go
+ * there". What is gated is the naming, because at overview zoom the diamonds of
+ * one city genuinely sit on top of each other — measured on Peru 2027, 102 pairs
+ * within 12px and 207 overlapping label boxes at the desktop overview's z6.38. Two
+ * overlapping names are unreadable where two overlapping diamonds are honest.
+ *
+ * So: from `EXCURSION_LABEL_ZOOM_FLOOR` every visible diamond is named (no cap —
+ * #413); below it only the SELECTED one is, which is the numbered label layer's
+ * own "the selected pin is always labelled" rule and keeps a tapped side trip
+ * identifiable at any zoom. A selection that is not one of these diamonds (a
+ * chain stop) names nothing — it must not conjure a diamond label out of thin air.
+ */
+export function selectExcursionLabels(
+  names: string[],
+  selected: string | null,
+  zoom: number,
+): string[] {
+  const named = zoom >= EXCURSION_LABEL_ZOOM_FLOOR ? names : names.filter((n) => n === selected);
+  return orderExcursionLabels(named, selected);
 }
 
 /**

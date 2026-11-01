@@ -1061,9 +1061,13 @@ describe("markerPaintRank (#388: a venue diamond never covers the trip's pins)",
     const scan = RouteMapSrc.slice(RouteMapSrc.indexOf("SCAN LEVEL"));
     const sync = scan.slice(scan.indexOf("const syncExcursionClusters"));
     const handler = sync.slice(0, sync.indexOf("syncExcursionClusters();"));
-    // Visibility toggles, not teardown.
-    expect(handler).toMatch(/setAttribute\("hidden", ""\)/);
+    // Visibility only, never teardown — and since #447 removed the zoom gate the
+    // excursion layer hides nothing either: every diamond is shown, and the
+    // elements survive every camera pass untouched.
     expect(handler).toMatch(/removeAttribute\("hidden"\)/);
+    expect(handler).not.toMatch(/setAttribute\("hidden"/);
+    expect(handler).not.toMatch(/addPin\(/);
+    expect(handler).not.toMatch(/excursionEls\.(set|delete|clear)/);
     // #412: the excursion marker list is built once, before any camera pass.
     expect(scan.indexOf("for (const loc of locatedExcursions)")).toBeLessThan(
       scan.indexOf("const syncExcursionClusters"),

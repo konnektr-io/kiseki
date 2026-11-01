@@ -2,12 +2,14 @@
 import { describe, expect, it } from "vitest";
 import * as maps from "./maps";
 import {
-  EXCURSION_DIAMOND_MIN_ZOOM,
   EXCURSION_LABEL_DIAMOND_OFFSET_PX,
+  EXCURSION_LABEL_ZOOM_FLOOR,
   MAP_LABEL_PIN_OFFSET_PX,
   makeMapExcursionLabelElement,
   orderExcursionLabels,
+  selectExcursionLabels,
 } from "./maps";
+import RouteMapSrc from "../components/RouteMap.tsx?raw";
 
 /**
  * Excursion (diamond) labels (#388 follow-up; revised #413, #415).
@@ -85,14 +87,41 @@ describe("excursion diamond labels (#388 follow-up, revised #413 and #415)", () 
     });
   });
 
-  describe("the fixed diamond zoom level (#413)", () => {
-    it("is the level Niko asked for", () => {
-      expect(EXCURSION_DIAMOND_MIN_ZOOM).toBe(9);
+  describe("markers ungated, names gated (#447)", () => {
+    it("has no zoom gate left on the diamonds themselves", () => {
+      // Strongest form: the constant that gated them is GONE, and the component
+      // no longer hides a diamond on a zoom test. #413's gate kept the overview
+      // "clean" and thereby hid every side trip of a real trip at the zoom its
+      // itinerary is read at — a place that draws nothing reads as missing, not
+      // as secondary.
+      const api = maps as unknown as Record<string, unknown>;
+      expect(api["EXCURSION_DIAMOND_MIN_ZOOM"]).toBeUndefined();
+      expect(RouteMapSrc).not.toMatch(/setAttribute\("hidden"/);
+      expect(RouteMapSrc).not.toMatch(/getZoom\(\)\s*>=\s*EXCURSION/);
     });
 
-    it("sits above journey framing, so the overview stays a clean spine", () => {
-      // The Peru trip frames at z3.13; a 9 keeps every diamond off the overview.
-      expect(EXCURSION_DIAMOND_MIN_ZOOM).toBeGreaterThan(5);
+    it("names every diamond from the label floor up", () => {
+      const venues = ["Rockford Bar", "The Village Idiot", "Abe's Cafe"];
+      expect(selectExcursionLabels(venues, null, EXCURSION_LABEL_ZOOM_FLOOR)).toEqual(venues);
+      expect(selectExcursionLabels(venues, null, EXCURSION_LABEL_ZOOM_FLOOR + 2)).toEqual(venues);
+    });
+
+    it("names ONLY the tapped diamond below it — no soup, no missing name", () => {
+      const venues = ["Rockford Bar", "The Village Idiot", "Abe's Cafe"];
+      expect(selectExcursionLabels(venues, "Abe's Cafe", 6)).toEqual(["Abe's Cafe"]);
+      expect(selectExcursionLabels(venues, null, 6)).toEqual([]);
+    });
+
+    it("does not name anything for a selected chain stop", () => {
+      const venues = ["Rockford Bar", "Abe's Cafe"];
+      expect(selectExcursionLabels(venues, "Revelstoke", 6)).toEqual([]);
+    });
+
+    it("sits below the overview framing of a real trip", () => {
+      // Peru 2027 frames at z4.95 (390x844 phone) and z6.38 (1400x900 desktop) —
+      // both measured live on the production build — so the floor keeps the
+      // overview free of 38 collided names while the diamonds all draw there.
+      expect(EXCURSION_LABEL_ZOOM_FLOOR).toBeGreaterThan(6.4);
     });
   });
 
