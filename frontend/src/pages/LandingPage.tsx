@@ -145,25 +145,45 @@ function TripCard({ trip }: { trip: CardTrip }) {
       to={`/t/${trip.dtId}`}
       className="group relative block overflow-hidden rounded-xl border border-border bg-card transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-black/30"
     >
-      <div className="relative aspect-[16/10] overflow-hidden">
+      {/* The cover is a flex COLUMN, not two absolutely positioned layers: the
+          badge and the text block are siblings in the flow, so "the title runs
+          under the badge" is impossible by construction rather than by
+          arithmetic that has to keep holding. It was two absolute layers
+          before (report 2026-11-09), and a narrow card (rail/split panel,
+          ~164px) made the title block taller
+          than the photo, so it grew UP over the badge and got clipped at the
+          top edge — the chip read through the first line. `p-4` also puts the
+          badge on the same 16px inset as the title, which the old
+          `left-3 top-3` did not. Keep the scrim (DESIGN.md §9) and give the two
+          rows `relative` so they paint above it. */}
+      <div className="relative flex aspect-[16/10] flex-col justify-between overflow-hidden p-4">
+        {/* The media is absolute so it is not a flex ITEM: the column holds the
+            badge row and the text block only, and an in-flow `h-full` image
+            would push those two past the clip. */}
         {trip.cover ? (
           <img
             src={trip.cover}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-muted">
+          <div className="absolute inset-0 flex items-center justify-center bg-muted">
             <MapPin className="h-8 w-8 text-muted-foreground/50" strokeWidth={1.5} />
           </div>
         )}
         <div className="scrim absolute inset-0" />
-        <div className="absolute left-3 top-3">
+        <div className="relative flex">
           <StageBadge stage={displayStage(trip)} />
         </div>
-        <div className="absolute inset-x-0 bottom-0 p-4">
-          <h3 className="font-heading text-xl font-semibold tracking-wide text-white drop-shadow">
+        <div className="relative">
+          {/* Two lines is the most this overlay can hold at the narrowest card
+              the grid allows; an unbounded title is what overflowed the box.
+              The full text stays in the DOM (and on the card's tooltip). */}
+          <h3
+            title={trip.title}
+            className="line-clamp-2 font-heading text-xl font-semibold tracking-wide text-white drop-shadow"
+          >
             {trip.title}
           </h3>
           <p className="mt-0.5 line-clamp-1 text-xs text-white/70">{dates}</p>
@@ -251,7 +271,7 @@ function DiscoverCard({
   return (
     <div className="relative">
       <TripCard trip={trip} />
-      <div className="absolute right-2.5 top-2.5 z-10">
+      <div className="absolute right-4 top-4 z-10">
         <FollowChip
           busy={busy}
           following={following}
@@ -306,7 +326,7 @@ function DiscoverBand({
       {trips === null ? (
         <Collapsed>Looking for public trips…</Collapsed>
       ) : trips.length > 0 ? (
-        <div className="grid gap-5 sm:grid-cols-2">
+        <div className="trip-grid">
           {trips.map((trip) => (
             <BandRow
               key={trip.dtId}
@@ -332,7 +352,7 @@ function DiscoverBand({
 
 function TripGridSkeleton() {
   return (
-    <div className="grid gap-5 sm:grid-cols-2">
+    <div className="trip-grid">
       {[0, 1, 2].map((i) => (
         <div
           key={i}
@@ -611,7 +631,7 @@ function HomeBands({
             }
           >
             {ownGrid && ownGrid.length > 0 ? (
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="trip-grid">
                 {ownGrid.map((trip) => (
                   <BandRow
                     key={trip.dtId}
@@ -646,7 +666,7 @@ function HomeBands({
               }
             >
               {followedGrid.length > 0 ? (
-                <div className="grid gap-5 sm:grid-cols-2">
+                <div className="trip-grid">
                   {followedGrid.map((trip) => (
                     <BandRow
                       key={trip.dtId}

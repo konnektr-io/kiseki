@@ -118,6 +118,23 @@
   @apply border border-border/60 bg-surface/85 shadow-floating backdrop-blur-md;
 }
 
+/* The trip-card grid (home surface: Your trips / Trips you follow / Trips worth
+   a look, plus the loading skeleton — `pages/LandingPage.tsx`).
+
+   Breakpoint-driven columns are wrong here: this grid renders in a 389px rail,
+   a 340px split panel AND a 990px reading column at ONE viewport width, so
+   `sm:grid-cols-2` hands the rail two 164px cards. A card that narrow cannot
+   hold the cover overlay at all — its title block is taller than the 101px
+   photo (3 lines = 84px + dates + padding), so the absolutely positioned text
+   ran up over the stage badge and the photo clipped the first line. Two columns
+   only while BOTH hold a card that survives: 20rem minimum, one column below
+   that. The reading column still shows the two it always did. */
+@utility trip-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+}
+
 /* Text-over-photo scrim (DESIGN.md §9) — never rely on drop-shadow alone.
    Written with @apply rather than raw `var(--color-scrim)`: `@theme inline`
    does not emit the theme variables, it inlines them into utilities, so a

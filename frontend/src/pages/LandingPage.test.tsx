@@ -269,6 +269,44 @@ describe("the four bands", () => {
   });
 });
 
+describe("trip cards", () => {
+  /**
+   * Geometry contract, pinned structurally (jsdom lays nothing out, so the
+   * measured proof lives in the browser probe, not here).
+   *
+   * The reported defect (Niko, 2026-11-09): on a desktop rail the trip title
+   * "usually doesn't fit and overlaps with the status chip". Both causes are
+   * one class, so pin both halves:
+   *   1. the cover title is BOUNDED (a long agent-written title otherwise grows
+   *      the overlay up over the badge — 3 lines + dates is taller than the
+   *      ~101px cover a two-column rail card gets);
+   *   2. the card lists use the INTRINSIC `.trip-grid`, never breakpoint
+   *      columns — `sm:grid-cols-2` gives the rail two 164px cards at any
+   *      desktop viewport, because the rail's width is not the viewport's.
+   */
+  it("bounds the cover title and keeps the text block in the flow", async () => {
+    const el = await mount();
+    const card = el.querySelector('a[href="/t/booked-1"]')!;
+    const title = card.querySelector("h3")!;
+    expect(title.className).toContain("line-clamp-2");
+    // the untruncated text stays reachable (tooltip + screen readers)
+    expect(title.getAttribute("title")).toBe("Canada Heliski");
+    const cover = card.querySelector("div[class*='aspect-']")!;
+    // badge + text are flex children, not two absolute layers that can collide
+    expect(cover.className).toContain("flex-col");
+    expect(cover.querySelector(":scope > div[class*='left-3']")).toBeNull();
+  });
+
+  it("renders the card lists in the intrinsic grid, not breakpoint columns", async () => {
+    const el = await mount();
+    for (const band of ["Your trips", "Discover"]) {
+      const section = el.querySelector(`section[aria-label="${band}"]`)!;
+      expect(section.querySelector(".trip-grid")).toBeTruthy();
+    }
+    expect(el.querySelectorAll("[class*='grid-cols-']")).toHaveLength(0);
+  });
+});
+
 describe("empty bands collapse", () => {
   it("collapses Updates and Discover to one line each", async () => {
     net.feed = "empty";
