@@ -352,3 +352,38 @@ def test_transcript_route_gates_a_named_trip(
 
     # Unknown trip → 404 from the ACL gate (same contract as POST /api/chat).
     assert resp.status_code == 404
+
+
+# ------------------------------------------------------- history-read base URL
+def test_history_reads_use_the_session_store_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The TURN surface and the SESSION surface are different upstreams live.
+
+    In production ``KISEKI_HERMES_URL`` is the kiseki platform adapter (:8643),
+    which serves the runs API only — ``/api/sessions`` there is a 404, which is
+    exactly what broke the picker in v0.104.2. History reads must therefore take
+    their base from ``KISEKI_HERMES_SESSIONS_URL``.
+    """
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_URL", "http://adapter:8643")
+    monkeypatch.setattr(
+        chat_module.config, "KISEKI_HERMES_SESSIONS_URL", "http://api:8642/p/kiseki/"
+    )
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_KEY", "k")
+
+    assert chat_module._hermes_url("/v1/runs") == "http://adapter:8643/v1/runs"
+    assert (
+        chat_module._hermes_sessions_url("/api/sessions")
+        == "http://api:8642/p/kiseki/api/sessions"
+    )
+
+
+def test_history_reads_fall_back_to_the_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A single-URL deployment (dev, or a plain api server) keeps working."""
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_URL", "http://api:8642")
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_SESSIONS_URL", "")
+    monkeypatch.setattr(chat_module.config, "KISEKI_HERMES_KEY", "k")
+
+    assert chat_module._hermes_sessions_url("/api/sessions") == "http://api:8642/api/sessions"
