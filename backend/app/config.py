@@ -135,6 +135,14 @@ KISEKI_HERMES_URL = os.environ.get(
     "http://hermes.hermes.svc.cluster.local:8642/p/kiseki",
 )
 KISEKI_HERMES_KEY = os.environ.get("KISEKI_HERMES_KEY", "")
+#: Base URL of the API server that OWNS persisted sessions — the profile's
+#: multiplexed api server (``http://hermes.hermes.svc.cluster.local:8642/p/kiseki``).
+#: KISEKI_HERMES_URL above is the surface that runs TURNS (in production the
+#: kiseki platform adapter on :8643), and that adapter serves the runs API only:
+#: ``GET /api/sessions`` there is a 404, which is what made the conversation
+#: picker fail live in v0.104.2. Empty → the history reads fall back to
+#: KISEKI_HERMES_URL (single-URL deployments keep working).
+KISEKI_HERMES_SESSIONS_URL = os.environ.get("KISEKI_HERMES_SESSIONS_URL", "")
 
 # TriCount (bunq) expense integration (issue #111). Tricount device
 # credentials are NOT secrets (anonymous installation registration: an app

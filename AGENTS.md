@@ -253,6 +253,13 @@ earlier threads (newest first — `threadId`, `title`, `preview`, `messageCount`
 `GET /api/chat/sessions/{threadId}/messages` returns one thread's stored
 transcript as text-only `UIMessage[]` (tool rows, reasoning and the compaction
 scaffolding dropped). History still lives agent-side; these are read paths.
+**These reads do NOT go to the same upstream as a turn:** `KISEKI_HERMES_URL`
+is the turn surface (in production the kiseki platform adapter on `:8643`,
+which serves the runs API only), so `/api/sessions` there 404s — the history
+reads use `KISEKI_HERMES_SESSIONS_URL` (the profile's multiplexed api server,
+`…:8642/p/kiseki`) and fall back to the base URL only when it is unset. A split
+deployment that forgets it returns `502 … upstream error 404` from the picker
+(that was v0.104.2, fixed in v0.104.3).
 **Ownership is the session id's actor prefix** — every SPA thread is
 `{actor_sub}::thread:{threadId}` (`chat.conversation_id_for`), and upstream's
 `GET /api/sessions` returns the id but no attribution field, so the relay keeps

@@ -1270,9 +1270,29 @@ def _hermes_headers(session_key: str | None = None) -> dict[str, str]:
 
 
 def _hermes_url(path: str) -> str:
-    """Absolute URL for one Hermes API-server path."""
+    """Absolute URL for one Hermes API-server path.
+
+    This is the surface that runs TURNS. In production it is the Kiseki platform
+    adapter (``:8643``), which owns the per-user identity machinery and serves
+    only ``/v1/runs*`` / ``/v1/capabilities``.
+    """
     _require_hermes_config()
     return config.KISEKI_HERMES_URL.rstrip("/") + path
+
+
+def _hermes_sessions_url(path: str) -> str:
+    """Absolute URL for one path on the API server that OWNS persisted sessions.
+
+    A separate surface on purpose (#309, hit live): the platform adapter on
+    ``KISEKI_HERMES_URL`` implements the runs API only, so ``/api/sessions``
+    there is a 404 — list and transcript reads must go to the profile's
+    multiplexed api server (``http://hermes…:8642/p/kiseki``), which is what the
+    session store actually belongs to. Unset → fall back to the base URL, so a
+    single-URL deployment (dev, a plain api server) keeps working unchanged.
+    """
+    _require_hermes_config()
+    base = (config.KISEKI_HERMES_SESSIONS_URL or config.KISEKI_HERMES_URL).strip()
+    return base.rstrip("/") + path
 
 
 class RunGone(Exception):
@@ -1459,7 +1479,7 @@ async def list_thread_sessions(actor_sub: str, *, limit: int = 50) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         for _ in range(_SESSION_LIST_PAGES):
             resp = await client.get(
-                _hermes_url("/api/sessions"),
+                _hermes_sessions_url("/api/sessions"),
                 params={
                     "source": "api_server",
                     "limit": _SESSION_LIST_PAGE,
@@ -1510,7 +1530,7 @@ async def fetch_thread_messages(actor_sub: str, thread_id: str) -> list[dict]:
     offset = 0
     async with httpx.AsyncClient(timeout=30.0) as client:
         while True:
-            url = _hermes_url(f"/api/sessions/{quote(session_id, safe='')}/messages")
+            url = _hermes_sessions_url(f"/api/sessions/{quote(session_id, safe='')}/messages")
             resp = await client.get(
                 url,
                 params={"order": "oldest", "limit": _TRANSCRIPT_PAGE, "offset": offset},
