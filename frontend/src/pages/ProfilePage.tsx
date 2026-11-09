@@ -23,6 +23,7 @@ import type { PeopleList, ProfilePerson, ProfileTrip, UserProfile } from "../lib
 import { AppHeader } from "../components/AppHeader";
 import { AuthButton } from "../components/AuthButton";
 import { AvatarEditor } from "../components/avatar-editor";
+import { StravaConnections } from "../components/strava-connections";
 import { InlineField } from "../components/inline-edit";
 import { Badge, Button, Card, StageBadge } from "../components/ui";
 import { AccountPanel } from "../components/AccountPanel";
@@ -739,6 +740,11 @@ function ProfileView({
             }}
           />
         )}
+
+        {/* Connections (#449) — the account-level Strava link. Per browser by
+            design: the refresh token is an HttpOnly cookie, so there is nothing
+            account-wide to show or to revoke. */}
+        {isSelf && <StravaConnections />}
 
         {openList && (
           <Card className="mt-4 p-3" aria-live="polite">
