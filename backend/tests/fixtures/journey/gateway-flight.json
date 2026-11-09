@@ -1,0 +1,113 @@
+{
+  "id": "fixture-gateway",
+  "slug": "fixture-gateway",
+  "title": "Gateway airports",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Coast City",
+      "lat": 0.0,
+      "lng": 0.0
+    },
+    {
+      "name": "Coast Airport",
+      "lat": 0.15,
+      "lng": 0.0
+    },
+    {
+      "name": "Inland City",
+      "lat": 0.0,
+      "lng": 10.0
+    },
+    {
+      "name": "Inland Airport",
+      "lat": 0.15,
+      "lng": 10.0
+    }
+  ],
+  "days": [
+    {
+      "title": "Coast City",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "activity",
+          "title": "Harbour walk",
+          "location": "Coast City"
+        }
+      ]
+    },
+    {
+      "title": "Coast City",
+      "blocks": [
+        {
+          "id": "b2",
+          "kind": "activity",
+          "title": "Museum",
+          "location": "Coast City"
+        }
+      ]
+    },
+    {
+      "title": "Fly inland",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "transport",
+          "title": "Flight Coast Airport → Inland Airport",
+          "from": "Coast Airport",
+          "to": "Inland Airport",
+          "mode": "flight",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "title": "Inland City",
+      "blocks": [
+        {
+          "id": "b4",
+          "kind": "activity",
+          "title": "Old quarter",
+          "location": "Inland City"
+        }
+      ]
+    },
+    {
+      "title": "Inland City",
+      "blocks": [
+        {
+          "id": "b5",
+          "kind": "activity",
+          "title": "River day",
+          "location": "Inland City"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Coast",
+      "days": [
+        0,
+        1
+      ],
+      "locationRefs": [
+        "Coast City"
+      ]
+    },
+    {
+      "title": "Inland",
+      "days": [
+        3,
+        4
+      ],
+      "locationRefs": [
+        "Inland City"
+      ]
+    }
+  ]
+}

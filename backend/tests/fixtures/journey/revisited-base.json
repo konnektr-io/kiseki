@@ -1,0 +1,171 @@
+{
+  "id": "fixture-revisit",
+  "slug": "fixture-revisit",
+  "title": "Re-visited base: home → mountain → home",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Home City",
+      "lat": 12.0,
+      "lng": 77.0
+    },
+    {
+      "name": "Mountain Town",
+      "lat": 9.5,
+      "lng": 77.3
+    },
+    {
+      "name": "Home Airport",
+      "lat": 12.15,
+      "lng": 77.15
+    }
+  ],
+  "days": [
+    {
+      "title": "Arrive in Home City",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "transport",
+          "title": "Arrive Home City",
+          "to": "Home City",
+          "mode": "flight",
+          "status": "booked"
+        },
+        {
+          "id": "b2",
+          "kind": "lodging",
+          "title": "Stay: Home City Inn",
+          "location": "Home City"
+        }
+      ]
+    },
+    {
+      "title": "Home City",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "activity",
+          "title": "Old town walk",
+          "location": "Home City"
+        }
+      ]
+    },
+    {
+      "title": "Night bus to Mountain Town",
+      "blocks": [
+        {
+          "id": "b4",
+          "kind": "transport",
+          "title": "Night bus Home City → Mountain Town",
+          "from": "Home City",
+          "to": "Mountain Town",
+          "mode": "drive",
+          "status": "booked"
+        }
+      ]
+    },
+    {
+      "title": "Mountain Town",
+      "blocks": [
+        {
+          "id": "b5",
+          "kind": "activity",
+          "title": "Ridge traverse",
+          "location": "Mountain Town"
+        }
+      ]
+    },
+    {
+      "title": "Mountain Town",
+      "blocks": [
+        {
+          "id": "b6",
+          "kind": "activity",
+          "title": "Glacier day",
+          "location": "Mountain Town"
+        }
+      ]
+    },
+    {
+      "title": "Back to Home City",
+      "blocks": [
+        {
+          "id": "b7",
+          "kind": "transport",
+          "title": "Overnight bus back",
+          "from": "Mountain Town",
+          "to": "Home City",
+          "mode": "drive",
+          "status": "booked"
+        }
+      ]
+    },
+    {
+      "title": "Home City again",
+      "blocks": [
+        {
+          "id": "b8",
+          "kind": "activity",
+          "title": "Market morning",
+          "location": "Home City"
+        },
+        {
+          "id": "b9",
+          "kind": "lodging",
+          "title": "Stay: Home City Inn",
+          "location": "Home City"
+        }
+      ]
+    },
+    {
+      "title": "Fly home",
+      "blocks": [
+        {
+          "id": "b10",
+          "kind": "transport",
+          "title": "Flight Home Airport → Brussels",
+          "from": "Home Airport",
+          "to": "Home City",
+          "mode": "flight",
+          "status": "booked"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Home City",
+      "days": [
+        0,
+        1
+      ],
+      "locationRefs": [
+        "Home City"
+      ]
+    },
+    {
+      "title": "Mountain Town",
+      "days": [
+        2,
+        4
+      ],
+      "locationRefs": [
+        "Mountain Town"
+      ]
+    },
+    {
+      "title": "Home City again",
+      "days": [
+        5,
+        7
+      ],
+      "locationRefs": [
+        "Home City"
+      ]
+    }
+  ]
+}

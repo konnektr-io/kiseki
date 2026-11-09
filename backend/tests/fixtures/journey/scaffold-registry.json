@@ -1,0 +1,41 @@
+{
+  "id": "fixture-scaffold",
+  "slug": "fixture-scaffold",
+  "title": "Scaffold: registry only",
+  "stage": "idea",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Alpha Camp",
+      "lat": 46.0,
+      "lng": 7.0
+    },
+    {
+      "name": "Beta Pass",
+      "lat": 46.2,
+      "lng": 7.4
+    },
+    {
+      "name": "Gamma Lake",
+      "lat": 46.5,
+      "lng": 7.9
+    },
+    {
+      "name": "Delta Hut",
+      "lat": 46.7,
+      "lng": 8.2
+    }
+  ],
+  "days": [
+    {
+      "title": "Day one",
+      "blocks": []
+    },
+    {
+      "title": "Day two",
+      "blocks": []
+    }
+  ]
+}

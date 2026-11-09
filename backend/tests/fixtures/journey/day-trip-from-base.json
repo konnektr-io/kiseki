@@ -1,0 +1,126 @@
+{
+  "id": "fixture-daytrip",
+  "slug": "fixture-daytrip",
+  "title": "Day trip from a base",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Base Village",
+      "lat": 45.0,
+      "lng": 6.0
+    },
+    {
+      "name": "Summit Trailhead",
+      "lat": 45.4,
+      "lng": 6.5
+    },
+    {
+      "name": "Far City",
+      "lat": 48.5,
+      "lng": 9.0
+    }
+  ],
+  "days": [
+    {
+      "title": "Arrive in Base Village",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "lodging",
+          "title": "Stay: Base Village Lodge",
+          "location": "Base Village"
+        }
+      ]
+    },
+    {
+      "title": "Ski day at Base Village",
+      "blocks": [
+        {
+          "id": "b2",
+          "kind": "activity",
+          "title": "Ski the home hill",
+          "location": "Base Village"
+        }
+      ]
+    },
+    {
+      "title": "Hike to Summit Trailhead",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "transport",
+          "title": "Drive Base Village → Summit Trailhead",
+          "from": "Base Village",
+          "to": "Summit Trailhead",
+          "mode": "drive",
+          "status": "planned"
+        },
+        {
+          "id": "b4",
+          "kind": "activity",
+          "title": "Summit loop",
+          "location": "Summit Trailhead"
+        },
+        {
+          "id": "b5",
+          "kind": "transport",
+          "title": "Drive Summit Trailhead → Base Village",
+          "from": "Summit Trailhead",
+          "to": "Base Village",
+          "mode": "drive",
+          "status": "planned"
+        }
+      ]
+    },
+    {
+      "title": "Another Base Village day",
+      "blocks": [
+        {
+          "id": "b6",
+          "kind": "activity",
+          "title": "Rest day",
+          "location": "Base Village"
+        }
+      ]
+    },
+    {
+      "title": "Transfer to Far City",
+      "blocks": [
+        {
+          "id": "b7",
+          "kind": "transport",
+          "title": "Drive Base Village → Far City",
+          "from": "Base Village",
+          "to": "Far City",
+          "mode": "drive",
+          "status": "planned"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Base Village chapter",
+      "days": [
+        0,
+        3
+      ],
+      "locationRefs": [
+        "Base Village"
+      ]
+    },
+    {
+      "title": "Far City chapter",
+      "days": [
+        4,
+        4
+      ],
+      "locationRefs": [
+        "Far City"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "id": "fixture-alias",
+  "slug": "fixture-alias",
+  "title": "Alias nested in a longer name",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "New Chitose",
+      "lat": 42.7752,
+      "lng": 141.6923,
+      "alias": [
+        "CTS",
+        "Sapporo"
+      ]
+    },
+    {
+      "name": "Sapporo Kokusai",
+      "lat": 43.0728,
+      "lng": 141.3305,
+      "alias": [
+        "Kokusai"
+      ]
+    },
+    {
+      "name": "Sapporo Teine",
+      "lat": 43.1113,
+      "lng": 141.2045,
+      "alias": [
+        "Teine"
+      ]
+    }
+  ],
+  "days": [
+    {
+      "title": "Land and drive to Sapporo Kokusai",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "transport",
+          "title": "Drive New Chitose → Sapporo Kokusai",
+          "from": "New Chitose",
+          "to": "Sapporo Kokusai",
+          "mode": "drive",
+          "status": "booked"
+        },
+        {
+          "id": "b2",
+          "kind": "lodging",
+          "title": "Stay: Kokusai lodge",
+          "location": "Sapporo Kokusai"
+        }
+      ]
+    },
+    {
+      "title": "Sapporo Kokusai",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "activity",
+          "title": "Powder day",
+          "location": "Sapporo Kokusai"
+        }
+      ]
+    },
+    {
+      "title": "Sapporo Kokusai",
+      "blocks": [
+        {
+          "id": "b4",
+          "kind": "activity",
+          "title": "Tree runs",
+          "location": "Sapporo Kokusai"
+        }
+      ]
+    },
+    {
+      "title": "Drive to Sapporo Teine",
+      "blocks": [
+        {
+          "id": "b5",
+          "kind": "transport",
+          "title": "Drive Sapporo Kokusai → Sapporo Teine",
+          "from": "Sapporo Kokusai",
+          "to": "Sapporo Teine",
+          "mode": "drive",
+          "status": "booked"
+        },
+        {
+          "id": "b6",
+          "kind": "lodging",
+          "title": "Stay: Teine",
+          "location": "Sapporo Teine"
+        }
+      ]
+    },
+    {
+      "title": "Sapporo Teine",
+      "blocks": [
+        {
+          "id": "b7",
+          "kind": "activity",
+          "title": "Steep trees",
+          "location": "Sapporo Teine"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Kokusai",
+      "days": [
+        0,
+        2
+      ],
+      "locationRefs": [
+        "Sapporo Kokusai"
+      ]
+    },
+    {
+      "title": "Teine",
+      "days": [
+        3,
+        4
+      ],
+      "locationRefs": [
+        "Sapporo Teine"
+      ]
+    }
+  ]
+}
