@@ -1651,3 +1651,187 @@ describe("day titles (#435 follow-up: an IATA code is shorthand, not a stay)", (
     expect(legs).toContain("Cusco→Lima:flight");
   });
 });
+
+describe("same-day hub re-entry orders the chain by the day's movements (#454)", () => {
+  const scl = loc("Luchthaven Santiago", -33.3898, -70.7944, ["SCL"]);
+  const santiago = loc("Santiago", -33.4489, -70.6693);
+  const valleNevado = loc("Valle Nevado", -33.3532, -70.2489);
+  const calama = loc("Luchthaven Calama", -22.4954, -68.9074, ["CJC"]);
+  const sanPedro = loc("San Pedro de Atacama", -22.9102, -68.1984);
+  const puritama = loc("Termas de Puritama", -22.7198, -68.0433);
+  const valparaiso = loc("Valparaíso", -33.0473, -71.6127);
+  const casas = loc("Casas del Bosque", -33.3186, -71.4355);
+  const emiliana = loc("Emiliana organic winery", -33.3589, -71.3097);
+  const concon = loc("Dunas de Concón", -32.9403, -71.5495);
+
+  const drive = (id: string, from: string, to: string): Block =>
+    ({ id, kind: "transport", mode: "drive", title: `${from} → ${to}`, from, to }) as Block;
+  const flight = (id: string, from: string, to: string): Block =>
+    ({ id, kind: "transport", mode: "flight", title: `Vlucht ${from} → ${to}`, from, to }) as Block;
+
+  /**
+   * Chile 2027's shape (the real trip behind #454): fly into SCL, stay in
+   * Santiago, ski in Valle Nevado, fly out of SCL to Calama for Atacama, then
+   * come BACK into SCL on the way to the coast — the hub is re-entered on a
+   * day that visits three places before it.
+   *
+   * `hubFirst` is the registry order the author happened to have (the airports
+   * and the capital early, the Atacama stops and the coast later); `hubLast`
+   * moves the two airport entries to the end. The chain must not care.
+   */
+  const chile = (hubFirst: boolean): Trip => {
+    const registry = hubFirst
+      ? [scl, santiago, valleNevado, sanPedro, calama, valparaiso, puritama, casas, emiliana, concon]
+      : [santiago, valleNevado, sanPedro, puritama, valparaiso, casas, emiliana, concon, scl, calama];
+    return {
+      id: "t-chile",
+      slug: "chile-2027",
+      title: "Chile 2027",
+      stage: "shortlist",
+      visibility: "private",
+      crew: [],
+      practical: {},
+      locations: registry,
+      sections: [],
+      days: [
+        dayAt(0, "Vlieg BRU → Santiago", [
+          { id: "f0", kind: "transport", mode: "flight", title: "Vlucht BRU → SCL", to: "Luchthaven Santiago" } as Block,
+        ]),
+        dayAt(1, "Aankomst Santiago — uitrusten", [drive("d1", "Luchthaven Santiago", "Santiago")]),
+        dayAt(2, "Santiago — stad & uitzicht", [
+          { id: "a2", kind: "activity", title: "Sky Costanera", location: "Santiago" } as Block,
+        ]),
+        dayAt(3, "Transfer naar Valle Nevado", [drive("d3", "Santiago", "Valle Nevado")]),
+        dayAt(4, "Skidag 1 — Valle Nevado", [
+          { id: "a4", kind: "activity", title: "Valle Nevado — hele dag skiën", location: "Valle Nevado" } as Block,
+        ]),
+        dayAt(5, "Skidag 2 — Valle Nevado", [
+          { id: "a5", kind: "activity", title: "Valle Nevado — poeder", location: "Valle Nevado" } as Block,
+        ]),
+        dayAt(6, "Afdalen & doorvliegen naar Atacama", [
+          drive("d6a", "Valle Nevado", "Luchthaven Santiago"),
+          flight("f6", "Luchthaven Santiago", "Luchthaven Calama"),
+          drive("d6b", "Luchthaven Calama", "San Pedro de Atacama"),
+        ]),
+        dayAt(7, "San Pedro — wennen aan de hoogte", [
+          { id: "a7", kind: "activity", title: "Pukará de Quitor", location: "San Pedro de Atacama" } as Block,
+        ]),
+        dayAt(8, "Valle de la Luna", [
+          { id: "a8", kind: "activity", title: "Valle de la Luna", location: "San Pedro de Atacama" } as Block,
+        ]),
+        dayAt(9, "El Tatio & sterrenhemel", [
+          { id: "a9", kind: "activity", title: "Sterrenwacht", location: "San Pedro de Atacama" } as Block,
+        ]),
+        // The day #454 is about: out of San Pedro, the Termas, back into the
+        // flight hub, and out to the coast.
+        dayAt(10, "Puritama → naar de kust", [
+          drive("d10a", "San Pedro de Atacama", "Termas de Puritama"),
+          flight("f10", "Luchthaven Calama", "Luchthaven Santiago"),
+          drive("d10b", "Luchthaven Santiago", "Valparaíso"),
+          { id: "a10", kind: "activity", title: "Termas de Puritama", location: "Termas de Puritama" } as Block,
+          drive("d10c", "Termas de Puritama", "Luchthaven Calama"),
+        ]),
+        dayAt(11, "Valparaíso — de heuvels", [
+          { id: "a11", kind: "activity", title: "Cerro Alegre", location: "Valparaíso" } as Block,
+        ]),
+        // A there-and-back day: the wine loop returns to Valparaíso, so this
+        // day's own blocks form a cycle no topological walk can order.
+        dayAt(12, "Casablanca & de duinen van Concón", [
+          drive("d12a", "Valparaíso", "Casas del Bosque"),
+          drive("d12b", "Casas del Bosque", "Emiliana organic winery"),
+          drive("d12c", "Emiliana organic winery", "Dunas de Concón"),
+          drive("d12d", "Dunas de Concón", "Valparaíso"),
+        ]),
+        dayAt(13, "Valparaíso → Santiago", [drive("d13", "Valparaíso", "Santiago")]),
+        dayAt(14, "Vertrek SCL → BRU", [drive("d14", "Santiago", "Luchthaven Santiago")]),
+      ],
+    } as unknown as Trip;
+  };
+
+  const CHAIN = [
+    "Luchthaven Santiago",
+    "Santiago",
+    "Valle Nevado",
+    "Luchthaven Santiago",
+    "Luchthaven Calama",
+    "San Pedro de Atacama",
+    "Termas de Puritama",
+    "Luchthaven Calama",
+    "Luchthaven Santiago",
+    "Valparaíso",
+    "Casas del Bosque",
+    "Emiliana organic winery",
+    "Dunas de Concón",
+    "Santiago",
+    "Luchthaven Santiago",
+  ];
+  const MODES = [
+    "drive",
+    "drive",
+    "drive",
+    "flight",
+    "drive",
+    "drive",
+    "drive",
+    "flight",
+    "drive",
+    "drive",
+    "drive",
+    "drive",
+    LEG_GAP_MODE,
+    "drive",
+  ];
+
+  it("chains the re-entry day as it is travelled, whatever the registry order", () => {
+    for (const hubFirst of [true, false]) {
+      const t = chile(hubFirst);
+      const places = journeyOrder(t).map((p) => p.name);
+      expect(places).toEqual(CHAIN);
+      expect(legModes(t, places)).toEqual(MODES);
+    }
+  });
+
+  it("no longer emits a leg between places the day does not travel between", () => {
+    const t = chile(true);
+    const legs = tripJourney(t).legs.map((l) => `${l.from.name}→${l.to.name}`);
+    // Pairs nobody travels between — two of them are what this fixture's own
+    // pre-fix chain produced (Valparaíso → Puritama → Casas), two are the
+    // report's (San Pedro → SCL, Calama → Casas).
+    expect(legs).not.toContain("Valparaíso→Termas de Puritama");
+    expect(legs).not.toContain("Termas de Puritama→Casas del Bosque");
+    expect(legs).not.toContain("San Pedro de Atacama→Luchthaven Santiago");
+    expect(legs).not.toContain("Luchthaven Calama→Casas del Bosque");
+    // The authentic ones survive.
+    expect(legs).toContain("San Pedro de Atacama→Termas de Puritama");
+    expect(legs).toContain("Termas de Puritama→Luchthaven Calama");
+    expect(legs).toContain("Luchthaven Calama→Luchthaven Santiago");
+  });
+
+  it("leaves a place the day's movements never name in the slot registry order gave it", () => {
+    // The transfer day also stops in Santiago for lunch (an activity card, no
+    // movement block names it). Its position is genuinely unknown, so the pass
+    // must not invent one: it keeps the slot registry order gave it, and the
+    // places the movements DO order fill the rest in travel sequence.
+    const t = chile(true);
+    t.days[10].blocks.push({
+      id: "a10b",
+      kind: "activity",
+      title: "Lunch in Santiago",
+      location: "Santiago",
+    } as Block);
+    const places = journeyOrder(t).map((p) => p.name);
+    const dayGroup = places.slice(
+      places.indexOf("Termas de Puritama"),
+      places.indexOf("Valparaíso") + 1,
+    );
+    // Santiago keeps its registry slot (second of the group) instead of being
+    // pushed to the end behind the paced places; the paces keep their order.
+    expect(dayGroup).toEqual([
+      "Termas de Puritama",
+      "Santiago",
+      "Luchthaven Calama",
+      "Luchthaven Santiago",
+      "Valparaíso",
+    ]);
+  });
+});
