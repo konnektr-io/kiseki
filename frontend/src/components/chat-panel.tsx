@@ -239,6 +239,47 @@ function ChatHistoryMenu({
   const [failed, setFailed] = useState(false);
   const [rows, setRows] = useState<PickerThread[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
+  /** Where the list is drawn, in the PANEL's coordinate space.
+   *
+   * A plain `absolute right-0` menu overflowed the panel's LEFT edge on a
+   * phone (the drawer is narrower than the list, and the panel carries
+   * `overflow-hidden`, so every row lost its first ~100 px — the titles were
+   * unreadable; measured 2026-11-09 at 390 px and 360 px). The list is
+   * therefore sized to the panel and anchored to the button, clamped inside the
+   * panel's padding. */
+  const [pos, setPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+
+  const place = () => {
+    const anchor = rootRef.current;
+    const panel = anchor?.closest("[data-chat-panel]") as HTMLElement | null;
+    if (!anchor || !panel) return;
+    const panelBox = panel.getBoundingClientRect();
+    const buttonBox = anchor.getBoundingClientRect();
+    const width = Math.min(320, Math.max(220, panelBox.width - 16));
+    const maxLeft = Math.max(8, panelBox.width - width - 8);
+    // Preferred: right-aligned under the button. Clamped so the list never
+    // crosses the panel's left padding (the phone case above).
+    const leftInPanel = Math.min(
+      Math.max(buttonBox.right - panelBox.left - width, 8),
+      maxLeft,
+    );
+    setPos({
+      // The menu is absolute inside this wrapper, so offsets are relative to
+      // the BUTTON (which sits at the wrapper's origin).
+      top: Math.round(buttonBox.height + 6),
+      left: Math.round(leftInPanel - (buttonBox.left - panelBox.left)),
+      width: Math.round(width),
+      // Never taller than the panel can show beneath the header.
+      maxHeight: Math.round(
+        Math.max(180, panelBox.bottom - buttonBox.bottom - 24),
+      ),
+    });
+  };
 
   const localRows = () => {
     const local = listIndexedThreads(context, userSub);
@@ -275,9 +316,19 @@ function ChatHistoryMenu({
 
   useEffect(() => {
     if (!open) return;
+    place();
     void load();
     // `load` closes over context/threadId/getToken; a fresh run per open is the
     // point (someone may have continued a thread on another device since).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the list inside the panel when the viewport changes under it.
+  useEffect(() => {
+    if (!open) return;
+    const onResize = () => place();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -318,12 +369,18 @@ function ChatHistoryMenu({
         <span className="hidden sm:inline">History</span>
       </Button>
 
-      {open && (
+      {open && pos && (
         <div
           role="menu"
           aria-label="Earlier conversations"
           data-testid="chat-history-menu"
-          className="absolute right-0 top-full z-30 mt-1.5 w-80 max-w-[calc(100vw-2.5rem)] rounded-xl border border-border bg-card p-1.5 shadow-lg"
+          style={{
+            top: pos.top,
+            left: pos.left,
+            width: pos.width,
+            maxHeight: pos.maxHeight,
+          }}
+          className="absolute z-30 flex flex-col rounded-xl border border-border bg-card p-1.5 shadow-lg"
         >
           <p className="px-2.5 pb-1 pt-1.5 text-xs text-muted-foreground">
             Conversations
@@ -339,7 +396,7 @@ function ChatHistoryMenu({
               No earlier conversations yet.
             </p>
           )}
-          <div className="max-h-80 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             {rows.map((row) => (
               <button
                 key={row.threadId}
@@ -885,6 +942,7 @@ function ChatThread({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      data-chat-panel=""
       className={`no-print relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card ${className ?? ""}`}
     >
       {/* The drop zone (#291): shown while a file drag is over the panel and
