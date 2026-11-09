@@ -83,18 +83,6 @@ _UNSET = object()
 _MISS = object()
 
 
-_PATTERNS: dict[str, re.Pattern[str]] = {}
-
-
-def _boundary_re(term: str) -> re.Pattern[str]:
-    """Word-bounded, case-insensitive matcher for one place name/alias."""
-    pat = _PATTERNS.get(term)
-    if pat is None:
-        pat = re.compile(rf"(?<!{_ALNUM})({re.escape(term)})(?!{_ALNUM})", re.IGNORECASE)
-        _PATTERNS[term] = pat
-    return pat
-
-
 def _alnum_boundary(term: str) -> re.Pattern[str]:
     """Exact-name test used by ``day_title_locates`` (no alias fallback)."""
     return re.compile(rf"(?<!{_ALNUM}){re.escape(term)}(?!{_ALNUM})", re.IGNORECASE)
