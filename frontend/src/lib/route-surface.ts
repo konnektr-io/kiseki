@@ -730,45 +730,139 @@ export function journeyVisits(trip: Trip): JourneyVisit[] {
 }
 
 /**
- * Which of two places comes first on a day that names both — decided by the
- * day's own transport blocks, when one connects the pair.
+ * The places the given days' own movements touch, in travel order — a
+ * topological walk over those days' transport `from`/`to` pairs (#454).
  *
- * A transfer day belongs to BOTH its endpoints (`placeDays`), so an arrival
- * day can start two stays at once: "Land in Cusco — drive into the Sacred
+ * Every transport block contributes an edge `from → to` (`blockEndpoints`
+ * fills an absent `from` from the title, so the title-only drives count too)
+ * and the walk returns each touched place with its position along the route
+ * those days describe. A block whose ends cannot be resolved contributes
+ * nothing.
+ *
+ * The days are read in ascending order and an edge that would close a cycle in
+ * what the walk already holds is dropped: a there-and-back outing (the wine
+ * loop `Valparaíso → Casas → Emiliana → Concón → Valparaíso`) or a return leg
+ * later in the stay contradicts the outbound direction, and the EARLIEST
+ * authored evidence is the one that says where the trip went first. Places
+ * still standing when the queue drains are appended in first-appearance order —
+ * a resolver that invented an order for a cycle would be claiming evidence the
+ * content does not contain.
+ */
+function dayTravelOrder(trip: Trip, days: number[]): Map<TripLocation, number> {
+  const nodes: TripLocation[] = [];
+  const edges = new Map<TripLocation, Set<TripLocation>>();
+  const touch = (l: TripLocation) => {
+    if (edges.has(l)) return;
+    nodes.push(l);
+    edges.set(l, new Set());
+  };
+  const reaches = (from: TripLocation, target: TripLocation): boolean => {
+    const seen = new Set<TripLocation>([from]);
+    const stack = [from];
+    while (stack.length) {
+      const n = stack.pop()!;
+      if (n === target) return true;
+      for (const to of edges.get(n) ?? []) if (!seen.has(to)) {
+        seen.add(to);
+        stack.push(to);
+      }
+    }
+    return false;
+  };
+  for (const day of days) {
+    for (const block of trip.days[day]?.blocks ?? []) {
+      if (block.kind !== "transport") continue;
+      const e = blockEndpoints(trip, block);
+      if (!e.from || !e.to) continue;
+      touch(e.from);
+      touch(e.to);
+      if (reaches(e.to, e.from)) continue;
+      edges.get(e.from)!.add(e.to);
+    }
+  }
+
+  const indegree = new Map<TripLocation, number>();
+  for (const n of nodes) indegree.set(n, 0);
+  for (const tos of edges.values()) for (const to of tos) indegree.set(to, (indegree.get(to) ?? 0) + 1);
+
+  const ordered: TripLocation[] = [];
+  const ready = nodes.filter((n) => (indegree.get(n) ?? 0) === 0);
+  while (ready.length) {
+    const next = ready.shift()!;
+    ordered.push(next);
+    for (const to of edges.get(next) ?? []) {
+      const left = (indegree.get(to) ?? 0) - 1;
+      indegree.set(to, left);
+      if (left === 0) ready.push(to);
+    }
+  }
+  for (const n of nodes) if (!ordered.includes(n)) ordered.push(n);
+
+  return new Map(ordered.map((n, i) => [n, i] as const));
+}
+
+/**
+ * Order the places that share a first day by the movements of the days they
+ * share.
+ *
+ * A transfer day belongs to BOTH its endpoints (`placeDays`), so a travel day
+ * can start several stays at once: "Land in Cusco — drive into the Sacred
  * Valley" puts Cusco (day 7) and the valley (days 7–9) at the same first day,
  * and registry order then had to guess. It guessed wrong: the valley came
  * before Cusco, so the chain claimed a Cusco → Machu Picchu leg that nobody
  * travels and lost the authored Cusco → valley drive into a reversed match.
- * The block that describes the day already knows the direction, so it decides.
+ *
+ * Pairwise adjacency is not enough on a day that visits several places, and a
+ * hub re-entry is the case that breaks it (#454). Chile 2027's day 12 runs
+ * `San Pedro → Puritama → Calama → flight → Santiago → Valparaíso`; the hub
+ * airport and Calama both open stays that day, and with the airport listed
+ * first in the registry the day came out as `airport, Valparaíso, Puritama` —
+ * no adjacent pair of that order is connected by a block, so no swap could
+ * repair it and the chain drew `gap` legs between places nobody travels
+ * between (`Valparaíso → Termas de Puritama`). The movement chain of the days
+ * the group shares orders the whole group instead (see `dayTravelOrder`), so
+ * the result no longer depends on where the author happens to have dropped a
+ * place in the registry array.
+ *
+ * Reading the SHARED days, not just the first one, is what orders a hub against
+ * the city it serves: on Chile 2027 the day-0 title names both Santiago and its
+ * airport while the flight's endpoints collapse (an arrival is one end), so the
+ * first day alone says nothing — the day-1 drive `airport → Santiago` does.
+ *
+ * Places the movements never name are left in their own slots, and the ranked
+ * ones fill the remaining slots in travel order: a place with no movement
+ * evidence keeps exactly the position registry order gave it, so this pass can
+ * only improve the places the content actually speaks about.
  */
 function orderSharedFirstDay(
   trip: Trip,
   placed: { place: TripLocation; days: number[]; index: number }[],
 ): void {
-  const dayOrder = (day: number, a: TripLocation, b: TripLocation): number | null => {
-    for (const block of trip.days[day]?.blocks ?? []) {
-      if (block.kind !== "transport") continue;
-      const e = blockEndpoints(trip, block);
-      if (e.from === a && e.to === b) return -1;
-      if (e.from === b && e.to === a) return 1;
+  let start = 0;
+  while (start < placed.length) {
+    let end = start + 1;
+    while (end < placed.length && placed[end].days[0] === placed[start].days[0]) end++;
+    // The evidence is the days EVERY member of the group is present on: a day
+    // that locates only some of them cannot order the rest against it, and a
+    // shared day is exactly a day whose movements describe their sequence.
+    const shared = placed
+      .slice(start, end)
+      .map((p) => p.days)
+      .reduce((acc, days) => acc.filter((d) => days.includes(d)));
+    const rank = dayTravelOrder(trip, shared);
+    const slots: number[] = [];
+    for (let i = start; i < end; i++) if (rank.has(placed[i].place)) slots.push(i);
+    if (slots.length > 1) {
+      const ranked = slots
+        .map((i) => ({ entry: placed[i], at: i, rank: rank.get(placed[i].place) ?? 0 }))
+        .sort((a, b) => a.rank - b.rank || a.at - b.at);
+      // References, not mutations: every read happens before any write, so
+      // assigning the entries into their new slots cannot clobber a pending one.
+      ranked.forEach((r, k) => {
+        placed[slots[k]] = r.entry;
+      });
     }
-    return null;
-  };
-  // Insertion sort inside each same-first-day run: the comparator is only
-  // meaningful pairwise (a block connects two places, not a group), so a
-  // stable, local sort beats a global comparator that could contradict itself.
-  for (let i = 1; i < placed.length; i++) {
-    let j = i;
-    while (j > 0) {
-      const prev = placed[j - 1];
-      const cur = placed[j];
-      if (prev.days[0] !== cur.days[0]) break;
-      const order = dayOrder(cur.days[0], prev.place, cur.place);
-      if (order == null || order < 0) break;
-      placed[j - 1] = cur;
-      placed[j] = prev;
-      j--;
-    }
+    start = end;
   }
 }
 
