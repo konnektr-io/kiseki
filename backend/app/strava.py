@@ -124,20 +124,42 @@ def _client() -> httpx.Client:
 
 
 def _error_detail(resp: httpx.Response, what: str) -> str:
+    """Readable failure text, including Strava's own fault body.
+
+    Strava answers most refusals with ``message: "Bad Request"`` plus the useful
+    part in ``errors[]`` (``{resource, field, code}``), so the generic message
+    alone reads as "something was wrong". Kiseki #449 hit exactly that: the
+    cause was ``field: "after", code: "future"`` and the first version of this
+    helper threw it away, leaving "Strava returned 400 while reading Strava".
+    """
     try:
         payload = resp.json()
     except Exception:  # noqa: BLE001 — a non-JSON error body is still an error
         payload = None
-    message = ""
+    parts: list[str] = []
     if isinstance(payload, dict):
-        message = str(payload.get("message") or payload.get("error") or "")
+        message = str(payload.get("message") or payload.get("error") or "").strip()
+        if message:
+            parts.append(message)
         errors = payload.get("errors")
-        if not message and isinstance(errors, list) and errors:
-            first = errors[0]
-            if isinstance(first, dict):
-                message = str(first.get("resource") or "") + " " + str(first.get("field") or "")
-    message = message.strip()
-    suffix = f": {message}" if message else ""
+        if isinstance(errors, list):
+            for entry in errors[:2]:
+                if not isinstance(entry, dict):
+                    continue
+                where = " ".join(
+                    part
+                    for part in (
+                        str(entry.get("resource") or "").strip(),
+                        str(entry.get("field") or "").strip(),
+                    )
+                    if part
+                )
+                code = str(entry.get("code") or "").strip()
+                if where and code:
+                    parts.append(f"{where} ({code})")
+                elif where or code:
+                    parts.append(where or code)
+    suffix = f": {' — '.join(parts)}" if parts else ""
     if resp.status_code == 429:
         return f"Strava rate limit reached while {what} — try again in a few minutes{suffix}"
     if resp.status_code in (401, 403):

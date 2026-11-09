@@ -1010,13 +1010,17 @@ export async function disconnectStrava(
 export async function fetchStravaActivities(
   tripId: string,
   accessToken: string,
-): Promise<{ activities: StravaActivity[]; scopes: string }> {
+): Promise<{ activities: StravaActivity[]; scopes: string; tripStarted: boolean }> {
   const res = await fetch(
     `${STRAVA_BASE}/trips/${encodeURIComponent(tripId)}/activities`,
     { headers: authHeaders(accessToken), credentials: "same-origin" },
   );
   if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
-  return (await res.json()) as { activities: StravaActivity[]; scopes: string };
+  return (await res.json()) as {
+    activities: StravaActivity[];
+    scopes: string;
+    tripStarted: boolean;
+  };
 }
 
 /** Import one activity onto a day; the response IS the updated document. */

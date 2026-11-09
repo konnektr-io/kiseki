@@ -214,6 +214,24 @@ def media_store(monkeypatch: pytest.MonkeyPatch, tmp_path):
     media_module.clear_media_store()
 
 
+#: A moment INSIDE the canada-2027 fixture trip. The fixture is a 2027 trip and
+#: the real clock is 2026, i.e. a trip that has not started yet — which is now a
+#: meaningful case of its own (see the `trip_started` fixture).
+FUTURE_TRIP_NOW = int(_dt.datetime(2027, 2, 20, tzinfo=_dt.timezone.utc).timestamp())
+
+
+@pytest.fixture
+def trip_started(monkeypatch: pytest.MonkeyPatch) -> int:
+    """Pretend 'now' is during the fixture trip.
+
+    A trip that has NOT started must never reach Strava (its window's lower
+    bound would be a future `after`, which Strava rejects with 400), so every
+    test that wants the normal list path has to say when "now" is.
+    """
+    monkeypatch.setattr(import_svc, "_now_epoch", lambda: FUTURE_TRIP_NOW)
+    return FUTURE_TRIP_NOW
+
+
 def _auth(rsa_keypair, **overrides: object) -> dict[str, str]:
     return {"Authorization": f"Bearer {_sign(rsa_keypair, _claims(**overrides))}"}
 
@@ -358,6 +376,25 @@ def test_indoor_activities_are_not_offered() -> None:
     assert import_svc.is_importable(StravaStub.activity())
 
 
+def test_error_detail_names_stravas_own_fault_field() -> None:
+    """A 400 must say WHAT was wrong, not just "Bad Request".
+
+    This is the exact body Strava returned for the future-`after` bug; the first
+    version of the helper printed only "Bad Request", which cost a diagnostic
+    round trip in production.
+    """
+    resp = httpx.Response(
+        400,
+        json={
+            "message": "Bad Request",
+            "errors": [{"resource": "Application", "field": "after", "code": "future"}],
+        },
+    )
+    detail = strava_svc._error_detail(resp, "reading Strava")
+    assert "after" in detail and "future" in detail, detail
+    assert "Bad Request" in detail
+
+
 def test_garmin_sourced_activity_is_recognised() -> None:
     assert import_svc.is_garmin({"device_name": "Garmin Edge 1040"})
     assert import_svc.is_garmin({"external_id": "garmin_push_123"})
@@ -444,7 +481,9 @@ def test_cookie_is_secure_over_https_only(client: TestClient, stub: StravaStub, 
 # -------------------------------------------------------------------- the list
 
 
-def test_activity_list_is_read_only_and_suggests_the_day(client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store) -> None:
+def test_activity_list_is_read_only_and_suggests_the_day(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
     graph("editor")
     _connect(client, _auth(rsa_keypair))
     response = client.get(
@@ -470,6 +509,48 @@ def test_activity_list_needs_editor_and_a_credential(client: TestClient, stub: S
         f"/api/integrations/strava/trips/{TRIP_ID}/activities", headers=_auth(rsa_keypair)
     ).status_code == 403
     assert client.get(f"/api/integrations/strava/trips/{TRIP_ID}/activities").status_code == 401
+
+
+def test_a_trip_that_has_not_started_never_asks_strava(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store
+) -> None:
+    """#449 follow-up: Strava 400s on a future `after` — answer locally instead.
+
+    Measured live: `GET /athlete/activities?after=<2027 epoch>` answers
+    `400 {"errors":[{"resource":"Application","field":"after","code":"future"}]}`,
+    and every trip is planned before it is lived, so the list route used to fail
+    with a 502 on every future trip. A trip that has not started cannot have an
+    activity on one of its days, so the honest answer is an empty list — and no
+    Strava call at all.
+    """
+    graph("editor")
+    _connect(client, _auth(rsa_keypair))
+    response = client.get(
+        f"/api/integrations/strava/trips/{TRIP_ID}/activities", headers=_auth(rsa_keypair)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["activities"] == []
+    assert response.json()["tripStarted"] is False
+    assert not any(r.url.path.endswith("/athlete/activities") for r in stub.requests)
+
+
+def test_the_window_never_sends_a_future_after(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
+    """Whatever the window says, the request carries `after <= now`."""
+    graph("editor")
+    _connect(client, _auth(rsa_keypair))
+    response = client.get(
+        f"/api/integrations/strava/trips/{TRIP_ID}/activities", headers=_auth(rsa_keypair)
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["tripStarted"] is True
+    call = next(r for r in stub.requests if r.url.path.endswith("/athlete/activities"))
+    assert int(call.url.params["after"]) <= trip_started
+    # …and the trip's own window is still what drives it (start − 1 day).
+    assert call.url.params["after"] == str(
+        int(_dt.datetime(2027, 2, 14, tzinfo=_dt.timezone.utc).timestamp())
+    )
 
 
 def test_activities_without_a_connection_are_401(client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store) -> None:
@@ -618,7 +699,9 @@ def test_import_refused_for_viewer_and_anonymous(client: TestClient, stub: Strav
 # ------------------------------------------------------- rotation and revocation
 
 
-def test_a_rotated_refresh_token_is_persisted_in_the_cookie(client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store) -> None:
+def test_a_rotated_refresh_token_is_persisted_in_the_cookie(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
     graph("editor")
     _connect(client, _auth(rsa_keypair))
     session_before = strava_svc.decode_session(
@@ -641,7 +724,9 @@ def test_a_rotated_refresh_token_is_persisted_in_the_cookie(client: TestClient, 
     assert bearer.headers["authorization"] == "Bearer access-token"
 
 
-def test_a_revoked_refresh_clears_the_cookie_and_asks_to_reconnect(client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store) -> None:
+def test_a_revoked_refresh_clears_the_cookie_and_asks_to_reconnect(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
     graph("editor")
     _connect(client, _auth(rsa_keypair))
     stub.refresh_refused = True
