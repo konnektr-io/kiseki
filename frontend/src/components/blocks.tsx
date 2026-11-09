@@ -461,7 +461,10 @@ function TransportBlock({
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
           {b.from && b.to && (
             <div className="minimap mt-2.5 overflow-hidden rounded-lg">
-              <TripMap places={[b.from, b.to]} />
+              <TripMap
+                places={[b.from, b.to]}
+                modes={[classifyTransportMode(b) ?? undefined]}
+              />
             </div>
           )}
           {(b.distance || b.duration || b.route) && (

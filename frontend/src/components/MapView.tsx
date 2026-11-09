@@ -25,10 +25,9 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { legBlock, legModes, resolveLegCoordinates } from "../lib/route-surface";
+import { resolveLegCoordinates } from "../lib/route-surface";
 import {
   addLegGlyphLayer,
-  classifiedGlyphMode,
   legGlyphMode,
   legGlyphPoints,
   registerLegGlyphs,
@@ -41,6 +40,12 @@ import { Floating } from "./ui";
 
 interface MapViewProps {
   places: string[];
+  /**
+   * The declared transport mode per consecutive pair (#457) — the chain's own
+   * legs, straight from `trip.journey`. Parallel to `places`; `"gap"` marks a
+   * pair nobody authored (the backend skips HERE and the client arcs it).
+   */
+  modes?: (string | null | undefined)[];
   className?: string;
   showLiveTime?: boolean;
   /** Compact thumbnail (h-24) for block card media — single pin, minimal chrome. */
@@ -65,7 +70,14 @@ interface MapViewProps {
  * around this component. The booklet PDF renders the SAME map live via
  * Playwright+SwiftShader, so screen and paper share basemap/markers/routes.
  */
-export function MapView({ places, className = "", showLiveTime = true, compact = false, tracks = [] }: MapViewProps) {
+export function MapView({
+  places,
+  modes,
+  className = "",
+  showLiveTime = true,
+  compact = false,
+  tracks = [],
+}: MapViewProps) {
   const trip = useTrip();
   const ref = useRef<HTMLDivElement>(null);
   // v6 dropped the WebGL1 fallback entirely, so this is a hard gate, not a
@@ -92,6 +104,7 @@ export function MapView({ places, className = "", showLiveTime = true, compact =
   // `places`/`tracks` are built inline by callers, so their identity changes
   // every render — key the effect on the contents instead of the arrays.
   const placesKey = places.join("|");
+  const modesKey = (modes ?? []).map((m) => m ?? "").join(",");
   const tracksKey = tracks.join("|");
 
   useEffect(() => {
@@ -312,7 +325,7 @@ export function MapView({ places, className = "", showLiveTime = true, compact =
             .filter((u): u is string => u != null);
           const [fetchedLegs, ...fetchedTracks] = await Promise.all([
             !single && located.length > 1
-              ? fetchRouteLegs(trip, places, abort.signal, legModes(trip, places))
+              ? fetchRouteLegs(trip, places, abort.signal, modes)
               : Promise.resolve(null),
             ...trackUrls.map((u) => fetchTrack(u, abort.signal).catch(() => null)),
           ]);
@@ -446,13 +459,10 @@ export function MapView({ places, className = "", showLiveTime = true, compact =
           // BEFORE the idle handshake below so the booklet (#37) waits for
           // the glyph layer like every other layer.
           const glyphFeatures: LegGlyphFeature[] = legs.flatMap((leg) => {
-            const fromLoc = findLocation(trip, leg.from);
-            const toLoc = findLocation(trip, leg.to);
-            const block = fromLoc && toLoc ? legBlock(trip, fromLoc, toLoc) : undefined;
-            const glyph = legGlyphMode({
-              road: leg.road,
-              mode: block ? classifiedGlyphMode(block) : validGlyphMode(leg.mode),
-            });
+            // The mode the backend echoes is the one this surface sent — which is
+            // the chain's own classified mode (#457). No block lookup here any
+            // more: the leg's mode is data now, not a re-derivation.
+            const glyph = legGlyphMode({ road: leg.road, mode: validGlyphMode(leg.mode) });
             if (!glyph) return [];
             return legGlyphPoints(resolveLegCoordinates(leg)).map((coordinates) => ({
               mode: glyph,
@@ -578,7 +588,7 @@ export function MapView({ places, className = "", showLiveTime = true, compact =
       abort.abort();
       map?.remove();
     };
-  }, [trip, placesKey, tracksKey, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
+  }, [trip, placesKey, modesKey, tracksKey, showLiveTime, webgl2, onScreen, isPdfRender, compact]);
 
   // No WebGL2 or tile/style load failure: placeholder so the page never has an
   // empty grey box and the PDF waiter can resolve via data-map-failed.
@@ -635,12 +645,20 @@ export function MapView({ places, className = "", showLiveTime = true, compact =
  * This component is intentionally thin — it just validates there is something
  * to show and forwards to MapView.
  */
-export function TripMap({ places, tracks }: { places: string[]; tracks?: string[] }) {
+export function TripMap({
+  places,
+  tracks,
+  modes,
+}: {
+  places: string[];
+  tracks?: string[];
+  modes?: (string | null | undefined)[];
+}) {
   const trip = useTrip();
   const all = locatedPlaces(trip);
   if (all.length < 1) return null;
   // Route maps need at least one resolvable place in `places`; TripMap callers
   // already pass the relevant subset (e.g. [from,to] for a leg, all for overview).
   // We don't second-guess that here — MapView itself handles 1 vs 2+ places.
-  return <MapView places={places} tracks={tracks} />;
+  return <MapView places={places} tracks={tracks} modes={modes} />;
 }

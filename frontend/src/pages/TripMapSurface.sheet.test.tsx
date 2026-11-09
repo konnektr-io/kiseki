@@ -36,6 +36,7 @@ vi.mock("../components/SplitView", () => ({
 
 import { TripMapSurface } from "./TripMapSurface";
 import { TripProvider } from "../components/theme";
+import { journeyPayload, surfaceOf } from "../test/journey-payload";
 import type { Trip } from "../lib/types";
 
 function sheetTrip(): Trip {
@@ -59,10 +60,16 @@ function sheetTrip(): Trip {
       },
     ],
     sections: [{ id: "s0", title: "Mountains", days: [0, 2], locationRefs: [] }],
+    // The API's derivation (#457): Banff is the one stop, on all three days.
+    journey: journeyPayload({
+      chain: ["Banff"],
+      visits: [{ place: "Banff", days: [0, 1, 2] }],
+      rail: { Banff: { kind: "day", dayIdx: 0 } },
+    }),
     days: [
-      { id: "d0", date: "2027-03-01", title: "Arrival", blocks: [] },
-      { id: "d1", date: "2027-03-02", title: "Ski day", blocks: [] },
-      { id: "d2", date: "2027-03-03", title: "Departure", blocks: [] },
+      { id: "d0", date: "2027-03-01", title: "Arrival", blocks: [], surface: surfaceOf(["Banff"]) },
+      { id: "d1", date: "2027-03-02", title: "Ski day", blocks: [], surface: surfaceOf(["Banff"]) },
+      { id: "d2", date: "2027-03-03", title: "Departure", blocks: [], surface: surfaceOf(["Banff"]) },
     ],
   } as unknown as Trip;
 }

@@ -30,7 +30,8 @@ import {
 } from "../lib/maps";
 import { loadMapLibre } from "../lib/maplibre";
 import { fetchTrack, trackDataUrl, trackSegments, type TrackSegment } from "../lib/tracks";
-import { greatCircle, legModes, markerPaintRank, placeRole, resolveLegCoordinates, type Journey } from "../lib/route-surface";
+import { greatCircle, markerPaintRank, resolveLegCoordinates, type Journey } from "../lib/route-surface";
+import { journeyModes } from "../lib/journey";
 import {
   addLegGlyphLayer,
   classifiedGlyphMode,
@@ -762,7 +763,7 @@ export function RouteMap({
             trip,
             chainNames,
             abort.signal,
-            legModes(trip, chainNames),
+            journeyModes(j),
           );
           if (cancelled) return;
           const resolved: LegFeature[] | null =
@@ -1266,12 +1267,19 @@ export function RouteMap({
       // Same paint order as the scan level (see `markerPaintRank`): the day's
       // excursion diamonds, then its stop pins, then the letter chips — a chip
       // opens a block, so it keeps the top target it already had.
+      // The excursion set comes from the server's journey (#457) — a place the
+      // trip does not re-base at is a diamond on both levels.
+      const excursionNames = new Set(
+        (trip.journey?.excursions ?? []).map((n) => n.trim().toLowerCase()),
+      );
+      const isExcursion = (place: { name: string }) =>
+        excursionNames.has(place.name.trim().toLowerCase());
       const dayMarkers = [...surface.markers].sort(
-        (a, b) => markerPaintRank(trip, a) - markerPaintRank(trip, b),
+        (a, b) => markerPaintRank(a, isExcursion) - markerPaintRank(b, isExcursion),
       );
       for (const m of dayMarkers) {
         if (m.role === "place") {
-          const excursion = placeRole(trip, m.place.name) === "excursion";
+          const excursion = isExcursion(m.place);
           const el = addPin(m.place, excursion);
           // A day pin tap is not a card — it just clears the chip focus so
           // the map's focus story resets.

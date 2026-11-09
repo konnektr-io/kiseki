@@ -13,6 +13,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { journeyPayload, surfaceOf } from "./test/journey-payload";
 import type { Trip } from "./lib/types";
 
 const mocks = vi.hoisted(() => ({
@@ -119,9 +120,22 @@ function liveTrip(over: Record<string, unknown> = {}): Trip {
     sections: [],
     crew: [{ name: "Niko Raes", role: "owner" }],
     practical: {},
+    // The API derives this (#457): one place, both days, no legs — read from
+    // the payload, never re-derived in the browser.
+    journey: journeyPayload({
+      chain: ["Trailhead"],
+      visits: [{ place: "Trailhead", days: [0, 1] }],
+      rail: { Trailhead: { kind: "day", dayIdx: 0 } },
+    }),
     days: [
-      { id: "day-1", date: todayIso, title: "Today on the road", blocks: [] },
-      { id: "day-2", date: plusOne, title: "Tomorrow", blocks: [] },
+      {
+        id: "day-1",
+        date: todayIso,
+        title: "Today on the road",
+        blocks: [],
+        surface: surfaceOf(["Trailhead"]),
+      },
+      { id: "day-2", date: plusOne, title: "Tomorrow", blocks: [], surface: surfaceOf(["Trailhead"]) },
     ],
     ...over,
   } as unknown as Trip;
@@ -158,9 +172,14 @@ function sparseTrip(): Trip {
     sections: [],
     crew: [],
     practical: {},
+    journey: journeyPayload({
+      chain: ["Trailhead"],
+      visits: [{ place: "Trailhead", days: [0, 1] }],
+      rail: { Trailhead: { kind: "day", dayIdx: 0 } },
+    }),
     days: [
-      { id: "day-1", date: isoDaysFromNow(-1), title: "Before", blocks: [] },
-      { id: "day-2", date: isoDaysFromNow(2), title: "After", blocks: [] },
+      { id: "day-1", date: isoDaysFromNow(-1), title: "Before", blocks: [], surface: surfaceOf(["Trailhead"]) },
+      { id: "day-2", date: isoDaysFromNow(2), title: "After", blocks: [], surface: surfaceOf(["Trailhead"]) },
     ],
   } as unknown as Trip;
 }

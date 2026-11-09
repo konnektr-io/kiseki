@@ -33,6 +33,7 @@ vi.mock("../components/MapView", () => ({
 
 import { OverviewPage, statValueClass } from "./OverviewPage";
 import { TripProvider } from "../components/theme";
+import { journeyPayload } from "../test/journey-payload";
 import type { Trip } from "../lib/types";
 
 function tripWith(practical: Trip["practical"]): Trip {
@@ -367,6 +368,26 @@ describe("OverviewPage feature map matches the itinerary chain", () => {
       },
     ],
     features: [{ kicker: "Route", title: "One loop", map: true }],
+    // What the API derives for this document (#457): Banff → Revelstoke, with
+    // the hotel, the tavern and the toured pass as excursions.
+    journey: journeyPayload({
+      chain: ["Banff", "Revelstoke"],
+      excursions: ["Rogers Pass", "Banff Inn", "Bear Street Tavern"],
+      visits: [
+        { place: "Banff", days: [0, 1] },
+        { place: "Revelstoke", days: [2, 3] },
+      ],
+      legs: [
+        {
+          from: "Banff",
+          to: "Revelstoke",
+          stage: "booked",
+          mode: "drive",
+          gap: false,
+          blockId: null,
+        },
+      ],
+    }),
   } as unknown as Trip;
 
   it("plots the stop chain only, with the derived (open) loop", () => {

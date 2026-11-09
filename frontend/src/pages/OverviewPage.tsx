@@ -16,7 +16,7 @@ import { useTripWrite } from "../lib/useTripWrite";
 import { putTrip } from "../lib/api";
 import { capture } from "../lib/posthog";
 import { TripMap } from "../components/MapView";
-import { journeyOrder } from "../lib/route-surface";
+import { journeyModes, journeyOrder, tripJourney } from "../lib/journey";
 import { tripTracks } from "../lib/tracks";
 import type { Feature } from "../lib/types";
 
@@ -42,7 +42,11 @@ function FeatureCard({ feature: f }: { feature: Feature }) {
               had this one on the globe, which cost it the DEM). The globe is
               the landing map's alone — `components/HomeMap`. The booklet prints
               through this same TripMap, so screen and paper agree. */}
-          <TripMap places={chain.map((l) => l.name)} tracks={tripTracks(trip)} />
+          <TripMap
+            places={chain.map((l) => l.name)}
+            modes={journeyModes(tripJourney(trip))}
+            tracks={tripTracks(trip)}
+          />
         </div>
       ) : f.images && f.images.length > 1 ? (
         <div className="mt-3 grid grid-cols-2 gap-3">

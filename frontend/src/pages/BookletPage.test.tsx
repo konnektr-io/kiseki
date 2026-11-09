@@ -20,6 +20,7 @@ vi.mock("../components/MapView", () => ({
 
 import { BookletPage } from "./BookletPage";
 import { TripProvider } from "../components/theme";
+import { journeyPayload } from "../test/journey-payload";
 import type { Trip } from "../lib/types";
 
 function tripWith(practical: Trip["practical"]): Trip {
@@ -197,6 +198,9 @@ describe("booklet — feature map matches the itinerary chain", () => {
         },
       ],
       features: [{ kicker: "Route", title: "One loop", map: true }],
+      // What the API derives for this document (#457) — a two-stop chain, so
+      // the feature map renders at all.
+      journey: journeyPayload({ chain: ["Banff", "Revelstoke"] }),
     } as unknown as Trip;
     bookletMapCalls.length = 0;
     renderToString(
@@ -238,6 +242,9 @@ describe("booklet — feature map matches the itinerary chain", () => {
         { date: "2027-02-16", title: "Ski", blocks: [] },
       ],
       features: [{ kicker: "Route", title: "One loop", map: true }],
+      // What the API derives for this document (#457) — a two-stop chain, so
+      // the feature map renders at all.
+      journey: journeyPayload({ chain: ["Banff", "Revelstoke"] }),
     } as unknown as Trip;
     bookletMapCalls.length = 0;
     renderToString(
