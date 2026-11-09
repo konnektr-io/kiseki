@@ -140,7 +140,11 @@ beforeEach(() => {
   (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   h.fetchStravaActivities.mockReset();
   h.importStravaActivity.mockReset();
-  h.fetchStravaActivities.mockResolvedValue({ activities: [ACTIVITY], scopes: "read activity:read_all" });
+  h.fetchStravaActivities.mockResolvedValue({
+    activities: [ACTIVITY],
+    scopes: "read activity:read_all",
+    tripStarted: true,
+  });
 });
 
 afterEach(() => {
@@ -295,8 +299,26 @@ describe("Strava import dialog", () => {
     expect(document.body.textContent).toContain("Strava is not connected in this browser");
   });
 
+  it("explains an empty list differently when the trip has not started", async () => {
+    // #449 follow-up: a future trip has no Strava activities by definition —
+    // the list route answers locally instead of asking Strava (a future
+    // `after` is a 400 from Strava), and the copy has to say which case it is.
+    h.fetchStravaActivities.mockResolvedValue({
+      activities: [],
+      scopes: "read activity:read_all",
+      tripStarted: false,
+    });
+    await mount();
+    expect(document.body.textContent).toContain("hasn't started yet");
+    expect(document.body.textContent).not.toContain("No Strava activity falls on a day");
+  });
+
   it("says so when no activity falls on a day of the trip", async () => {
-    h.fetchStravaActivities.mockResolvedValue({ activities: [], scopes: "read activity:read_all" });
+    h.fetchStravaActivities.mockResolvedValue({
+      activities: [],
+      scopes: "read activity:read_all",
+      tripStarted: true,
+    });
     await mount();
     expect(document.body.textContent).toContain("No Strava activity falls on a day of this trip");
   });

@@ -35,6 +35,10 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
   const { getAccessTokenSilently } = useAuth0();
 
   const [activities, setActivities] = useState<StravaActivity[] | null>(null);
+  // Whether the trip's first day has begun. An empty list means two different
+  // things — "nothing recorded yet" vs "you have not been there yet" — and
+  // saying which is the difference between a dead end and an explanation.
+  const [tripStarted, setTripStarted] = useState(true);
   const [consent, setConsent] = useState(true);
   const [withPhotos, setWithPhotos] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -58,6 +62,7 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
       const token = await getAccessTokenSilently();
       const payload = await fetchStravaActivities(trip.id, token);
       setActivities(payload.activities);
+      setTripStarted(payload.tripStarted);
       setDays((current) => {
         const next = { ...current };
         for (const activity of payload.activities) {
@@ -214,7 +219,9 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
           )}
           {activities !== null && activities.length === 0 && (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No Strava activity falls on a day of this trip. Nothing to import.
+              {tripStarted
+                ? "No Strava activity falls on a day of this trip. Nothing to import."
+                : "This trip hasn't started yet — there is nothing recorded for its days."}
             </p>
           )}
           {activities?.map((activity) => {

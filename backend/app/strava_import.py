@@ -55,6 +55,17 @@ GEO_MATCH_M = 25_000.0
 LIST_TTL_S = 900
 
 ACTIVITY_URL = "https://www.strava.com/activities/{id}"
+
+
+def _now_epoch() -> int:
+    """Wall clock, in ONE place — tests place the trip in time through this.
+
+    Patching ``time.time`` globally is not an option: PyJWT validates ``iat``
+    against it, so a faked clock in the future 401s every bearer token.
+    """
+    return int(time.time())
+
+
 LINK_LABEL = "View on Strava"
 
 
@@ -274,6 +285,21 @@ def clear_cache() -> None:
         _CACHE.clear()
 
 
+def _trip_started(trip: Trip, now: int) -> bool:
+    """Whether the trip's first day has begun — the difference between "nothing
+    recorded yet" and "you have not been there yet" in the empty list."""
+    dates = [d for d in (trip.startDate,) if d] or [day.date for day in trip.days if day.date]
+    if not dates:
+        return True
+    try:
+        import datetime as _dt
+
+        start = _dt.datetime.fromisoformat(min(dates)[:10]).replace(tzinfo=_dt.timezone.utc)
+    except ValueError:
+        return True
+    return int(start.timestamp()) <= now
+
+
 def trip_window(trip: Trip) -> tuple[Optional[int], Optional[int]]:
     """Epoch window for ``/athlete/activities``: trip start −1d → end +2d.
 
@@ -307,9 +333,26 @@ def list_for_trip(
     """The trip's candidate activities, each with its suggestion."""
     key = (str(athlete_id or session.get("a") or ""), trip.id)
     cached = _cache_get(key)
+    now = _now_epoch()
+    started = _trip_started(trip, now)
     if cached is None:
         after, before = trip_window(trip)
-        session, raw = strava.activities(session, after=after, before=before)
+        # Strava refuses an `after` in the FUTURE — 400 with
+        # `errors:[{field:"after", code:"future"}]` — and every plausible trip
+        # is planned before it is lived, so the window's own lower bound is
+        # usually in the future (Kiseki #449, measured 2026-11-09 on a 2027
+        # trip). A trip that has not started cannot have an activity on one of
+        # its days, so answer that locally instead of asking Strava at all.
+        if after is not None and after > now:
+            return session, {
+                "activities": [],
+                "scopes": session.get("s") or "",
+                "tripStarted": started,
+            }
+        # Belt and braces for clock skew between the two checks: never send a
+        # future `after`, whatever the window said.
+        clamped_after = min(after, now) if after is not None else None
+        session, raw = strava.activities(session, after=clamped_after, before=before)
         cached = [a for a in raw if isinstance(a, dict)]
         _cache_put(key, cached)
 
@@ -350,7 +393,11 @@ def list_for_trip(
             }
         )
     items.sort(key=lambda item: (str(item["local_date"]), str(item.get("id"))))
-    return session, {"activities": items, "scopes": session.get("s") or ""}
+    return session, {
+        "activities": items,
+        "scopes": session.get("s") or "",
+        "tripStarted": started,
+    }
 
 
 # ------------------------------------------------------------------- the import

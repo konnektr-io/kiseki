@@ -78,12 +78,20 @@ SESSION_MAX_AGE_S = 30 * 24 * 3600
 
 
 class StravaError(Exception):
-    """A Strava failure with the HTTP status the API should surface."""
+    """A Strava failure with the HTTP status the API should surface.
 
-    def __init__(self, status: int, detail: str) -> None:
+    ``session`` carries the cookie state the failure left behind. It matters
+    because a refresh ROTATES the refresh token at Strava before the failing
+    call: if the error path drops that session, the browser keeps a token
+    Strava has already invalidated and every later retry 401s (#449, found in
+    production on the first failed activity list).
+    """
+
+    def __init__(self, status: int, detail: str, session: Optional[dict[str, Any]] = None) -> None:
         super().__init__(detail)
         self.status = status
         self.detail = detail
+        self.session = session
 
 
 class StravaNotConnected(StravaError):
@@ -124,20 +132,42 @@ def _client() -> httpx.Client:
 
 
 def _error_detail(resp: httpx.Response, what: str) -> str:
+    """Readable failure text, including Strava's own fault body.
+
+    Strava answers most refusals with ``message: "Bad Request"`` plus the useful
+    part in ``errors[]`` (``{resource, field, code}``), so the generic message
+    alone reads as "something was wrong". Kiseki #449 hit exactly that: the
+    cause was ``field: "after", code: "future"`` and the first version of this
+    helper threw it away, leaving "Strava returned 400 while reading Strava".
+    """
     try:
         payload = resp.json()
     except Exception:  # noqa: BLE001 — a non-JSON error body is still an error
         payload = None
-    message = ""
+    parts: list[str] = []
     if isinstance(payload, dict):
-        message = str(payload.get("message") or payload.get("error") or "")
+        message = str(payload.get("message") or payload.get("error") or "").strip()
+        if message:
+            parts.append(message)
         errors = payload.get("errors")
-        if not message and isinstance(errors, list) and errors:
-            first = errors[0]
-            if isinstance(first, dict):
-                message = str(first.get("resource") or "") + " " + str(first.get("field") or "")
-    message = message.strip()
-    suffix = f": {message}" if message else ""
+        if isinstance(errors, list):
+            for entry in errors[:2]:
+                if not isinstance(entry, dict):
+                    continue
+                where = " ".join(
+                    part
+                    for part in (
+                        str(entry.get("resource") or "").strip(),
+                        str(entry.get("field") or "").strip(),
+                    )
+                    if part
+                )
+                code = str(entry.get("code") or "").strip()
+                if where and code:
+                    parts.append(f"{where} ({code})")
+                elif where or code:
+                    parts.append(where or code)
+    suffix = f": {' — '.join(parts)}" if parts else ""
     if resp.status_code == 429:
         return f"Strava rate limit reached while {what} — try again in a few minutes{suffix}"
     if resp.status_code in (401, 403):
@@ -410,7 +440,13 @@ def _api_get(path: str, session: dict[str, Any], params: Optional[dict[str, Any]
             params=params,
             what="reading Strava",
         )
-    return session, _json(resp, "reading Strava")
+    try:
+        return session, _json(resp, "reading Strava")
+    except StravaError as exc:
+        # The call failed AFTER the refresh rotated the token — hand the new
+        # session to the caller so the cookie is not left holding a dead one.
+        exc.session = session
+        raise
 
 
 def athlete(session: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

@@ -3369,7 +3369,16 @@ def _strava_run(fn, response: Response, request: Request, **kwargs) -> Any:
         _strava_clear_cookie(response)
         return {"detail": exc.detail}
     except strava_svc.StravaError as exc:
-        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+        # RETURNED, not raised — same reason as the 401 above: an HTTPException
+        # discards this Response and with it the cookie. And the cookie matters
+        # on the failure path too: Strava rotated the refresh token before the
+        # call failed, so dropping the Set-Cookie leaves the browser holding a
+        # token Strava has already invalidated (#449, seen in production).
+        failed = JSONResponse({"detail": exc.detail}, status_code=exc.status)
+        rotated = getattr(exc, "session", None)
+        if rotated:
+            _strava_set_cookie(failed, rotated)
+        return failed
     except WriteError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     _strava_set_cookie(response, session)
