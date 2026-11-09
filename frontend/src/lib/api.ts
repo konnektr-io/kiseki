@@ -930,3 +930,128 @@ export async function disconnectTricount(
   cacheTrip(tripId, doc);
   return doc;
 }
+
+// ------------------------------------------------------------------ Strava (#449)
+//
+// Pull-only: the server holds no token, so every call here is a normal
+// credentialed API call. The refresh token lives in an HttpOnly cookie scoped
+// to /api/integrations/strava, which the browser attaches by itself (same
+// origin, `credentials: "same-origin"`).
+
+export interface StravaStatus {
+  configured: boolean;
+  connected: boolean;
+  athlete: { id: number | null; name: string | null } | null;
+  scopes: string;
+}
+
+export interface StravaActivity {
+  id: number;
+  name: string | null;
+  sport_type: string | null;
+  local_date: string;
+  distance_m: number | null;
+  moving_time_s: number | null;
+  elapsed_time_s: number | null;
+  elevation_gain_m: number | null;
+  start_latlng: number[] | null;
+  photo_count: number;
+  suggested: { day_id: string; block_id?: string | null } | null;
+  imported: { day_id: string; block_id: string; has_photos: boolean } | null;
+}
+
+export interface StravaImportResult {
+  written: boolean;
+  conflict: string | null;
+  day_id: string;
+  block_id: string | null;
+  track: string | null;
+  photos: { written: number; failed: number; total: number };
+  consent: boolean;
+}
+
+const STRAVA_BASE = "/api/integrations/strava";
+
+/** Who this browser is connected as — never the token itself. */
+export async function fetchStravaStatus(accessToken: string): Promise<StravaStatus> {
+  const res = await fetch(`${STRAVA_BASE}/status`, {
+    headers: authHeaders(accessToken),
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as StravaStatus;
+}
+
+/** Start the OAuth dance: the server mints the state and hands back the URL. */
+export async function stravaAuthorizeUrl(accessToken: string): Promise<string> {
+  const res = await fetch(`${STRAVA_BASE}/connect`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return ((await res.json()) as { authorizeUrl: string }).authorizeUrl;
+}
+
+/** Deauthorize at Strava and drop this browser's cookie. */
+export async function disconnectStrava(
+  accessToken: string,
+): Promise<{ connected: boolean; revoked: boolean }> {
+  const res = await fetch(STRAVA_BASE, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as { connected: boolean; revoked: boolean };
+}
+
+/** This trip's candidate activities + their suggested day (read-only). */
+export async function fetchStravaActivities(
+  tripId: string,
+  accessToken: string,
+): Promise<{ activities: StravaActivity[]; scopes: string }> {
+  const res = await fetch(
+    `${STRAVA_BASE}/trips/${encodeURIComponent(tripId)}/activities`,
+    { headers: authHeaders(accessToken), credentials: "same-origin" },
+  );
+  if (!res.ok) throw new TripAccessError(res.status, await apiErrorMessage(res));
+  return (await res.json()) as { activities: StravaActivity[]; scopes: string };
+}
+
+/** Import one activity onto a day; the response IS the updated document. */
+export async function importStravaActivity(
+  tripId: string,
+  accessToken: string,
+  body: {
+    activity_id: number;
+    day_id: string;
+    block_id?: string | null;
+    include_photos?: boolean;
+    consent?: boolean;
+  },
+): Promise<{ doc: Trip; result: StravaImportResult }> {
+  const payload = await tripWrite<Trip & StravaImportResult>(
+    "POST",
+    `${STRAVA_BASE}/trips/${encodeURIComponent(tripId)}/import`,
+    accessToken,
+    body,
+  );
+  // The import answers with the document PLUS its own report; strip the report
+  // before the document is cached, or a stale "written: true" would ride along
+  // in every later read of that trip.
+  const result: StravaImportResult = {
+    written: payload.written,
+    conflict: payload.conflict,
+    day_id: payload.day_id,
+    block_id: payload.block_id,
+    track: payload.track,
+    photos: payload.photos,
+    consent: payload.consent,
+  };
+  const doc = { ...payload } as Trip & Record<string, unknown>;
+  for (const key of Object.keys(result)) delete doc[key];
+  delete doc.activity;
+  cacheTrip(tripId, doc);
+  return { doc, result };
+}

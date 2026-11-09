@@ -140,6 +140,30 @@ therefore the acting user's role.
 | `POST` | `/api/trips/{trip_id}/practical/tricount/connect` | `editor+` | Connect a TriCount trip |
 | `DELETE` | `/api/trips/{trip_id}/practical/tricount` | `editor+` | Disconnect |
 
+## Strava import ([#449](https://github.com/konnektr-io/kiseki/issues/449))
+
+Pull-only: the browser connects, the server exchanges the code (Strava has no PKCE, so the browser
+cannot mint a token), and the athlete's refresh token lives in **one HttpOnly cookie** scoped to
+`/api/integrations/strava`. Nothing about the connection is persisted server-side, which is why the
+trip-scoped routes sit under that same prefix: the cookie is readable exactly where the import runs,
+and nowhere else. Disconnect is the absence of the cookie.
+
+| Method | Path | Access | Purpose |
+|---|---|---|---|
+| `POST` | `/api/integrations/strava/connect` | signed in | Mint the OAuth `state` cookie and return the Strava authorize URL |
+| `GET` | `/api/integrations/strava/callback` | **public** (state cookie) | Strava's redirect: validate `state`, exchange the code, set the session cookie, 303 to `/me?strava=connected` |
+| `GET` | `/api/integrations/strava/status` | signed in | `{configured, connected, athlete, scopes}` — never the token |
+| `DELETE` | `/api/integrations/strava` | signed in | Revoke at Strava (HTTP Basic) + drop the cookie; revocation is best-effort, the cookie always goes |
+| `GET` | `/api/integrations/strava/trips/{trip_id}/activities` | `editor+` | The trip's candidate activities, each with a suggested `{day_id, block_id}` — **read-only**, cached 15 min |
+| `POST` | `/api/integrations/strava/trips/{trip_id}/import` | `editor+` | `{activity_id, day_id, block_id?, include_photos?, consent?}` → streams → minimal GPX → `Block.track`, photos → `Block.images`, `{label: "View on Strava"}` link → returns the updated document |
+
+Server rules, all of them load-bearing: the date is the hard filter (an activity's `start_date_local`
+date is compared to `Day.date` verbatim — no timezone arithmetic), geo proximity picks the block,
+`consent` must be `true` (422 otherwise), a re-import is a no-op naming its own block (the link URL
+carries the activity id), and a block that already has a track is **not** overwritten
+(`conflict: "track_exists"`). The synthesized GPX is byte-for-byte another media object: the day map,
+minimap, booklet and leg segmentation have no idea it came from Strava.
+
 ## Maps, places and rendering
 
 | Method | Path | Access | Purpose |

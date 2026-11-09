@@ -145,3 +145,22 @@ KISEKI_HERMES_KEY = os.environ.get("KISEKI_HERMES_KEY", "")
 # for KISEKI_TRICOUNT_TTL seconds to stay friendly to the bunq API.
 KISEKI_TRICOUNT_CREDS_FILE = os.environ.get("KISEKI_TRICOUNT_CREDS_FILE", "")
 KISEKI_TRICOUNT_TTL = int(os.environ.get("KISEKI_TRICOUNT_TTL", "600"))
+
+# Strava import (#449) — PULL-ONLY, nothing stored server-side. The client
+# id/secret are service-level (a `kiseki-strava` Secret, one app for every
+# athlete of this deployment); an athlete's refresh token lives in an HttpOnly
+# cookie scoped to /api/integrations/strava and is never persisted here — which
+# is also why erasure needs no new code path. Absent pair → the Strava surfaces
+# report "not configured" instead of failing at the first click.
+STRAVA_CLIENT_ID = os.environ.get("STRAVA_CLIENT_ID", "")
+STRAVA_CLIENT_SECRET = os.environ.get("STRAVA_CLIENT_SECRET", "")
+# Must be inside the application's Authorization Callback Domain. Defaults to
+# this deployment's own callback, which Strava accepts because the app's
+# registered domain is kiseki.konnektr.io (localhost stays white-listed for dev).
+STRAVA_REDIRECT_URI = os.environ.get(
+    "STRAVA_REDIRECT_URI", f"{PUBLIC_BASE_URL}/api/integrations/strava/callback"
+)
+# Signs the session cookie: integrity (a forged cookie must not redirect the
+# per-athlete refresh lock or swap a token in), not secrecy. Falls back to the
+# client secret so a deployment only has to provide the one pair.
+STRAVA_COOKIE_SECRET = os.environ.get("STRAVA_COOKIE_SECRET", "")

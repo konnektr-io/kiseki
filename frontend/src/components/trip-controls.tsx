@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { EllipsisVertical, FileDown, LogIn, Pencil, Settings, UserPlus } from "lucide-react";
+import {
+  EllipsisVertical,
+  FileDown,
+  LogIn,
+  MountainSnow,
+  Pencil,
+  Settings,
+  UserPlus,
+} from "lucide-react";
 import { useTripState } from "./theme";
 import { useEditMode } from "./edit-mode";
 import { followPublicTrip } from "../lib/api";
+import { StravaImportDialog } from "./strava-import";
 import { isAuthConfigured } from "../lib/auth";
 import { roleAtLeast } from "../lib/editing";
 
@@ -66,6 +75,9 @@ export function TripActionsMenu({
 }) {
   const { trip, apply } = useTripState();
   const [open, setOpen] = useState(false);
+  // The Strava import (#449) is a dialog, not a menu row that does something on
+  // click: the menu closes and the dialog opens over the trip.
+  const [stravaOpen, setStravaOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   const canEdit = roleAtLeast(trip.myRole, "editor");
@@ -233,6 +245,23 @@ export function TripActionsMenu({
             </button>
           )}
 
+          {/* Import from Strava — editor+ (it writes content). Deliberately
+              quiet: one row, no badge, no banner (#449). */}
+          {canEdit && (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                setStravaOpen(true);
+              }}
+            >
+              <MountainSnow className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <span>Import from Strava</span>
+            </button>
+          )}
+
           {/* Trip settings — editor+ (the page's own gate is the same rule) */}
           {canEdit && (
             <Link
@@ -247,6 +276,8 @@ export function TripActionsMenu({
           )}
         </div>
       )}
+
+      {stravaOpen && <StravaImportDialog onClose={() => setStravaOpen(false)} />}
     </div>
   );
 }

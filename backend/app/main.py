@@ -11,17 +11,27 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import html
 import io
 import os
 import re
+import secrets
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from PIL import Image, ImageOps
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -77,6 +87,8 @@ from .config import (
 )
 from . import write as write_svc
 from . import photos as photos_svc
+from . import strava as strava_svc
+from . import strava_import as strava_import_svc
 from .exif import extract_exif
 from .write import (
     BlockCreate,
@@ -3290,6 +3302,231 @@ def confirm_photos_route(
         body=body,
     )
     return {**_public_trip(trip, my_role=actor["role"]), "written": written, "skipped": skipped}
+
+
+# --------------------------------------------------------------- Strava import (#449)
+#
+# Pull-only: the athlete connects Strava in the browser, the server exchanges
+# the code (Strava has no PKCE, so the browser cannot mint a token), and the
+# refresh token lives in ONE HttpOnly cookie. Nothing about the connection is
+# persisted server-side — disconnect is the absence of the cookie.
+#
+# The trip-shaped routes live UNDER the cookie's path prefix
+# (/api/integrations/strava), not at /api/trips/{id}/strava/*, so the cookie can
+# stay scoped to exactly one path (an acceptance criterion of #449) while still
+# being readable where the import runs. They keep the same editor+ gate every
+# other trip write has.
+
+
+def _strava_cookie_secure() -> bool:
+    return strava_svc.secure_cookies()
+
+
+def _strava_set_cookie(response: Response, session: dict) -> None:
+    response.set_cookie(
+        strava_svc.SESSION_COOKIE,
+        strava_svc.encode_session(session),
+        max_age=strava_svc.SESSION_MAX_AGE_S,
+        path=strava_svc.COOKIE_PATH,
+        httponly=True,
+        secure=_strava_cookie_secure(),
+        samesite="lax",
+    )
+
+
+def _strava_clear_cookie(response: Response) -> None:
+    response.delete_cookie(
+        strava_svc.SESSION_COOKIE,
+        path=strava_svc.COOKIE_PATH,
+        httponly=True,
+        secure=_strava_cookie_secure(),
+        samesite="lax",
+    )
+
+
+def _strava_require_connected(request: Request) -> dict:
+    session = strava_svc.decode_session(request.cookies.get(strava_svc.SESSION_COOKIE))
+    if session is None:
+        raise HTTPException(status_code=401, detail=str(strava_svc.StravaNotConnected().detail))
+    return session
+
+
+def _strava_run(fn, response: Response, request: Request, **kwargs) -> Any:
+    """Run one trip-shaped Strava call: refresh the cookie, map the failures.
+
+    A refresh that Strava refuses (revoked, expired, rotated elsewhere) CLEARS
+    the cookie and answers 401 with "reconnect", rather than leaving a dead
+    link that fails on every later attempt.
+    """
+    session = _strava_require_connected(request)
+    try:
+        session, payload = fn(session=session, **kwargs)
+    except strava_svc.StravaNotConnected as exc:
+        # Status and cookie ride the INJECTED response: raising an HTTPException
+        # would discard it, and with it the cookie deletion — which is the whole
+        # promise of the disconnect-on-refusal path.
+        response.status_code = 401
+        _strava_clear_cookie(response)
+        return {"detail": exc.detail}
+    except strava_svc.StravaError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    except WriteError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    _strava_set_cookie(response, session)
+    return payload
+
+
+def _strava_trip(trip_id: str):
+    from .graph.convert import graph_to_trip as _to_trip
+    from .store import get_graph_client as _client
+
+    client = _client()
+    if client is None:
+        raise HTTPException(status_code=503, detail="Graph not configured")
+    graph = client.fetch_graph(trip_id.lower())
+    if not graph:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return _to_trip(graph)
+
+
+@app.post("/api/integrations/strava/connect")
+def strava_connect(response: Response, _user: dict = Depends(get_current_user)) -> dict:
+    """Start the OAuth dance: mint a state, remember it, hand back the URL.
+
+    The state is a double-submit cookie (``HttpOnly``, 10 min): the callback
+    only accepts a redirect whose ``state`` matches the cookie this browser
+    received, so a stranger's authorization link cannot be replayed into
+    someone else's session.
+    """
+    if not strava_svc.enabled():
+        raise HTTPException(status_code=503, detail="Strava is not configured on this deployment")
+    state = secrets.token_urlsafe(24)
+    response.set_cookie(
+        strava_svc.STATE_COOKIE,
+        state,
+        max_age=strava_svc.STATE_TTL_S,
+        path=strava_svc.COOKIE_PATH,
+        httponly=True,
+        secure=_strava_cookie_secure(),
+        samesite="lax",
+    )
+    return {"authorizeUrl": strava_svc.authorize_url(state), "scopes": strava_svc.SCOPES}
+
+
+@app.get("/api/integrations/strava/callback", include_in_schema=False)
+def strava_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    scope: str | None = None,
+    error: str | None = None,
+) -> Response:
+    """Strava's redirect target — PUBLIC by design (no Auth0 dependency).
+
+    It is Strava's browser hop, not a user API call, so it carries no bearer
+    token; the state cookie is its only gate. It never returns a document, only
+    a 303 back into the SPA.
+    """
+    cookie_state = request.cookies.get(strava_svc.STATE_COOKIE)
+
+    def _back(result: str) -> RedirectResponse:
+        return RedirectResponse(url=f"/me?strava={result}", status_code=303)
+
+    if error:
+        return _back("denied")
+    if not code or not state or not cookie_state or not hmac.compare_digest(state, cookie_state):
+        # A missing/mismatched state is a CSRF-shaped redirect: refuse it
+        # outright rather than logging a token against an unproven browser.
+        raise HTTPException(
+            status_code=400,
+            detail="Strava callback rejected: the state did not match this browser",
+        )
+    session = strava_svc.exchange_code(code, scope or "")
+    redirect = _back("connected")
+    redirect.delete_cookie(
+        strava_svc.STATE_COOKIE,
+        path=strava_svc.COOKIE_PATH,
+        httponly=True,
+        secure=_strava_cookie_secure(),
+        samesite="lax",
+    )
+    _strava_set_cookie(redirect, session)
+    return redirect
+
+
+@app.get("/api/integrations/strava/status")
+def strava_status(request: Request, _user: dict = Depends(get_current_user)) -> dict:
+    """Who this browser is connected as. Never the token, never a Strava call."""
+    if not strava_svc.enabled():
+        return {"configured": False, "connected": False, "athlete": None, "scopes": ""}
+    session = strava_svc.decode_session(request.cookies.get(strava_svc.SESSION_COOKIE))
+    if session is None:
+        return {"configured": True, "connected": False, "athlete": None, "scopes": ""}
+    return {
+        "configured": True,
+        "connected": True,
+        "athlete": {"id": session.get("a"), "name": session.get("n")},
+        "scopes": session.get("s") or "",
+    }
+
+
+@app.delete("/api/integrations/strava")
+def strava_disconnect(response: Response, request: Request, _user: dict = Depends(get_current_user)) -> dict:
+    """Deauthorize at Strava and drop the cookie — disconnecting IS erasure.
+
+    Revocation is best-effort: the cookie goes regardless, because "this
+    browser is no longer connected" must be true even when Strava's endpoint is
+    unreachable. Revoking a refresh token also kills its access tokens.
+    """
+    session = strava_svc.decode_session(request.cookies.get(strava_svc.SESSION_COOKIE))
+    revoked = False
+    if session is not None:
+        try:
+            strava_svc.revoke(session)
+            revoked = True
+        except strava_svc.StravaError:
+            revoked = False
+    _strava_clear_cookie(response)
+    return {"connected": False, "revoked": revoked}
+
+
+@app.get("/api/integrations/strava/trips/{trip_id}/activities")
+def strava_trip_activities(
+    trip_id: str,
+    response: Response,
+    request: Request,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """This trip's candidate activities + a suggested day/block — READ-ONLY.
+
+    Nothing is written and nothing is remembered beyond the 15-minute activity
+    cache; the human's import is the only write in the whole flow.
+    """
+    _ = actor  # editor+ gate; the list itself writes nothing
+    trip = _strava_trip(trip_id)
+    return _strava_run(
+        lambda **kw: strava_import_svc.list_for_trip(trip, **kw), response, request
+    )
+
+
+@app.post("/api/integrations/strava/trips/{trip_id}/import")
+def strava_trip_import(
+    trip_id: str,
+    body: strava_import_svc.ImportBody,
+    response: Response,
+    request: Request,
+    actor: dict = Depends(require_trip_role("editor")),
+) -> dict:
+    """Streams → minimal GPX → ``Block.track`` (+ photos, + the Strava link)."""
+    payload = _strava_run(
+        lambda **kw: strava_import_svc.import_activity(
+            trip_id.lower(), actor, body, **kw
+        ),
+        response,
+        request,
+    )
+    trip: Trip = payload.pop("trip")  # the re-read document, merged flat below
+    return {**_public_trip(trip, my_role=actor["role"]), **payload}
 
 
 # Built SPA with history-mode fallback
