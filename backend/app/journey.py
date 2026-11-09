@@ -78,6 +78,10 @@ _FLIGHT_WORDS = re.compile(r"(flight|depart|arriv)", re.IGNORECASE)
 #: A character that is a letter or a digit — JS ``[^\p{L}\p{N}]`` boundary.
 _ALNUM = r"[^\W_]"
 
+#: Cache sentinels: "not computed yet" must be distinguishable from ``None``.
+_UNSET = object()
+_MISS = object()
+
 
 _PATTERNS: dict[str, re.Pattern[str]] = {}
 
@@ -174,6 +178,7 @@ class Deriver:
         self.days: list[dict] = list(self.trip.get("days") or [])
         self.sections: list[dict] = list(self.trip.get("sections") or [])
         self._find: dict[str, int | None] = {}
+        self._name_index: dict[str, int] | None = None
         self._text: dict[str, tuple[int, ...]] = {}
         self._block_places: dict[int, tuple[int, ...]] = {}
         self._endpoints: dict[int, tuple[int | None, int | None]] = {}
@@ -181,26 +186,43 @@ class Deriver:
         self._place_days: dict[int, list[int]] = {}
         self._role: dict[int, str] = {}
         self._anchors: dict[int, bool] = {}
+        self._links: list[tuple[int, int]] | None = None
+        self._endpoint_set: set[int] | None = None
+        self._visits: list[dict] | None = None
+        self._text_re: re.Pattern[str] | None | object = _UNSET
+        self._term_place: dict[str, int] = {}
         self._day_places: list[set[int]] | None = None
         self._all_blocks: list[dict] | None = None
 
     # ---------------------------------------------------------------- registry
     def find(self, name: str | None) -> int | None:
-        """Registry index for a name/alias (case-insensitive), else ``None``."""
+        """Registry index for a name/alias (case-insensitive), else ``None``.
+
+        One index for the whole trip: the original scan was linear in the
+        registry and ran ~6k times per derivation (63 places × every transport
+        endpoint), which was a third of the cost on a cold read.
+        """
         if name is None:
             return None
         key = name.strip().lower()
-        if key in self._find:
-            return self._find[key]
-        found: int | None = None
-        for idx, loc in enumerate(self.locations):
-            if (loc.get("name") or "").lower() == key or any(
-                (a or "").lower() == key for a in (loc.get("alias") or [])
-            ):
-                found = idx
-                break
-        self._find[key] = found
-        return found
+        cached = self._find.get(key, _MISS)
+        if cached is not _MISS:
+            return cached  # type: ignore[return-value]
+        index = self.name_index().get(key)
+        self._find[key] = index
+        return index
+
+    def name_index(self) -> dict[str, int]:
+        """Name/alias → registry index, first entry wins (``findLocation``)."""
+        if self._name_index is None:
+            index: dict[str, int] = {}
+            for idx, loc in enumerate(self.locations):
+                for term in [loc.get("name") or "", *(loc.get("alias") or [])]:
+                    key = (term or "").strip().lower()
+                    if key and key not in index:
+                        index[key] = idx
+            self._name_index = index
+        return self._name_index
 
     def loc(self, idx: int) -> dict:
         return self.locations[idx]
@@ -226,7 +248,71 @@ class Deriver:
     def transports(self) -> list[dict]:
         return [b for b in self.all_blocks() if b.get("kind") == "transport"]
 
+    def endpoint_indices(self) -> set[int]:
+        """Every place named by an authored movement's ``from``/``to``.
+
+        ONE-SIDED COUNTS: the original checked each field independently, so a
+        block whose other end is off-registry (BRU → YYC) still marks the end it
+        did resolve. Requiring both ends here silently demoted stops on the
+        Albany trip (#457 parity run) — that is why this is a separate set from
+        ``links``.
+        """
+        if self._endpoint_set is None:
+            found: set[int] = set()
+            for block in self.transports():
+                for name in (block.get("from"), block.get("to")):
+                    if not name:
+                        continue
+                    idx = self.find(name)
+                    if idx is not None:
+                        found.add(idx)
+            self._endpoint_set = found
+        return self._endpoint_set
+
+    def links(self) -> list[tuple[int, int]]:
+        """Resolved ``from``/``to`` pairs of the authored movements.
+
+        Only EXPLICIT endpoints — ``place_role`` never reads a title-filled
+        endpoint (that leniency belongs to leg matching alone, #91).
+        """
+        if self._links is None:
+            pairs: list[tuple[int, int]] = []
+            for block in self.transports():
+                from_idx = self.find(block.get("from")) if block.get("from") else None
+                to_idx = self.find(block.get("to")) if block.get("to") else None
+                if from_idx is not None and to_idx is not None:
+                    pairs.append((from_idx, to_idx))
+            self._links = pairs
+        return self._links
+
     # ------------------------------------------------------------------- text
+    def _text_pattern(self) -> re.Pattern[str] | None:
+        """One alternation over every name/alias, longest first.
+
+        The per-term scan ran ~80 regexes over every text (~110 texts per
+        derivation) — 15 ms of a 22 ms read. A single leftmost-longest pass
+        reproduces the JS result: alternatives are tried in order at each
+        position, so ordering them longest-first is the nested-hit rule, and the
+        surviving hit at a position is the longest term that ends there.
+        """
+        if self._text_re is not _UNSET:
+            return self._text_re  # type: ignore[return-value]
+        terms: dict[str, int] = {}
+        for idx, loc in enumerate(self.locations):
+            for term in [loc.get("name") or "", *(loc.get("alias") or [])]:
+                if term and term.strip():
+                    terms.setdefault(term.lower(), idx)
+        if not terms:
+            self._text_re = None
+            return None
+        ordered = sorted(terms, key=len, reverse=True)
+        self._text_re = re.compile(
+            rf"(?<!{_ALNUM})({'|'.join(re.escape(t) for t in ordered)})(?!{_ALNUM})",
+            re.IGNORECASE,
+        )
+        self._term_place = terms
+        return self._text_re
+
     def locations_in_text(self, text: str | None) -> list[int]:
         """Every trip location named in free text, first appearance first.
 
@@ -239,30 +325,14 @@ class Deriver:
         cached = self._text.get(text)
         if cached is not None:
             return list(cached)
-        hits: list[tuple[int, int, int]] = []  # (place idx, start, length)
-        for idx, loc in enumerate(self.locations):
-            terms = [loc.get("name") or ""] + list(loc.get("alias") or [])
-            for term in terms:
-                if not term or not term.strip():
-                    continue
-                for m in _boundary_re(term).finditer(text):
-                    hits.append((idx, m.start(1), len(term)))
-        kept = [
-            h
-            for j, h in enumerate(hits)
-            if not any(
-                k != j
-                and o[1] <= h[1]
-                and o[1] + o[2] >= h[1] + h[2]
-                and o[2] > h[2]
-                for k, o in enumerate(hits)
-            )
-        ]
-        kept.sort(key=lambda h: h[1])
+        pattern = self._text_pattern()
+        if pattern is None:
+            return []
         out: list[int] = []
-        for h in kept:
-            if h[0] not in out:
-                out.append(h[0])
+        for m in pattern.finditer(text):
+            idx = self._term_place.get(m.group(1).lower())
+            if idx is not None and idx not in out:
+                out.append(idx)
         self._text[text] = tuple(out)
         return list(out)
 
@@ -445,11 +515,7 @@ class Deriver:
     # ------------------------------------------------------------------ roles
     def is_transport_endpoint(self, idx: int) -> bool:
         """Is this place an endpoint of an AUTHORED movement (from/to)?"""
-        for block in self.transports():
-            for name in (block.get("from"), block.get("to")):
-                if name and self.find(name) == idx:
-                    return True
-        return False
+        return idx in self.endpoint_indices()
 
     def is_section_base(self, idx: int) -> bool:
         return any(
@@ -487,13 +553,7 @@ class Deriver:
     def is_transit_node(self, idx: int) -> bool:
         """One movement brings the trip in, a DIFFERENT one takes it out (#435)."""
         counterparts: set[str] = set()
-        for block in self.transports():
-            if not block.get("from") or not block.get("to"):
-                continue
-            from_idx = self.find(block.get("from"))
-            to_idx = self.find(block.get("to"))
-            if from_idx is None or to_idx is None:
-                continue
+        for from_idx, to_idx in self.links():
             if from_idx == idx:
                 counterparts.add(self.loc(to_idx).get("name") or "")
             if to_idx == idx:
@@ -528,7 +588,13 @@ class Deriver:
 
     # ------------------------------------------------------------------ chain
     def journey_visits(self) -> list[dict]:
-        """One entry per STAY, earliest first (#433, #454)."""
+        """One entry per STAY, earliest first (#433, #454).
+
+        Memoised: ``trip_journey`` and ``returns_to_start`` both ask, and the
+        order is the expensive half of the derivation.
+        """
+        if self._visits is not None:
+            return [dict(v, days=list(v["days"])) for v in self._visits]
         stops = self.chain_stops()
         index_of = {idx: pos for pos, idx in enumerate(stops)}
         placed: list[dict] = []
@@ -549,7 +615,8 @@ class Deriver:
         for place in stops:
             if not self.place_days(place):
                 visits.append({"place": place, "days": []})
-        return visits
+        self._visits = visits
+        return [dict(v, days=list(v["days"])) for v in visits]
 
     def day_travel_order(self, days: Iterable[int]) -> dict[int, int]:
         """Topological walk over those days' transport ``from``/``to`` edges (#454)."""
