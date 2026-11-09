@@ -95,6 +95,8 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | `POST` | `/api/chat` | user | Send a turn to the agent; server-sent events in the Vercel-AI UI-message-stream shape |
+| `GET` | `/api/chat/sessions` | user | The acting user's earlier chat threads (conversation picker), newest first — `{threads: [{threadId, title, preview, messageCount, startedAt, lastActiveAt, status}], hasMore}` |
+| `GET` | `/api/chat/sessions/{threadId}/messages` | user | One thread's stored transcript for resume on any device — `{threadId, messages: UIMessage[]}`, text-only; `404` when the caller has no such thread, `502` on an upstream failure |
 | `GET` | `/api/chat/turn` | user | Attach to a run in progress at a cursor (survives reloads) |
 | `POST` | `/api/chat/stop` | user | Stop the running turn — the only thing that does |
 | `POST` | `/api/files` | user | Upload files for the agent (inbox) — photos, videos and documents, each family streamed to disk under its own cap (64 MB / 1 GB / 32 MB) with a per-file `413` when over; `posterOf=<clip>` adds a video's poster frame. HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |

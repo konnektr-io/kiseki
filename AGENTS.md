@@ -246,6 +246,23 @@ id}`, the entity an "ask the agent about this" opened from, #330). Anchors are
 context, never authority: the ACL is the trip role, and they are not part of the
 turn's identity, so a reconnect resolves the same turn without repeating them.
 
+**Conversation history is discoverable and resumable (#309).** Two read-only
+routes sit beside `/api/chat`: `GET /api/chat/sessions` lists the ACTING user's
+earlier threads (newest first — `threadId`, `title`, `preview`, `messageCount`,
+`startedAt`, `lastActiveAt`, `status`) and
+`GET /api/chat/sessions/{threadId}/messages` returns one thread's stored
+transcript as text-only `UIMessage[]` (tool rows, reasoning and the compaction
+scaffolding dropped). History still lives agent-side; these are read paths.
+**Ownership is the session id's actor prefix** — every SPA thread is
+`{actor_sub}::thread:{threadId}` (`chat.conversation_id_for`), and upstream's
+`GET /api/sessions` returns the id but no attribution field, so the relay keeps
+a row only when it starts with the caller's own prefix. A thread id from
+another account therefore resolves to a session that does not exist (404),
+never to someone else's history: the list is the authority and there is no
+relay-side conversation store. Pre-isolation bare `thread:<id>` rows carry no
+owner and are deliberately NOT listed. Reaped threads (`ws_orphan_reap`) ARE —
+they are live rows with intact history.
+
 **User-scoped routes resolve the actor** (`acl.resolve_actor_sub`, #142): `GET
 /api/trips` (my trips), `GET /api/trips/geo`, and `GET /api/auth/me`
 follow the RESOLVED identity —

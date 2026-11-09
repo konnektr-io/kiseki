@@ -56,6 +56,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Iterable, Iterator, Literal
+from urllib.parse import quote
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -1096,6 +1097,114 @@ def conversation_id_for(
     return f"{actor_sub}::general"
 
 
+#: The marker ``conversation_id_for`` puts between the acting sub and the
+#: client's thread id. It is ALSO the picker's attribution: the session id is
+#: the only field upstream's list route returns that names an owner, so a row
+#: belongs to the caller exactly when its id starts with ``<actor_sub>`` +
+#: this marker (#309 / B1). That is why the list needs no upstream
+#: ``session_key`` filter: since 2026-09-18 every SPA thread is namespaced by
+#: its actor, and a caller can never mint a session under someone else's
+#: prefix (the prefix comes from the verified token, never from the body).
+THREAD_SESSION_MARKER = "::thread:"
+
+#: What a client-supplied thread id may look like. It is interpolated into an
+#: upstream URL path AND into a session name, so the allow-list is deliberately
+#: narrow: UUIDs and the older ``thread-<ts>-<n>`` fallback both fit, while
+#: ``/``, ``:`` or whitespace cannot reach the path or forge a marker.
+_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+#: Upstream caps a messages page at 500; a long thread needs a few of them.
+_TRANSCRIPT_PAGE = 500
+_TRANSCRIPT_MAX = 2_000
+#: Upstream caps the session list at 200 per page.
+_SESSION_LIST_PAGE = 200
+#: How many list pages the relay will walk (5 × 200 rows) before reporting the
+#: page as complete — a bound on a pathological profile, not a normal limit.
+_SESSION_LIST_PAGES = 5
+
+
+def is_valid_thread_id(thread_id: str | None) -> bool:
+    """Whether a thread id is safe to interpolate into a session name / URL."""
+    return bool(thread_id) and bool(_THREAD_ID_RE.fullmatch(str(thread_id)))
+
+
+def thread_id_from_session(actor_sub: str, session_id: str) -> str | None:
+    """The client's thread id for one upstream session row, if it is the caller's.
+
+    ``None`` for anything else: another actor's thread, a pre-isolation bare
+    ``thread:<id>`` row (no owner in the id — it cannot be attributed, so it is
+    never listed), a probe/desktop/cli session, or a malformed id.
+    """
+    prefix = f"{actor_sub}{THREAD_SESSION_MARKER}"
+    if not isinstance(session_id, str) or not session_id.startswith(prefix):
+        return None
+    thread_id = session_id[len(prefix) :]
+    return thread_id if is_valid_thread_id(thread_id) else None
+
+
+def _content_text(content: object) -> str:
+    """Plain text of one stored message (string, or a list of content parts)."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                parts.append(part["text"])
+        return "".join(parts)
+    return ""
+
+
+#: ``display_kind`` values that denote agent scaffolding rather than
+#: conversation. Deliberately a DENY-list: ``internal_notification`` is how the
+#: API server records the traveler's OWN turn (verified live on this profile —
+#: every relay-posted user message carries it), so "skip any row with a
+#: display_kind" silently erased the user's half of the transcript.
+_NON_CONVERSATION_DISPLAY_KINDS = frozenset(
+    {"hidden", "model_switch", "compaction", "compaction_summary", "system_note"}
+)
+
+
+def transcript_messages(rows: Iterable[dict]) -> list[dict]:
+    """Map stored messages to the ``UIMessage[]`` shape the SPA already renders.
+
+    Text only, on purpose — the wire is text-only (``chat.ts``), so tool rows,
+    reasoning and the compaction/model-switch scaffolding rows
+    (``display_kind``) are dropped rather than shipped and hidden client-side.
+
+    Consecutive assistant rows MERGE into one message per turn: upstream stores
+    one row per model call, so a single agent turn that ran 20 tools is 20 rows
+    — rendered verbatim that is 20 bubbles instead of the one the live stream
+    showed. A user row always opens a new message, which is exactly the turn
+    boundary the live transcript has.
+    """
+    out: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        role = row.get("role")
+        if role not in ("user", "assistant"):
+            continue  # tool / session_meta rows never reach the UI
+        if row.get("display_kind") in _NON_CONVERSATION_DISPLAY_KINDS:
+            continue  # compaction handoff, model-switch notice: not conversation
+        text = _content_text(row.get("content"))
+        if not text.strip():
+            continue  # a tool-call-only assistant row carries no text
+        if role == "assistant" and out and out[-1]["role"] == "assistant":
+            out[-1]["parts"][0]["text"] += f"\n\n{text}"
+            continue
+        out.append(
+            {
+                "id": f"hermes-{row.get('id') if row.get('id') is not None else len(out)}",
+                "role": role,
+                "parts": [{"type": "text", "text": text}],
+            }
+        )
+    return out
+
+
 def last_user_input(messages: list[ChatMessage]) -> dict:
     """The single new message to forward: the last user turn's content.
 
@@ -1278,6 +1387,154 @@ async def stop_chat_run(run_id: str, *, session_key: str | None = None) -> dict:
         )
     doc = resp.json()
     return doc if isinstance(doc, dict) else {}
+
+
+def _picker_row(session: dict, thread_id: str) -> dict:
+    """One picker row — the fields the conversation list renders, nothing else.
+
+    Attribution, cost and model fields stay relay-side: titles are user content
+    and the rest is internal accounting (``_session_response`` upstream omits
+    ``session_key`` for the same reason). ``status`` is the end reason, which
+    the caller renders as an ordinary row: a ``ws_orphan_reap`` thread is a LIVE
+    row with intact history, not a retired one (7 of the first 16 were).
+    """
+    title = session.get("title")
+    preview = session.get("preview")
+    return {
+        "threadId": thread_id,
+        "title": title if isinstance(title, str) and title.strip() else "",
+        "preview": preview if isinstance(preview, str) else "",
+        "messageCount": session.get("message_count"),
+        "startedAt": session.get("started_at"),
+        "lastActiveAt": session.get("last_active"),
+        "status": session.get("end_reason") or "open",
+    }
+
+
+def picker_threads(actor_sub: str, rows: Iterable, *, limit: int = 50) -> dict:
+    """Filter upstream session rows down to the caller's picker list (pure).
+
+    Keeps only rows this actor owns (``thread_id_from_session``), drops
+    archived/hidden ones, and orders newest first. Everything else upstream
+    returns — other travelers' threads, build probes, the profile's own
+    desktop/cli sessions — never leaves the relay.
+    """
+    threads: list[dict] = []
+    for session in rows:
+        if not isinstance(session, dict) or session.get("archived") or session.get("hidden"):
+            continue
+        thread_id = thread_id_from_session(actor_sub, session.get("id"))  # type: ignore[arg-type]
+        if thread_id is None:
+            continue
+        threads.append(_picker_row(session, thread_id))
+    # Upstream already orders by last_active; re-sort defensively so a pinned
+    # row (back-filled past the page) can never disturb the picker's order.
+    threads.sort(key=lambda row: row.get("lastActiveAt") or 0, reverse=True)
+    return {"threads": threads[:limit], "hasMore": len(threads) > limit}
+
+
+async def list_thread_sessions(actor_sub: str, *, limit: int = 50) -> dict:
+    """The caller's earlier chat threads, newest first (#309).
+
+    Reads upstream ``GET /api/sessions`` and keeps only rows whose session id
+    carries this actor's prefix (``picker_threads``) — the upstream list is NOT
+    user-scoped, so filtering here is what stops one traveler seeing another's
+    titles (and the profile's probe/desktop rows).
+
+    Pages until the caller's whole history is covered (bounded: 5 × 200 rows):
+    the upstream page counts EVERY session on the profile — other users',
+    desktop, cli, cron — so a single page would start hiding the caller's older
+    threads once the profile accumulates a couple of hundred sessions.
+
+    ``X-Hermes-Session-Key`` is sent even though today's route ignores it: the
+    day upstream honors it (the E1 enabler in #309) the same call becomes
+    server-filtered, with no change on this side.
+    """
+    import httpx
+
+    headers = _hermes_headers(actor_sub)
+    rows: list[dict] = []
+    seen: set[str] = set()
+    offset = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for _ in range(_SESSION_LIST_PAGES):
+            resp = await client.get(
+                _hermes_url("/api/sessions"),
+                params={
+                    "source": "api_server",
+                    "limit": _SESSION_LIST_PAGE,
+                    "offset": offset,
+                },
+                headers=headers,
+            )
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"Kiseki agent upstream error {resp.status_code}: "
+                        f"{resp.text[:500]}"
+                    ),
+                )
+            body = resp.json()
+            page = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                raise HTTPException(502, "Kiseki agent upstream returned no session list")
+            for session in page:
+                # Pinned rows are back-filled PAST the page, so paging can see
+                # the same row twice — dedupe on the session id.
+                key = str(session.get("id")) if isinstance(session, dict) else ""
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                rows.append(session)
+            if body.get("has_more") is not True or not page:
+                break
+            offset += len(page)
+    return picker_threads(actor_sub, rows, limit=limit)
+
+
+async def fetch_thread_messages(actor_sub: str, thread_id: str) -> list[dict]:
+    """The stored transcript of ONE of the caller's threads (#309), text-only.
+
+    The session id is DERIVED from the caller and the thread id, never taken
+    from the request: ``{actor}::thread:{threadId}`` is the only conversation a
+    caller can name, so a leaked thread id from another account resolves to a
+    session that does not exist → 404, never someone else's history (B4).
+    """
+    import httpx
+
+    session_id = conversation_id_for(actor_sub, thread_id=thread_id)
+    headers = _hermes_headers(actor_sub)
+    rows: list[dict] = []
+    offset = 0
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while True:
+            url = _hermes_url(f"/api/sessions/{quote(session_id, safe='')}/messages")
+            resp = await client.get(
+                url,
+                params={"order": "oldest", "limit": _TRANSCRIPT_PAGE, "offset": offset},
+                headers=headers,
+            )
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail="Unknown chat thread")
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"Kiseki agent upstream error {resp.status_code}: "
+                        f"{resp.text[:500]}"
+                    ),
+                )
+            body = resp.json()
+            page = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                raise HTTPException(502, "Kiseki agent upstream returned no messages")
+            rows.extend(page)
+            if len(page) < _TRANSCRIPT_PAGE or len(rows) >= _TRANSCRIPT_MAX:
+                break
+            offset += len(page)
+    return transcript_messages(rows)
 
 
 # ------------------------------------------------------- turn registry (#217)

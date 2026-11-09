@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { FileText, Film, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+import { FileText, Film, History, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { TripVideo } from "./photos";
@@ -15,19 +16,25 @@ import { capturePosterFrame, formatBytes } from "../lib/media";
 import { isPostHogConfigured, posthog } from "../lib/posthog";
 import {
   ChatAuthError,
+  adoptThreadId,
   chatContextKey,
   composeUserMessage,
+  fetchChatThreads,
   findTripIds,
+  listIndexedThreads,
   loadThreadId,
+  mergePickerThreads,
   messageActivities,
   messageInterrupted,
   messageToText,
   newThreadId,
+  threadExcerpt,
   uploadChatFile,
   uploadChatPoster,
   useTripChat,
   type ChatFocus,
   type ChatFailure,
+  type PickerThread,
   type TurnRecovery,
   type UploadedChatFile,
 } from "../lib/chat";
@@ -178,6 +185,252 @@ export function withInlineMediaImages(text: string): string {
   return text.replace(BARE_MEDIA_RE, "![attached image]($1)");
 }
 
+/** The picker's secondary line (#309): "just now", "12 min ago", "yesterday",
+ *  "12 Sep". Deliberately coarse — a conversation list needs recency, not
+ *  precision — and stable for a given `now`, so it is testable without a clock. */
+export function threadAge(ms: number, now: number = Date.now()): string {
+  if (!ms) return "";
+  const diff = Math.max(0, now - ms);
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  const then = new Date(ms);
+  const sameYear = then.getFullYear() === new Date(now).getFullYear();
+  return then.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
+
+/**
+ * The conversation picker (#309) — "my earlier chats with Kiseki".
+ *
+ * Two sources, one list: the relay's `/api/chat/sessions` (every thread the
+ * caller owns, on any device) and this browser's local index (threads it has
+ * opened, with a title derived from their first message). `mergePickerThreads`
+ * reconciles them; only the SERVER list can be wrong-absent, never wrong-owner,
+ * because the relay filters on the session id's actor prefix.
+ *
+ * Degrade rule: an unreachable relay renders the local index with a one-line
+ * explanation. It never renders a blank panel and never an error state with no
+ * rows — the point of the surface is that a conversation is not lost.
+ */
+function ChatHistoryMenu({
+  threadId,
+  context,
+  userSub,
+  getToken,
+  onOpenThread,
+}: {
+  threadId: string;
+  context: string;
+  userSub: string | null;
+  getToken: () => Promise<string>;
+  onOpenThread: (threadId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [rows, setRows] = useState<PickerThread[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** Where the list is drawn, in the PANEL's coordinate space.
+   *
+   * A plain `absolute right-0` menu overflowed the panel's LEFT edge on a
+   * phone (the drawer is narrower than the list, and the panel carries
+   * `overflow-hidden`, so every row lost its first ~100 px — the titles were
+   * unreadable; measured 2026-11-09 at 390 px and 360 px). The list is
+   * therefore sized to the panel and anchored to the button, clamped inside the
+   * panel's padding. */
+  const [pos, setPos] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+
+  const place = () => {
+    const anchor = rootRef.current;
+    const panel = anchor?.closest("[data-chat-panel]") as HTMLElement | null;
+    if (!anchor || !panel) return;
+    const panelBox = panel.getBoundingClientRect();
+    const buttonBox = anchor.getBoundingClientRect();
+    const width = Math.min(320, Math.max(220, panelBox.width - 16));
+    const maxLeft = Math.max(8, panelBox.width - width - 8);
+    // Preferred: right-aligned under the button. Clamped so the list never
+    // crosses the panel's left padding (the phone case above).
+    const leftInPanel = Math.min(
+      Math.max(buttonBox.right - panelBox.left - width, 8),
+      maxLeft,
+    );
+    setPos({
+      // The menu is absolute inside this wrapper, so offsets are relative to
+      // the BUTTON (which sits at the wrapper's origin).
+      top: Math.round(buttonBox.height + 6),
+      left: Math.round(leftInPanel - (buttonBox.left - panelBox.left)),
+      width: Math.round(width),
+      // Never taller than the panel can show beneath the header.
+      maxHeight: Math.round(
+        Math.max(180, panelBox.bottom - buttonBox.bottom - 24),
+      ),
+    });
+  };
+
+  const localRows = () => {
+    const local = listIndexedThreads(context, userSub);
+    const excerpts: Record<string, string | undefined> = {};
+    for (const entry of local) excerpts[entry.threadId] = threadExcerpt(entry.threadId);
+    return { local, excerpts };
+  };
+
+  const load = async () => {
+    const { local, excerpts } = localRows();
+    // Local rows render IMMEDIATELY (they need no network), then the server
+    // list replaces them — so the menu never opens onto a spinner.
+    setRows(mergePickerThreads({ server: [], local, activeThreadId: threadId, excerpts }));
+    setLoading(true);
+    setFailed(false);
+    try {
+      const page = await fetchChatThreads({ getToken });
+      setRows(
+        mergePickerThreads({
+          server: page.threads,
+          local,
+          activeThreadId: threadId,
+          excerpts,
+        }),
+      );
+    } catch {
+      // 401/403 lands here too: the local list is still honest, and the note
+      // says the server half is missing rather than pretending there is none.
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    place();
+    void load();
+    // `load` closes over context/threadId/getToken; a fresh run per open is the
+    // point (someone may have continued a thread on another device since).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Keep the list inside the panel when the viewport changes under it.
+  useEffect(() => {
+    if (!open) return;
+    const onResize = () => place();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // Outside click / Escape closes it — the same contract as the trip actions
+  // menu, so two header menus behave identically.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const item =
+    "flex w-full items-start gap-2.5 rounded-md px-2.5 py-2.5 text-left text-foreground transition-colors hover:bg-muted focus-visible:focus-ring";
+
+  return (
+    <div ref={rootRef} className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Earlier conversations"
+        title="Earlier conversations"
+        className="h-9 px-2.5 text-xs"
+      >
+        <History className="h-4 w-4" aria-hidden="true" />
+        <span className="hidden sm:inline">History</span>
+      </Button>
+
+      {open && pos && (
+        <div
+          role="menu"
+          aria-label="Earlier conversations"
+          data-testid="chat-history-menu"
+          style={{
+            top: pos.top,
+            left: pos.left,
+            width: pos.width,
+            maxHeight: pos.maxHeight,
+          }}
+          className="absolute z-30 flex flex-col rounded-xl border border-border bg-card p-1.5 shadow-lg"
+        >
+          <p className="px-2.5 pb-1 pt-1.5 text-xs text-muted-foreground">
+            Conversations
+          </p>
+          {failed && (
+            <p role="alert" className="px-2.5 py-1.5 text-xs text-destructive">
+              Couldn’t reach the conversation list — showing this device’s
+              history.
+            </p>
+          )}
+          {rows.length === 0 && !loading && (
+            <p className="px-2.5 py-2 text-sm text-muted-foreground">
+              No earlier conversations yet.
+            </p>
+          )}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {rows.map((row) => (
+              <button
+                key={row.threadId}
+                type="button"
+                role="menuitem"
+                aria-current={row.active ? "true" : undefined}
+                onClick={() => {
+                  setOpen(false);
+                  if (!row.active) onOpenThread(row.threadId);
+                }}
+                className={`${item} ${row.active ? "bg-muted" : ""}`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{row.title}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {threadAge(row.lastActiveAt)}
+                    {row.active ? " · current" : ""}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          {loading && (
+            <p className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Checking the agent…
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface ChatPanelProps {
   tripId?: string;
   onTripCreated?: (tripId: string) => void;
@@ -268,8 +521,18 @@ export function ChatPanel({
       key={threadId}
       tripId={tripId}
       threadId={threadId}
+      context={context}
+      userSub={userSub}
       onNewChat={() => {
         newThreadId(context, userSub);
+        setRotation((n) => n + 1);
+      }}
+      onOpenThread={(olderThreadId) => {
+        // Resuming an older thread is an adoption of the same pointer "New
+        // chat" writes (#309): the context's active thread becomes that one, so
+        // a reload lands back in it, and the rotation remounts ChatThread with
+        // clean state (the `key` above) exactly like a rotate.
+        adoptThreadId(context, olderThreadId, userSub);
         setRotation((n) => n + 1);
       }}
       onTripCreated={onTripCreated}
@@ -353,7 +616,10 @@ function briefUploadError(message: string): string {
 function ChatThread({
   tripId,
   threadId,
+  context,
+  userSub,
   onNewChat,
+  onOpenThread,
   onTripCreated,
   onTurnComplete,
   onClose,
@@ -364,7 +630,10 @@ function ChatThread({
 }: {
   tripId?: string;
   threadId: string;
+  context: string;
+  userSub: string | null;
   onNewChat: () => void;
+  onOpenThread: (threadId: string) => void;
   onTripCreated?: (tripId: string) => void;
   onTurnComplete?: () => void;
   onClose?: () => void;
@@ -378,6 +647,8 @@ function ChatThread({
     tripId,
     threadId,
     focus,
+    context,
+    userSub,
     getToken: getAccessTokenSilently,
     onFinish: (text) => {
       const ids = findTripIds(text);
@@ -671,6 +942,7 @@ function ChatThread({
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
+      data-chat-panel=""
       className={`no-print relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card ${className ?? ""}`}
     >
       {/* The drop zone (#291): shown while a file drag is over the panel and
@@ -694,6 +966,13 @@ function ChatThread({
       <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-2.5">
         <p className="kicker">Kiseki assistant</p>
         <div className="flex items-center gap-1">
+          <ChatHistoryMenu
+            threadId={threadId}
+            context={context}
+            userSub={userSub}
+            getToken={getAccessTokenSilently}
+            onOpenThread={onOpenThread}
+          />
           <Button
             variant="ghost"
             size="sm"

@@ -90,6 +90,10 @@ export function newThreadId(context: string, userSub?: string | null): string {
   } catch {
     // persistence is a convenience — a chat without it still works
   }
+  // The ROTATED-AWAY thread must stay reachable (#309): `threads.v1` keeps one
+  // pointer per context, so without this index "New chat" would lose the id for
+  // good and the previous conversation would be unreachable even by id.
+  rememberThread(context, userSub, id);
   return id;
 }
 
@@ -115,7 +119,106 @@ export function adoptThreadId(
   } catch {
     // persistence is a convenience — a chat without it still works
   }
+  // Resuming an OLDER thread from the picker is an adoption like any other:
+  // bump it to the top of this context's index so it is the first row next time.
+  rememberThread(context, userSub, threadId);
 }
+
+// ------------------------------------------------- conversation index (#309)
+/** Every thread this (user, context) has opened — the picker's local half.
+ *
+ * `threads.v1` above is a POINTER (one id, overwritten on rotate); this is the
+ * INDEX that makes the pointer's predecessors discoverable. It is a fallback
+ * and a labelling source, never the authority: the relay's list
+ * (`/api/chat/sessions`) is what makes a thread visible on another device.
+ * Keyed by the same (user, context) slot as the pointer.
+ */
+const SESSIONS_KEY = "kiseki.chat.sessions.v1";
+/** Enough to cover a few months of planning in one context. */
+const MAX_INDEXED_THREADS = 50;
+
+export interface IndexedThread {
+  threadId: string;
+  /** Derived from the thread's first user message; absent until one is sent. */
+  title?: string;
+  updatedAt: number;
+}
+
+function readIndex(): Record<string, IndexedThread[]> {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(SESSIONS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: Record<string, IndexedThread[]> = {};
+    for (const [slot, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(value)) continue;
+      out[slot] = value.filter(
+        (entry): entry is IndexedThread =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof (entry as IndexedThread).threadId === "string" &&
+          (entry as IndexedThread).threadId !== "",
+      );
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeIndex(index: Record<string, IndexedThread[]>): void {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(index));
+  } catch {
+    // quota / private mode — the server list still works
+  }
+}
+
+/** This context's indexed threads, newest first. */
+export function listIndexedThreads(
+  context: string,
+  userSub?: string | null,
+): IndexedThread[] {
+  const rows = readIndex()[threadSlot(context, userSub)];
+  if (!Array.isArray(rows)) return [];
+  return [...rows].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Upsert one thread in this context's index (append when unknown, cap kept). */
+export function rememberThread(
+  context: string,
+  userSub: string | null | undefined,
+  threadId: string,
+  title?: string,
+): void {
+  if (!threadId) return;
+  try {
+    const index = readIndex();
+    const slot = threadSlot(context, userSub);
+    const rows = Array.isArray(index[slot]) ? index[slot] : [];
+    const existing = rows.find((row) => row.threadId === threadId);
+    const cleanTitle = title?.trim();
+    const entry: IndexedThread = {
+      threadId,
+      // A title is only ever set once from the local excerpt — the SERVER's
+      // title wins wherever both exist, and re-deriving on every keystroke'd
+      // transcript save would make rows jump between labels.
+      title: existing?.title ?? (cleanTitle ? cleanTitle : undefined),
+      updatedAt: Date.now(),
+    };
+    index[slot] = [entry, ...rows.filter((row) => row.threadId !== threadId)].slice(
+      0,
+      MAX_INDEXED_THREADS,
+    );
+    writeIndex(index);
+  } catch {
+    // persistence is a convenience — a chat without it still works
+  }
+}
+
 
 /** Backend `ChatMessage` shape (`backend/app/chat.py`): content is a plain
  *  string or an array of `{type: "text", text}` / `{type: "image_url",
@@ -408,6 +511,181 @@ export async function getTurnStatus(args: {
     ...body,
     known: body?.known === true,
   };
+}
+
+// -------------------------------------------- conversation list / restore (#309)
+
+/** One row of `GET /api/chat/sessions` — the relay's picker payload. */
+export interface ChatThreadRow {
+  threadId: string;
+  /** Upstream's auto-title (a truncated first-message excerpt); may be empty
+   *  for a thread whose first message was an attachment. */
+  title: string;
+  preview?: string;
+  messageCount?: number | null;
+  startedAt?: number | null;
+  lastActiveAt?: number | null;
+  /** Upstream's `end_reason` — `"open"` while the thread never ended, or e.g.
+   *  `"ws_orphan_reap"` for a thread whose socket was reaped (still live). */
+  status?: string;
+}
+
+export interface ChatSessionsPage {
+  threads: ChatThreadRow[];
+  hasMore: boolean;
+}
+
+/** The caller's earlier threads, newest first (the server half of the picker).
+ *
+ * Only the caller's OWN threads come back: the relay derives ownership from
+ * the session id's actor prefix, so this is safe to render verbatim. A 401/403
+ * is a session problem (`ChatAuthError`), anything else is a plain failure the
+ * picker degrades from — never a reason to blank the local list.
+ */
+export async function fetchChatThreads(args: {
+  getToken: () => Promise<string>;
+  fetchImpl?: typeof fetch;
+}): Promise<ChatSessionsPage> {
+  const fetchImpl: typeof fetch =
+    args.fetchImpl ?? ((input, init) => fetch(input, init));
+  const res = await fetchImpl("/api/chat/sessions?limit=50", {
+    headers: { ...authHeaders(await args.getToken()) },
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new ChatAuthError(res.status, await relayErrorMessage(res));
+  }
+  if (!res.ok) {
+    throw new Error(`Conversation list failed (${res.status})`);
+  }
+  const body = (await res.json()) as Partial<ChatSessionsPage> | null;
+  const threads = Array.isArray(body?.threads) ? body!.threads : [];
+  return {
+    threads: threads.filter(
+      (row): row is ChatThreadRow =>
+        typeof row === "object" && row !== null && typeof row.threadId === "string",
+    ),
+    hasMore: body?.hasMore === true,
+  };
+}
+
+/** One thread's stored transcript, in the `UIMessage[]` shape the panel renders.
+ *
+ * This is what makes a conversation resumable on a device that never had it —
+ * the missing half of #309's cross-device story. A 404 means the relay has no
+ * such thread for THIS caller (never someone else's), which the caller treats
+ * as "nothing to restore", not as an error.
+ */
+export async function fetchChatTranscript(args: {
+  threadId: string;
+  tripId?: string;
+  getToken: () => Promise<string>;
+  fetchImpl?: typeof fetch;
+}): Promise<UIMessage[]> {
+  const fetchImpl: typeof fetch =
+    args.fetchImpl ?? ((input, init) => fetch(input, init));
+  const query = args.tripId
+    ? `?${new URLSearchParams({ tripId: args.tripId }).toString()}`
+    : "";
+  const res = await fetchImpl(
+    `/api/chat/sessions/${encodeURIComponent(args.threadId)}/messages${query}`,
+    { headers: { ...authHeaders(await args.getToken()) } },
+  );
+  if (res.status === 401 || res.status === 403) {
+    throw new ChatAuthError(res.status, await relayErrorMessage(res));
+  }
+  if (res.status === 404) return [];
+  if (!res.ok) {
+    throw new Error(`Transcript restore failed (${res.status})`);
+  }
+  const body = (await res.json()) as { messages?: unknown } | null;
+  const messages = Array.isArray(body?.messages) ? body!.messages : [];
+  return messages.filter(
+    (message): message is UIMessage =>
+      typeof message === "object" &&
+      message !== null &&
+      typeof (message as UIMessage).id === "string" &&
+      Array.isArray((message as UIMessage).parts),
+  );
+}
+
+/**
+ * Which transcript to show (#309): the SERVER wins beyond the local tail, so a
+ * thread continued on another device never renders truncated — while a local
+ * tail the server has not stored yet (a turn still settling) is never thrown
+ * away. Equal lengths keep the local copy: same history, no re-render churn.
+ */
+export function mergeTranscripts(
+  local: UIMessage[],
+  remote: UIMessage[],
+): UIMessage[] {
+  return remote.length > local.length ? remote : local;
+}
+
+/** One row of the picker after local + server are reconciled. */
+export interface PickerThread {
+  threadId: string;
+  title: string;
+  /** Epoch ms of the last activity (0 when only a bare index entry exists). */
+  lastActiveAt: number;
+  source: "server" | "local";
+  active: boolean;
+}
+
+/**
+ * Reconcile the relay's list with this browser's index (#309).
+ *
+ * - Server rows are the authority: they carry titles, counts and timestamps and
+ *   they exist on every device.
+ * - A local entry the server does not know is still listed (it may be a thread
+ *   this browser opened before the relay was reachable, or one whose session
+ *   has not been created yet) — labelled with its local excerpt.
+ * - An untitled local entry that is NOT the active thread is dropped: it is a
+ *   husk from pressing "New chat" and never sending anything.
+ * - Deduped by threadId, newest first, the active thread flagged (the picker
+ *   marks it rather than hiding it).
+ */
+export function mergePickerThreads(args: {
+  server: ChatThreadRow[];
+  local: IndexedThread[];
+  activeThreadId: string;
+  /** Local excerpts by thread id (the caller reads them from the transcripts). */
+  excerpts?: Record<string, string | undefined>;
+}): PickerThread[] {
+  const rows = new Map<string, PickerThread>();
+  const localById = new Map(args.local.map((entry) => [entry.threadId, entry]));
+
+  for (const row of args.server) {
+    const local = localById.get(row.threadId);
+    const title =
+      row.title?.trim() ||
+      local?.title?.trim() ||
+      args.excerpts?.[row.threadId]?.trim() ||
+      "Untitled conversation";
+    rows.set(row.threadId, {
+      threadId: row.threadId,
+      title,
+      lastActiveAt: (row.lastActiveAt ?? 0) * 1000 || local?.updatedAt || 0,
+      source: "server",
+      active: row.threadId === args.activeThreadId,
+    });
+  }
+
+  for (const entry of args.local) {
+    if (rows.has(entry.threadId)) continue;
+    const title =
+      entry.title?.trim() || args.excerpts?.[entry.threadId]?.trim() || "";
+    const active = entry.threadId === args.activeThreadId;
+    if (!title && !active) continue; // a husk, not a conversation
+    rows.set(entry.threadId, {
+      threadId: entry.threadId,
+      title: title || "New conversation",
+      lastActiveAt: entry.updatedAt,
+      source: "local",
+      active,
+    });
+  }
+
+  return [...rows.values()].sort((a, b) => b.lastActiveAt - a.lastActiveAt);
 }
 
 /** The kiseki relay transport: DefaultChatTransport + bearer auth +
@@ -863,6 +1141,17 @@ export function saveTranscript(threadId: string, messages: UIMessage[]): void {
   }
 }
 
+/** The label a restored/never-titled thread falls back to: its first user
+ *  message, flattened to one line and cut to a list-row width (#309). */
+export function threadExcerpt(threadId: string): string | undefined {
+  const first = loadTranscript(threadId).find((message) => message.role === "user");
+  if (!first) return undefined;
+  const text = messageToText(first).replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  return text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text;
+}
+
+
 /** Plain text of a message (assistant rendering + trip-link detection). */
 export function messageToText(message: UIMessage): string {
   return message.parts
@@ -960,6 +1249,11 @@ export interface UseTripChatOptions {
   onFinish?: (text: string) => void;
   /** Which day/section/block this drawer is about (null = whole trip). */
   focus?: ChatFocus | null;
+  /** The localStorage context key this thread belongs to (`"general"` or a
+   *  trip id) and the signed-in sub — together they address the local thread
+   *  index the picker reads (#309). */
+  context?: string;
+  userSub?: string | null;
 }
 
 /** How a thread's in-flight turn was picked up when the thread opened. */
@@ -1114,6 +1408,8 @@ export function useTripChat({
   getToken,
   onFinish,
   focus,
+  context,
+  userSub,
 }: UseTripChatOptions) {
   const transport = useMemo(
     () =>
@@ -1147,11 +1443,59 @@ export function useTripChat({
         }
       : {}),
   });
-  // Persist the visible transcript so a reload / app switch restores it.
+  // Persist the visible transcript so a reload / app switch restores it, and
+  // keep this thread's row in the local index (#309) — the durable part is the
+  // first user message, which becomes the row's label until the server's own
+  // title is known.
   const { messages } = chat;
   useEffect(() => {
     saveTranscript(threadId, messages);
-  }, [threadId, messages]);
+    const firstUser = messages.find((message: UIMessage) => message.role === "user");
+    if (!firstUser) return;
+    const text = messageToText(firstUser).replace(/\s+/g, " ").trim();
+    if (!text) return;
+    rememberThread(
+      context ?? chatContextKey(tripId),
+      userSub,
+      threadId,
+      text.length > 80 ? `${text.slice(0, 79).trimEnd()}…` : text,
+    );
+  }, [threadId, messages, context, userSub, tripId]);
+
+  // Restore the thread's history from the RELAY when this browser has none (or
+  // has less) — the cross-device half of #309. Runs before the turn probe:
+  // attaching to an in-flight turn rebuilds that turn's messages from the
+  // relay's frames, so the history has to be in place first, or the probe would
+  // rewind onto an empty transcript.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const remote = await fetchChatTranscript({ threadId, tripId, getToken });
+        if (cancelled || remote.length === 0) return;
+        const local = loadTranscript(threadId);
+        const merged = mergeTranscripts(local, remote);
+        if (merged !== local) {
+          chat.setMessages(merged);
+          saveTranscript(threadId, merged);
+        }
+      } catch {
+        // Unreachable relay / expired session: the LOCAL transcript is what we
+        // have. Never blank the panel — "no history" and "could not ask" are
+        // different states and only the first one is honest here.
+      } finally {
+        if (!cancelled) setRestored(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Once per mounted thread (ChatThread is keyed by threadId, so a resume
+    // remounts and re-restores). `chat` is a new object every render — depending
+    // on it would refetch on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threadId, tripId, getToken]);
 
   const [recovery, setRecovery] = useState<TurnRecovery>("idle");
 
@@ -1192,6 +1536,10 @@ export function useTripChat({
   // was still working. Runs once per thread.
   const recovered = useRef<string | null>(null);
   useEffect(() => {
+    // Wait for the server transcript to land (#309): the attach rebuilds the
+    // turn on top of the messages already on screen, so restoring history AFTER
+    // it would either duplicate the turn or wipe the live stream.
+    if (!restored) return;
     if (recovered.current === threadId) return;
     // A remount must not attach a second time to a stream that is already
     // replaying: the ref doesn't survive one, so the recency of the last
@@ -1202,7 +1550,7 @@ export function useTripChat({
     recovered.current = threadId;
     if (!transport.resumable) return;
     void resumeTurn();
-  }, [threadId, transport, resumeTurn]);
+  }, [threadId, transport, resumeTurn, restored]);
 
   /** "The user came back to a turn that never finished" (#237) — the case the
    *  mount probe above cannot reach, because the panel was never unmounted.

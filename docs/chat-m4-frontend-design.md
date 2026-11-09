@@ -10,6 +10,41 @@ This slice puts chat in the SPA and closes the loop: the agent can answer
 questions, edit the trip you're viewing, and — new in this slice — **create a
 new trip from scratch**.
 
+## Shipped deltas (2026-11-09) — conversation picker (#309)
+
+The deferred "thread list / history management beyond one active thread per
+context" slice. Two relay read routes and one SPA surface:
+
+- **`GET /api/chat/sessions`** — the acting user's earlier threads, newest
+  first (`threadId`, `title`, `preview`, `messageCount`, `startedAt`,
+  `lastActiveAt`, `status`). **Ownership is the session id, not a new store**:
+  every SPA thread is `{actor_sub}::thread:{uuid}` since the 2026-09-18
+  isolation fix, and upstream's `GET /api/sessions` returns ids but no
+  attribution field — so the relay keeps a row only when it starts with the
+  caller's own prefix. That made **E1 (an upstream `session_key` filter)
+  unnecessary**: the issue assumed bare `thread:<id>` ids, which no longer
+  exist. Pre-isolation bare rows cannot be attributed and are NOT listed;
+  reaped rows (`ws_orphan_reap`) ARE, because they are live with intact
+  history.
+- **`GET /api/chat/sessions/{threadId}/messages`** — one thread's transcript,
+  text-only `UIMessage[]`. Tool rows, reasoning and compaction scaffolding are
+  dropped server-side; consecutive assistant rows MERGE into one message per
+  turn, so a restored turn is one bubble, like the streamed one. The session id
+  is derived from the caller + thread id (never from the request), so a foreign
+  thread id is a 404, not an empty panel.
+- **SPA**: `kiseki.chat.sessions.v1` is a per-(user, context) index — the
+  pointer `threads.v1` is still the active thread, the index records the ones
+  rotation left behind. A history menu in the panel header lists server rows
+  merged with the index (server wins; an untitled local husk is dropped),
+  marks the current thread, and resuming one adopts it as the context's
+  pointer (the `key={threadId}` remount already resets state). On open, the
+  thread restores from the relay when the local transcript is empty or
+  SHORTER — server wins beyond the local tail, so a thread continued on another
+  device never looks truncated. The restore completes before the in-flight
+  turn probe runs, or the attach would rewind onto an empty transcript. No
+  delete/archive in this slice, no LLM titling: upstream's auto-title first,
+  the local first-message excerpt as fallback.
+
 ## Shipped deltas (2026-09-10)
 
 - **Transport**: shipped as `@ai-sdk/react` `useChat` + a custom `DefaultChatTransport`
@@ -187,7 +222,9 @@ failed → `e:`). New module `frontend/src/lib/chat.ts`:
   `{ [tripOrGeneralKey]: string }`. A new chat button rotates a fresh
   threadId (starts a NEW Hermes conversation; the old one remains resumable
   if we later add a thread list — v1 keeps one active thread per context,
-  the id is the persistence unit).
+  the id is the persistence unit). **Superseded 2026-11-09 by #309**: the
+  thread list shipped (`kiseki.chat.sessions.v1` + the header picker), and the
+  old thread is now reachable by id from it.
 - On 401/403 from the relay → surface a sign-in/access error state, never a
   silent blank.
 
