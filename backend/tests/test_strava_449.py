@@ -60,6 +60,7 @@ class StravaStub:
         self.token_calls = 0
         self.revoke_calls = 0
         self.refresh_refused = False
+        self.activities_status = 200
         self.photo_status = 200
         self.expires_in = 60  # < REFRESH_SKEW_S on purpose: forces one rotation
 
@@ -111,6 +112,17 @@ class StravaStub:
             assert request.headers["authorization"].startswith("Basic ")
             return httpx.Response(200)
         if path.endswith("/athlete/activities"):
+            if self.activities_status != 200:
+                # The exact body Strava returns for a future `after`.
+                return httpx.Response(
+                    self.activities_status,
+                    json={
+                        "message": "Bad Request",
+                        "errors": [
+                            {"resource": "Application", "field": "after", "code": "future"}
+                        ],
+                    },
+                )
             return httpx.Response(200, json=[self.activity()])
         if path.endswith("/streams"):
             return httpx.Response(
@@ -722,6 +734,39 @@ def test_a_rotated_refresh_token_is_persisted_in_the_cookie(
     assert fresh["r"] == "refresh-2", "the rotated refresh token must be the one kept"
     bearer = next(r for r in stub.requests if r.url.path.endswith("/athlete/activities"))
     assert bearer.headers["authorization"] == "Bearer access-token"
+
+
+def test_a_failed_call_still_returns_the_rotated_token(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
+    """A failure must not strand the browser on a token Strava already killed.
+
+    The refresh happens BEFORE the call, and it rotates the refresh token: if
+    the error path drops the Set-Cookie, the browser keeps the old (invalidated)
+    token and every retry 401s — which is what production saw on the first
+    failed activity list (#449).
+    """
+    graph("editor")
+    _connect(client, _auth(rsa_keypair))
+    before = strava_svc.decode_session(
+        next(c.value for c in client.cookies.jar if c.name == strava_svc.SESSION_COOKIE)
+    )
+    assert before is not None and before["r"] == "refresh-1"
+
+    stub.activities_status = 400
+    response = client.get(
+        f"/api/integrations/strava/trips/{TRIP_ID}/activities", headers=_auth(rsa_keypair)
+    )
+    # 502, not 400: the request was ours and Strava rejected it — an integration
+    # fault, not something the browser asked for wrongly.
+    assert response.status_code == 502
+    # …and the message names Strava's own fault field, not just "Bad Request".
+    assert "after" in response.json()["detail"] and "future" in response.json()["detail"]
+
+    after = strava_svc.decode_session(
+        next(c.value for c in client.cookies.jar if c.name == strava_svc.SESSION_COOKIE)
+    )
+    assert after is not None and after["r"] == "refresh-2", "the rotated token must survive the failure"
 
 
 def test_a_revoked_refresh_clears_the_cookie_and_asks_to_reconnect(

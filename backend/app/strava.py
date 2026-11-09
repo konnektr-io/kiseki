@@ -78,12 +78,20 @@ SESSION_MAX_AGE_S = 30 * 24 * 3600
 
 
 class StravaError(Exception):
-    """A Strava failure with the HTTP status the API should surface."""
+    """A Strava failure with the HTTP status the API should surface.
 
-    def __init__(self, status: int, detail: str) -> None:
+    ``session`` carries the cookie state the failure left behind. It matters
+    because a refresh ROTATES the refresh token at Strava before the failing
+    call: if the error path drops that session, the browser keeps a token
+    Strava has already invalidated and every later retry 401s (#449, found in
+    production on the first failed activity list).
+    """
+
+    def __init__(self, status: int, detail: str, session: Optional[dict[str, Any]] = None) -> None:
         super().__init__(detail)
         self.status = status
         self.detail = detail
+        self.session = session
 
 
 class StravaNotConnected(StravaError):
@@ -432,7 +440,13 @@ def _api_get(path: str, session: dict[str, Any], params: Optional[dict[str, Any]
             params=params,
             what="reading Strava",
         )
-    return session, _json(resp, "reading Strava")
+    try:
+        return session, _json(resp, "reading Strava")
+    except StravaError as exc:
+        # The call failed AFTER the refresh rotated the token — hand the new
+        # session to the caller so the cookie is not left holding a dead one.
+        exc.session = session
+        raise
 
 
 def athlete(session: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
