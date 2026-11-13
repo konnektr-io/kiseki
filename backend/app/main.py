@@ -90,6 +90,7 @@ from .config import (
 )
 from . import write as write_svc
 from . import photos as photos_svc
+from . import journey as journey_svc
 from . import strava as strava_svc
 from . import strava_import as strava_import_svc
 from .exif import extract_exif
@@ -490,6 +491,12 @@ def _public_trip(
     # #6, follow-link #197).
     data.pop("claimToken", None)
     data.pop("followToken", None)
+    # The trip's shape (#457): derived here, from the FULL document, and before
+    # any redaction — redaction strips booking blocks and costs, and a booking
+    # block that names a place attributes a day, so deriving from the redacted
+    # form would hand strangers a different chain than the crew sees. Nothing in
+    # the payload comes from a redacted field, so it is safe for every reader.
+    journey_svc.attach(data)
     # Crew-only fields, from the registry above — a follower/anonymous caller
     # gets the trip without the crew's own surfaces (#196), and a non-crew reader
     # never gets a booking code or a cost from any block, wherever it sits (#249).
@@ -1433,6 +1440,30 @@ def get_trip(
     if trip is None:
         raise HTTPException(status_code=404, detail="Trip not found")
     return _public_trip(trip, my_role=my_role, viewer_sub=_viewer_sub(authorization, x_api_key, x_act_as_sub))
+
+
+@app.get("/api/trips/{trip_id}/journey")
+def get_trip_journey(
+    trip_id: str,
+    my_role: str | None = Depends(authorize_trip_path),
+) -> dict:
+    """The trip's derived shape on its own (#457) — chain, legs, day surfaces.
+
+    Same ACL as the trip read (``authorize_trip_path``): 401 for a private trip
+    without credentials, 403 below ``follower``, ``X-Act-As-Sub`` honoured — the
+    payload is the trip's positions, so it is exactly as readable as the trip.
+
+    Why a separate route when ``GET /api/trips/{id}`` already carries ``journey``:
+    an agent or a booklet writer wants the SHAPE, not 95 kB of trip. It is also
+    where the follow-up validation endpoint (unrouted legs, revisits, day travel
+    budget) will hang, so this is the seam, not a second implementation.
+    """
+    trip = get_trip_by_id_store(trip_id.lower())
+    if trip is None:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    data = trip.model_dump(by_alias=True, exclude_none=True)
+    journey_svc.attach(data)
+    return {"journey": data["journey"], "days": [d.get("surface") for d in data.get("days") or []]}
 
 
 # ------------------------------------------------------------------ write path (#46)

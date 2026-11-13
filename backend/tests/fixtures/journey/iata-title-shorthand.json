@@ -1,0 +1,117 @@
+{
+  "id": "fixture-iata",
+  "slug": "fixture-iata",
+  "title": "IATA shorthand in a day title",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Mountain City",
+      "lat": 13.5,
+      "lng": 71.9
+    },
+    {
+      "name": "Mountain Airport",
+      "lat": 13.53,
+      "lng": 71.97,
+      "alias": [
+        "MCY"
+      ]
+    },
+    {
+      "name": "Coast City",
+      "lat": 12.0,
+      "lng": 77.0
+    },
+    {
+      "name": "Coast Airport",
+      "lat": 12.02,
+      "lng": 77.11,
+      "alias": [
+        "CCY"
+      ]
+    }
+  ],
+  "days": [
+    {
+      "title": "Mountain City",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "activity",
+          "title": "Valley walk",
+          "location": "Mountain City"
+        },
+        {
+          "id": "b2",
+          "kind": "lodging",
+          "title": "Stay: Mountain City",
+          "location": "Mountain City"
+        }
+      ]
+    },
+    {
+      "title": "Mountain City",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "activity",
+          "title": "Ruins day",
+          "location": "Mountain City"
+        }
+      ]
+    },
+    {
+      "title": "MCY → CCY: Coast City",
+      "blocks": [
+        {
+          "id": "b4",
+          "kind": "activity",
+          "title": "Cliff walk",
+          "location": "Coast City"
+        },
+        {
+          "id": "b5",
+          "kind": "lodging",
+          "title": "Stay: Coast City",
+          "location": "Coast City"
+        }
+      ]
+    },
+    {
+      "title": "Coast City",
+      "blocks": [
+        {
+          "id": "b6",
+          "kind": "activity",
+          "title": "Beach day",
+          "location": "Coast City"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Mountain City",
+      "days": [
+        0,
+        1
+      ],
+      "locationRefs": [
+        "Mountain City"
+      ]
+    },
+    {
+      "title": "Coast City",
+      "days": [
+        2,
+        3
+      ],
+      "locationRefs": [
+        "Coast City"
+      ]
+    }
+  ]
+}

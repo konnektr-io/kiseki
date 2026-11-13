@@ -1,0 +1,168 @@
+{
+  "id": "fixture-hub",
+  "slug": "fixture-hub",
+  "title": "Hub re-entry: order by movement",
+  "stage": "shortlist",
+  "startDate": "2027-07-01",
+  "endDate": "2027-07-20",
+  "visibility": "public",
+  "locations": [
+    {
+      "name": "Valley Town",
+      "lat": -22.9,
+      "lng": -68.2
+    },
+    {
+      "name": "Hub Airport",
+      "lat": -22.5,
+      "lng": -68.9
+    },
+    {
+      "name": "Termal Springs",
+      "lat": -22.3,
+      "lng": -68.1
+    },
+    {
+      "name": "Coast City",
+      "lat": -33.0,
+      "lng": -71.6
+    },
+    {
+      "name": "Lonely Point",
+      "lat": -30.0,
+      "lng": -70.0
+    }
+  ],
+  "days": [
+    {
+      "title": "Arrive and drive into the valley",
+      "blocks": [
+        {
+          "id": "b1",
+          "kind": "transport",
+          "title": "Flight Hub Airport → Valley Town",
+          "from": "Hub Airport",
+          "to": "Valley Town",
+          "mode": "flight",
+          "status": "planned"
+        },
+        {
+          "id": "b2",
+          "kind": "lodging",
+          "title": "Stay: Valley Town",
+          "location": "Valley Town"
+        }
+      ]
+    },
+    {
+      "title": "Valley Town",
+      "blocks": [
+        {
+          "id": "b3",
+          "kind": "activity",
+          "title": "Canyon walk",
+          "location": "Valley Town"
+        }
+      ]
+    },
+    {
+      "title": "Valley Town",
+      "blocks": [
+        {
+          "id": "b4",
+          "kind": "activity",
+          "title": "Salt flat day",
+          "location": "Valley Town"
+        }
+      ]
+    },
+    {
+      "title": "Springs, airport, coast",
+      "blocks": [
+        {
+          "id": "b5",
+          "kind": "transport",
+          "title": "Drive Valley Town → Termal Springs",
+          "from": "Valley Town",
+          "to": "Termal Springs",
+          "mode": "drive",
+          "status": "planned"
+        },
+        {
+          "id": "b6",
+          "kind": "activity",
+          "title": "Soak at Termal Springs",
+          "location": "Termal Springs"
+        },
+        {
+          "id": "b7",
+          "kind": "transport",
+          "title": "Drive Termal Springs → Hub Airport",
+          "from": "Termal Springs",
+          "to": "Hub Airport",
+          "mode": "drive",
+          "status": "planned"
+        },
+        {
+          "id": "b8",
+          "kind": "transport",
+          "title": "Flight Hub Airport → Coast City",
+          "from": "Hub Airport",
+          "to": "Coast City",
+          "mode": "flight",
+          "status": "planned"
+        },
+        {
+          "id": "b9",
+          "kind": "lodging",
+          "title": "Stay: Coast City",
+          "location": "Coast City"
+        }
+      ]
+    },
+    {
+      "title": "Coast City",
+      "blocks": [
+        {
+          "id": "b10",
+          "kind": "activity",
+          "title": "Wine loop",
+          "location": "Coast City"
+        }
+      ]
+    },
+    {
+      "title": "Coast City",
+      "blocks": [
+        {
+          "id": "b11",
+          "kind": "activity",
+          "title": "Harbour lunch",
+          "location": "Coast City"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "title": "Valley",
+      "days": [
+        0,
+        2
+      ],
+      "locationRefs": [
+        "Valley Town"
+      ]
+    },
+    {
+      "title": "Coast",
+      "days": [
+        3,
+        5
+      ],
+      "locationRefs": [
+        "Coast City"
+      ]
+    }
+  ]
+}

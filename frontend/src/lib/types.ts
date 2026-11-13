@@ -147,6 +147,8 @@ export interface Day {
   map?: string;
   meta?: MetaItem[];
   blocks: Block[];
+  /** The day's derived surface (#457); read through `lib/journey`. */
+  surface?: ApiDaySurface;
 }
 
 export interface SectionFold {
@@ -413,6 +415,142 @@ export interface TricountSnapshot {
   fetchedAt: string;
 }
 
+/** A leg's own state, which is what the map draws (DESIGN.md §5.3). */
+export type LegStage = "provisional" | "planned" | "booked";
+
+/**
+ * The server-derived journey (#457) — the wire shape of ``trip.journey``.
+ *
+ * Keyed by place NAME (the registry's own names), because the whole point of
+ * moving the derivation server-side is that a non-browser consumer can read the
+ * trip's shape: "Huaraz → Lima → Cusco" is the shape, an index array is not.
+ * The SPA resolves names through `findLocation`, exactly as every other surface
+ * already does.
+ *
+ * COMPACT on purpose: the derivation used to ship whole `TripLocation` objects
+ * four times over and every leg's entire `Block`, which measured +16…109% of the
+ * trip document. This projection measured 3–14%.
+ */
+export interface ApiJourneyLeg {
+  from: string;
+  to: string;
+  stage: LegStage;
+  /** The block's classified transport mode, `null` when it says nothing. */
+  mode: string | null;
+  /** No transport block describes this pair — draw an arc, never a road. */
+  gap: boolean;
+  blockId: string | null;
+}
+
+export interface ApiJourneyVisit {
+  place: string;
+  /** 0-based day indices of THIS stay, ascending. Empty = no attributed day. */
+  days: number[];
+}
+
+export type ApiPlaceRailHandle = { kind: "pill"; refs: string[] } | { kind: "day"; dayIdx: number };
+
+export interface ApiJourney {
+  /** Every located place, marker (registry) order. */
+  stops: string[];
+  /** The re-base stops in visit order — a returned base appears once per stay. */
+  chain: string[];
+  visits: ApiJourneyVisit[];
+  legs: ApiJourneyLeg[];
+  loop: boolean;
+  excursions: string[];
+  rail: Record<string, ApiPlaceRailHandle>;
+}
+
+export type ApiDayMarker =
+  | { role: "place"; place: string }
+  | { role: "activity"; place: string; letter: string; blockIds: string[] };
+
+export interface ApiDayLeg {
+  from: string;
+  to: string;
+  blockId: string;
+  stage: LegStage;
+  mode: string | null;
+}
+
+/** One day's world, derived server-side (#90, #457). */
+export interface ApiDaySurface {
+  markers: ApiDayMarker[];
+  legs: ApiDayLeg[];
+  endpoints: string[];
+  tracks: { blockId: string; url: string }[];
+}
+
+// ---------------------------------------------------------------------------
+// The hydrated, component-facing shapes. `lib/journey` turns the wire payload
+// above into these; the components only ever speak these.
+// ---------------------------------------------------------------------------
+
+export type PlaceRole = "stop" | "excursion";
+
+export type PlaceRailHandle = { kind: "pill"; refs: string[] } | { kind: "day"; dayIdx: number };
+
+export interface JourneyLeg {
+  from: TripLocation;
+  to: TripLocation;
+  stage: LegStage;
+  /** The transport block this leg's state came from, when there is one. */
+  block?: Block;
+  /** The block's classified mode, carried from the payload for the glyphs. */
+  mode?: string | null;
+  /** No block describes this pair — the payload's own verdict (#433). */
+  gap?: boolean;
+}
+
+/** One stay at a re-base place — a returned base appears once per stay (#433). */
+export interface JourneyVisit {
+  place: TripLocation;
+  /** 0-based day indices of this stay, ascending. Empty = no attributed day. */
+  days: number[];
+}
+
+export interface Journey {
+  /** Every located place, in marker (registry) order. */
+  stops: TripLocation[];
+  /** The re-base stops in visit order. */
+  chain: TripLocation[];
+  legs: JourneyLeg[];
+  loop: boolean;
+  visits: JourneyVisit[];
+  excursions: TripLocation[];
+}
+
+export type DayMarker =
+  | { role: "place"; place: TripLocation }
+  /** One chip per mapped place — blocks sharing a place share the letter. */
+  | { role: "activity"; place: TripLocation; letter: string; blockIds: string[] };
+
+export interface DayLeg {
+  from: TripLocation;
+  to: TripLocation;
+  block: Block;
+  stage: LegStage;
+  /** Flight/ferry legs skip the road query and draw a great-circle arc. */
+  mode?: string;
+}
+
+/** A recorded track on the day (#193). */
+export interface DayTrack {
+  blockId: string;
+  url: string;
+}
+
+export interface DaySurface {
+  markers: DayMarker[];
+  legs: DayLeg[];
+  /** Places a transport block travels between — keep their pins visible. */
+  endpoints: TripLocation[];
+  /** blockId → letter, for stamping the cards. */
+  letters: Map<string, string>;
+  tracks: DayTrack[];
+}
+
 export interface Trip {
   id: string;
   slug: string;
@@ -448,4 +586,7 @@ export interface Trip {
   practical: { todos?: TodoItem[]; links?: Link[]; notes?: string; blocks?: PracticalBlock[]; contacts?: Contact[]; tricount?: TricountConfig };
   days: Day[];
   updated?: string;
+  /** The server-derived shape (#457). Absent on a payload that predates it —
+   *  read it through `lib/journey`, never directly (it degrades to nothing). */
+  journey?: ApiJourney;
 }
