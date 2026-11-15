@@ -1083,17 +1083,22 @@ def conversation_id_for(
     closes it: the same thread id under two subs is two sessions.
 
     - ``threadId`` present (the SPA always sends one — fresh UUID per chat,
-      reused on resume): ``<actor>::thread:<threadId>``. Multiple threads
-      per trip; a thread may start unanchored (planning a not-yet-created
-      trip) and attach a trip later without losing history.
+      reused on resume): ``<actor>::trip:<tripId>::thread:<threadId>`` when
+      anchored to a trip, or ``<actor>::general::thread:<threadId>`` on the
+      landing surface. Scoping the session id by trip (and general) keeps
+      ``GET /api/chat/sessions?tripId=...`` contextual across devices without
+      a separate relay-side index.
     - No threadId (legacy callers): fall back to a sub-scoped trip anchor or
       a single general conversation — sub-scoped so two legacy clients can
       never chain onto each other's stored response.
     """
-    if thread_id and thread_id.strip():
-        return f"{actor_sub}::thread:{thread_id.strip()}"
-    if trip_id:
-        return f"{actor_sub}::trip:{trip_id.lower()}"
+    tid = thread_id.strip() if thread_id else ""
+    normalized_trip = trip_id.strip().lower() if trip_id and trip_id.strip() else None
+    if tid:
+        scope = f"trip:{normalized_trip}" if normalized_trip else "general"
+        return f"{actor_sub}::{scope}{THREAD_SESSION_MARKER}{tid}"
+    if normalized_trip:
+        return f"{actor_sub}::trip:{normalized_trip}"
     return f"{actor_sub}::general"
 
 
@@ -1128,14 +1133,24 @@ def is_valid_thread_id(thread_id: str | None) -> bool:
     return bool(thread_id) and bool(_THREAD_ID_RE.fullmatch(str(thread_id)))
 
 
-def thread_id_from_session(actor_sub: str, session_id: str) -> str | None:
+def thread_id_from_session(
+    actor_sub: str,
+    session_id: str,
+    *,
+    trip_id: str | None = None,
+) -> str | None:
     """The client's thread id for one upstream session row, if it is the caller's.
 
-    ``None`` for anything else: another actor's thread, a pre-isolation bare
-    ``thread:<id>`` row (no owner in the id — it cannot be attributed, so it is
-    never listed), a probe/desktop/cli session, or a malformed id.
+    Scoped to ``trip_id`` when provided (``<actor>::trip:<tripId>::thread:<id>``)
+    or to general conversations when omitted (``<actor>::general::thread:<id>``).
+
+    ``None`` for anything else: another actor's thread, another trip's thread,
+    a pre-isolation bare ``thread:<id>`` row, an unattributed pre-scoping
+    ``<actor>::thread:<id>`` row, a probe/desktop/cli session, or a malformed id.
     """
-    prefix = f"{actor_sub}{THREAD_SESSION_MARKER}"
+    normalized_trip = trip_id.strip().lower() if trip_id and trip_id.strip() else None
+    scope = f"trip:{normalized_trip}" if normalized_trip else "general"
+    prefix = f"{actor_sub}::{scope}{THREAD_SESSION_MARKER}"
     if not isinstance(session_id, str) or not session_id.startswith(prefix):
         return None
     thread_id = session_id[len(prefix) :]
@@ -1431,19 +1446,28 @@ def _picker_row(session: dict, thread_id: str) -> dict:
     }
 
 
-def picker_threads(actor_sub: str, rows: Iterable, *, limit: int = 50) -> dict:
+def picker_threads(
+    actor_sub: str,
+    rows: Iterable,
+    *,
+    trip_id: str | None = None,
+    limit: int = 50,
+) -> dict:
     """Filter upstream session rows down to the caller's picker list (pure).
 
-    Keeps only rows this actor owns (``thread_id_from_session``), drops
-    archived/hidden ones, and orders newest first. Everything else upstream
-    returns — other travelers' threads, build probes, the profile's own
-    desktop/cli sessions — never leaves the relay.
+    Keeps only rows this actor owns for the requested scope (``trip_id`` or
+    general, via ``thread_id_from_session``), drops archived/hidden ones, and
+    orders newest first. Everything else upstream returns — other travelers'
+    threads, other trips' threads, build probes, the profile's own desktop/cli
+    sessions — never leaves the relay.
     """
     threads: list[dict] = []
     for session in rows:
         if not isinstance(session, dict) or session.get("archived") or session.get("hidden"):
             continue
-        thread_id = thread_id_from_session(actor_sub, session.get("id"))  # type: ignore[arg-type]
+        thread_id = thread_id_from_session(
+            actor_sub, session.get("id"), trip_id=trip_id  # type: ignore[arg-type]
+        )
         if thread_id is None:
             continue
         threads.append(_picker_row(session, thread_id))
@@ -1453,7 +1477,9 @@ def picker_threads(actor_sub: str, rows: Iterable, *, limit: int = 50) -> dict:
     return {"threads": threads[:limit], "hasMore": len(threads) > limit}
 
 
-async def list_thread_sessions(actor_sub: str, *, limit: int = 50) -> dict:
+async def list_thread_sessions(
+    actor_sub: str, *, trip_id: str | None = None, limit: int = 50
+) -> dict:
     """The caller's earlier chat threads, newest first (#309).
 
     Reads upstream ``GET /api/sessions`` and keeps only rows whose session id
@@ -1511,50 +1537,74 @@ async def list_thread_sessions(actor_sub: str, *, limit: int = 50) -> dict:
             if body.get("has_more") is not True or not page:
                 break
             offset += len(page)
-    return picker_threads(actor_sub, rows, limit=limit)
+    return picker_threads(actor_sub, rows, trip_id=trip_id, limit=limit)
 
 
-async def fetch_thread_messages(actor_sub: str, thread_id: str) -> list[dict]:
+async def fetch_thread_messages(
+    actor_sub: str, thread_id: str, *, trip_id: str | None = None
+) -> list[dict]:
     """The stored transcript of ONE of the caller's threads (#309), text-only.
 
-    The session id is DERIVED from the caller and the thread id, never taken
-    from the request: ``{actor}::thread:{threadId}`` is the only conversation a
-    caller can name, so a leaked thread id from another account resolves to a
-    session that does not exist → 404, never someone else's history (B4).
+    The session id is DERIVED from the caller, scope (``trip_id`` or general),
+    and the thread id, never taken from the request. Falls back to the legacy
+    unscoped ``{actor}::thread:{threadId}`` session id on 404 so pre-scoping
+    threads still restore their transcript.
     """
     import httpx
 
-    session_id = conversation_id_for(actor_sub, thread_id=thread_id)
+    primary_session_id = conversation_id_for(
+        actor_sub, trip_id=trip_id, thread_id=thread_id
+    )
+    legacy_session_id = f"{actor_sub}{THREAD_SESSION_MARKER}{thread_id.strip()}"
+    candidates = [primary_session_id]
+    if legacy_session_id != primary_session_id:
+        candidates.append(legacy_session_id)
+
     headers = _hermes_headers(actor_sub)
-    rows: list[dict] = []
-    offset = 0
     async with httpx.AsyncClient(timeout=30.0) as client:
-        while True:
-            url = _hermes_sessions_url(f"/api/sessions/{quote(session_id, safe='')}/messages")
-            resp = await client.get(
-                url,
-                params={"order": "oldest", "limit": _TRANSCRIPT_PAGE, "offset": offset},
-                headers=headers,
-            )
-            if resp.status_code == 404:
-                raise HTTPException(status_code=404, detail="Unknown chat thread")
-            if resp.status_code >= 400:
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        f"Kiseki agent upstream error {resp.status_code}: "
-                        f"{resp.text[:500]}"
-                    ),
+        for idx, session_id in enumerate(candidates):
+            rows: list[dict] = []
+            offset = 0
+            not_found = False
+            while True:
+                url = _hermes_sessions_url(
+                    f"/api/sessions/{quote(session_id, safe='')}/messages"
                 )
-            body = resp.json()
-            page = body.get("data") if isinstance(body, dict) else None
-            if not isinstance(page, list):
-                raise HTTPException(502, "Kiseki agent upstream returned no messages")
-            rows.extend(page)
-            if len(page) < _TRANSCRIPT_PAGE or len(rows) >= _TRANSCRIPT_MAX:
-                break
-            offset += len(page)
-    return transcript_messages(rows)
+                resp = await client.get(
+                    url,
+                    params={
+                        "order": "oldest",
+                        "limit": _TRANSCRIPT_PAGE,
+                        "offset": offset,
+                    },
+                    headers=headers,
+                )
+                if resp.status_code == 404:
+                    not_found = True
+                    break
+                if resp.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            f"Kiseki agent upstream error {resp.status_code}: "
+                            f"{resp.text[:500]}"
+                        ),
+                    )
+                body = resp.json()
+                page = body.get("data") if isinstance(body, dict) else None
+                if not isinstance(page, list):
+                    raise HTTPException(
+                        502, "Kiseki agent upstream returned no messages"
+                    )
+                rows.extend(page)
+                if len(page) < _TRANSCRIPT_PAGE or len(rows) >= _TRANSCRIPT_MAX:
+                    break
+                offset += len(page)
+            if not not_found:
+                return transcript_messages(rows)
+            if idx == len(candidates) - 1:
+                raise HTTPException(status_code=404, detail="Unknown chat thread")
+    return []
 
 
 # ------------------------------------------------------- turn registry (#217)

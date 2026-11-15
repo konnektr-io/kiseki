@@ -543,12 +543,15 @@ export interface ChatSessionsPage {
  * picker degrades from — never a reason to blank the local list.
  */
 export async function fetchChatThreads(args: {
+  tripId?: string;
   getToken: () => Promise<string>;
   fetchImpl?: typeof fetch;
 }): Promise<ChatSessionsPage> {
   const fetchImpl: typeof fetch =
     args.fetchImpl ?? ((input, init) => fetch(input, init));
-  const res = await fetchImpl("/api/chat/sessions?limit=50", {
+  const params = new URLSearchParams({ limit: "50" });
+  if (args.tripId) params.set("tripId", args.tripId);
+  const res = await fetchImpl(`/api/chat/sessions?${params.toString()}`, {
     headers: { ...authHeaders(await args.getToken()) },
   });
   if (res.status === 401 || res.status === 403) {

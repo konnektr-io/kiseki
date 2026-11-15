@@ -2949,22 +2949,19 @@ async def post_chat_stop(
 @app.get("/api/chat/sessions")
 async def get_chat_sessions(
     limit: int = Query(default=50, ge=1, le=200),
+    trip_id: str | None = Query(default=None, alias="tripId"),
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
 ) -> dict:
     """The caller's earlier chat threads — the conversation picker's list (#309).
 
-    One row per thread the ACTING user owns, newest first: ``threadId``,
-    ``title``, ``preview``, ``messageCount``, ``startedAt``, ``lastActiveAt``,
-    ``status``. Ownership comes from the session id's actor prefix, so two
-    session keys never see each other's threads and the profile's probe /
-    desktop / cli rows are never listed (they carry no ``::thread:`` marker).
-
-    A reaped thread (``status: "ws_orphan_reap"``) IS listed: upstream keeps it
-    as a live row with intact history, so it resumes like any other.
+    Scoped to ``tripId`` when provided (returning only that trip's threads,
+    gated on ``follower+``), or to general conversations when omitted.
     """
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
-    return await list_thread_sessions(actor_sub, limit=limit)
+    if trip_id:
+        require_actor_trip_access(actor_sub, trip_id, min_role="follower")
+    return await list_thread_sessions(actor_sub, trip_id=trip_id, limit=limit)
 
 
 @app.get("/api/chat/sessions/{thread_id}/messages")
@@ -2974,17 +2971,7 @@ async def get_chat_session_messages(
     x_act_as_sub: str | None = Header(default=None),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """One thread's stored transcript, text-only — resume on any device (#309).
-
-    ``{messages: UIMessage[]}`` in the shape the SPA already renders (``text``
-    parts; tool rows and reasoning dropped). The session id is derived from the
-    acting user + ``thread_id``, never taken from the request, so a thread id
-    belonging to someone else resolves to no session at all: ``404``, never an
-    empty transcript that would look like a lost conversation.
-
-    ``tripId`` is not part of the thread's identity — when supplied it is
-    gated exactly like ``POST /api/chat`` (follower+) and otherwise ignored.
-    """
+    """One thread's stored transcript, text-only — resume on any device (#309)."""
     actor_sub = resolve_request_actor_sub(user, x_act_as_sub)
     if trip_id:
         require_actor_trip_access(actor_sub, trip_id, min_role="follower")
@@ -2992,7 +2979,7 @@ async def get_chat_session_messages(
         raise HTTPException(status_code=404, detail="Unknown chat thread")
     return {
         "threadId": thread_id,
-        "messages": await fetch_thread_messages(actor_sub, thread_id),
+        "messages": await fetch_thread_messages(actor_sub, thread_id, trip_id=trip_id),
     }
 
 
