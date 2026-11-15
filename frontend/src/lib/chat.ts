@@ -6,6 +6,7 @@ import type { FileUIPart, UIMessage, UIMessageChunk } from "ai";
 import { authHeaders } from "./auth-headers";
 import { posterNameFor } from "./media";
 import { deviceLocationForChat } from "./device-location";
+import { stravaContextForChat } from "./strava-context";
 
 /**
  * Chat wire client (issue #9 / M4) — the SPA side of `POST /api/chat`.
@@ -762,6 +763,10 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
         // to the turn state above; a position is not a transcript).
         const opening = messages[messages.length - 1];
         const deviceLocation = deviceLocationForChat();
+        // The traveller's Strava rows (#459) — read here, at send time, from
+        // the attachment the composer's chip set. The rows, never a token: the
+        // browser fetched them through the cookie the relay never sees.
+        const stravaActivities = stravaContextForChat(tripId);
         const turn: TurnState = {
           turnKey: newTurnKey(),
           cursor: 0,
@@ -780,6 +785,7 @@ export class KisekiChatTransport extends DefaultChatTransport<UIMessage> {
             ...(tripId ? { tripId } : {}),
             ...(state.focus ? { focus: state.focus } : {}),
             ...(deviceLocation ? { deviceLocation } : {}),
+            ...(stravaActivities ? { stravaActivities } : {}),
           },
         };
       },
