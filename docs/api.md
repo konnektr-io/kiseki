@@ -177,8 +177,30 @@ Server rules, all of them load-bearing: the date is the hard filter (an activity
 date is compared to `Day.date` verbatim — no timezone arithmetic), geo proximity picks the block,
 `consent` must be `true` (422 otherwise), a re-import is a no-op naming its own block (the link URL
 carries the activity id), and a block that already has a track is **not** overwritten
-(`conflict: "track_exists"`). The synthesized GPX is byte-for-byte another media object: the day map,
-minimap, booklet and leg segmentation have no idea it came from Strava.
+(`conflict: "track_exists"`). A block that carries the link but **no** track is backfilled in place
+(reporting `backfilled: true`) — a link is a citation, not a recording
+([#461](https://github.com/konnektr-io/kiseki/issues/461)). The synthesized GPX is byte-for-byte
+another media object: the day map, minimap, booklet and leg segmentation have no idea it came from
+Strava.
+
+### What the imported track keeps — and what it drops
+
+The Strava API exposes **streams** (resampled lat/lon/altitude/time), never the original recording:
+`GET /api/v3/activities/{id}/export_original` is a 404, and no route serves the athlete's file. So an
+import can only ever synthesize a GPX. Geometry, distance and total ascent survive that intact.
+
+What does **not** survive is the sampling cadence, and the ride/lift split is built on exactly that:
+`tracklegs` treats a pair of fixes more than `LIFT_GAP_S = 120` s apart as a lift, because the
+recorder itself goes sparse on a lift. Streams are resampled uniformly, so the gaps are gone and the
+whole day reads as one ridden line.
+
+Measured on comparable days: a streams-derived GPX produced `legs: 1`, `liftDistanceM: 0`; the native
+`.fit` of the other trip produced `legs: 20`, `liftDistanceM: 17 761 m`, `liftVerticalM: 4 141 m`.
+
+Importing a **`.fit`** — or a GPX exported by the recorder itself, since Slopes' own export keeps the
+gaps — restores the split. That file does not come from the API: upload it with `POST /api/files`
+and set `Block.track` as usual (`upload <file> --trip-id <id>` prints the bare name to write). The
+import dialog is a convenience, not the only way onto a day.
 
 ## Maps, places and rendering
 

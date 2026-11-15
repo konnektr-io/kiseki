@@ -328,6 +328,12 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         <p className="mt-3 text-[11px] text-muted-foreground">
+          Tracks are rebuilt from Strava's streams, which are resampled — so the day renders as one
+          ridden line without the ride/lift split. A native <code>.fit</code> (or the recorder's own
+          GPX export) keeps it; upload that file instead if the split matters.
+        </p>
+
+        <p className="mt-2 text-[11px] text-muted-foreground">
           Activity data from Strava ·{" "}
           <a
             className="underline"
