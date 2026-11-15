@@ -87,6 +87,40 @@ def test_a_public_trip_read_carries_the_journey_and_a_surface_per_day(client: Te
         assert {"markers", "legs", "endpoints", "tracks"} == set(day["surface"])
 
 
+def test_a_recorded_track_leaves_the_read_canonicalized() -> None:
+    """#464: the derived surface must ship the track as a media URL.
+
+    ``surface.tracks[].url`` reaches the SPA's ``trackDataUrl``, which refuses
+    anything that is not ``/media/<trip>/<file>`` — a bare filename there is a
+    silent no-op, so every trip's day map lost its recorded track when the
+    surface moved server-side (v0.105.0).
+    """
+    trip = _public().model_copy(deep=True)
+    block = trip.days[0].blocks[0]
+    block.track = "abc123.gpx"
+    body = _public_trip(trip)
+    assert body["days"][0]["surface"]["tracks"] == [
+        {"blockId": block.id, "url": f"/media/{trip.id}/abc123.gpx"}
+    ]
+
+
+def test_the_standalone_route_canonicalizes_its_tracks_too(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route builds its payload itself — it must not skip the read's step."""
+    import app.main as main_module
+
+    trip = _public().model_copy(deep=True)
+    block = trip.days[0].blocks[0]
+    block.track = "abc123.gpx"
+    monkeypatch.setattr(main_module, "get_trip_by_id_store", lambda _tid: trip)
+
+    body = client.get(f"/api/trips/{trip.id}/journey").json()
+    assert body["days"][0]["tracks"] == [
+        {"blockId": block.id, "url": f"/media/{trip.id}/abc123.gpx"}
+    ]
+
+
 def test_every_write_response_carries_the_journey_too() -> None:
     """Writes return the canonical document, so the client never refetches.
 

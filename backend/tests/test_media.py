@@ -228,6 +228,38 @@ def test_canonicalize_media() -> None:
     assert canonicalize_media("/media/canada-2027/nested/dir.jpg", TRIP) == "/media/canada-2027/nested/dir.jpg"
 
 
+def test_resolve_media_urls_canonicalizes_a_day_surfaces_tracks() -> None:
+    """#464: a derived surface names each track by media file, so it has to
+    leave the read canonicalized.
+
+    The SPA resolves ``surface.tracks[].url`` with ``trackDataUrl``, which
+    REFUSES a bare filename and returns null — so a surface that shipped bare
+    names drew no track at all, silently, on every trip (v0.105.0).
+    """
+    doc = {
+        "id": TRIP,
+        "days": [
+            {
+                "date": "2026-01-14",
+                "surface": {
+                    "markers": [],
+                    "legs": [],
+                    "endpoints": [],
+                    "tracks": [{"blockId": "b1", "url": "abc123.gpx"}],
+                },
+            }
+        ],
+    }
+    out = resolve_media_urls(doc, TRIP)
+    assert isinstance(out, dict)
+    tracks = out["days"][0]["surface"]["tracks"]
+    assert tracks == [{"blockId": "b1", "url": f"/media/{TRIP}/abc123.gpx"}]
+    # Already canonical → unchanged, never double-prefixed.
+    again = resolve_media_urls({"tracks": list(tracks)}, TRIP)
+    assert isinstance(again, dict)
+    assert again["tracks"][0]["url"] == f"/media/{TRIP}/abc123.gpx"
+
+
 def test_resolve_media_urls_walks_the_schema() -> None:
     doc = {
         "id": TRIP,
