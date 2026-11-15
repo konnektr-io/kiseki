@@ -222,6 +222,14 @@ describe("Strava import dialog", () => {
     expect(document.body.textContent).toContain("Track added to the day · 2 photos");
   });
 
+  it("warns that an imported track loses the ride/lift split", async () => {
+    await mount();
+    // The synthesized GPX comes from resampled streams, so `tracklegs` finds no
+    // 120 s gaps to call a lift — say so where the import happens, once.
+    expect(document.body.textContent).toContain("ride/lift split");
+    expect(document.body.textContent).toContain(".fit");
+  });
+
   it("imports onto a day the human picks instead", async () => {
     h.importStravaActivity.mockResolvedValue({
       doc: importedDoc(),
