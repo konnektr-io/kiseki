@@ -21,7 +21,10 @@ The rules, all of them decided in #449:
 * **Nothing is written until the human imports.** The list route is read-only.
 * **Idempotent without a schema change**: the block's "View on Strava" link
   carries the activity id, so a re-import finds its own previous work and
-  returns ``written: false`` instead of a duplicate block.
+  returns ``written: false`` instead of a duplicate block. A block that carries
+  the link but no ``track`` is BACKFILLED, not refused (#461): a link is a
+  citation, the import is the recording, and a curated link (or photo) already
+  on that block survives the merge.
 * **First import wins** on a block that already has a track (two crew members
   recording the same ride): the response names the conflict instead of
   silently replacing someone else's recording.
@@ -253,6 +256,11 @@ def find_imported_block(trip: Trip, activity_id: int) -> Optional[tuple[str, Blo
     return None
 
 
+def _same_link(left: Link, right: Link) -> bool:
+    """Whether two links point at the same place (a trailing slash is not a URL)."""
+    return left.url.rstrip("/") == right.url.rstrip("/")
+
+
 def is_garmin(activity: dict[str, Any]) -> bool:
     """Whether the recording came from a Garmin device (API Policy §4.4)."""
     device = str(activity.get("device_name") or "").lower()
@@ -365,7 +373,6 @@ def list_for_trip(
         if date not in day_dates:
             continue
         imported = find_imported_block(trip, int(activity.get("id") or 0))
-        photos_block = imported[1] if imported else None
         items.append(
             {
                 "id": activity.get("id"),
@@ -385,7 +392,10 @@ def list_for_trip(
                     {
                         "day_id": imported[0],
                         "block_id": imported[1].id,
-                        "has_photos": bool(photos_block.images) if photos_block else False,
+                        # A link alone is only a citation (#461) — the dialog
+                        # needs to know whether the recording is there.
+                        "has_track": bool(imported[1].track),
+                        "has_photos": bool(imported[1].images),
                     }
                     if imported
                     else None
@@ -462,12 +472,20 @@ def import_activity(
 
     # Idempotency before anything is fetched from Strava: the link URL carries
     # the activity id, so a re-import is a no-op that names its own block.
-    already = find_imported_block(trip, body.activity_id)
-    if already is not None:
-        day_id, block = already
+    #
+    # But a link is a CITATION, not a recording (#461): when the block carries
+    # the link and no ``track``, the import's actual work — streams → GPX (+
+    # the photos) — has not been done yet, so it BACKFILLS onto that block
+    # instead of refusing. Refusing there made the track unreachable forever:
+    # a content run adds the "View on Strava" link, and from that moment every
+    # import answered "already imported" while ``track`` stayed null.
+    linked = find_imported_block(trip, body.activity_id)
+    if linked is not None and linked[1].track:
+        day_id, block = linked
         return session, {
             "written": False,
             "conflict": "already_imported",
+            "backfilled": False,
             "day_id": day_id,
             "block_id": block.id,
             "track": block.track,
@@ -476,28 +494,33 @@ def import_activity(
             "trip": trip,
         }
 
-    day = _day_of(trip, body.day_id)
+    # The day is the LINKED block's own day when there is one — the citation is
+    # the evidence of where this activity was already placed.
+    day = _day_of(trip, linked[0] if linked is not None else body.day_id)
+    backfill: Optional[Block] = linked[1] if linked is not None else None
 
     session, detail = strava.activity_detail(session, body.activity_id)
     if not isinstance(detail, dict):
         raise strava.StravaError(502, "Strava returned an unexpected activity")
 
     # Target block: explicit → suggestion → a new activity block on the day.
-    target: Optional[Block] = None
-    suggestion = suggest(trip, detail)
-    if body.block_id:
+    # A backfill target is already decided (the linked block), so nothing here
+    # can redirect it.
+    target: Optional[Block] = backfill
+    if target is None and body.block_id:
         target = next((b for b in day.blocks if b.id == body.block_id), None)
         if target is None:
             raise WriteError(404, f"Block not found on day {body.day_id!r}: {body.block_id!r}")
         if target.kind != "activity":
             raise WriteError(422, "A track can only be attached to an 'activity' block")
-    else:
+    elif target is None:
         target = resolve_target(trip, day, detail)
 
     if target is not None and target.track:
         return session, {
             "written": False,
             "conflict": "track_exists",
+            "backfilled": False,
             "day_id": day.id,
             "block_id": target.id,
             "track": target.track,
@@ -540,9 +563,17 @@ def import_activity(
         # attribution. The block has no free-text credit field and the track
         # itself must stay indistinguishable, so attribution rides as a link.
         links.append(Link(label="Garmin", url="https://www.garmin.com"))
-    existing_links = [link for link in target.links] if target else []
-    if not any(link.url == links[0].url for link in existing_links):
-        links = existing_links + links
+    # MERGE, never replace (#461): a backfilled block is one a human or a
+    # content run already wrote — its curated links and photos stay. The old
+    # "replace with whatever this import fetched" shape deleted them.
+    existing_links = list(target.links) if target else []
+    merged_links = list(existing_links)
+    for link in links:
+        if not any(_same_link(link, kept) for kept in merged_links):
+            merged_links.append(link)
+
+    existing_images = list(target.images) if target else []
+    merged_images = existing_images + [name for name in image_names if name not in existing_images]
 
     if target is None:
         trip = write_svc.create_block(
@@ -555,23 +586,27 @@ def import_activity(
                 time=local_time(detail),
                 status="done",
                 track=track_name,
-                images=image_names,
-                links=links,
+                images=merged_images,
+                links=merged_links,
             ),
         )
         day_id, block_id = day.id, _newest_block_id(trip, day.id)
     else:
-        trip = write_svc.update_block(
-            trip_dtid,
-            actor,
-            target.id,
-            BlockFields(track=track_name, images=image_names, links=links),
-        )
+        # Only the fields that actually change go into the payload: an explicit
+        # None in ``BlockFields`` REMOVES the property, so an untouched images
+        # list must be absent rather than empty.
+        fields: dict[str, Any] = {"track": track_name}
+        if merged_links != existing_links:
+            fields["links"] = merged_links
+        if merged_images != existing_images:
+            fields["images"] = merged_images
+        trip = write_svc.update_block(trip_dtid, actor, target.id, BlockFields(**fields))
         day_id, block_id = day.id, target.id
 
     return session, {
         "written": True,
         "conflict": None,
+        "backfilled": backfill is not None,
         "day_id": day_id,
         "block_id": block_id,
         "track": track_name,

@@ -645,6 +645,103 @@ def test_reimport_is_a_noop(client: TestClient, stub: StravaStub, rsa_keypair, g
     assert len(_day_payload(second)["blocks"]) == blocks_before  # no duplicate block
 
 
+def _link_only_block(g: FakeGraph, *, images: list[str] | None = None) -> None:
+    """Give the fixture block the activity's link WITHOUT a track (#461).
+
+    This is exactly the state a content run leaves behind: the citation is
+    written, the recording never was — and before #461 the import then refused
+    forever, so the track could never be added.
+    """
+    g.set_twin_prop(
+        BLOCK_SUNSHINE,
+        "links",
+        [
+            {"label": "Resort site", "url": "https://www.sunshinemountain.com/"},
+            {"label": "View on Strava", "url": f"https://www.strava.com/activities/{ACTIVITY_ID}"},
+        ],
+    )
+    if images is not None:
+        g.set_twin_prop(BLOCK_SUNSHINE, "images", images)
+
+
+def test_a_link_only_block_is_backfilled_instead_of_refusing(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store
+) -> None:
+    """#461: a link is a citation, the import is the recording."""
+    g = graph("editor")
+    _link_only_block(g, images=["curated.jpg"])
+    _connect(client, _auth(rsa_keypair))
+
+    response = _import(client, _auth(rsa_keypair))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["written"] is True
+    assert payload["conflict"] is None
+    assert payload["backfilled"] is True
+    assert payload["block_id"] == BLOCK_SUNSHINE
+    assert payload["photos"] == {"written": 2, "failed": 0, "total": 2}
+
+    blocks = _day_payload(response)["blocks"]
+    assert sum(1 for b in blocks if b["id"] == BLOCK_SUNSHINE) == 1  # no duplicate block
+    block = next(b for b in blocks if b["id"] == BLOCK_SUNSHINE)
+    assert block["track"] == f"/media/{TRIP_ID}/{payload['track']}"
+    # Curated photos SURVIVE and the imported ones are merged in, never replaced.
+    assert len(block["images"]) == 3
+    assert any(url.endswith("curated.jpg") for url in block["images"])
+    # Curated links survive too, and the citation is not duplicated.
+    labels = [(link["label"], link["url"]) for link in block["links"]]
+    assert ("Resort site", "https://www.sunshinemountain.com/") in labels
+    assert ("View on Strava", f"https://www.strava.com/activities/{ACTIVITY_ID}") in labels
+    assert sum(1 for label, _ in labels if label == "View on Strava") == 1
+
+    # The stored bytes are a real GPX, not an empty file.
+    from app.gpx import parse_gpx
+
+    parsed = parse_gpx((media_store / TRIP_ID / payload["track"]).read_bytes(), payload["track"])
+    assert parsed.point_count == 3
+
+
+def test_a_backfill_lands_on_the_linked_block_even_when_another_day_is_posted(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store
+) -> None:
+    """The citation is the evidence of where the activity already was."""
+    g = graph("editor")
+    _link_only_block(g)
+    _connect(client, _auth(rsa_keypair))
+    response = _import(client, _auth(rsa_keypair), day_id=DAY_2027_02_17)
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["written"] is True
+    assert payload["day_id"] == DAY_2027_02_16  # the linked block's own day
+    assert payload["block_id"] == BLOCK_SUNSHINE
+    other = next(d for d in response.json()["days"] if d["id"] == DAY_2027_02_17)
+    assert not any(b.get("track") for b in other["blocks"])
+
+
+def test_the_list_reports_whether_the_track_is_already_there(
+    client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store, trip_started
+) -> None:
+    """The dialog cannot offer "Add the track" unless the list says it is missing."""
+    g = graph("editor")
+    _link_only_block(g)
+    _connect(client, _auth(rsa_keypair))
+    url = f"/api/integrations/strava/trips/{TRIP_ID}/activities"
+
+    linked_only = client.get(url, headers=_auth(rsa_keypair)).json()["activities"][0]["imported"]
+    assert linked_only == {
+        "day_id": DAY_2027_02_16,
+        "block_id": BLOCK_SUNSHINE,
+        "has_track": False,
+        "has_photos": False,
+    }
+
+    assert _import(client, _auth(rsa_keypair)).json()["written"] is True
+
+    settled = client.get(url, headers=_auth(rsa_keypair)).json()["activities"][0]["imported"]
+    assert settled["has_track"] is True
+    assert settled["has_photos"] is True
+
+
 def test_a_block_that_already_has_a_track_is_not_overwritten(client: TestClient, stub: StravaStub, rsa_keypair, graph, media_store) -> None:
     g = graph("editor")
     track = strava_svc.build_gpx([(51.0789, -115.7867, 1660.0, None)], "mine")

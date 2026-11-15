@@ -271,6 +271,58 @@ describe("Strava import dialog", () => {
     expect(h.importStravaActivity.mock.calls[0][2]).toMatchObject({ include_photos: false });
   });
 
+  it("offers the track to a block that only carries the activity link (#461)", async () => {
+    // A content run gave the block its "View on Strava" link; the recording was
+    // never added. Before #461 the row said "importing again changes nothing"
+    // and there was no way to finish the job.
+    h.fetchStravaActivities.mockResolvedValue({
+      activities: [
+        {
+          ...ACTIVITY,
+          imported: { day_id: DAY_16, block_id: BLOCK, has_track: false, has_photos: false },
+        },
+      ],
+      scopes: "read activity:read_all",
+      tripStarted: true,
+    });
+    h.importStravaActivity.mockResolvedValue({
+      doc: importedDoc(),
+      result: {
+        written: true,
+        conflict: null,
+        backfilled: true,
+        day_id: DAY_16,
+        block_id: BLOCK,
+        track: "abc.gpx",
+        photos: { written: 2, failed: 0, total: 2 },
+        consent: true,
+      },
+    });
+    await mount();
+
+    expect(document.body.textContent).toContain("the block has the Strava link but no track yet");
+    expect(document.body.textContent).not.toContain("importing again changes nothing");
+
+    const add = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Add the track",
+    );
+    expect(add, "an Add the track button renders").not.toBeUndefined();
+    await act(async () => {
+      add!.click();
+    });
+
+    // The import targets the block that already cites the activity — not a
+    // fresh suggestion — and no day has to be picked again.
+    expect(h.importStravaActivity).toHaveBeenCalledTimes(1);
+    expect(h.importStravaActivity.mock.calls[0][2]).toMatchObject({
+      day_id: DAY_16,
+      block_id: BLOCK,
+    });
+    expect(document.body.textContent).toContain("Track added to the block that already linked it");
+    // …and the row settles: no second offer to add it.
+    expect(document.body.textContent).toContain("importing again changes nothing");
+  });
+
   it("states a track_exists conflict instead of claiming a write", async () => {
     h.importStravaActivity.mockResolvedValue({
       doc: makeTrip(),
