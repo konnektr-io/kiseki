@@ -957,12 +957,20 @@ export interface StravaActivity {
   start_latlng: number[] | null;
   photo_count: number;
   suggested: { day_id: string; block_id?: string | null } | null;
-  imported: { day_id: string; block_id: string; has_photos: boolean } | null;
+  imported: {
+    day_id: string;
+    block_id: string;
+    /** The recording is on the block — a link alone is only a citation (#461). */
+    has_track: boolean;
+    has_photos: boolean;
+  } | null;
 }
 
 export interface StravaImportResult {
   written: boolean;
   conflict: string | null;
+  /** The track landed on a block that already carried the activity's link. */
+  backfilled?: boolean;
   day_id: string;
   block_id: string | null;
   track: string | null;

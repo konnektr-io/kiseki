@@ -95,8 +95,11 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const runImport = async (activity: StravaActivity) => {
-    const dayId = days[activity.id];
+  const runImport = async (
+    activity: StravaActivity,
+    target?: { day_id: string; block_id: string },
+  ) => {
+    const dayId = target?.day_id ?? days[activity.id];
     if (!dayId || busyId !== null) return;
     setBusyId(activity.id);
     setError(null);
@@ -106,7 +109,7 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
       const { doc, result } = await importStravaActivity(trip.id, token, {
         activity_id: activity.id,
         day_id: dayId,
-        block_id: activity.suggested?.block_id ?? null,
+        block_id: target?.block_id ?? activity.suggested?.block_id ?? null,
         include_photos: withPhotos,
         consent,
       });
@@ -120,7 +123,9 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
                     imported: {
                       day_id: result.day_id,
                       block_id: result.block_id ?? "",
-                      has_photos: result.photos.written > 0,
+                      has_track: true,
+                      has_photos:
+                        Boolean(item.imported?.has_photos) || result.photos.written > 0,
                     },
                   }
                 : item,
@@ -252,10 +257,33 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
                 </div>
 
                 {imported ? (
-                  <p className="mt-2 text-xs font-medium text-muted-foreground">
-                    Already on {dayDate(imported.day_id) || "this trip"} — importing again changes
-                    nothing.
-                  </p>
+                  imported.has_track ? (
+                    <p className="mt-2 text-xs font-medium text-muted-foreground">
+                      Already on {dayDate(imported.day_id) || "this trip"} — importing again changes
+                      nothing.
+                    </p>
+                  ) : (
+                    // A link alone is a citation, not a recording (#461): the
+                    // block is on the day, the track still is not. Say so and
+                    // offer the one thing left to do.
+                    <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Linked on {dayDate(imported.day_id) || "this trip"} — the block has the
+                        Strava link but no track yet.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void runImport(activity, imported)}
+                        disabled={!consent || busyId !== null}
+                        title={
+                          consent ? undefined : "Tick the consent line first — it is a real gate"
+                        }
+                        className="h-9 shrink-0 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:focus-ring disabled:opacity-50"
+                      >
+                        {busyId === activity.id ? "Adding…" : "Add the track"}
+                      </button>
+                    </div>
+                  )
                 ) : (
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <label className="flex-1 text-xs">
@@ -330,7 +358,9 @@ function describe(result: StravaImportResult, withPhotos: boolean): string {
     }
     return "Nothing was written.";
   }
-  const parts = ["Track added to the day"];
+  const parts = [
+    result.backfilled ? "Track added to the block that already linked it" : "Track added to the day",
+  ];
   if (withPhotos) {
     if (result.photos.written > 0) {
       parts.push(`${result.photos.written} photo${result.photos.written === 1 ? "" : "s"}`);
