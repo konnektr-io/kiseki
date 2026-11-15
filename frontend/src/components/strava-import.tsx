@@ -67,7 +67,10 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
         const next = { ...current };
         for (const activity of payload.activities) {
           if (!next[activity.id]) {
-            next[activity.id] = activity.suggested?.day_id ?? "";
+            // A linked-but-trackless row imports onto ITS day and block, so the
+            // (disabled) picker must show that day, not an empty one (#461).
+            next[activity.id] =
+              activity.imported?.day_id ?? activity.suggested?.day_id ?? "";
           }
         }
         return next;
@@ -106,7 +109,9 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
       const { doc, result } = await importStravaActivity(trip.id, token, {
         activity_id: activity.id,
         day_id: dayId,
-        block_id: activity.suggested?.block_id ?? null,
+        // A linked-but-trackless row must fill the block that already cites the
+        // activity (#461); otherwise the day's suggestion decides.
+        block_id: activity.imported?.block_id ?? activity.suggested?.block_id ?? null,
         include_photos: withPhotos,
         consent,
       });
@@ -120,6 +125,7 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
                     imported: {
                       day_id: result.day_id,
                       block_id: result.block_id ?? "",
+                      has_track: Boolean(result.track),
                       has_photos: result.photos.written > 0,
                     },
                   }
@@ -251,21 +257,32 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
                   <MountainSnow className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                 </div>
 
-                {imported ? (
+                {imported && imported.has_track ? (
                   <p className="mt-2 text-xs font-medium text-muted-foreground">
-                    Already on {dayDate(imported.day_id) || "this trip"} — importing again changes
-                    nothing.
+                    Already on {dayDate(imported.day_id) || "this trip"} — the track is there.
                   </p>
                 ) : (
+                  <>
+                    {imported && (
+                      // The day cites the activity but no recording was ever
+                      // imported (#461). Say so, and let the import fill that
+                      // block in — the old copy claimed there was nothing to do.
+                      <p className="mt-2 text-xs font-medium text-muted-foreground">
+                        Linked on {dayDate(imported.day_id) || "this trip"}, but no track yet —
+                        importing adds it to that block.
+                      </p>
+                    )}
                   <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <label className="flex-1 text-xs">
                       <span className="sr-only">Day</span>
                       <select
                         value={dayId}
+                        disabled={Boolean(imported)}
+                        title={imported ? "The track goes on the block that already cites it" : undefined}
                         onChange={(e) =>
                           setDays((current) => ({ ...current, [activity.id]: e.target.value }))
                         }
-                        className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm"
+                        className="h-9 w-full rounded-lg border border-border bg-background px-2 text-sm disabled:opacity-60"
                       >
                         <option value="">Pick a day…</option>
                         {dayOptions.map((day) => (
@@ -285,9 +302,10 @@ export function StravaImportDialog({ onClose }: { onClose: () => void }) {
                       }
                       className="h-9 shrink-0 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:opacity-90 focus-visible:focus-ring disabled:opacity-50"
                     >
-                      {busyId === activity.id ? "Importing…" : "Import"}
+                      {busyId === activity.id ? "Importing…" : imported ? "Add the track" : "Import"}
                     </button>
                   </div>
+                  </>
                 )}
                 {willReplaceBlock && (
                   <p className="mt-1 text-xs text-muted-foreground">

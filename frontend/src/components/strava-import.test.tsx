@@ -222,6 +222,70 @@ describe("Strava import dialog", () => {
     expect(document.body.textContent).toContain("Track added to the day · 2 photos");
   });
 
+  it("offers the import when the block only cites the activity (#461)", async () => {
+    h.fetchStravaActivities.mockResolvedValue({
+      activities: [
+        {
+          ...ACTIVITY,
+          imported: { day_id: DAY_16, block_id: BLOCK, has_track: false, has_photos: false },
+        },
+      ],
+      scopes: "read activity:read_all",
+      tripStarted: true,
+    });
+    h.importStravaActivity.mockResolvedValue({
+      doc: importedDoc(),
+      result: {
+        written: true,
+        conflict: null,
+        day_id: DAY_16,
+        block_id: BLOCK,
+        track: "abc.gpx",
+        photos: { written: 0, failed: 0, total: 0 },
+        consent: true,
+      },
+    });
+    await mount();
+
+    // The bug: the row claimed "importing again changes nothing" while the
+    // block carried a link and no recording, so the track could never be added.
+    expect(document.body.textContent).toContain("no track yet");
+    expect(document.body.textContent).not.toContain("importing again changes nothing");
+    // The day and the block are fixed to where the citation already lives.
+    expect(daySelect().disabled).toBe(true);
+    expect(daySelect().value).toBe(DAY_16);
+
+    const add = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => (b.textContent ?? "").trim() === "Add the track",
+    );
+    expect(add, "an Add the track button renders").not.toBeUndefined();
+    await act(async () => {
+      add!.click();
+    });
+
+    const [, , body] = h.importStravaActivity.mock.calls[0];
+    expect(body).toMatchObject({ activity_id: ACTIVITY.id, day_id: DAY_16, block_id: BLOCK });
+  });
+
+  it("says nothing is left to do once the track is there", async () => {
+    h.fetchStravaActivities.mockResolvedValue({
+      activities: [
+        {
+          ...ACTIVITY,
+          imported: { day_id: DAY_16, block_id: BLOCK, has_track: true, has_photos: false },
+        },
+      ],
+      scopes: "",
+      tripStarted: true,
+    });
+    await mount();
+    expect(document.body.textContent).toContain("the track is there");
+    const actions = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button")).filter(
+      (b) => ["Import", "Add the track"].includes((b.textContent ?? "").trim()),
+    );
+    expect(actions).toHaveLength(0);
+  });
+
   it("imports onto a day the human picks instead", async () => {
     h.importStravaActivity.mockResolvedValue({
       doc: importedDoc(),

@@ -957,7 +957,13 @@ export interface StravaActivity {
   start_latlng: number[] | null;
   photo_count: number;
   suggested: { day_id: string; block_id?: string | null } | null;
-  imported: { day_id: string; block_id: string; has_photos: boolean } | null;
+  imported: {
+    day_id: string;
+    block_id: string;
+    /** Whether that block carries the recording (#461) — a link alone is not an import. */
+    has_track: boolean;
+    has_photos: boolean;
+  } | null;
 }
 
 export interface StravaImportResult {

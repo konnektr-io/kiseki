@@ -385,6 +385,7 @@ def list_for_trip(
                     {
                         "day_id": imported[0],
                         "block_id": imported[1].id,
+                        "has_track": bool(imported[1].track),
                         "has_photos": bool(photos_block.images) if photos_block else False,
                     }
                     if imported
@@ -462,30 +463,47 @@ def import_activity(
 
     # Idempotency before anything is fetched from Strava: the link URL carries
     # the activity id, so a re-import is a no-op that names its own block.
+    #
+    # A LINK IS A CITATION, NOT A RECORDING (#461). A content run routinely
+    # writes the day first and cites the activity ("Track on Strava") without
+    # ever importing the streams — and then this guard used to answer
+    # ``already_imported``, so the track could never be added at all: the real
+    # guard below (``target.track``) was unreachable, and the human was told
+    # "importing again changes nothing" while every block on the trip had
+    # ``track: null``. So only a block that already HAS a track is a re-import;
+    # a link-only block is the target to backfill.
     already = find_imported_block(trip, body.activity_id)
+    backfill: Optional[Block] = None
     if already is not None:
         day_id, block = already
-        return session, {
-            "written": False,
-            "conflict": "already_imported",
-            "day_id": day_id,
-            "block_id": block.id,
-            "track": block.track,
-            "photos": {"written": 0, "failed": 0, "total": 0},
-            "consent": body.consent,
-            "trip": trip,
-        }
+        if block.track:
+            return session, {
+                "written": False,
+                "conflict": "already_imported",
+                "day_id": day_id,
+                "block_id": block.id,
+                "track": block.track,
+                "photos": {"written": 0, "failed": 0, "total": 0},
+                "consent": body.consent,
+                "trip": trip,
+            }
+        backfill = block
 
-    day = _day_of(trip, body.day_id)
+    day = _day_of(trip, backfill and already[0] or body.day_id)
 
     session, detail = strava.activity_detail(session, body.activity_id)
     if not isinstance(detail, dict):
         raise strava.StravaError(502, "Strava returned an unexpected activity")
 
-    # Target block: explicit → suggestion → a new activity block on the day.
+    # Target block: the linked one (backfill) → explicit → suggestion → a new
+    # activity block on the day.
     target: Optional[Block] = None
     suggestion = suggest(trip, detail)
-    if body.block_id:
+    if backfill is not None:
+        # The block already names this activity; fill IT in, whatever day or
+        # block the client asked for — a second block would duplicate the day.
+        target = backfill
+    elif body.block_id:
         target = next((b for b in day.blocks if b.id == body.block_id), None)
         if target is None:
             raise WriteError(404, f"Block not found on day {body.day_id!r}: {body.block_id!r}")
@@ -540,9 +558,23 @@ def import_activity(
         # attribution. The block has no free-text credit field and the track
         # itself must stay indistinguishable, so attribution rides as a link.
         links.append(Link(label="Garmin", url="https://www.garmin.com"))
+    # MERGE, never replace (#461): a block being backfilled already carries this
+    # activity's link (that is how it was found), so the old shape — which only
+    # prepended the existing links when THIS activity's link was missing —
+    # rewrote the list down to the single Strava link and dropped the rest (a
+    # "Garmin" attribution row, a booking link). Union by URL, existing first.
     existing_links = [link for link in target.links] if target else []
-    if not any(link.url == links[0].url for link in existing_links):
-        links = existing_links + links
+    for link in links:
+        if not any(seen.url == link.url for seen in existing_links):
+            existing_links.append(link)
+    links = existing_links
+    # Same rule for the photo strip: ``images=image_names`` is a list REPLACE,
+    # and an activity block a content run wrote may already carry curated
+    # photos. Importing the activity's own photos adds the ones it does not
+    # already have; the freshly fetched list itself is left as Strava returned
+    # it (the create path stays byte-identical to before).
+    kept = list(target.images) if target else []
+    images = kept + [name for name in image_names if name not in kept]
 
     if target is None:
         trip = write_svc.create_block(
@@ -555,7 +587,7 @@ def import_activity(
                 time=local_time(detail),
                 status="done",
                 track=track_name,
-                images=image_names,
+                images=images,
                 links=links,
             ),
         )
@@ -565,7 +597,7 @@ def import_activity(
             trip_dtid,
             actor,
             target.id,
-            BlockFields(track=track_name, images=image_names, links=links),
+            BlockFields(track=track_name, images=images, links=links),
         )
         day_id, block_id = day.id, target.id
 
