@@ -1463,6 +1463,10 @@ def get_trip_journey(
         raise HTTPException(status_code=404, detail="Trip not found")
     data = trip.model_dump(by_alias=True, exclude_none=True)
     journey_svc.attach(data)
+    # Same canonicalization as the trip read: a surface's ``tracks[].url`` is a
+    # media reference, and the SPA's ``trackDataUrl`` refuses a bare filename
+    # (#464 — the derived surface shipped bare names and drew no tracks).
+    resolve_media_urls(data, trip.id)
     return {"journey": data["journey"], "days": [d.get("surface") for d in data.get("days") or []]}
 
 

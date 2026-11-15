@@ -507,6 +507,19 @@ def resolve_media_urls(doc: dict | list, trip_id: str) -> dict | list:
                     else item
                     for item in value
                 ]
+            elif key == "tracks" and isinstance(value, list):
+                # A derived day surface lists its recorded tracks as
+                # {"blockId", "url"} (#457). ``url`` names a media file like any
+                # other, so it must leave here in the SAME canonical form as
+                # ``block.track``: the SPA resolves it with ``trackDataUrl``,
+                # which REFUSES a bare filename — a derived surface that shipped
+                # bare names silently drew no tracks at all (#464).
+                doc[key] = [
+                    {**item, "url": canonicalize_media(item["url"], trip_id)}
+                    if isinstance(item, dict) and isinstance(item.get("url"), str)
+                    else item
+                    for item in value
+                ]
             elif isinstance(value, (dict, list)):
                 resolve_media_urls(value, trip_id)
     elif isinstance(doc, list):
