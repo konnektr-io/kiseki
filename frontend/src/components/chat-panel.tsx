@@ -1,11 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { DragEvent as ReactDragEvent, ReactNode } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { FileText, Film, History, Loader2, Paperclip, Plus, Send, Square, X } from "lucide-react";
+import {
+  FileText,
+  Film,
+  History,
+  Loader2,
+  MountainSnow,
+  Paperclip,
+  Plus,
+  Send,
+  Square,
+  X,
+} from "lucide-react";
 
 import type { FileUIPart, UIMessage } from "ai";
 import { Button } from "./ui";
 import { TripVideo } from "./photos";
+import { fetchStravaActivities, TripAccessError } from "../lib/api";
 import {
   CHAT_FILE_ACCEPT,
   acceptSummary,
@@ -38,6 +50,13 @@ import {
   type TurnRecovery,
   type UploadedChatFile,
 } from "../lib/chat";
+import {
+  attachStravaContext,
+  clearStravaContext,
+  stravaContextSnapshot,
+  subscribeStravaContext,
+  toStravaContextRows,
+} from "../lib/strava-context";
 
 /**
  * What the panel owes the user about the turn its transcript ends on:
@@ -660,6 +679,56 @@ function ChatThread({
     },
   });
   const { messages, status, error, recovery, resumable, failure } = chat;
+  // #459: the traveller's Strava rows ride the turn, never a token. The chip
+  // below fetches them through the cookie only the browser can present, and
+  // this state is what the composer shows; `lib/chat` reads the attachment at
+  // send time, so nothing here has to be threaded through the transport.
+  const stravaAttached = useSyncExternalStore(
+    subscribeStravaContext,
+    stravaContextSnapshot,
+    stravaContextSnapshot,
+  );
+  const stravaRows =
+    tripId && stravaAttached?.tripId === tripId ? stravaAttached.rows : null;
+  const [stravaBusy, setStravaBusy] = useState(false);
+  const [stravaNotice, setStravaNotice] = useState<string | null>(null);
+
+  /**
+   * Read the trip's Strava activities and attach them to this trip's turns.
+   *
+   * The same call the import dialog makes — `GET …/trips/{id}/activities` —
+   * so the HttpOnly cookie rides along and the browser never handles a token.
+   * A 401 means this browser has no Strava connection; a 403 means the caller
+   * is below editor. Both are ours to explain, not to retry blindly.
+   */
+  const attachStrava = async () => {
+    if (!tripId) return;
+    setStravaBusy(true);
+    setStravaNotice(null);
+    try {
+      const token = await getAccessTokenSilently();
+      const payload = await fetchStravaActivities(tripId, token);
+      const rows = toStravaContextRows(payload.activities);
+      attachStravaContext(tripId, rows);
+      if (rows.length === 0) {
+        setStravaNotice(
+          payload.tripStarted
+            ? "No Strava activity falls on a day of this trip."
+            : "This trip hasn't started yet — nothing is recorded for its days.",
+        );
+      }
+    } catch (e) {
+      if (e instanceof TripAccessError && e.status === 401) {
+        setStravaNotice("Strava isn't connected in this browser — connect it on your profile.");
+      } else if (e instanceof TripAccessError && e.status === 403) {
+        setStravaNotice("You need editor access on this trip to attach its activities.");
+      } else {
+        setStravaNotice("Couldn't read your Strava activities.");
+      }
+    } finally {
+      setStravaBusy(false);
+    }
+  };
   const busy = status === "submitted" || status === "streaming";
   // Re-attaching a turn this thread was left in the middle of (#217) is live
   // work from the user's point of view, even though the SDK hasn't started
@@ -1045,6 +1114,59 @@ function ChatThread({
             })
           }
         />
+      )}
+
+      {tripId && (
+        <div className="border-t border-border/60 px-4 pt-2.5">
+          {stravaRows ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-xs"
+                data-testid="strava-context-chip"
+              >
+                <MountainSnow className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                Strava activities ({stravaRows.length})
+                <button
+                  type="button"
+                  aria-label="Remove Strava activities"
+                  onClick={() => {
+                    clearStravaContext(tripId);
+                    setStravaNotice(null);
+                  }}
+                  className="rounded-full p-0.5 text-muted-foreground hover:text-foreground focus-visible:focus-ring"
+                >
+                  <X className="h-3 w-3" aria-hidden="true" />
+                </button>
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                The agent can date and describe these rides — the tracks still come from the
+                import.
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void attachStrava()}
+                disabled={stravaBusy}
+                data-testid="attach-strava"
+                className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted focus-visible:focus-ring disabled:opacity-50"
+              >
+                {stravaBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <MountainSnow className="h-3.5 w-3.5" aria-hidden="true" />
+                )}
+                {stravaBusy ? "Reading Strava…" : "Attach Strava activities"}
+              </button>
+              {stravaNotice && (
+                <span className="text-[11px] text-muted-foreground" role="status">
+                  {stravaNotice}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {attachments.length > 0 && (

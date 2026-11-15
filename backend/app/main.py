@@ -2819,6 +2819,11 @@ async def post_chat(
             trip=trip,
             focus=body.focus,
             device_location=body.deviceLocation,
+            # Only the anchored trip has a window to fall in, and the rows come
+            # from that trip's own Strava surface (#459). An unanchored chat has
+            # no such rows, so the field is simply dropped rather than 422'd: a
+            # stale tab must never be able to fail a chat.
+            strava_activities=body.stravaActivities if trip is not None else None,
         )
 
     async def _stream():

@@ -102,7 +102,7 @@ All content writes are `editor+`. Read everything through `GET /api/trips/{trip_
 | `POST` | `/api/files` | user | Upload files for the agent (inbox) — photos, videos and documents, each family streamed to disk under its own cap (64 MB / 1 GB / 32 MB) with a per-file `413` when over; `posterOf=<clip>` adds a video's poster frame. HEIC/HEIF → JPEG at ingest (`converted: true`); undecodable files → per-file 422 (#251) |
 | `POST` | `/api/files/promote` | user | Promote an inbox file into trip media / the right attachment point |
 
-`POST /api/chat` takes `{messages, threadId, turnKey?, cursor?, tripId?, focus?, deviceLocation?}`:
+`POST /api/chat` takes `{messages, threadId, turnKey?, cursor?, tripId?, focus?, deviceLocation?, stravaActivities?}`:
 `threadId` names the conversation (history lives agent-side, one thread per context), `turnKey`/`cursor`
 name one turn and where a reconnect resumes it, and the CONTEXT anchors tell the agent what the
 conversation is about — `tripId` (gated at follower+) and `focus` (`{entity: day|section|block, id}`,
@@ -112,6 +112,20 @@ anchors are not part of the turn's identity, so a reconnect addresses the same t
 them. `deviceLocation` is the one anchor the relay cannot resolve server-side, so it is a STRICT
 bounded model (numbers only, `extra="forbid"`); the relay phrases it into the agent's instructions
 itself and no string from a browser ever reaches that prompt.
+
+**`stravaActivities` (#459)** is the same shape of client-supplied context, for a different reason: the
+Strava credential is an HttpOnly cookie scoped to `/api/integrations/strava`, which `/api/chat` is not
+inside — so the relay can never fetch those rows itself. The SPA calls
+`GET /api/integrations/strava/trips/{id}/activities` (the call the import dialog already makes, cookie
+attached) and sends the RESULT with the turn: up to 40 rows of
+`{id, local_date, name?, sport_type?, distance_m?, moving_time_s?, elevation_gain_m?, start?: {lat, lng}, has_track?}`.
+No token is involved anywhere, nothing is stored, and the relay renders the rows into the instructions
+as quoted DATA (activity titles are the athlete's own words, flattened to one line) plus the rule that
+matters: **match by date, never by list order**. Ignored when no `tripId` is anchored.
+
+The consequence is deliberate and permanent: **the agent can only see Strava data on a turn a person
+sends from a connected browser.** No credential exists server-side, so there is no scheduled, webhook
+or headless read — that trade was made knowingly (#459).
 
 The agent's own trip writes use the same endpoints above, carrying the acting user's identity and
 therefore the acting user's role.

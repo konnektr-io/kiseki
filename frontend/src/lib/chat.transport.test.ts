@@ -4,6 +4,7 @@ import type { UIMessageChunk } from "ai";
 
 import { getTurnStatus, KisekiChatTransport } from "./chat";
 import { resetDeviceLocationForTests, startTrackingDevice, stopTrackingDevice } from "./device-location";
+import { attachStravaContext, clearStravaContext } from "./strava-context";
 
 /* `KisekiChatTransport` (DefaultChatTransport subclass): request shaping
  * (`{messages, threadId, tripId}` + bearer token) and 401/403 mapping. The
@@ -232,6 +233,57 @@ describe("KisekiChatTransport", () => {
     // a stopped session is not a location
     stopTrackingDevice();
     expect(await send()).not.toHaveProperty("deviceLocation");
+  });
+
+  /* #459: the traveller's Strava rows ride the turn — as DATA from the browser,
+   * which is the only holder of the credential. The body carries rows, never a
+   * token, and only for the trip they came from. */
+  it("carries the attached Strava rows, and only for their own trip", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return sseResponse(V1_SSE_BODY);
+    }) as typeof fetch;
+    const transport = new KisekiChatTransport({
+      tripId: "trip-1",
+      threadId: "thread-1",
+      getToken: async () => "test-token",
+      fetchImpl,
+    });
+    const send = async () => {
+      await readAll(
+        await transport.sendMessages(
+          sendOptions([{ id: `u${seen.length}`, role: "user", parts: [{ type: "text", text: "here" }] }]),
+        ),
+      );
+      return JSON.parse(seen[seen.length - 1].init.body as string) as Record<string, unknown>;
+    };
+
+    expect(await send()).not.toHaveProperty("stravaActivities");
+
+    attachStravaContext("trip-1", [
+      {
+        id: 13393553403,
+        local_date: "2025-01-19",
+        name: "Slopes - A day snowboarding at Niseko United",
+        sport_type: "Snowboard",
+        distance_m: 48400,
+        moving_time_s: 15240,
+        elevation_gain_m: 5289.4,
+        start: { lat: 42.871481, lng: 140.68134 },
+        has_track: true,
+      },
+    ]);
+
+    const body = await send();
+    expect(body.stravaActivities).toEqual([
+      expect.objectContaining({ id: 13393553403, local_date: "2025-01-19", has_track: true }),
+    ]);
+    // the message itself is unchanged — the rows are context, not transcript
+    expect(body.input).toBeUndefined();
+
+    clearStravaContext("trip-1");
+    expect(await send()).not.toHaveProperty("stravaActivities");
   });
 
   it("re-attaches to a carried turn instead of re-sending it", async () => {
