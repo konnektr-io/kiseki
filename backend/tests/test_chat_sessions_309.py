@@ -72,14 +72,16 @@ def _session(session_id: str, *, title: str = "A thread", active: float = 100.0,
 
 def test_picker_keeps_only_the_callers_threads() -> None:
     rows = [
-        _session(f"{USER_SUB}::thread:{THREAD}", title="Fix flight LIM-CUZ", active=200),
-        _session(f"{OTHER_SUB}::thread:other-1", title="Someone else's planning", active=300),
+        _session(f"{USER_SUB}::general::thread:{THREAD}", title="Fix flight LIM-CUZ", active=200),
+        _session(f"{USER_SUB}::trip:trip-a::thread:trip-a-1", title="Trip A chat", active=250),
+        _session(f"{USER_SUB}::thread:legacy-unscoped", title="Legacy unscoped", active=260),
+        _session(f"{OTHER_SUB}::general::thread:other-1", title="Someone else's planning", active=300),
         _session("thread:legacy-bare", title="Pre-isolation history", active=400),
         _session("run_bc833bb4c693471da5c06c084da4dc93", title="hi #5", active=500),
         _session("20261109_105648_aaf83eee", title="desktop session", active=600),
         _session("probe:model-routes-check", title="Reply with exactly: OK", active=700),
-        _session(f"{USER_SUB}::thread:archived-1", title="Archived", active=800, archived=True),
-        _session(f"{USER_SUB}::thread:hidden-1", title="Hidden", active=900, hidden=True),
+        _session(f"{USER_SUB}::general::thread:archived-1", title="Archived", active=800, archived=True),
+        _session(f"{USER_SUB}::general::thread:hidden-1", title="Hidden", active=900, hidden=True),
     ]
 
     got = chat_module.picker_threads(USER_SUB, rows)
@@ -94,10 +96,29 @@ def test_picker_keeps_only_the_callers_threads() -> None:
     assert row["status"] == "open"
 
 
+def test_picker_scopes_by_trip_id() -> None:
+    rows = [
+        _session(f"{USER_SUB}::general::thread:gen-1", title="General", active=100),
+        _session(f"{USER_SUB}::trip:trip-a::thread:a-1", title="Trip A old", active=200),
+        _session(f"{USER_SUB}::trip:trip-a::thread:a-2", title="Trip A new", active=400),
+        _session(f"{USER_SUB}::trip:trip-b::thread:b-1", title="Trip B", active=500),
+        _session(f"{OTHER_SUB}::trip:trip-a::thread:other-a", title="Other user Trip A", active=600),
+        _session(f"{USER_SUB}::thread:legacy-1", title="Legacy", active=700),
+    ]
+
+    got_a = chat_module.picker_threads(USER_SUB, rows, trip_id="TRIP-A")
+    got_b = chat_module.picker_threads(USER_SUB, rows, trip_id="trip-b")
+    got_general = chat_module.picker_threads(USER_SUB, rows)
+
+    assert [r["threadId"] for r in got_a["threads"]] == ["a-2", "a-1"]
+    assert [r["threadId"] for r in got_b["threads"]] == ["b-1"]
+    assert [r["threadId"] for r in got_general["threads"]] == ["gen-1"]
+
+
 def test_picker_two_session_keys_never_see_each_other() -> None:
     rows = [
-        _session(f"{USER_SUB}::thread:mine", active=10),
-        _session(f"{OTHER_SUB}::thread:theirs", active=20),
+        _session(f"{USER_SUB}::general::thread:mine", active=10),
+        _session(f"{OTHER_SUB}::general::thread:theirs", active=20),
     ]
 
     mine = chat_module.picker_threads(USER_SUB, rows)
@@ -109,13 +130,13 @@ def test_picker_two_session_keys_never_see_each_other() -> None:
 
 def test_picker_orders_newest_first_and_marks_reaped_threads() -> None:
     rows = [
-        _session(f"{USER_SUB}::thread:old", active=100),
+        _session(f"{USER_SUB}::general::thread:old", active=100),
         _session(
-            f"{USER_SUB}::thread:new",
+            f"{USER_SUB}::general::thread:new",
             active=300,
             end_reason="ws_orphan_reap",
         ),
-        _session(f"{USER_SUB}::thread:mid", active=200, title=""),
+        _session(f"{USER_SUB}::general::thread:mid", active=200, title=""),
     ]
 
     got = chat_module.picker_threads(USER_SUB, rows)
@@ -130,7 +151,7 @@ def test_picker_orders_newest_first_and_marks_reaped_threads() -> None:
 
 
 def test_picker_caps_the_page_and_reports_more() -> None:
-    rows = [_session(f"{USER_SUB}::thread:t{i}", active=float(i)) for i in range(5)]
+    rows = [_session(f"{USER_SUB}::general::thread:t{i}", active=float(i)) for i in range(5)]
 
     got = chat_module.picker_threads(USER_SUB, rows, limit=3)
 
@@ -230,8 +251,9 @@ def test_sessions_route_lists_the_actors_threads(
 ) -> None:
     seen: dict[str, object] = {}
 
-    async def _list(actor_sub: str, *, limit: int = 50) -> dict:
+    async def _list(actor_sub: str, *, trip_id: str | None = None, limit: int = 50) -> dict:
         seen["actor"] = actor_sub
+        seen["trip_id"] = trip_id
         seen["limit"] = limit
         return {
             "threads": [
@@ -258,7 +280,39 @@ def test_sessions_route_lists_the_actors_threads(
     assert resp.status_code == 200
     assert resp.json()["threads"][0]["threadId"] == THREAD
     # The ACTOR is the token's sub here (mode 1), never a client-supplied value.
-    assert seen == {"actor": USER_SUB, "limit": 7}
+    assert seen == {"actor": USER_SUB, "trip_id": None, "limit": 7}
+
+
+def test_sessions_route_passes_trip_id_and_gates_access(
+    client: TestClient, rsa_keypair, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trip = "bf29a027-1111-2222-3333-444455556666"
+    seen: dict[str, object] = {}
+
+    async def _list(actor_sub: str, *, trip_id: str | None = None, limit: int = 50) -> dict:
+        seen["actor"] = actor_sub
+        seen["trip_id"] = trip_id
+        return {"threads": [], "hasMore": False}
+
+    monkeypatch.setattr(main_module, "list_thread_sessions", _list)
+    monkeypatch.setattr(chat_module, "get_trip_by_id", lambda tid: None)
+
+    # Unknown trip → 404 from ACL gate
+    denied = client.get(
+        f"/api/chat/sessions?tripId={trip}",
+        headers={"Authorization": f"Bearer {_token(rsa_keypair)}"},
+    )
+    assert denied.status_code == 404
+
+    # Accessible trip → passes trip_id to list_thread_sessions
+    monkeypatch.setattr(chat_module, "get_trip_by_id", lambda tid: type("T", (), {"visibility": "private"})())
+    monkeypatch.setattr(chat_module, "get_trip_role_for_user", lambda *a, **k: "follower")
+    ok = client.get(
+        f"/api/chat/sessions?tripId={trip}",
+        headers={"Authorization": f"Bearer {_token(rsa_keypair)}"},
+    )
+    assert ok.status_code == 200
+    assert seen == {"actor": USER_SUB, "trip_id": trip}
 
 
 def test_sessions_route_uses_the_act_as_sub_for_a_service_credential(
@@ -266,7 +320,7 @@ def test_sessions_route_uses_the_act_as_sub_for_a_service_credential(
 ) -> None:
     seen: dict[str, object] = {}
 
-    async def _list(actor_sub: str, *, limit: int = 50) -> dict:
+    async def _list(actor_sub: str, *, trip_id: str | None = None, limit: int = 50) -> dict:
         seen["actor"] = actor_sub
         return {"threads": [], "hasMore": False}
 
@@ -290,8 +344,8 @@ def test_transcript_route_returns_the_callers_messages(
 ) -> None:
     seen: dict[str, object] = {}
 
-    async def _messages(actor_sub: str, thread_id: str) -> list[dict]:
-        seen["call"] = (actor_sub, thread_id)
+    async def _messages(actor_sub: str, thread_id: str, *, trip_id: str | None = None) -> list[dict]:
+        seen["call"] = (actor_sub, thread_id, trip_id)
         return [
             {"id": "hermes-1", "role": "user", "parts": [{"type": "text", "text": "hi"}]}
         ]
@@ -306,7 +360,7 @@ def test_transcript_route_returns_the_callers_messages(
     assert resp.status_code == 200
     assert resp.json()["threadId"] == THREAD
     assert resp.json()["messages"][0]["parts"][0]["text"] == "hi"
-    assert seen["call"] == (USER_SUB, THREAD)
+    assert seen["call"] == (USER_SUB, THREAD, None)
 
 
 def test_transcript_route_rejects_a_foreign_or_malformed_thread_id(
@@ -325,7 +379,7 @@ def test_transcript_route_propagates_unknown_thread_as_404(
 ) -> None:
     from fastapi import HTTPException
 
-    async def _messages(actor_sub: str, thread_id: str) -> list[dict]:
+    async def _messages(actor_sub: str, thread_id: str, *, trip_id: str | None = None) -> list[dict]:
         raise HTTPException(status_code=404, detail="Unknown chat thread")
 
     monkeypatch.setattr(main_module, "fetch_thread_messages", _messages)

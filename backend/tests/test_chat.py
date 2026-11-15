@@ -451,18 +451,20 @@ def test_thread_id_is_unit_of_conversation(client, rsa_keypair, monkeypatch) -> 
         conversation_id_for(USER_SUB, TRIP, thread_a)
         != conversation_id_for(USER_SUB, TRIP, thread_b)
     )
-    # a thread started unanchored …
+    # an unanchored thread and a trip-anchored thread are distinct scopes
     unanchored = conversation_id_for(USER_SUB, None, thread_a)
-    # … keeps the SAME conversation id once a trip is attached (history chains)
-    assert unanchored == conversation_id_for(USER_SUB, TRIP, thread_a)
+    assert unanchored == f"{USER_SUB}::general::thread:{thread_a}"
+    assert conversation_id_for(USER_SUB, TRIP, thread_a) == (
+        f"{USER_SUB}::trip:{TRIP.lower()}::thread:{thread_a}"
+    )
+    assert unanchored != conversation_id_for(USER_SUB, TRIP, thread_a)
     # the actor IS in the name — same thread id, different users, no sharing
-    assert unanchored == f"{USER_SUB}::thread:{thread_a}"
     assert (
         conversation_id_for(USER_SUB, TRIP, thread_a)
         != conversation_id_for(OTHER_SUB, TRIP, thread_a)
     )
     assert conversation_id_for(OTHER_SUB, TRIP, thread_a) == (
-        f"{OTHER_SUB}::thread:{thread_a}"
+        f"{OTHER_SUB}::trip:{TRIP.lower()}::thread:{thread_a}"
     )
     # but DIFFERENT users with no threadId do NOT share the legacy
     # fallback (that path stays sub-scoped)
@@ -539,7 +541,7 @@ def test_chat_unanchored_thread_forwards_planning_context(
     )
     assert resp.status_code == 200
     body = state["bodies"][0]
-    assert body["session_id"] == f"{USER_SUB}::thread:plan-chile-001"
+    assert body["session_id"] == f"{USER_SUB}::general::thread:plan-chile-001"
     assert "No trip is anchored" in body["instructions"]
     # no trip ACL consulted: the route never calls require_actor_trip_access
     # when no tripId is present (get_trip_role_for_user stays un-mocked here,
@@ -933,8 +935,8 @@ def test_chat_same_thread_id_isolation_between_users(
     assert state["admissions"] == 2
     sessions = [body["session_id"] for body in state["bodies"]]
     assert sessions[0] != sessions[1]
-    assert sessions[0] == f"{USER_SUB}::thread:{shared_thread}"
-    assert sessions[1] == f"{OTHER_SUB}::thread:{shared_thread}"
+    assert sessions[0] == f"{USER_SUB}::general::thread:{shared_thread}"
+    assert sessions[1] == f"{OTHER_SUB}::general::thread:{shared_thread}"
     assert state["session_keys"] == [USER_SUB, OTHER_SUB]
 
 

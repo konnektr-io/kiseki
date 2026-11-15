@@ -187,6 +187,26 @@ describe("relay client", () => {
     expect(page.hasMore).toBe(true);
   });
 
+  it("includes tripId in the sessions query when scoped to a trip", async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response(
+        JSON.stringify({ threads: [], hasMore: false }),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+
+    const page = await fetchChatThreads({
+      tripId: "trip-abc",
+      getToken: async () => "tok",
+      fetchImpl,
+    });
+
+    expect(calls).toEqual(["/api/chat/sessions?limit=50&tripId=trip-abc"]);
+    expect(page.threads).toEqual([]);
+  });
+
   it("treats a 404 transcript as 'nothing to restore', not an error", async () => {
     const fetchImpl = (async () => new Response("{}", { status: 404 })) as typeof fetch;
 

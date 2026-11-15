@@ -223,12 +223,14 @@ export function threadAge(ms: number, now: number = Date.now()): string {
  */
 function ChatHistoryMenu({
   threadId,
+  tripId,
   context,
   userSub,
   getToken,
   onOpenThread,
 }: {
   threadId: string;
+  tripId?: string;
   context: string;
   userSub: string | null;
   getToken: () => Promise<string>;
@@ -296,7 +298,7 @@ function ChatHistoryMenu({
     setLoading(true);
     setFailed(false);
     try {
-      const page = await fetchChatThreads({ getToken });
+      const page = await fetchChatThreads({ tripId, getToken });
       setRows(
         mergePickerThreads({
           server: page.threads,
@@ -968,6 +970,7 @@ function ChatThread({
         <div className="flex items-center gap-1">
           <ChatHistoryMenu
             threadId={threadId}
+            tripId={tripId}
             context={context}
             userSub={userSub}
             getToken={getAccessTokenSilently}
