@@ -174,6 +174,15 @@ export function MapView({
           container: ref.current,
           style: mapStyle.styleUrl,
           attributionControl: { compact: true },
+          // The PDF pass draws the page into a raster snapshot, and a WebGL
+          // canvas whose drawing buffer is released after compositing prints
+          // empty: the booklet showed the DOM pins and the zoom control over a
+          // bare background rectangle (measured 2026-11-26). Preserve the
+          // buffer for that pass only — on screen it costs a copy per frame
+          // and buys nothing.
+          ...(isPdfRender
+            ? { canvasContextAttributes: { preserveDrawingBuffer: true } }
+            : {}),
         };
         if (single) {
           (mapOpts as Record<string, unknown>).center = [located[0].lng!, located[0].lat!];
