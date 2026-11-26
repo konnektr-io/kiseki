@@ -1,6 +1,6 @@
 import { useMemo, type HTMLAttributes, type ReactNode } from "react";
 import { useTrip } from "./theme";
-import { MapView, TripMap } from "./MapView";
+import { MapView } from "./MapView";
 import { findLocation, markerNumber } from "../lib/maps";
 import { gmapsDirectionsUrl, gmapsSearchUrl } from "../lib/gmaps";
 import { useLiveDirections } from "../lib/directions";
@@ -209,17 +209,12 @@ function cardMediaNode(trip: Trip, b: Block): ReactNode {
       </>
     );
   }
+  // A place NO LONGER draws a minimap here: the day's map (BookletPage) and
+  // the map surface already show it, and one live map per block was 49 of the
+  // 68 WebGL contexts that starved the booklet's own maps (2026-11-26).
   const tracks = b.track ? [b.track] : undefined;
-  const place = b.location ? findLocation(trip, b.location) : resolveBlockPlace(trip, b);
-  if (place?.lat != null && place.lng != null) {
-    return (
-      <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border print:hidden">
-        <MapView places={[place.name]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
-      </div>
-    );
-  }
-  // A recorded track with no registry place still earns its minimap — the
-  // line IS the spatial context (MapView frames it when no pins resolve).
+  // A recorded track still earns its minimap — the line IS the spatial
+  // context, and a GPX has no other surface.
   if (b.track) {
     return (
       <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
@@ -331,16 +326,10 @@ function TransportBlock({
   b,
   letter,
   cardProps,
-  showLegMap = true,
 }: {
   b: Block;
   letter?: string;
   cardProps?: BlockCardProps;
-  /** Booklet only: first drive of the day keeps its route map, later ones
-   *  drop it. Every map on the page is a WebGL context and the browser keeps
-   *  ~16 alive — a map-heavy booklet evicted the route map on page 2 and
-   *  printed it blank (measured 2026-11-26). */
-  showLegMap?: boolean;
 }) {
   const trip = useTrip();
   // classify via the shared classifier (lib/transport) — explicit `mode` beats
@@ -465,14 +454,9 @@ function TransportBlock({
             <TimeChip time={b.time} />
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
-          {b.from && b.to && showLegMap && (
-            <div className="minimap mt-2.5 overflow-hidden rounded-lg">
-              <TripMap
-                places={[b.from, b.to]}
-                modes={[classifyTransportMode(b) ?? undefined]}
-              />
-            </div>
-          )}
+          {/* No leg map in the card: the day's own map draws every leg of the
+              day in one frame, and 18 live maps was most of the booklet's
+              WebGL budget (2026-11-26). */}
           {(b.distance || b.duration || b.route) && (
             <div className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2">
               {/* distance and drive time sit in a two-column grid across
@@ -888,7 +872,6 @@ export function BlockView({
   letter,
   cardProps,
   date,
-  showLegMap = true,
 }: {
   block: Block;
   /** Interactive affordances (currently: todo-item checkboxes). */
@@ -900,12 +883,10 @@ export function BlockView({
   cardProps?: BlockCardProps;
   /** The day's ISO date — pins the weather strip to that day's chip. */
   date?: string;
-  /** Booklet: keep the route map only on the day's first drive. */
-  showLegMap?: boolean;
 }) {
   switch (block.kind) {
     case "transport":
-      return <TransportBlock b={block} letter={letter} cardProps={cardProps} showLegMap={showLegMap} />;
+      return <TransportBlock b={block} letter={letter} cardProps={cardProps} />;
     case "activity":
       return <ActivityBlock b={block} letter={letter} cardProps={cardProps} date={date} />;
     case "lodging":
@@ -936,7 +917,6 @@ export function DayBlocks({
   letters,
   cardProps,
   date,
-  booklet = false,
 }: {
   blocks: Block[];
   /** Editor mode (issue #46): inline chrome per block. Requires the owning
@@ -951,10 +931,6 @@ export function DayBlocks({
   cardProps?: (b: Block) => BlockCardProps;
   /** The day's ISO date — pins each block's weather strip to that day. */
   date?: string;
-  /** Printed booklet: one route map per day, no per-block maps. The page
-   *  renders every day at once and a browser keeps ~16 WebGL contexts, so a
-   *  full itinerary of live maps evicts its own route map (2026-11-26). */
-  booklet?: boolean;
 }) {
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
@@ -970,9 +946,6 @@ export function DayBlocks({
     );
   }
   const ordered = [...blocks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  // The day's first drive carries the day's route map; the rest are the same
-  // road again and cost a WebGL context each.
-  const firstLegId = ordered.find((b) => b.kind === "transport" && b.from && b.to)?.id;
   return (
     <div className="space-y-2.5">
       {ordered.map((b) => (
@@ -982,7 +955,6 @@ export function DayBlocks({
           letter={letters?.get(b.id)}
           cardProps={cardProps?.(b)}
           date={date}
-          showLegMap={!booklet || b.id === firstLegId}
         />
       ))}
     </div>
