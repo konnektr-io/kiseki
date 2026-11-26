@@ -13,6 +13,7 @@ import type { Trip } from "../lib/types";
 import { TripProvider, tripStyle } from "../components/theme";
 import { EditModeProvider } from "../components/edit-mode";
 import { AppHeader, HEADER_CONTROL, HEADER_CONTROL_ACTIVE } from "../components/AppHeader";
+import { BookletProgress } from "../components/booklet-progress";
 import { ChatPopup } from "../components/chat-panel";
 import { TripActionsMenu } from "../components/trip-controls";
 import { Button, StageBadge } from "../components/ui";
@@ -101,6 +102,18 @@ export function TripLayout() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [error, setError] = useState<LoadError | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+  /** Why the last booklet render failed — shown outside the menu, then cleared. */
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  // The failure pill is a message, not a state: let it be read, then go.
+  // Declared with the other hooks — this component early-returns before the
+  // render body on some routes, so a hook down there would change the order
+  // between passes ("Rendered more hooks than during the previous render").
+  useEffect(() => {
+    if (!pdfError) return;
+    const t = window.setTimeout(() => setPdfError(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [pdfError]);
   // In-trip chat (issue #9 / M4): a floating drawer, NOT a route — the map
   // surface stays mounted underneath so edits land visibly live.
   const [chatOpen, setChatOpen] = useState(false);
@@ -409,6 +422,7 @@ export function TripLayout() {
   const handleDownloadPdf = async () => {
     if (pdfBusy) return;
     setPdfBusy(true);
+    setPdfError(null);
     try {
       // Public trips allow anonymous PDF download (#64); crew/followers send
       // their token for private trips. This runs for a signed-in reader only
@@ -440,11 +454,16 @@ export function TripLayout() {
       // (rare; signing in again would not change them).
       if (e instanceof TripAccessError && e.status === 401) {
         loginWithRedirect({ appState: { returnTo: window.location.pathname } });
+      } else {
+        // Anything else used to be a silent dead click. Say so where the
+        // reader is looking — the menu they clicked from is already closed.
+        setPdfError(e instanceof TripAccessError ? e.message : "The render did not finish. Try again from the menu.");
       }
     } finally {
       setPdfBusy(false);
     }
   };
+
 
   // The owner-only link/invite actions and the terminal delete moved to the
   // trip settings page (#248, `/t/<id>/settings`): they are trip-level
@@ -518,6 +537,11 @@ export function TripLayout() {
           }
           nav={<NavLinks tripId={tripId} trip={trip} />}
         />
+
+        {/* The booklet takes ~30 s and the menu that starts it closes on
+            click — the one signal used to be a label inside that closed menu
+            (Niko, 2026-11-26). This pill lives outside it. */}
+        <BookletProgress state={pdfBusy ? "busy" : pdfError ? "error" : "idle"} detail={pdfError ?? undefined} />
 
         {/* Content — the reading column, except on a map surface, which takes
             the viewport minus the chrome and owns its own scrolling. */}
