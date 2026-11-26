@@ -624,12 +624,14 @@ describe("the shared media strip renders on every block kind (#303)", () => {
     expect(html).toContain("/media/t/gal-item.jpg");
   });
 
-  it("carries the location/track minimap fallback on the other kinds too", () => {
-    // A `note` with a registry place — the minimap the day view never showed.
+  it("keeps minimaps for recorded tracks only, never for a place", () => {
+    // A place no longer draws a minimap in its card: the day's own map (and
+    // the map surface) already shows it, and a map per block was 49 of the 68
+    // WebGL contexts that starved the booklet (2026-11-26).
     const located = renderWithPlaces([
       { id: "n1", kind: "note", title: "Out along the ridge", location: "Banff", order: 0 } as unknown as Block,
     ]);
-    expect(located).toContain("minimap");
+    expect(located).not.toContain("minimap");
     // A bare recorded track still earns its minimap (no registry place).
     const tracked = renderWithPlaces([
       { id: "td1", kind: "todo", title: "Pack", track: "ridge.gpx", order: 0 } as unknown as Block,

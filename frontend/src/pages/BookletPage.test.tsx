@@ -213,10 +213,16 @@ describe("booklet — feature map matches the itinerary chain", () => {
     // The stub observes every render pass (the legacy prerenderer may retry
     // a pass); every pass must carry the chain contract.
     expect(bookletMapCalls.length).toBeGreaterThanOrEqual(1);
-    for (const call of bookletMapCalls) {
-      expect(call.places).toEqual(["Banff", "Revelstoke"]);
-      expect(call.loop).toBe(false);
-    }
+    // Day maps also go through TripMap now (one per day, the day's own places);
+    // the FEATURE map is the one that must carry the chain contract.
+    type MapCall = { places: string[]; loop?: boolean };
+    const chainCalls = (bookletMapCalls as MapCall[]).filter(
+      (c: MapCall) => c.places.length === 2 && c.places[0] === "Banff" && c.places[1] === "Revelstoke",
+    );
+    expect(chainCalls.length).toBeGreaterThanOrEqual(1);
+    for (const call of chainCalls) expect(call.loop).toBe(false);
+    // …and each day still gets its own map, with that day's places.
+    expect((bookletMapCalls as MapCall[]).some((c: MapCall) => c.places.includes("Banff Inn"))).toBe(true);
   });
 
   /* #361 slice 3 — the ENTIRE print path stays Mercator (SwiftShader + globe

@@ -109,7 +109,31 @@ function FeatureBlock({ f }: { f: Feature }) {
   );
 }
 
+/** The day's map: every place the day touches, in the order the blocks visit
+ *  them, so one map carries the whole day instead of a minimap per card.
+ *  (In the app this is the map surface's day level; in print it is this.) */
+function dayMapInputs(day: Day): { places: string[]; tracks?: string[] } {
+  const ordered = [...day.blocks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const places: string[] = [];
+  const push = (n?: string | null) => {
+    const v = n?.trim();
+    if (v && !places.some((p) => p.toLowerCase() === v.toLowerCase())) places.push(v);
+  };
+  const tracks: string[] = [];
+  for (const b of ordered) {
+    if (b.kind === "transport" && (b.from || b.to)) {
+      push(b.from);
+      push(b.to);
+    } else {
+      push(b.location);
+    }
+    if (b.track) tracks.push(b.track);
+  }
+  return { places, tracks: tracks.length ? tracks : undefined };
+}
+
 function DayCard({ day, no }: { day: Day; no: number }) {
+  const map = dayMapInputs(day);
   return (
     <div className="booklet-day mb-4">
       <div className="booklet-day-head mb-2 flex items-baseline gap-3">
@@ -121,7 +145,11 @@ function DayCard({ day, no }: { day: Day; no: number }) {
           </h3>
         </div>
       </div>
-      {day.map && <img src={day.map} alt="" className="mb-3 w-full rounded border border-border" />}
+      {map.places.length >= 2 && (
+        <div className="mb-3 overflow-hidden rounded border border-border">
+          <TripMap places={map.places} tracks={map.tracks} />
+        </div>
+      )}
       {day.meta?.length ? (
         <div className="mb-3 flex flex-wrap gap-1.5">
           {day.meta.map((m, i) => (
@@ -137,7 +165,7 @@ function DayCard({ day, no }: { day: Day; no: number }) {
         </div>
       )}
       <div className="space-y-2">
-        <DayBlocks blocks={day.blocks} date={day.date} booklet />
+        <DayBlocks blocks={day.blocks} date={day.date} />
       </div>
     </div>
   );
