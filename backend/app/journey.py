@@ -698,13 +698,74 @@ class Deriver:
     def trip_excursions(self) -> list[int]:
         return [i for i in self.located_indices() if self.place_role(i) == "excursion"]
 
+    def authored_path(
+        self, from_idx: int, to_idx: int, first_day: int, last_day: int
+    ) -> list[dict]:
+        """The authored transport blocks that actually connect A to B (#470).
+
+        A chain leg is a GAP when no single block spans the pair. That is honest
+        when nobody authored travel between the two stops, but a trip that
+        returns through a transit day authors the return as several blocks —
+        Höfn → Skaftafell → Vík → Kerið — and the chain's next *new* stop is
+        Kerið. Drawing that as one gap chord puts a straight line across the map
+        for a road nobody drives, which is what the map showed on 2026-11-26.
+
+        Walk the transport blocks in day order (``order`` within a day) and
+        return the first chain of them that starts at ``from_idx`` and arrives
+        at ``to_idx`` inside the day window between the two visits. Empty when
+        there is no such authored path, so the caller keeps the honest gap.
+        """
+        if from_idx == to_idx or not self.days:
+            return []
+        lo = max(0, min(first_day, last_day))
+        hi = min(len(self.days) - 1, max(first_day, last_day))
+        path: list[dict] = []
+        cur = from_idx
+        for day_idx in range(lo, hi + 1):
+            day = self.days[day_idx]
+            ordered = sorted(day.get("blocks") or [], key=lambda b: b.get("order") or 0)
+            for block in ordered:
+                if block.get("kind") != "transport":
+                    continue
+                start, end = self.block_endpoints(block)
+                if start != cur or end is None:
+                    continue
+                path.append(block)
+                cur = end
+                if cur == to_idx:
+                    return path
+        return []
+
     def trip_journey(self) -> dict:
         """The whole journey, keyed by registry index (internal form)."""
         visits = self.journey_visits()
         chain = [v["place"] for v in visits]
         legs = []
-        for from_idx, to_idx in zip(chain, chain[1:]):
+        for pos, (from_idx, to_idx) in enumerate(zip(chain, chain[1:])):
             stage, block = self.leg_stage(from_idx, to_idx)
+            if block is None:
+                from_days = visits[pos]["days"]
+                to_days = visits[pos + 1]["days"]
+                spliced = self.authored_path(
+                    from_idx,
+                    to_idx,
+                    from_days[-1] if from_days else 0,
+                    to_days[0] if to_days else len(self.days) - 1,
+                )
+                if spliced:
+                    for hop in spliced:
+                        start, end = self.block_endpoints(hop)
+                        legs.append(
+                            {
+                                "from": start,
+                                "to": end,
+                                "stage": self.block_leg_stage(hop),
+                                "mode": classify_transport_mode(hop),
+                                "gap": False,
+                                "blockId": hop.get("id"),
+                            }
+                        )
+                    continue
             mode = None if block is None else classify_transport_mode(block)
             legs.append(
                 {

@@ -101,6 +101,74 @@ def test_a_revisited_base_chains_once_per_stay() -> None:
     assert [leg["stage"] for leg in j["legs"]] == ["booked", "booked"]
 
 
+def test_a_gap_between_stops_splices_the_authored_return_path() -> None:
+    """An out-and-back whose next new stop is far away is not one straight chord.
+
+    Measured on the published Iceland trip (2026-11-26): the chain's next new
+    stop after Höfn is Kerið, so the pair Höfn→Kerið had no single transport
+    block and was drawn as a gap — a straight line across the whole south coast.
+    The trip had authored that travel as three blocks through two re-visited
+    places. The map must draw those blocks, not the chord, and the chain (a
+    visit sequence) must not change.
+    """
+    trip = {
+        "id": "fixture-spliced-return",
+        "slug": "fixture-spliced-return",
+        "title": "Out and back through a transit day",
+        "stage": "planned",
+        "startDate": "2027-06-01",
+        "endDate": "2027-06-04",
+        "visibility": "public",
+        "locations": [
+            {"name": "Valley", "lat": 10.0, "lng": 20.0},
+            {"name": "Saddle", "lat": 10.3, "lng": 20.2},
+            {"name": "Harbour", "lat": 10.6, "lng": 20.4},
+            {"name": "Crater", "lat": 9.6, "lng": 19.4},
+        ],
+        "days": [
+            {"title": "Valley", "blocks": [
+                {"id": "d0", "kind": "lodging", "title": "Night in Valley", "location": "Valley"},
+            ]},
+            {"title": "Over the saddle", "blocks": [
+                {"id": "d1a", "kind": "transport", "title": "Valley to Saddle",
+                 "from": "Valley", "to": "Saddle", "mode": "drive", "order": 1},
+                {"id": "d1b", "kind": "transport", "title": "Saddle to Harbour",
+                 "from": "Saddle", "to": "Harbour", "mode": "drive", "order": 2},
+                {"id": "d1c", "kind": "lodging", "title": "Night in Harbour", "location": "Harbour", "order": 3},
+            ]},
+            {"title": "Harbour and back", "blocks": [
+                {"id": "d2a", "kind": "transport", "title": "Harbour to Saddle",
+                 "from": "Harbour", "to": "Saddle", "mode": "drive", "order": 1},
+                {"id": "d2b", "kind": "transport", "title": "Saddle to Valley",
+                 "from": "Saddle", "to": "Valley", "mode": "drive", "order": 2},
+                {"id": "d2c", "kind": "lodging", "title": "Night in Valley", "location": "Valley", "order": 3},
+            ]},
+            {"title": "Crater", "blocks": [
+                {"id": "d3a", "kind": "transport", "title": "Valley to Crater",
+                 "from": "Valley", "to": "Crater", "mode": "drive", "order": 1},
+                {"id": "d3b", "kind": "lodging", "title": "Night in Crater", "location": "Crater", "order": 2},
+            ]},
+        ],
+        "sections": [
+            {"title": "Valley and the saddle", "days": [0, 1], "locationRefs": ["Valley", "Saddle"]},
+            {"title": "Harbour and back", "days": [2, 2], "locationRefs": ["Harbour"]},
+            {"title": "Crater", "days": [3, 3], "locationRefs": ["Crater"]},
+        ],
+    }
+
+    j = _wire(trip)["journey"]
+    assert j["chain"] == ["Valley", "Saddle", "Harbour", "Crater"]
+    assert [(leg["from"], leg["to"]) for leg in j["legs"]] == [
+        ("Valley", "Saddle"),
+        ("Saddle", "Harbour"),
+        ("Harbour", "Saddle"),
+        ("Saddle", "Valley"),
+        ("Valley", "Crater"),
+    ]
+    assert [leg["gap"] for leg in j["legs"]] == [False] * 5
+    assert [leg["blockId"] for leg in j["legs"]] == ["d1a", "d1b", "d2a", "d2b", "d3a"]
+
+
 def test_the_legs_own_direction_wins_over_an_earlier_reversed_block() -> None:
     """#433: b4 (Home → Mountain) sits earlier in block order and its endpoints
     fit the return leg reversed; the authored return card must still win.
