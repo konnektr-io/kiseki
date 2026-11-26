@@ -757,11 +757,19 @@ export function RouteMap({
         // visit sequence, so a return appears in it as a stay and there is no
         // closing leg to ask the backend for.
         const j = journeyRef.current;
-        const chainNames = j.chain.map((s) => s.name);
+        // The pair list the legs describe — NOT the chain. A chain is a visit
+        // sequence, so a return through a re-visited place is spliced into
+        // `legs` as its authored blocks (Höfn → Skaftafell → Vík → Kerið)
+        // while the chain still jumps straight to the next new stop. Asking
+        // for geometry by chain drew that jump as one straight chord across
+        // the map (#470).
+        const legPlaces = j.legs.length
+          ? [j.legs[0].from.name, ...j.legs.map((leg) => leg.to.name)]
+          : [];
         if (j.legs.length) {
           const fetched = await fetchRouteLegs(
             trip,
-            chainNames,
+            legPlaces,
             abort.signal,
             journeyModes(j),
           );
@@ -769,13 +777,11 @@ export function RouteMap({
           const resolved: LegFeature[] | null =
             fetched == null
               ? null
-              : j.legs.map((leg) => {
-                  // Same direction FIRST: a chain may run A→B and later B→A,
-                  // and the reversed match would hand each of them the other
-                  // leg's geometry/state.
-                  const hit =
-                    fetched.find((f) => f.from === leg.from.name && f.to === leg.to.name) ??
-                    fetched.find((f) => f.from === leg.to.name && f.to === leg.from.name);
+              : j.legs.map((leg, i) => {
+                  // Positional: `legPlaces` is the legs' own endpoint sequence,
+                  // so response leg i IS this leg — no direction-insensitive
+                  // search that could hand a return leg the outbound geometry.
+                  const hit = fetched[i];
                   return {
                     stage: leg.stage,
                     road: hit?.road ?? false,
