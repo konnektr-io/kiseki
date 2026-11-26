@@ -127,6 +127,12 @@ export function MapView({
 
   useEffect(() => {
     if (!webgl2 || !onScreen) return;
+    // A `display:none` map cannot be seen or printed, but in PDF mode the
+    // observer is bypassed and it would still take one of the ~16 WebGL
+    // contexts the browser keeps — a booklet full of print-hidden block
+    // minimaps starved its own route map (measured 2026-11-26: 55 mounted,
+    // 16 alive, 39 hidden zero-height). Skip the mount when it has no box.
+    if (isPdfRender && ref.current && ref.current.offsetParent === null) return;
     let cancelled = false;
     let map: MapLibreMap | null = null;
     const abort = new AbortController();
