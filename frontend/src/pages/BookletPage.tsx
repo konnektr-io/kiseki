@@ -137,7 +137,7 @@ function DayCard({ day, no }: { day: Day; no: number }) {
         </div>
       )}
       <div className="space-y-2">
-        <DayBlocks blocks={day.blocks} date={day.date} />
+        <DayBlocks blocks={day.blocks} date={day.date} booklet />
       </div>
     </div>
   );

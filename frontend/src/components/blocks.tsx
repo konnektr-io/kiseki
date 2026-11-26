@@ -213,7 +213,7 @@ function cardMediaNode(trip: Trip, b: Block): ReactNode {
   const place = b.location ? findLocation(trip, b.location) : resolveBlockPlace(trip, b);
   if (place?.lat != null && place.lng != null) {
     return (
-      <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border">
+      <div className="minimap mb-3 h-24 w-full overflow-hidden rounded-lg border border-border print:hidden">
         <MapView places={[place.name]} tracks={tracks} compact className="h-full w-full rounded-none border-0" />
       </div>
     );
@@ -331,10 +331,16 @@ function TransportBlock({
   b,
   letter,
   cardProps,
+  showLegMap = true,
 }: {
   b: Block;
   letter?: string;
   cardProps?: BlockCardProps;
+  /** Booklet only: first drive of the day keeps its route map, later ones
+   *  drop it. Every map on the page is a WebGL context and the browser keeps
+   *  ~16 alive — a map-heavy booklet evicted the route map on page 2 and
+   *  printed it blank (measured 2026-11-26). */
+  showLegMap?: boolean;
 }) {
   const trip = useTrip();
   // classify via the shared classifier (lib/transport) — explicit `mode` beats
@@ -459,7 +465,7 @@ function TransportBlock({
             <TimeChip time={b.time} />
           </div>
           {desc && <p className="mt-1 text-sm leading-relaxed text-white/80">{desc}</p>}
-          {b.from && b.to && (
+          {b.from && b.to && showLegMap && (
             <div className="minimap mt-2.5 overflow-hidden rounded-lg">
               <TripMap
                 places={[b.from, b.to]}
@@ -882,6 +888,7 @@ export function BlockView({
   letter,
   cardProps,
   date,
+  showLegMap = true,
 }: {
   block: Block;
   /** Interactive affordances (currently: todo-item checkboxes). */
@@ -893,10 +900,12 @@ export function BlockView({
   cardProps?: BlockCardProps;
   /** The day's ISO date — pins the weather strip to that day's chip. */
   date?: string;
+  /** Booklet: keep the route map only on the day's first drive. */
+  showLegMap?: boolean;
 }) {
   switch (block.kind) {
     case "transport":
-      return <TransportBlock b={block} letter={letter} cardProps={cardProps} />;
+      return <TransportBlock b={block} letter={letter} cardProps={cardProps} showLegMap={showLegMap} />;
     case "activity":
       return <ActivityBlock b={block} letter={letter} cardProps={cardProps} date={date} />;
     case "lodging":
@@ -927,6 +936,7 @@ export function DayBlocks({
   letters,
   cardProps,
   date,
+  booklet = false,
 }: {
   blocks: Block[];
   /** Editor mode (issue #46): inline chrome per block. Requires the owning
@@ -941,6 +951,10 @@ export function DayBlocks({
   cardProps?: (b: Block) => BlockCardProps;
   /** The day's ISO date — pins each block's weather strip to that day. */
   date?: string;
+  /** Printed booklet: one route map per day, no per-block maps. The page
+   *  renders every day at once and a browser keeps ~16 WebGL contexts, so a
+   *  full itinerary of live maps evicts its own route map (2026-11-26). */
+  booklet?: boolean;
 }) {
   if (!blocks.length)
     return <p className="text-sm italic text-muted-foreground">Nothing planned yet — a free day.</p>;
@@ -955,19 +969,22 @@ export function DayBlocks({
       />
     );
   }
+  const ordered = [...blocks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  // The day's first drive carries the day's route map; the rest are the same
+  // road again and cost a WebGL context each.
+  const firstLegId = ordered.find((b) => b.kind === "transport" && b.from && b.to)?.id;
   return (
     <div className="space-y-2.5">
-      {[...blocks]
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map((b) => (
-          <BlockView
-            key={b.id}
-            block={b}
-            letter={letters?.get(b.id)}
-            cardProps={cardProps?.(b)}
-            date={date}
-          />
-        ))}
+      {ordered.map((b) => (
+        <BlockView
+          key={b.id}
+          block={b}
+          letter={letters?.get(b.id)}
+          cardProps={cardProps?.(b)}
+          date={date}
+          showLegMap={!booklet || b.id === firstLegId}
+        />
+      ))}
     </div>
   );
 }
